@@ -19,6 +19,7 @@ from pathlib import Path
 
 from clousight_bench.core.registry import get_domain
 from clousight_bench.core.schema import ResultRecord, RunSpec, config_hash, new_run_id, utc_now
+from clousight_bench.core.store import ResultStore
 
 logger = logging.getLogger(__name__)
 
@@ -98,9 +99,6 @@ def execute(spec: RunSpec, results_dir: Path | None = None) -> ResultRecord:
 
 
 def _persist(record: ResultRecord, results_dir: Path) -> Path:
-    out_dir = results_dir / record.domain / record.platform
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{record.task_id}-{record.run_id}.json"
-    path.write_text(record.to_json() + "\n", encoding="utf-8")
+    path = ResultStore(results_dir).persist(record)
     logger.info("result -> %s", path)
     return path

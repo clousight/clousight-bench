@@ -27,6 +27,7 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.4",
 ]
+store = ["duckdb>=1.0", "pyarrow>=16"]
 
 [project.scripts]
 csbench = "clousight_bench.cli:main"
