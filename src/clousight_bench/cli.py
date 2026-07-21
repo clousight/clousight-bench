@@ -64,7 +64,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         target=target,
         params=params,
     )
-    record = execute(spec, results_dir=Path(args.results))
+    record = execute(spec, results_dir=Path(args.results), enrich=not args.no_enrich)
     print(record.to_json())
     return 0 if record.ok else 2
 
@@ -92,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--config", help="YAML file with `target:` and `params:` sections")
     run_p.add_argument("--param", action="append", default=[], help="override a task param, key=value")
     run_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
+    run_p.add_argument("--no-enrich", action="store_true", help="skip result enrichers")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))

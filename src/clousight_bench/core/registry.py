@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from importlib.metadata import entry_points
 
-from clousight_bench.core.plugin import DomainPack
+from clousight_bench.core.plugin import DomainPack, ResultEnricher
 
 ENTRY_POINT_GROUP = "clousight_bench.domains"
+ENRICHER_ENTRY_POINT_GROUP = "clousight_bench.enrichers"
 
 
 class RegistryError(RuntimeError):
@@ -36,3 +37,15 @@ def get_domain(name: str) -> DomainPack:
         available = ", ".join(sorted(domains)) or "<none installed>"
         raise RegistryError(f"domain {name!r} not found. Installed domains: {available}")
     return domains[name]
+
+
+def load_enrichers() -> list[ResultEnricher]:
+    """Instantiate every installed enricher, ordered by name for determinism."""
+    enrichers: list[ResultEnricher] = []
+    for ep in entry_points(group=ENRICHER_ENTRY_POINT_GROUP):
+        cls = ep.load()
+        inst = cls()
+        if not isinstance(inst, ResultEnricher):
+            raise RegistryError(f"entry point {ep.name!r} is not a ResultEnricher")
+        enrichers.append(inst)
+    return sorted(enrichers, key=lambda e: e.name)

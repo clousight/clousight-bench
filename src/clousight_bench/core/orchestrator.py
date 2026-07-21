@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from clousight_bench.core.registry import get_domain
+from clousight_bench.core.registry import get_domain, load_enrichers
 from clousight_bench.core.schema import ResultRecord, RunSpec, config_hash, new_run_id, utc_now
 from clousight_bench.core.store import ResultStore
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_RESULTS_DIR = Path("results")
 
 
-def execute(spec: RunSpec, results_dir: Path | None = None) -> ResultRecord:
+def execute(spec: RunSpec, results_dir: Path | None = None, enrich: bool = True) -> ResultRecord:
     """Run one RunSpec through the full lifecycle and persist the result."""
     results_dir = Path(results_dir or DEFAULT_RESULTS_DIR)
 
@@ -93,6 +93,10 @@ def execute(spec: RunSpec, results_dir: Path | None = None) -> ResultRecord:
             ok=False,
             error=error,
         )
+
+    if enrich:
+        for enricher in load_enrichers():
+            record = enricher.enrich(record)
 
     _persist(record, results_dir)
     return record

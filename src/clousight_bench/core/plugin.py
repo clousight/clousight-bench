@@ -27,6 +27,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from clousight_bench.core.schema import ResultRecord
+
 
 @dataclass
 class TaskOutput:
@@ -93,6 +95,21 @@ class DomainPack(ABC):
     @abstractmethod
     def adapters(self) -> dict[str, type[ProviderAdapter]]:
         """platform name -> Adapter class."""
+
+
+class ResultEnricher(ABC):
+    """Post-run enrichment hook: annotate a ResultRecord (e.g. cost estimate).
+
+    Open-core ships NO enricher implementations; commercial plugins register
+    theirs via the ``clousight_bench.enrichers`` entry point. Enrichers must be
+    deterministic and side-effect-free beyond the returned record.
+    """
+
+    name: str = "abstract"
+
+    @abstractmethod
+    def enrich(self, record: ResultRecord) -> ResultRecord:
+        """Return the record, possibly with extra metrics / raw annotations."""
 
 
 _SECRET_HINTS = ("key", "secret", "token", "password", "credential")
