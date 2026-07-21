@@ -72,6 +72,9 @@ class ResultRecord:
     runner_version: str = RUNNER_VERSION
     raw: dict[str, Any] = field(default_factory=dict)
     notes: str = ""
+    schema_version: str = "1.0"
+    series: dict[str, Any] = field(default_factory=dict)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
 
     def __post_init__(self) -> None:
@@ -88,7 +91,9 @@ class ResultRecord:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ResultRecord:
-        return cls(**data)
+        import dataclasses
+        known = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 def new_run_id() -> str:

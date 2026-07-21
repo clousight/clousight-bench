@@ -38,3 +38,33 @@ def test_result_record_roundtrip():
 def test_runspec_to_dict():
     spec = RunSpec(domain="d", task_id="t", platform="p", target={"k": "v"}, params={"n": 1})
     assert spec.to_dict()["target"] == {"k": "v"}
+
+
+def test_result_record_has_data_contract_defaults():
+    from clousight_bench.core.schema import ResultRecord
+    rec = ResultRecord(
+        domain="d", task_id="t", platform="p", run_id="r",
+        started_at=utc_now(), finished_at=utc_now(),
+        config_hash="sha256:x", evidence_layer="C", metrics={},
+    )
+    assert rec.schema_version == "1.0"
+    assert rec.series == {}
+    assert rec.artifacts == []
+
+
+def test_from_dict_tolerates_unknown_keys():
+    from clousight_bench.core.schema import ResultRecord
+    payload = {
+        "domain": "d", "task_id": "t", "platform": "p", "run_id": "r",
+        "started_at": utc_now(), "finished_at": utc_now(),
+        "config_hash": "sha256:x", "evidence_layer": "C", "metrics": {},
+        "future_field_from_newer_schema": 123,
+    }
+    rec = ResultRecord.from_dict(payload)
+    assert rec.domain == "d"
+    assert rec.schema_version == "1.0"
+
+
+def test_plugin_api_version_exposed():
+    import clousight_bench
+    assert clousight_bench.PLUGIN_API_VERSION == "1.0"
