@@ -1,0 +1,18 @@
+# AWS EMR (skeleton). Copy to a private file, fill in, DO NOT commit real values.
+#   ocb run --domain bigdata-emr --task J1.1 --platform aws-emr --config your.yaml
+target:
+  region: ap-northeast-1
+  release_label: emr-7.1.0
+  master_instance_type: m5.xlarge
+  core_instance_type: m5.xlarge
+  core_instance_count: 2
+  log_uri: "s3://your-bucket/emr-logs/"
+  subnet_id: "subnet-xxxxxxxx"
+  terraform_dir: infra/terraform/aws-emr
+  auth_env:
+    access_key_id: AWS_ACCESS_KEY_ID
+    secret_access_key: AWS_SECRET_ACCESS_KEY
+params:
+  workload: wordcount-py
+  rows: 1000000
+  seed: 42

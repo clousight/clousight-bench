@@ -1,0 +1,11 @@
+# Huawei Cloud AgentArts. Copy to a private file, fill in, DO NOT commit real values.
+#   ocb run --domain agent-runtime --task T1.3 --platform huawei-agentarts --config your.yaml
+target:
+  region: cn-north-4
+  endpoint: ""            # AgentArts invoke endpoint
+  agent_id: ""
+  auth_env:
+    access_key: HUAWEICLOUD_SDK_AK
+    secret_key: HUAWEICLOUD_SDK_SK
+  mock_base_url: "https://your-tunnel.example.com"
+params: {}

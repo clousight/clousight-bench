@@ -1,0 +1,13 @@
+# Volcengine AgentKit. Copy to a private file, fill in, DO NOT commit real values.
+#   ocb run --domain agent-runtime --task T1.3 --platform volcengine-agentkit --config your.yaml
+target:
+  region: cn-beijing
+  endpoint: ""            # AgentKit invoke endpoint
+  agent_id: ""
+  # AgentKit has two access modes; results MUST state which one produced them.
+  mode: generic           # "veadk" (VeADK-native) | "generic" (framework path)
+  auth_env:
+    access_key: VOLC_ACCESSKEY
+    secret_key: VOLC_SECRETKEY
+  mock_base_url: "https://your-tunnel.example.com"
+params: {}

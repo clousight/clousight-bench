@@ -1,0 +1,49 @@
+{
+  "accounts": [
+    {
+      "account_id": "team-a",
+      "resources": [
+        {
+          "id": "oss-logs-001",
+          "type": "object-storage",
+          "provider": "aliyun",
+          "gb": 1200,
+          "last_access_days": 92
+        },
+        {
+          "id": "s3-backup-002",
+          "type": "object-storage",
+          "provider": "aws",
+          "gb": 860,
+          "last_access_days": 11
+        },
+        {
+          "id": "cos-image-003",
+          "type": "object-storage",
+          "provider": "tencent",
+          "gb": 430,
+          "last_access_days": 140
+        }
+      ]
+    },
+    {
+      "account_id": "team-b",
+      "resources": [
+        {
+          "id": "oss-archive-004",
+          "type": "object-storage",
+          "provider": "aliyun",
+          "gb": 2200,
+          "last_access_days": 181
+        },
+        {
+          "id": "s3-media-005",
+          "type": "object-storage",
+          "provider": "aws",
+          "gb": 310,
+          "last_access_days": 7
+        }
+      ]
+    }
+  ]
+}

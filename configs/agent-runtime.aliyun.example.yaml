@@ -1,0 +1,15 @@
+# Aliyun AgentRun. Copy to a private file, fill in, DO NOT commit real values.
+#   ocb run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config your.yaml
+target:
+  region: cn-hangzhou
+  endpoint: ""            # AgentRun invoke endpoint
+  agent_id: ""            # pre-deployed benchmark agent id
+  # Names of env vars that hold credentials -- never the secret itself.
+  auth_env:
+    access_key_id: ALIBABA_CLOUD_ACCESS_KEY_ID
+    access_key_secret: ALIBABA_CLOUD_ACCESS_KEY_SECRET
+  # Public address the cloud runtime can reach the pinned tool universe at.
+  # localhost is NOT reachable from a cloud runtime -- expose via a tunnel or a
+  # tiny cloud function.
+  mock_base_url: "https://your-tunnel.example.com"
+params: {}

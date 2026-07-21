@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill for your account. Never commit real values.
+region              = "ap-northeast-1"
+release_label       = "emr-7.1.0"
+master_instance_type = "m5.xlarge"
+core_instance_type  = "m5.xlarge"
+core_instance_count = 2
+log_uri             = "s3://your-bucket/emr-logs/"
+subnet_id           = "subnet-xxxxxxxx"

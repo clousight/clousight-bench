@@ -1,0 +1,9 @@
+# Local simulated agent runtime with a fail-fast recovery policy.
+#   ocb run --domain agent-runtime --task T1.3 --platform local-sim \
+#           --config configs/local-sim.fail-fast.yaml
+# Contrast with the default (no config) run, which simulates auto-retry.
+# (mock_port omitted -> the OS assigns a free ephemeral port automatically.)
+target:
+  recovery:
+    mode: fail-fast
+params: {}

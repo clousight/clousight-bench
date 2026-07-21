@@ -1,0 +1,24 @@
+name: ycsb-wrapper
+version: 0.1.0
+# The entrypoint is a shell wrapper that shells out to a JVM tool (YCSB).
+# This proves the workload protocol is language-agnostic: the core never imports
+# Java, it only speaks JSONL over a process boundary.
+entrypoint: ./run.sh
+description: >
+  Example polyglot workload: wraps YCSB (Yahoo! Cloud Serving Benchmark, JVM) and
+  translates its output into the OpenCloudBench JSONL metric protocol. Borrowing a
+  mature load generator instead of reimplementing it is the intended pattern for
+  database / KV / messaging domains (sysbench, TPC-DS, OpenMessaging Benchmark).
+requires:
+  - java >= 11
+  - "YCSB distribution on PATH or via YCSB_HOME"
+params:
+  workload: { type: string, default: workloada, description: YCSB core workload }
+  recordcount: { type: integer, default: 10000 }
+  operationcount: { type: integer, default: 10000 }
+  binding: { type: string, default: basic, description: YCSB DB binding (basic = no real DB) }
+metrics:
+  - overall_runtime_ms
+  - overall_throughput_ops
+  - read_p99_us
+  - update_p99_us

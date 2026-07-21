@@ -1,0 +1,17 @@
+name: wordcount-py
+version: 0.1.0
+# Any executable. The engine calls: <entrypoint> --params <json-file>
+# and reads JSONL metric events from stdout.
+entrypoint: ./run.py
+description: >
+  Deterministic in-process wordcount smoke workload. Reference implementation of
+  the cross-language WorkloadEngine protocol; also the default load for the
+  bigdata-emr J1.1 task on the local-process adapter.
+params:
+  rows: { type: integer, default: 100000, description: number of generated lines }
+  seed: { type: integer, default: 42, description: RNG seed (determinism) }
+metrics:
+  - rows_processed
+  - distinct_words
+  - duration_ms
+  - throughput_rows_per_s
