@@ -78,6 +78,8 @@ def execute(spec: RunSpec, results_dir: Path | None = None, enrich: bool = True)
             ok=output.ok,
             raw=output.raw,
             notes=output.notes,
+            series=output.series,
+            artifacts=output.artifacts,
         )
     else:
         record = ResultRecord(

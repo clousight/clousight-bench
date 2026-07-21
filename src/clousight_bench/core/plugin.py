@@ -39,6 +39,8 @@ class TaskOutput:
     ok: bool = True
     raw: dict[str, Any] = field(default_factory=dict)
     notes: str = ""
+    series: dict[str, Any] = field(default_factory=dict)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
 
 
 class ProviderAdapter(ABC):
