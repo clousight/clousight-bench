@@ -60,12 +60,13 @@
 - 既有 `metric`/`log`/`result` 事件行为不变。
 
 ### 2.4 `core/store.py`（新文件）
-- `ResultStore(base_dir)`：
-  - 恒定写 `runs/<run_id>/record.json`。
-  - 若 `[store]` 可用（`import duckdb, pyarrow` 成功）：series 外置为 `runs/<run_id>/series.parquet`（tidy 长表列：`run_id | domain | task_id | platform | config_hash | series | t | value | unit`）；record.json 的 `series` 字段替换为指针 `{"$parquet": "series.parquet"}`；artifacts 落 `runs/<run_id>/artifacts/`。
+- `ResultStore(results_dir)` 成为落盘层，**与现有 `results/<domain>/<platform>/<task>-<run_id>.json` 布局兼容**（不破坏 report.py 与现有测试）：
+  - 恒定写 record.json 到既有路径 `results_dir/<domain>/<platform>/<task_id>-<run_id>.json`。
+  - 若 `[store]` 可用（`import duckdb, pyarrow` 成功）且 record 有 series：series 外置为 per-run 子目录 `results_dir/<domain>/<platform>/<run_id>/series.parquet`（tidy 长表列：`run_id | domain | task_id | platform | config_hash | series | t | value | unit`）；record.json 的 `series` 字段替换为指针 `{"$parquet": "<domain>/<platform>/<run_id>/series.parquet"}`（相对 results_dir）；artifacts 落 `results_dir/<domain>/<platform>/<run_id>/artifacts/`。
   - 若 extra 不可用：series 内联留在 record.json（小规模无损）。
-- `query_series(sql=None, runs_glob="runs/**/series.parquet")`：用 DuckDB 跨 run 聚合；缺 extra 时抛清晰 `ImportError`（提示 `pip install clousight-bench[store]`）。
+- `query_series(results_dir, sql=None, glob="**/series.parquet")`：用 DuckDB 跨 run 聚合；缺 extra 时抛清晰 `ImportError`（提示 `pip install clousight-bench[store]`）。
 - 长表 schema 与目录布局是 pro（cb-dataservice）与 SaaS web 的稳定握手格式。
+- orchestrator 的 `_persist` 改为委托 `ResultStore`。
 
 ### 2.5 `ResultEnricher` 开源扩展点
 - `core/plugin.py`：新增抽象基类
