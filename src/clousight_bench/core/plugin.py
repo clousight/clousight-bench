@@ -17,7 +17,7 @@ in plugins:
                  adapter interface only -- NEVER against a specific cloud.
                  Owns its scoring and declares its evidence layer.
 
-Third-party plugins register via the ``opencloudbench.domains`` entry point;
+Third-party plugins register via the ``clousight_bench.domains`` entry point;
 in-tree domains are registered the same way (see pyproject.toml), so external
 and built-in packs are loaded identically.
 """

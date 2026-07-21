@@ -1,5 +1,5 @@
 # AWS EMR (skeleton). Copy to a private file, fill in, DO NOT commit real values.
-#   ocb run --domain bigdata-emr --task J1.1 --platform aws-emr --config your.yaml
+#   csbench run --domain bigdata-emr --task J1.1 --platform aws-emr --config your.yaml
 target:
   region: ap-northeast-1
   release_label: emr-7.1.0

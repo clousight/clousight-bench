@@ -17,8 +17,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from opencloudbench.core.registry import get_domain
-from opencloudbench.core.schema import ResultRecord, RunSpec, config_hash, new_run_id, utc_now
+from clousight_bench.core.registry import get_domain
+from clousight_bench.core.schema import ResultRecord, RunSpec, config_hash, new_run_id, utc_now
 
 logger = logging.getLogger(__name__)
 

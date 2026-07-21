@@ -14,7 +14,7 @@ import time
 from typing import Any
 from urllib import request
 
-from opencloudbench.domains.agent_runtime.adapters.base import (
+from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
     Attempt,
     InvocationTrace,
@@ -43,7 +43,7 @@ class LocalSimAdapter(AgentRuntimeAdapter):
         server. The port is an environment detail, not a tested variable, so it
         is intentionally kept out of config_hash.
         """
-        from opencloudbench.domains.agent_runtime.mock_tools import start_in_thread
+        from clousight_bench.domains.agent_runtime.mock_tools import start_in_thread
 
         port = int(self.target.get("mock_port", 0))
         self._mock_server, _ = start_in_thread(port)

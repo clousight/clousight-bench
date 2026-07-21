@@ -5,9 +5,9 @@ parses the JSONL protocol from a subprocess.
 """
 from pathlib import Path
 
-from opencloudbench.core.orchestrator import execute
-from opencloudbench.core.schema import RunSpec
-from opencloudbench.core.workload import WorkloadEngine
+from clousight_bench.core.orchestrator import execute
+from clousight_bench.core.schema import RunSpec
+from clousight_bench.core.workload import WorkloadEngine
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

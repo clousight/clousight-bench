@@ -21,7 +21,7 @@ Fault config body (POST /fault/config):
     Or window form: {"target": "prices", "fail_from_call": 3, "fail_count": 2, "status": 503}
 
 Run standalone (the runtime under test must be able to reach this address):
-    python -m opencloudbench.domains.agent_runtime.mock_tools --port 8770
+    python -m clousight_bench.domains.agent_runtime.mock_tools --port 8770
 """
 from __future__ import annotations
 
@@ -78,7 +78,7 @@ class ToolState:
 
 def make_handler(state: ToolState) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
-        server_version = "OpenCloudBenchMock/0.1"
+        server_version = "ClousightBenchMock/0.1"
 
         def _send(self, payload: Any, status: int = 200) -> None:
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")

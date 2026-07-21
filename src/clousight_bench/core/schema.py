@@ -20,7 +20,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from opencloudbench import RUNNER_VERSION
+from clousight_bench import RUNNER_VERSION
 
 EVIDENCE_LAYERS = {"A", "B", "C", "D"}
 

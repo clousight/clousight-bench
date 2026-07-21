@@ -1,9 +1,9 @@
-"""ocb: the OpenCloudBench command line.
+"""csbench: the Clousight Bench command line.
 
-    ocb list                                        # installed domains / tasks / platforms
-    ocb run --domain agent-runtime --task T1.3 \
+    csbench list                                        # installed domains / tasks / platforms
+    csbench run --domain agent-runtime --task T1.3 \
             --platform local-sim [--config cfg.yaml] [--param k=v ...]
-    ocb report [--results results/] [--out results/comparison.md]
+    csbench report [--results results/] [--out results/comparison.md]
 """
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ from typing import Any
 
 import yaml
 
-from opencloudbench.core.orchestrator import DEFAULT_RESULTS_DIR, execute
-from opencloudbench.core.registry import load_domains
-from opencloudbench.core.schema import RunSpec
+from clousight_bench.core.orchestrator import DEFAULT_RESULTS_DIR, execute
+from clousight_bench.core.registry import load_domains
+from clousight_bench.core.schema import RunSpec
 
 
 def _cmd_list(_args: argparse.Namespace) -> int:
@@ -70,7 +70,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    from opencloudbench.core.report import generate_report
+    from clousight_bench.core.report import generate_report
 
     out = generate_report(Path(args.results), Path(args.out) if args.out else None)
     print(out)
@@ -79,7 +79,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    parser = argparse.ArgumentParser(prog="ocb", description=__doc__,
+    parser = argparse.ArgumentParser(prog="csbench", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 

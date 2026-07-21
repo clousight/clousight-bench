@@ -1,5 +1,5 @@
 # Aliyun AgentRun. Copy to a private file, fill in, DO NOT commit real values.
-#   ocb run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config your.yaml
+#   csbench run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config your.yaml
 target:
   region: cn-hangzhou
   endpoint: ""            # AgentRun invoke endpoint

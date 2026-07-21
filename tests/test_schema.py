@@ -1,7 +1,7 @@
 """Reproducibility-contract tests: config_hash determinism + evidence-layer guard."""
 import pytest
 
-from opencloudbench.core.schema import ResultRecord, RunSpec, config_hash, utc_now
+from clousight_bench.core.schema import ResultRecord, RunSpec, config_hash, utc_now
 
 
 def test_config_hash_is_deterministic_and_order_independent():

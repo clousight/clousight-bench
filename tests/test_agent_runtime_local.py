@@ -3,8 +3,8 @@
 No cloud account, no fixed port -- proves the framework itself before any real
 adapter exists.
 """
-from opencloudbench.core.orchestrator import execute
-from opencloudbench.core.schema import RunSpec
+from clousight_bench.core.orchestrator import execute
+from clousight_bench.core.schema import RunSpec
 
 
 def test_local_sim_auto_retry_recovers(tmp_path):

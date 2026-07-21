@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from opencloudbench.domains.agent_runtime.adapters.base import (
+from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
     InvocationTrace,
     ToolCall,

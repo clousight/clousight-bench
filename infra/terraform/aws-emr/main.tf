@@ -62,7 +62,7 @@ variable "subnet_id" {
 
 variable "name" {
   type    = string
-  default = "opencloudbench-emr"
+  default = "clousight-bench-emr"
 }
 
 resource "aws_emr_cluster" "bench" {
@@ -96,7 +96,7 @@ resource "aws_emr_cluster" "bench" {
   }
 
   tags = {
-    project = "opencloudbench"
+    project = "clousight-bench"
     purpose = "benchmark"
   }
 }

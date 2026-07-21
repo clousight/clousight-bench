@@ -1,6 +1,6 @@
 # Architecture
 
-OpenCloudBench benchmarks the **runtime engineering of cloud products**, not
+Clousight Bench benchmarks the **runtime engineering of cloud products**, not
 model intelligence. Its one idea: workloads differ wildly across cloud products,
 but the pipeline is identical.
 
@@ -23,7 +23,7 @@ failed" is itself a finding.
 ## Layers
 
 ```
-CLI (ocb)
+CLI (csbench)
   └─ Orchestrator (lifecycle state machine)
        ├─ Registry (entry-point domain discovery)
        ├─ DomainPack  → Task(s) + Adapter(s)         [per product category]
@@ -37,7 +37,7 @@ CLI (ocb)
 
 | Contract | Responsibility | Loaded via |
 |---|---|---|
-| `DomainPack` | declare tasks + adapters for a product category | `opencloudbench.domains` entry point |
+| `DomainPack` | declare tasks + adapters for a product category | `clousight_bench.domains` entry point |
 | `ProviderAdapter` | provision / talk to / tear down one system under test | referenced by a DomainPack |
 | `Task` | one benchmark dimension: config (hashed), run, score, evidence layer | referenced by a DomainPack |
 | `WorkloadEngine` | run a manifest-described load generator as a subprocess | `workloads/<name>/manifest.yaml` |

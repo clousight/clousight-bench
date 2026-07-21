@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "opencloudbench"
+name = "clousight-bench"
 version = "0.1.0"
-description = "Reproducible, evidence-graded benchmarking framework for cloud products (agent runtimes, big data, databases, compute, messaging)."
+description = "Clousight Bench (指北测评): reproducible, evidence-graded benchmarking for cloud products."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
-authors = [{ name = "OpenCloudBench contributors" }]
-keywords = ["benchmark", "cloud", "agent-runtime", "emr", "reproducibility"]
+authors = [{ name = "Clousight Bench contributors" }]
+keywords = ["benchmark", "cloud", "clousight", "agent-runtime", "emr", "reproducibility"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -29,14 +29,14 @@ dev = [
 ]
 
 [project.scripts]
-ocb = "opencloudbench.cli:main"
+csbench = "clousight_bench.cli:main"
 
-[project.entry-points."opencloudbench.domains"]
-agent-runtime = "opencloudbench.domains.agent_runtime:AgentRuntimeDomain"
-bigdata-emr = "opencloudbench.domains.bigdata_emr:BigDataEmrDomain"
+[project.entry-points."clousight_bench.domains"]
+agent-runtime = "clousight_bench.domains.agent_runtime:AgentRuntimeDomain"
+bigdata-emr = "clousight_bench.domains.bigdata_emr:BigDataEmrDomain"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/opencloudbench"]
+packages = ["src/clousight_bench"]
 
 [tool.ruff]
 line-length = 110

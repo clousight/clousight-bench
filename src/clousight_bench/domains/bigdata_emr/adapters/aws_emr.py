@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from opencloudbench.core.workload import WorkloadResult
-from opencloudbench.domains.bigdata_emr.adapters.base import BigDataClusterAdapter
+from clousight_bench.core.workload import WorkloadResult
+from clousight_bench.domains.bigdata_emr.adapters.base import BigDataClusterAdapter
 
 
 class _NotWiredError(NotImplementedError):

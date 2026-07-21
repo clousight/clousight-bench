@@ -14,14 +14,14 @@ v1 dimensions (5 hard, precisely reproducible tests):
 """
 from __future__ import annotations
 
-from opencloudbench.core.plugin import DomainPack, ProviderAdapter, Task
-from opencloudbench.domains.agent_runtime.adapters.cn_clouds import (
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.domains.agent_runtime.adapters.cn_clouds import (
     AliyunAgentRunAdapter,
     HuaweiAgentArtsAdapter,
     VolcengineAgentKitAdapter,
 )
-from opencloudbench.domains.agent_runtime.adapters.local_sim import LocalSimAdapter
-from opencloudbench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
+from clousight_bench.domains.agent_runtime.adapters.local_sim import LocalSimAdapter
+from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
 
 
 class AgentRuntimeDomain(DomainPack):

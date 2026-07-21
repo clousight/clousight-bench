@@ -32,8 +32,8 @@ jobs:
 
       - name: Local baseline smoke (no cloud account)
         run: |
-          ocb list
-          ocb run --domain agent-runtime --task T1.3 --platform local-sim
-          ocb run --domain agent-runtime --task T1.3 --platform local-sim --config configs/local-sim.fail-fast.yaml
-          ocb run --domain bigdata-emr --task J1.1 --platform local-process --config configs/bigdata-emr.local.yaml
-          ocb report
+          csbench list
+          csbench run --domain agent-runtime --task T1.3 --platform local-sim
+          csbench run --domain agent-runtime --task T1.3 --platform local-sim --config configs/local-sim.fail-fast.yaml
+          csbench run --domain bigdata-emr --task J1.1 --platform local-process --config configs/bigdata-emr.local.yaml
+          csbench report

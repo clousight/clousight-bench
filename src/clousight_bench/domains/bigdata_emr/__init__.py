@@ -11,10 +11,10 @@ stress) land later as additional workloads under workloads/, reusing this pack.
 """
 from __future__ import annotations
 
-from opencloudbench.core.plugin import DomainPack, ProviderAdapter, Task
-from opencloudbench.domains.bigdata_emr.adapters.aws_emr import AwsEmrAdapter
-from opencloudbench.domains.bigdata_emr.adapters.local_process import LocalProcessAdapter
-from opencloudbench.domains.bigdata_emr.tasks.j1_1_wordcount import WordcountSmokeTask
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.domains.bigdata_emr.adapters.aws_emr import AwsEmrAdapter
+from clousight_bench.domains.bigdata_emr.adapters.local_process import LocalProcessAdapter
+from clousight_bench.domains.bigdata_emr.tasks.j1_1_wordcount import WordcountSmokeTask
 
 
 class BigDataEmrDomain(DomainPack):

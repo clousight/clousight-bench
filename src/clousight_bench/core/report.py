@@ -15,7 +15,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from opencloudbench.core.schema import ResultRecord
+from clousight_bench.core.schema import ResultRecord
 
 # Metric keys that, at these values, are worth surfacing as a red flag.
 _RED_FLAGS = {
@@ -76,7 +76,7 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
 
     records = _load_results(results_dir)
     if not records:
-        report = "# OpenCloudBench comparison\n\nNo results found under " f"`{results_dir}`.\n"
+        report = "# Clousight Bench comparison\n\nNo results found under " f"`{results_dir}`.\n"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(report, encoding="utf-8")
         return report
@@ -88,7 +88,7 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
     for (domain, task, platform), rec in latest.items():
         by_task[(domain, task)][platform] = rec
 
-    lines: list[str] = ["# OpenCloudBench comparison", ""]
+    lines: list[str] = ["# Clousight Bench comparison", ""]
     lines.append("Per-dimension results only — no blended score. Evidence layers: "
                  "A=docs · B=observation · C=controlled measurement · D=marketing.")
     lines.append("")

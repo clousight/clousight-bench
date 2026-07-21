@@ -14,8 +14,8 @@ import json
 from typing import Any
 from urllib import request
 
-from opencloudbench.core.plugin import ProviderAdapter, Task, TaskOutput
-from opencloudbench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter, ToolCall
+from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter, ToolCall
 
 # The agent plan: read prices 5 times (a long-ish tool loop). Fault hits call #3.
 PLAN = [ToolCall(target="prices", params={"provider": "aws"}) for _ in range(5)]

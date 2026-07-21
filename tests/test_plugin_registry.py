@@ -1,6 +1,6 @@
 """Both built-in domain packs load via entry points and expose their tasks/adapters."""
-from opencloudbench.core.plugin import _redact
-from opencloudbench.core.registry import get_domain, load_domains
+from clousight_bench.core.plugin import _redact
+from clousight_bench.core.registry import get_domain, load_domains
 
 
 def test_builtin_domains_discovered():

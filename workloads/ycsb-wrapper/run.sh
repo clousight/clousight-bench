@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Polyglot workload example: wrap YCSB (JVM) and translate its output into the
-# OpenCloudBench JSONL metric protocol. The core never imports Java -- it only
+# Clousight Bench JSONL metric protocol. The core never imports Java -- it only
 # reads {"type":"metric"...} / {"type":"result"...} lines from our stdout.
 #
 # Contract: invoked as `./run.sh --params <json-file>`, emit JSONL on stdout.

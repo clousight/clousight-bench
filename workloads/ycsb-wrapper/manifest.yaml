@@ -6,7 +6,7 @@ version: 0.1.0
 entrypoint: ./run.sh
 description: >
   Example polyglot workload: wraps YCSB (Yahoo! Cloud Serving Benchmark, JVM) and
-  translates its output into the OpenCloudBench JSONL metric protocol. Borrowing a
+  translates its output into the Clousight Bench JSONL metric protocol. Borrowing a
   mature load generator instead of reimplementing it is the intended pattern for
   database / KV / messaging domains (sysbench, TPC-DS, OpenMessaging Benchmark).
 requires:

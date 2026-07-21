@@ -11,8 +11,8 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import Any
 
-from opencloudbench.core.plugin import ProviderAdapter
-from opencloudbench.core.workload import WorkloadResult
+from clousight_bench.core.plugin import ProviderAdapter
+from clousight_bench.core.workload import WorkloadResult
 
 
 class BigDataClusterAdapter(ProviderAdapter):

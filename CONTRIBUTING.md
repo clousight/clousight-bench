@@ -1,4 +1,4 @@
-# Contributing to OpenCloudBench
+# Contributing to Clousight Bench
 
 Thanks for helping build an independent, reproducible cloud benchmark.
 
@@ -23,7 +23,7 @@ teardown → score → report`); everything product-specific is a plugin.
 |---|---|
 | A **platform** | one `ProviderAdapter` subclass + one `configs/*.example.yaml`. Surface the platform's own retry/session/trace behavior; never reimplement task or scoring logic. |
 | A **dimension** | one `Task` subclass with its own `config()` (hashed inputs), `run()` + scoring, and a declared `evidence_layer`. |
-| A **product category** | one `DomainPack` registered via the `opencloudbench.domains` entry point. |
+| A **product category** | one `DomainPack` registered via the `clousight_bench.domains` entry point. |
 | A **load generator** | one `workloads/<name>/` dir: `manifest.yaml` + an executable speaking the JSONL protocol. Wrap a mature tool (YCSB / TPC-DS / sysbench) rather than reinventing it. |
 
 ## Reproducibility rules (non-negotiable)
@@ -41,7 +41,7 @@ teardown → score → report`); everything product-specific is a plugin.
 pip install -e ".[dev]"
 ruff check src tests
 pytest -q
-ocb run --domain agent-runtime --task T1.3 --platform local-sim   # local smoke
+csbench run --domain agent-runtime --task T1.3 --platform local-sim   # local smoke
 ```
 
 CI runs lint · test · local baseline smoke on Python 3.10 / 3.12 / 3.13.

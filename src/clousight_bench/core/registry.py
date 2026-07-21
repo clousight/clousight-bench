@@ -1,17 +1,17 @@
 """Domain pack discovery.
 
 Domains (built-in and third-party, including closed-source commercial packs)
-all register through the ``opencloudbench.domains`` entry point group -- the
+all register through the ``clousight_bench.domains`` entry point group -- the
 core never imports a domain by path. Installing a plugin package is enough for
-``ocb list`` to see it.
+``csbench list`` to see it.
 """
 from __future__ import annotations
 
 from importlib.metadata import entry_points
 
-from opencloudbench.core.plugin import DomainPack
+from clousight_bench.core.plugin import DomainPack
 
-ENTRY_POINT_GROUP = "opencloudbench.domains"
+ENTRY_POINT_GROUP = "clousight_bench.domains"
 
 
 class RegistryError(RuntimeError):

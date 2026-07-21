@@ -14,8 +14,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from opencloudbench.core.plugin import ProviderAdapter, Task, TaskOutput
-from opencloudbench.domains.bigdata_emr.adapters.base import BigDataClusterAdapter
+from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
+from clousight_bench.domains.bigdata_emr.adapters.base import BigDataClusterAdapter
 
 # Which workload directory (cross-language, manifest-described) this task drives.
 DEFAULT_WORKLOAD = "wordcount-py"
