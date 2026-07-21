@@ -32,6 +32,7 @@ manifest.yaml:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import tempfile
@@ -52,6 +53,8 @@ class WorkloadResult:
     metrics: dict[str, Any] = field(default_factory=dict)
     logs: list[str] = field(default_factory=list)
     exit_code: int = 0
+    series: dict[str, list] = field(default_factory=dict)
+    artifacts: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -105,6 +108,8 @@ class WorkloadEngine:
 
         metrics: dict[str, Any] = {}
         logs: list[str] = []
+        series: dict[str, list] = {}
+        artifacts: list[dict[str, Any]] = []
         saw_result = False
         result_ok = False
         for line in proc.stdout.splitlines():
@@ -121,6 +126,18 @@ class WorkloadEngine:
                 metrics[str(event["name"])] = event["value"]
             elif etype == "log":
                 logs.append(str(event.get("message", "")))
+            elif etype == "sample":
+                name = str(event["series"])
+                series.setdefault(name, []).append([event["t"], event["value"]])
+            elif etype == "artifact":
+                rel = str(event["path"])
+                blob = (self.workload_dir / rel).read_bytes()
+                artifacts.append({
+                    "kind": str(event.get("kind", "artifact")),
+                    "path": rel,
+                    "media": str(event.get("media", "application/octet-stream")),
+                    "sha256": "sha256:" + hashlib.sha256(blob).hexdigest(),
+                })
             elif etype == "result":
                 saw_result = True
                 result_ok = bool(event.get("ok", False))
@@ -129,4 +146,7 @@ class WorkloadEngine:
             logs.extend(proc.stderr.strip().splitlines()[-20:])
 
         ok = proc.returncode == 0 and saw_result and result_ok
-        return WorkloadResult(ok=ok, metrics=metrics, logs=logs, exit_code=proc.returncode)
+        return WorkloadResult(
+            ok=ok, metrics=metrics, logs=logs, exit_code=proc.returncode,
+            series=series, artifacts=artifacts,
+        )
