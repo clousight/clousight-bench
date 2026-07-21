@@ -54,3 +54,35 @@ Reports never blend dimensions into one score.
 
 - `agent-runtime` — sessions, tool calling, fault recovery, observability. T1.3 implemented; T1.2/T2.1/T4.1/T4.2 planned.
 - `bigdata-emr` — skeleton proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol.
+
+## 数据契约与扩展点
+
+`ResultRecord` 承载三条独立通道，互不覆盖，读者按需选取：
+
+- `metrics`（标量判分）— 报告层聚合、比较用的数字。
+- `series`（时序，`{name: [[t, value], ...]}`）— 高频采样，如逐秒延迟、GPU 利用率。
+- `artifacts`（`{"kind", "path"/"uri", "media", "sha256"}` 指针）— OTel trace、日志包等大文件，record.json 里只存指纹，不存内容。
+
+协议（WorkloadEngine 的 stdout JSONL）新增两类事件，与既有 `metric`/`log`/`result` 并存、互不影响：
+
+```jsonl
+{"type": "sample", "series": "latency_ms", "t": 1.0, "value": 87.2}
+{"type": "artifact", "kind": "otel_trace", "path": "trace.json", "media": "application/json"}
+{"type": "result", "ok": true}
+```
+
+`sample` 事件按 `series` 名累积进 `WorkloadResult.series`；`artifact` 事件的 `sha256` 由引擎按 `workload_dir/path` 的文件内容计算，workload 本身不用算哈希。
+
+**落盘**：`record.json` 保持历史路径 `results/<domain>/<platform>/<task_id>-<run_id>.json` 不变（`core/store.py::ResultStore` 负责，`orchestrator._persist` 委托给它，签名不变）。装了可选 `[store]` extra（`duckdb` + `pyarrow`）且记录带 `series` 时，series 会外置为该次 run 目录下的 `series.parquet` 长表，`record.json` 里的 `series` 字段改写为指针 `{"$parquet": "<相对路径>"}`；未装 extra 时 series 原样内嵌在 `record.json`（小规模无损）。
+
+Parquet 长表列（`cb-dataservice` / SaaS Web 端读取的稳定握手）：
+
+```
+run_id | domain | task_id | platform | config_hash | series | t | value | unit
+```
+
+`ResultStore.query_series(sql=None, glob="**/series.parquet")` 用 DuckDB 直接对整个 `results_dir` 下的 Parquet 文件跑 SQL；缺 `[store]` extra 时抛 `ImportError`。
+
+**扩展点**：`clousight_bench.enrichers` entry-point group 承载 `ResultEnricher` 子类——`name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`。`orchestrator.execute(spec, results_dir=None, enrich=True)` 在构造完 `record`、`_persist` 之前，按 `registry.load_enrichers()` 返回的列表（按 `name` 排序，确定性执行顺序）依次调用。核心不带任何 enricher 实现（如成本预估）——商业插件通过 entry point 注入；CLI `csbench run --no-enrich` 可跳过整个链路。
+
+**插件兼容契约**：`clousight_bench.PLUGIN_API_VERSION = "1.0"`（SemVer）。当 schema 字段、entry-point group 名、`ResultEnricher`/`ResultStore` 签名发生不兼容变更时才升 MAJOR；商业插件的 `pyproject.toml` 应 pin `clousight-bench>=1.0,<2.0`。
