@@ -1,0 +1,21 @@
+# Template: a small BUNDLED asset (baseline tier).
+#
+# Small, license-clean data that ships in the repo alongside the workload.
+# Resolved relative to the workload dir; verified by sha256 if you set one.
+# Use this tier only for tiny fixtures — anything large/licensed goes remote/private.
+name: bundled-smoke
+version: 0.1.0
+entrypoint: ./run.py
+description: >
+  Reference for the bundled asset tier. The file lives next to this manifest at
+  data/sample.jsonl and is resolved as params["assets"]["sample-corpus"].
+assets:
+  - name: sample-corpus
+    source: bundled
+    uri: data/sample.jsonl          # relative to this manifest's directory
+    sha256: ""                      # optional; set to verify integrity
+    version: "1"
+params: {}
+metrics:
+  - rows
+  - duration_ms

@@ -1,0 +1,26 @@
+# Template: PRIVATE held-out scoring keys (the contamination-resistant moat).
+#
+# The task's METHOD (how it scores) can be fully open-source; the golden answers
+# stay private so the benchmark can't be gamed by training on the answer key.
+# `uri` is an opaque ref the data service understands, not a public URL.
+#
+# Resolution: an installed `clousight_bench.asset_resolvers` plugin (e.g.
+# clousight-bench-pro's cb-dataservice) downloads it with a license token and
+# verifies sha256. With NO plugin installed, resolving this raises NeedLicense
+# -- a clear "this is a licensed asset" message, never a crash.
+name: agent-runtime-held-out
+version: 0.1.0
+entrypoint: ./run.py
+description: >
+  Score an agent-runtime task against private held-out keys. Template for the
+  private asset tier (open method, private answer key).
+assets:
+  - name: t4_1-golden-spans
+    source: private
+    uri: agent-runtime/held-out/T4.1   # opaque data-service ref (not a public URL)
+    sha256: ""            # the data service returns this; fill to pin a version
+    version: "2026-07"
+params: {}
+metrics:
+  - graded
+  - score

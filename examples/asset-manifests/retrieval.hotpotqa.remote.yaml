@@ -1,0 +1,23 @@
+# Template: a multi-hop QA corpus from a PUBLIC remote dataset.
+#
+# HotpotQA dev (distractor setting) — multi-hop question answering over Wikipedia
+# paragraphs. Useful as a retrieval / tool-use corpus for agent-runtime or a
+# future RAG domain. Single JSON file, stably hosted, CC BY-SA 4.0.
+name: hotpotqa-dev
+version: 0.1.0
+entrypoint: ./run.py
+description: >
+  Load HotpotQA dev (distractor) as a retrieval/QA corpus. Template for a public
+  remote JSON dataset.
+assets:
+  - name: hotpotqa-dev-distractor
+    source: remote
+    uri: http://curtis.ml.cmu.edu/datasets/hotpot/hotpot_dev_distractor_v1.json
+    sha256: ""            # TODO: fill after a trusted first download
+    license: "CC BY-SA 4.0 (HotpotQA, https://hotpotqa.github.io/)"
+    version: "v1"
+params:
+  sample: { type: integer, default: 100, description: number of questions to load }
+metrics:
+  - questions_loaded
+  - duration_ms

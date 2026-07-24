@@ -1,0 +1,28 @@
+# Template: an agent task set from a PUBLIC remote dataset (Hugging Face).
+#
+# SWE-bench Lite — 300 real GitHub issue->patch tasks, a widely-used public agent
+# benchmark. Fetched from the HF dataset resolver URL. Use it as the task corpus
+# an agent-runtime plan iterates over (issue in -> patch out), while THIS project
+# still measures the *runtime* (session/tooling/trace), not model IQ.
+#
+# NOTE: confirm the dataset license and HF terms for your use before publishing
+# derived numbers. Large held-out variants belong in the `private` tier.
+name: swe-bench-lite-tasks
+version: 0.1.0
+entrypoint: ./run.py
+description: >
+  Load SWE-bench Lite task instances as agent inputs. Template for wiring a
+  public agent task set via the remote asset tier.
+assets:
+  - name: swe-bench-lite
+    source: remote
+    uri: https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite/resolve/main/data/test-00000-of-00001.parquet
+    sha256: ""            # TODO: fill after a trusted first download
+    license: "see princeton-nlp/SWE-bench_Lite on Hugging Face (verify terms)"
+    version: "lite-test"
+params:
+  max_instances: { type: integer, default: 50, description: subset size for a smoke run }
+metrics:
+  - instances_loaded
+  - tasks_attempted
+  - duration_ms

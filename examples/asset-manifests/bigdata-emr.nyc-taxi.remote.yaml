@@ -1,0 +1,29 @@
+# Template: a big-data workload fed by a PUBLIC remote dataset.
+#
+# NYC TLC Yellow Taxi trip records (columnar Parquet). A classic, stably-hosted
+# public dataset — good input for EMR-style batch price/performance tasks
+# (scan, aggregate, join). Not vendored: downloaded on demand + checksum-verified.
+#
+# Copy this file into your workload dir as manifest.yaml and provide run.sh /
+# run.py that reads params["assets"]["nyc-taxi-2024-01"] as its input path.
+name: nyc-taxi-batch
+version: 0.1.0
+entrypoint: ./run.sh
+description: >
+  Batch scan/aggregate over one month of NYC TLC yellow-taxi trips. Reference
+  template for wiring a public remote dataset into a bigdata-emr workload.
+assets:
+  - name: nyc-taxi-2024-01
+    source: remote
+    uri: https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet
+    # Compute once: curl -L <uri> -o f && shasum -a 256 f   (then paste the digest)
+    sha256: ""            # TODO: fill for reproducibility
+    license: "NYC TLC — public (https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page)"
+    version: "2024-01"
+params:
+  group_by: { type: string, default: PULocationID, description: aggregation key }
+metrics:
+  - rows_scanned
+  - groups
+  - duration_ms
+  - throughput_rows_per_s
