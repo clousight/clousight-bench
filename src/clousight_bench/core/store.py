@@ -82,7 +82,10 @@ class ResultStore:
 
         pattern = str(self.results_dir / glob)
         con = duckdb.connect()
-        con.execute(f"CREATE VIEW series AS SELECT * FROM read_parquet('{pattern}')")
+        # Pass the (possibly glob) path via the relation API, not string
+        # interpolation, so paths with quotes / special chars cannot break out
+        # of the SQL (parameters aren't allowed inside CREATE VIEW read_parquet).
+        con.read_parquet(pattern).create_view("series")
         query = sql or "SELECT * FROM series"
         cur = con.execute(query)
         cols = [d[0] for d in cur.description]

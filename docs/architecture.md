@@ -81,7 +81,9 @@ Parquet 长表列（`cb-dataservice` / SaaS Web 端读取的稳定握手）：
 run_id | domain | task_id | platform | config_hash | series | t | value | unit
 ```
 
-`ResultStore.query_series(sql=None, glob="**/series.parquet")` 用 DuckDB 直接对整个 `results_dir` 下的 Parquet 文件跑 SQL；缺 `[store]` extra 时抛 `ImportError`。
+其中 `unit` 列的取值约定：`ResultStore` 写 Parquet 时，对每个 series `<name>` 从 `metrics["<name>__unit"]` 读取其单位字符串（如 `latency_ms` 系列可在 `metrics` 里放 `"latency_ms__unit": "ms"`）；未提供则为空串 `""`。这是一个**隐式约定而非强制**——不写也能落盘，只是 `unit` 列为空。
+
+`ResultStore.query_series(sql=None, glob="**/series.parquet")` 用 DuckDB 直接对整个 `results_dir` 下的 Parquet 文件跑 SQL；`glob` 路径以参数绑定传入 `read_parquet(?)`（不做字符串拼接）；缺 `[store]` extra 时抛 `ImportError`。
 
 **扩展点**：`clousight_bench.enrichers` entry-point group 承载 `ResultEnricher` 子类——`name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`。`orchestrator.execute(spec, results_dir=None, enrich=True)` 在构造完 `record`、`_persist` 之前，按 `registry.load_enrichers()` 返回的列表（按 `name` 排序，确定性执行顺序）依次调用。核心不带任何 enricher 实现（如成本预估）——商业插件通过 entry point 注入；CLI `csbench run --no-enrich` 可跳过整个链路。
 
