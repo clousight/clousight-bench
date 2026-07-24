@@ -31,6 +31,12 @@
   - `csbench doctor --config x`：分步体检 provider / SDK / 凭证 / mock 可达，给可操作补救。
   - 15 个新测试（credentials + init/doctor）；README「Benchmarking a real platform」与 architecture 已更新。
   - 待办（需资源时）：`csbench mock deploy/tunnel`（把 mock 一键部署成云函数 / 起隧道）——归入 A 组。
+- [x] **前置校验阶段 PREFLIGHT**（`clousight-bench`）→ **已实现**（2026-07-24）
+  - `core/preflight.py`：`Check`/`PreflightReport` + 可复用校验函数；`doctor` 与 orchestrator 共用（单一真源）。
+  - `ProviderAdapter.preflight()`（凭证+SDK）；`AgentRuntimeAdapter.preflight()` 真云追加 mock 可达 + `check_permissions()` 钩子。
+  - orchestrator 在 provision 前跑 preflight，CRITICAL 失败即早退落 `ok=False` 记录；`csbench run --skip-preflight` 可关闭。
+  - 12 个新测试（report 逻辑 / 各 check / 真云早退 vs skip 后中途失败 / local-sim 正常跑）。
+  - 待办（接真 adapter 时）：把各真云 adapter 的 `check_permissions()` 覆写为真实鉴权调用（STS GetCallerIdentity / RAM dry-run / GetCallerIdentity 等）——归入 A 组。
 
 ## C. 评审 Minor（来自 2026-07-21 整体评审）— **已全部清理**
 

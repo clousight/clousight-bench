@@ -66,7 +66,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         target=target,
         params=params,
     )
-    record = execute(spec, results_dir=Path(args.results), enrich=not args.no_enrich)
+    record = execute(
+        spec,
+        results_dir=Path(args.results),
+        enrich=not args.no_enrich,
+        preflight=not args.skip_preflight,
+    )
     print(record.to_json())
     return 0 if record.ok else 2
 
@@ -139,14 +144,10 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
-    import importlib.util
-    from urllib import request
-
-    from clousight_bench.core.credentials import (
-        PROVIDER_CREDENTIALS,
-        infer_provider,
-        resolve_credentials,
-    )
+    """Preflight, standalone. Shares the exact check functions the orchestrator
+    runs before a real run (single source of truth in core/preflight.py)."""
+    from clousight_bench.core import preflight as pf
+    from clousight_bench.core.credentials import PROVIDER_CREDENTIALS, infer_provider
 
     target: dict[str, Any] = {}
     if args.config:
@@ -155,52 +156,21 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if args.provider:
         target["provider"] = args.provider
 
-    ok_mark, warn_mark, bad_mark = "✓", "!", "✗"
-    lines: list[str] = []
-    critical_ok = True
-
     provider = infer_provider(target, args.platform)
     if provider is None:
-        print(f"{bad_mark} provider — unknown; set target.provider or pass --provider "
+        print(f"\u2717 provider — unknown; set target.provider or pass --provider "
               f"(one of: {', '.join(PROVIDER_CREDENTIALS)})")
         return 1
-    lines.append(f"{ok_mark} provider — {provider}")
 
-    # SDK installed? (warning only — resolution/doctor don't import it)
-    sdk = PROVIDER_CREDENTIALS[provider]["sdk_module"]
-    if importlib.util.find_spec(sdk) is not None:
-        lines.append(f"{ok_mark} sdk — {sdk} importable")
-    else:
-        lines.append(f"{warn_mark} sdk — {sdk} not installed (needed only to run real "
-                     f"tasks; `pip install {sdk}`)")
+    report = pf.PreflightReport()
+    report.add(pf.Check("provider", ok=True, detail=provider))
+    report.add(pf.credential_check(target, args.platform))
+    report.add(pf.sdk_check(target, args.platform))
+    if provider is not None:
+        report.add(pf.mock_reachable_check(str(target.get("mock_base_url", ""))))
 
-    # Credentials (critical)
-    res = resolve_credentials(target, platform=args.platform)
-    if res.ok:
-        lines.append(f"{ok_mark} credentials — via {res.source} ({res.identity_hint})")
-    else:
-        critical_ok = False
-        lines.append(f"{bad_mark} credentials — {res.remediation}")
-
-    # mock_base_url reachability (warning; local-sim doesn't need it)
-    mock = str(target.get("mock_base_url", "")).strip()
-    if not mock:
-        lines.append(f"{warn_mark} mock_base_url — not set (required before a real cloud run)")
-    elif mock.startswith(("http://127.", "http://localhost", "https://localhost")):
-        lines.append(f"{bad_mark} mock_base_url — localhost is NOT reachable from a cloud "
-                     f"runtime; expose via a tunnel or cloud function")
-        critical_ok = False
-    else:
-        try:
-            with request.urlopen(f"{mock.rstrip('/')}/health", timeout=5) as resp:
-                reachable = 200 <= resp.status < 300
-            mark = ok_mark if reachable else warn_mark
-            lines.append(f"{mark} mock_base_url — {mock} (/health -> {'ok' if reachable else 'non-2xx'})")
-        except Exception as exc:  # noqa: BLE001 - report, don't crash the doctor
-            lines.append(f"{warn_mark} mock_base_url — {mock} unreachable now ({type(exc).__name__})")
-
-    print("\n".join(lines))
-    return 0 if critical_ok else 1
+    print(report.format())
+    return 0 if report.ok else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -219,6 +189,8 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--param", action="append", default=[], help="override a task param, key=value")
     run_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     run_p.add_argument("--no-enrich", action="store_true", help="skip result enrichers")
+    run_p.add_argument("--skip-preflight", action="store_true",
+                       help="skip the preflight prerequisite checks (not recommended)")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))

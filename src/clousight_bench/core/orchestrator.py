@@ -1,8 +1,11 @@
 """Orchestrator: the lifecycle state machine every domain shares.
 
-    RESOLVE -> SETUP -> EXECUTE -> TEARDOWN -> RECORD
+    RESOLVE -> PREFLIGHT -> SETUP -> EXECUTE -> TEARDOWN -> RECORD
 
 - RESOLVE : look up the domain pack, task and adapter for a RunSpec.
+- PREFLIGHT: adapter.preflight() -- check credentials / permissions /
+             connectivity BEFORE provisioning. A CRITICAL failure aborts here
+             (no resource is created), so problems surface up front, never mid-run.
 - SETUP   : adapter.setup() -- provision or connect to the system under test.
 - EXECUTE : task.run(adapter, params) -- the task owns workload + scoring.
 - TEARDOWN: adapter.teardown() -- guaranteed even when EXECUTE fails.
@@ -26,7 +29,12 @@ logger = logging.getLogger(__name__)
 DEFAULT_RESULTS_DIR = Path("results")
 
 
-def execute(spec: RunSpec, results_dir: Path | None = None, enrich: bool = True) -> ResultRecord:
+def execute(
+    spec: RunSpec,
+    results_dir: Path | None = None,
+    enrich: bool = True,
+    preflight: bool = True,
+) -> ResultRecord:
     """Run one RunSpec through the full lifecycle and persist the result."""
     results_dir = Path(results_dir or DEFAULT_RESULTS_DIR)
 
@@ -49,6 +57,31 @@ def execute(spec: RunSpec, results_dir: Path | None = None, enrich: bool = True)
     run_id = new_run_id()
     started_at = utc_now()
     logger.info("run %s: %s/%s on %s", run_id, spec.domain, spec.task_id, spec.platform)
+
+    # PREFLIGHT: fail fast before provisioning anything
+    if preflight:
+        report = adapter.preflight()
+        if not report.ok:
+            logger.error("run %s aborted at preflight:\n%s", run_id, report.format())
+            record = ResultRecord(
+                domain=spec.domain,
+                task_id=spec.task_id,
+                platform=spec.platform,
+                run_id=run_id,
+                started_at=started_at,
+                finished_at=utc_now(),
+                config_hash=config_hash(full_config),
+                evidence_layer=task.evidence_layer,
+                metrics={
+                    "preflight_ok": False,
+                    "preflight_failures": [c.name for c in report.critical_failures],
+                },
+                ok=False,
+                error="preflight failed: " + report.summary(),
+                notes=report.format(),
+            )
+            _persist(record, results_dir)
+            return record
 
     # SETUP -> EXECUTE -> TEARDOWN
     output = None

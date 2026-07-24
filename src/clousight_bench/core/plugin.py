@@ -79,6 +79,21 @@ class ProviderAdapter(ABC):
 
         return resolve_credentials(self.target, platform=self.name)
 
+    def preflight(self) -> Any:
+        """Check prerequisites BEFORE provisioning; return a PreflightReport.
+
+        The orchestrator runs this first and aborts on any CRITICAL failure, so
+        missing credentials / permissions / connectivity surface up front rather
+        than mid-run. Default checks credentials + provider SDK; domain adapters
+        override to add connectivity / permission probes (calling super()).
+        """
+        from clousight_bench.core import preflight as pf
+
+        report = pf.PreflightReport()
+        report.add(pf.credential_check(self.target, self.name))
+        report.add(pf.sdk_check(self.target, self.name))
+        return report
+
 
 class Task(ABC):
     """One benchmark dimension. Deterministic where the evidence layer says so."""

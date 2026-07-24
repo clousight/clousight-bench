@@ -7,10 +7,11 @@ but the pipeline is identical.
 ## Lifecycle (shared by every domain)
 
 ```
-RESOLVE -> SETUP -> EXECUTE -> TEARDOWN -> RECORD
+RESOLVE -> PREFLIGHT -> SETUP -> EXECUTE -> TEARDOWN -> RECORD
 ```
 
 - **RESOLVE** — look up the DomainPack, Task and Adapter for a `RunSpec`.
+- **PREFLIGHT** — `adapter.preflight()`: check credentials / permissions / connectivity **before provisioning**. A CRITICAL failure aborts here with an actionable checklist (no resource created), so prerequisites surface up front instead of mid-run. Bypass with `csbench run --skip-preflight`; run standalone with `csbench doctor`. Single source of truth: `core/preflight.py`.
 - **SETUP** — `adapter.setup()`: provision (Terraform) or connect (SDK/HTTP).
 - **EXECUTE** — `task.run(adapter, params)`: the task drives the workload and scores it.
 - **TEARDOWN** — `adapter.teardown()`: always runs, even on failure.
@@ -63,6 +64,12 @@ Reports never blend dimensions into one score.
 - `ProviderAdapter.resolve_credentials()` 委托给上面的解析器（跨域，`provider` 由 `target.provider` 或平台名前缀推断，如 `aliyun-agentrun`→`aliyun`）。真 adapter 运行时仍交给官方 SDK 的默认链。
 - 各云凭证链登记在 `PROVIDER_CREDENTIALS`（aws / aliyun / huawei / volcengine：标准 env、profile env、凭证文件、SDK 模块、文档链接）。
 - CLI：`csbench init <provider>` 生成私有 `*.local.yaml` + `.env.example` 并写 `.gitignore`（配置无密钥）；`csbench doctor --config x` 分步体检（provider → SDK 可导入？→ 凭证链可解析？→ `mock_base_url` 可达？localhost 直接判失败），每步给可操作补救提示。
+
+**前置校验阶段（PREFLIGHT）**：上述校验不仅是独立命令，还是**生命周期的一个阶段**。`core/preflight.py` 提供 `Check` / `PreflightReport` 与可复用校验函数（`credential_check` / `sdk_check` / `mock_reachable_check`），`doctor` 与 orchestrator **共用同一批函数**（单一真源）。
+
+- `ProviderAdapter.preflight() -> PreflightReport`：默认校验凭证 + provider SDK。跨域可用。
+- `AgentRuntimeAdapter.preflight()`：`super()` 之上，对**真云平台**（provider 非空）追加 `mock_base_url` 可达校验 + `check_permissions()`（默认返回 WARNING「未验证」；接真 adapter 覆写为 STS GetCallerIdentity / RAM dry-run 等廉价鉴权调用，返回 CRITICAL）。local-sim（provider 为空、自托管 mock）不加这两项，永远通过。
+- orchestrator 在 RESOLVE 之后、SETUP 之前跑 `adapter.preflight()`；任一 CRITICAL 失败即**早退**（不 provision），落一条 `ok=False`、`metrics.preflight_ok=False`、`error="preflight failed: ..."`、`notes=` 清单的记录。`--skip-preflight` 关闭该 gate。
 
 ## 数据契约与扩展点
 

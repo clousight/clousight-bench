@@ -70,6 +70,33 @@ class AgentRuntimeAdapter(ProviderAdapter):
     def mock_base_url(self, value: str) -> None:
         self.target["mock_base_url"] = value
 
+    def preflight(self) -> Any:
+        """Credentials + SDK (from core) plus agent-runtime specifics: for a
+        real cloud run the pinned mock universe must be reachable and the
+        identity must have the needed permissions. local-sim (provider-less,
+        self-hosted mock) adds neither, so it always passes."""
+        from clousight_bench.core import preflight as pf
+        from clousight_bench.core.credentials import infer_provider
+
+        report = super().preflight()
+        provider = infer_provider(self.target, self.name)
+        if provider is not None:  # real cloud platform
+            report.add(pf.mock_reachable_check(str(self.target.get("mock_base_url", ""))))
+            report.add(*self.check_permissions())
+        return report
+
+    def check_permissions(self) -> list[Any]:
+        """Probe that the resolved identity has the permissions the tasks need.
+
+        Default: not verified (a skeleton can't call the cloud). A wired adapter
+        overrides this to make a cheap identity/authorization call (e.g. STS
+        GetCallerIdentity, a dry-run describe) and return CRITICAL checks."""
+        from clousight_bench.core.preflight import WARNING, Check
+
+        return [Check("permissions", ok=True, severity=WARNING,
+                      detail="not verified by this adapter",
+                      remediation="wired adapters verify identity/permissions before load")]
+
     @abstractmethod
     def create_session(self, spec: dict[str, Any] | None = None) -> str:
         """Create a runtime session, return its id."""
