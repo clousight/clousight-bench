@@ -19,18 +19,20 @@
 
 ## B. 纯工程（不需凭证，可随时做）
 
-- [ ] **补齐五维**（`clousight-bench` · agent-runtime，可跑在 local-sim 上）
+- [x] **补齐五维**（`clousight-bench` · agent-runtime，跑在 local-sim 上）→ **已实现**
   - T1.2 状态持久化 / T2.1 工具注册路径（MCP·OpenAPI·native）/ T4.1 trace span 完整率（OpenInference）/ T4.2 OTel 导出兼容。
-  - 每维一个 `tasks/` 文件 + 判分 + 证据档声明 + 测试，注册进 `AgentRuntimeDomain.tasks()`。
-- [ ] **成本/trace 采用 OpenInference schema**；跨境延迟类指标标注证据档 B，恢复/trace 类做 C 档硬测。
+  - 各一个 `tasks/` 文件 + 判分 + 证据档声明 + 8 个 local-sim 测试；`AgentRuntimeDomain.tasks()` 已注册；`csbench list` 可见 T1.2/T1.3/T2.1/T4.1/T4.2。
+  - adapter 基类新增 4 类能力方法（默认抛 `CapabilityNotSupported`，local-sim 按可配置策略实现）；新增 `openinference.py`（span 构建 / 完整率 / OTel 映射与校验）。
+- [x] **成本/trace 采用 OpenInference schema** → **已实现**（`openinference.py`：CHAIN/LLM/TOOL span kinds + 最小 OTLP resourceSpans）。
+  - 待办（需真 adapter 时）：跨境延迟类指标标注证据档 B、恢复/trace 类做 C 档硬测——留到 A 组接真时落。
 
-## C. 评审 Minor（来自 2026-07-21 整体评审，非阻塞，择机清理）
+## C. 评审 Minor（来自 2026-07-21 整体评审）— **已全部清理**
 
-- [ ] **`query_series` SQL 拼接改参数化**（`clousight-bench` · `core/store.py`）：`read_parquet('{pattern}')` 目前 f-string 拼接，改为 DuckDB 参数绑定或校验路径，防注入/特殊字符。
-- [ ] **`unit` 列约定文档化**（`core/store.py` 长表）：`unit` 取自 `metrics["<series>__unit"]` 的隐式约定，写进 `docs/architecture.md` 数据契约节。
-- [ ] **示例脚本句柄泄漏**（`clousight-bench-pro` · `cb-samplers/workloads/synthetic-sampler/run.py`）：`open(...).read()` 改为 `with` 上下文管理。
-- [ ] **pricing 用量类型校验**（`clousight-bench-pro` · `cb-pricing/enricher.py`）：`qty` 非数值时给清晰错误而非静默相乘。
-- [ ] **空/混合 series 边界测试**（`cb-dataservice` · `test_rollup.py`）：补空 series、多 series 混合的 rollup 用例。
+- [x] **`query_series` 免注入**（`core/store.py`）：改用 DuckDB 关系 API `con.read_parquet(pattern).create_view(...)`（DDL 不支持参数占位符），路径作为 Python 参数传入，杜绝字符串拼接。
+- [x] **`unit` 列约定文档化**（`docs/architecture.md` 数据契约节）：`unit` 取自 `metrics["<series>__unit"]`，隐式非强制。
+- [x] **示例脚本句柄**（`cb-samplers/.../run.py`）：`open(...).read()` → `with` + `json.load`。
+- [x] **pricing 用量类型校验**（`cb-pricing/enricher.py`）：`qty` 非数值（含 bool）抛清晰 `TypeError`。
+- [x] **空/混合 series 边界测试**（`cb-dataservice/test_rollup.py`）：补空 series、多 series、缺文件三个用例。
 
 ## D. 交付物流转（你自己来）
 

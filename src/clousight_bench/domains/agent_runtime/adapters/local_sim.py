@@ -14,9 +14,11 @@ import time
 from typing import Any
 from urllib import request
 
+from clousight_bench.domains.agent_runtime import openinference
 from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
     Attempt,
+    CapabilityNotSupported,
     InvocationTrace,
     ToolCall,
 )
@@ -32,8 +34,19 @@ class LocalSimAdapter(AgentRuntimeAdapter):
         self.recovery_mode: str = recovery.get("mode", "auto-retry")  # "auto-retry" | "fail-fast"
         self.max_retries: int = int(recovery.get("max_retries", 3))
         self.backoff_ms: list[int] = list(recovery.get("backoff_ms", [50, 100, 200]))
+        # Configurable capability policies (so tasks can observe both support
+        # and absence deterministically without any cloud account).
+        self.state_persistence: str = self.target.get("state_persistence", "durable")
+        self.supported_registration_paths: list[str] = list(
+            self.target.get("tool_registration", ["mcp", "openapi", "native"])
+        )
+        trace_cfg = self.target.get("trace", {})
+        self.trace_completeness: str = trace_cfg.get("completeness", "full")  # "full" | "partial"
+        self.otel_export_enabled: bool = bool(trace_cfg.get("otel_export", True))
         self._session_seq = 0
         self._mock_server = None
+        self._state: dict[str, dict[str, Any]] = {}
+        self._last_calls: dict[str, int] = {}
 
     def setup(self) -> None:
         """Start the pinned tool universe in-process.
@@ -101,4 +114,36 @@ class LocalSimAdapter(AgentRuntimeAdapter):
                 time.sleep(backoff / 1000)
             if not completed:
                 break
+        self._last_calls[session_id] = len(plan)
         return InvocationTrace(session_id, attempts, completed, final_state)
+
+    # --- Capability implementations (configurable, deterministic) ------------
+
+    def persist_state(self, session_id: str, state: dict[str, Any]) -> None:
+        self._state[session_id] = dict(state)
+
+    def load_state(self, session_id: str) -> dict[str, Any]:
+        return dict(self._state.get(session_id, {}))
+
+    def resume_session(self, session_id: str) -> str:
+        # Durable runtimes keep session state across an interruption; ephemeral
+        # ones lose it. The session id is stable across resume.
+        if self.state_persistence == "ephemeral":
+            self._state.pop(session_id, None)
+        return session_id
+
+    def register_tool(self, path: str, spec: dict[str, Any]) -> bool:
+        if path not in ("mcp", "openapi", "native"):
+            raise ValueError(f"unknown registration path: {path!r}")
+        return path in self.supported_registration_paths
+
+    def get_trace(self, session_id: str) -> list[dict[str, Any]]:
+        tool_calls = self._last_calls.get(session_id, 0)
+        drop = ("TOOL",) if self.trace_completeness == "partial" else ()
+        return openinference.build_spans(session_id, tool_calls, drop_kinds=drop)
+
+    def export_otel(self, session_id: str) -> dict[str, Any]:
+        if not self.otel_export_enabled:
+            raise CapabilityNotSupported("export_otel")
+        spans = self.get_trace(session_id)
+        return openinference.to_otel(spans, service_name=self.name)

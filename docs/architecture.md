@@ -52,7 +52,7 @@ Reports never blend dimensions into one score.
 
 ## Current domains
 
-- `agent-runtime` — sessions, tool calling, fault recovery, observability. T1.3 implemented; T1.2/T2.1/T4.1/T4.2 planned.
+- `agent-runtime` — sessions, tool calling, fault recovery, observability. Five dimensions implemented (all runnable on `local-sim`): T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace span completeness (OpenInference) · T4.2 OTel export compat. Capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
 - `bigdata-emr` — skeleton proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol.
 
 ## 数据契约与扩展点

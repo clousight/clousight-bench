@@ -42,6 +42,16 @@ class InvocationTrace:
     final_state: str  # "completed" | "failed" | "aborted"
 
 
+class CapabilityNotSupported(NotImplementedError):
+    """A runtime does not offer a capability a task probes for.
+
+    Raised by adapter capability methods (state persistence, tool registration,
+    trace, OTel export) when the platform lacks the feature. Tasks catch this
+    and record 'not supported' as a finding -- absence of a capability is
+    itself a benchmark result, never a crash.
+    """
+
+
 class AgentRuntimeAdapter(ProviderAdapter):
     """Uniform interface every agent-runtime adapter implements.
 
@@ -72,3 +82,35 @@ class AgentRuntimeAdapter(ProviderAdapter):
     @abstractmethod
     def destroy_session(self, session_id: str) -> None:
         """Tear down the session."""
+
+    # --- Optional capabilities (probed by T1.2 / T2.1 / T4.1 / T4.2) ---------
+    # Default = CapabilityNotSupported so an adapter opts in by overriding.
+    # Real adapters must surface the platform's OWN behavior, never emulate it.
+
+    def persist_state(self, session_id: str, state: dict[str, Any]) -> None:
+        """Persist opaque session state on the runtime (T1.2)."""
+        raise CapabilityNotSupported("persist_state")
+
+    def load_state(self, session_id: str) -> dict[str, Any]:
+        """Load previously persisted session state (T1.2)."""
+        raise CapabilityNotSupported("load_state")
+
+    def resume_session(self, session_id: str) -> str:
+        """Simulate an interruption + resume; return the session id to use after
+        resume (may equal session_id). Persisted state should survive iff the
+        runtime is durable (T1.2)."""
+        raise CapabilityNotSupported("resume_session")
+
+    def register_tool(self, path: str, spec: dict[str, Any]) -> bool:
+        """Register a tool via one path in {'mcp','openapi','native'}; return
+        True if the runtime accepts that registration path (T2.1)."""
+        raise CapabilityNotSupported("register_tool")
+
+    def get_trace(self, session_id: str) -> list[dict[str, Any]]:
+        """Return the runtime's own trace of the last invocation as
+        OpenInference-shaped spans (T4.1)."""
+        raise CapabilityNotSupported("get_trace")
+
+    def export_otel(self, session_id: str) -> dict[str, Any]:
+        """Return the last invocation's trace as an OTLP-compatible dict (T4.2)."""
+        raise CapabilityNotSupported("export_otel")
