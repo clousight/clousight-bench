@@ -58,18 +58,41 @@ Expected: the default (auto-retry) run ends `recovery_mode=auto-retry, final_sta
 
 ## Benchmarking a real platform
 
-1. Copy the example config: `configs/agent-runtime.aliyun.example.yaml` → fill your endpoint / region / env-var names (never put secrets in configs).
-2. Expose the mock tool server where the cloud runtime can reach it (tunnel or a tiny cloud function): `python -m clousight_bench.domains.agent_runtime.mock_tools --port 8770`.
-3. Implement / complete the adapter under `src/clousight_bench/domains/agent_runtime/adapters/` — adapters surface the runtime's own retry / session / trace behavior and must **never** touch tasks or scoring.
-4. `csbench run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config your.yaml`
+Credentials are **never** stored in configs. Clousight Bench reuses the cloud's
+own default credential chain — the same env vars / CLI profile / role you already
+use for `aws`, `aliyun`, etc. — so you don't mint a benchmark-only secret.
 
-You pay your own cloud bill; you get numbers for your own account, network and region. That is the point.
+```bash
+# 1. scaffold a private config + .env.example (auto-gitignored, no secrets)
+csbench init aws                 # or: aliyun / huawei / volcengine
+#    -> agent-runtime-aws.local.yaml  +  .env.example
+
+# 2. provide credentials via ANY of:
+#      export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...   (or copy .env.example -> .env)
+#      set target.profile in the config                          (a named CLI profile)
+#      an attached role / SSO / instance metadata                (nothing to set)
+
+# 3. expose the pinned mock tool universe where the cloud runtime can reach it
+#    (localhost is NOT reachable from a cloud runtime — use a tunnel / cloud function)
+python -m clousight_bench.domains.agent_runtime.mock_tools --port 8770
+#    then set mock_base_url in the config to that public URL
+
+# 4. preflight — checks provider, SDK, credential chain, and mock reachability
+csbench doctor --config agent-runtime-aws.local.yaml
+
+# 5. run
+csbench run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config your.local.yaml
+```
+
+Adapters surface the runtime's own retry / session / trace behavior and must
+**never** touch tasks or scoring. You pay your own cloud bill; you get numbers
+for your own account, network and region. That is the point.
 
 ## Status
 
 - [x] Core: lifecycle orchestrator, unified `RunSpec`/`ResultRecord` schema, entry-point plugin registry, cross-language workload protocol, markdown comparison report
-- [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, **T1.3 tool-failure recovery** end-to-end
-- [ ] `agent-runtime`: T1.2 state persistence, T2.1 tool registration paths, T4.1 trace completeness (OpenInference schema), T4.2 OTel export
+- [x] Onboarding: `csbench init` (scaffold private config + `.env.example`, auto-gitignored) and `csbench doctor` (preflight credentials + connectivity); credentials reuse the cloud's default chain (env / profile / role), never stored in configs
+- [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, **five dimensions** end-to-end on `local-sim` — T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace completeness (OpenInference) · T4.2 OTel export
 - [ ] `agent-runtime`: wire aliyun-agentrun / huawei-agentarts / volcengine-agentkit adapters (skeletons in-tree)
 - [x] `bigdata-emr` skeleton: J1.1 wordcount smoke via the cross-language workload protocol, `local-process` adapter, `aws-emr` Terraform-backed adapter skeleton
 - [ ] database / compute / messaging domain packs

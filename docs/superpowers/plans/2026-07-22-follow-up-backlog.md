@@ -25,6 +25,12 @@
   - adapter 基类新增 4 类能力方法（默认抛 `CapabilityNotSupported`，local-sim 按可配置策略实现）；新增 `openinference.py`（span 构建 / 完整率 / OTel 映射与校验）。
 - [x] **成本/trace 采用 OpenInference schema** → **已实现**（`openinference.py`：CHAIN/LLM/TOOL span kinds + 最小 OTLP resourceSpans）。
   - 待办（需真 adapter 时）：跨境延迟类指标标注证据档 B、恢复/trace 类做 C 档硬测——留到 A 组接真时落。
+- [x] **便捷凭证 + 上手脚手架**（`clousight-bench`）→ **已实现**（2026-07-24）
+  - `core/credentials.py`：复用各云默认凭证链（env/profile/role），只探测来源不存密钥；`ProviderAdapter.resolve_credentials()`。
+  - `csbench init <provider>`：生成私有 `*.local.yaml` + `.env.example` + 写 `.gitignore`。
+  - `csbench doctor --config x`：分步体检 provider / SDK / 凭证 / mock 可达，给可操作补救。
+  - 15 个新测试（credentials + init/doctor）；README「Benchmarking a real platform」与 architecture 已更新。
+  - 待办（需资源时）：`csbench mock deploy/tunnel`（把 mock 一键部署成云函数 / 起隧道）——归入 A 组。
 
 ## C. 评审 Minor（来自 2026-07-21 整体评审）— **已全部清理**
 

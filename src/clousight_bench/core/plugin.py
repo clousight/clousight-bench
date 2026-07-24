@@ -67,6 +67,18 @@ class ProviderAdapter(ABC):
         """Non-secret target description, folded into config_hash."""
         return {"adapter": self.name, "target": _redact(self.target)}
 
+    def resolve_credentials(self) -> Any:
+        """Report where this adapter's credentials come from (never the secret).
+
+        Reuses the provider's default credential chain (env / CLI profile /
+        role) so users don't mint a benchmark-only secret. Powers `csbench
+        doctor` and adapter self-reporting; real adapters still defer to the
+        official SDK chain at call time.
+        """
+        from clousight_bench.core.credentials import resolve_credentials
+
+        return resolve_credentials(self.target, platform=self.name)
+
 
 class Task(ABC):
     """One benchmark dimension. Deterministic where the evidence layer says so."""

@@ -55,6 +55,15 @@ Reports never blend dimensions into one score.
 - `agent-runtime` — sessions, tool calling, fault recovery, observability. Five dimensions implemented (all runnable on `local-sim`): T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace span completeness (OpenInference) · T4.2 OTel export compat. Capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
 - `bigdata-emr` — skeleton proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol.
 
+## 凭证与上手（便捷层）
+
+原则：**绝不让用户为 benchmark 单独造一套密钥**，复用云自己的默认凭证链。
+
+- `core/credentials.py::resolve_credentials(target, platform)` 只**探测**凭证来源、从不读取/存储密钥值。解析顺序：`auth_env`（逃生口，显式指定 env 名）→ `profile`（CLI 命名档）→ 标准 env 变量 → 凭证文件。返回 `CredentialResolution(ok, source, identity_hint, remediation)`，`identity_hint` 只含变量名/档名，永不含密钥。
+- `ProviderAdapter.resolve_credentials()` 委托给上面的解析器（跨域，`provider` 由 `target.provider` 或平台名前缀推断，如 `aliyun-agentrun`→`aliyun`）。真 adapter 运行时仍交给官方 SDK 的默认链。
+- 各云凭证链登记在 `PROVIDER_CREDENTIALS`（aws / aliyun / huawei / volcengine：标准 env、profile env、凭证文件、SDK 模块、文档链接）。
+- CLI：`csbench init <provider>` 生成私有 `*.local.yaml` + `.env.example` 并写 `.gitignore`（配置无密钥）；`csbench doctor --config x` 分步体检（provider → SDK 可导入？→ 凭证链可解析？→ `mock_base_url` 可达？localhost 直接判失败），每步给可操作补救提示。
+
 ## 数据契约与扩展点
 
 `ResultRecord` 承载三条独立通道，互不覆盖，读者按需选取：
