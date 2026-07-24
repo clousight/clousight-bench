@@ -80,6 +80,31 @@ Reports never blend dimensions into one score.
 
 于是「本次运行的最小权限」= adapter 对 task 令牌的映射；**加维度**只需在 Task 上声明令牌，**加云**只需在 Adapter 上补 `PERMISSION_MAP`，互不侵入。`csbench doctor --domain <d> --platform <p> --task <t>` 直接打印该 (benchmark×云) 的最小动作清单。
 
+## 测评集分发（三层，一套解析机制）
+
+benchmark 不只是代码，还有**资产**（数据集、语料、held-out 判分键）。方法开源、数据分层、判分键私有——用同一套解析器承载，开放/私有边界只是配置：
+
+| 层 | `source` | 放哪 | 机制 |
+|----|----------|------|------|
+| **内置开源** | `bundled` | `clousight-bench`（相对 workload/task 目录） | 小型、license 干净、随仓库走；有 `sha256` 则校验 |
+| **公开外置** | `remote` | 不 vendored；manifest 声明 `uri + sha256 + license` | 按需下载 → 校验哈希 → 缓存到 `~/.cache/clousight-bench/assets`；`license` 必填（可审计） |
+| **私有商业** | `private` | `clousight-bench-pro` / 数据服务 | 由入口点 `clousight_bench.asset_resolvers` 的解析器（带 token 下载）处理；未装解析器 → 抛 `NeedLicense`（清晰提示，非崩溃） |
+
+- **manifest `assets:` 段**（workload / task）：
+  ```yaml
+  assets:
+    - name: tpcds-sf1
+      source: remote            # bundled | remote | private
+      uri: https://.../tpcds_sf1.tar.zst
+      sha256: "…"
+      license: TPC-EULA
+      version: "1"
+  ```
+- **`core/assets.py`**：`AssetSpec` + `resolve_asset(spec, base_dir, cache_dir, private_resolver)`；`WorkloadEngine.resolve_assets()` 在 run 前解析全部资产，把 `{name: 本地路径}` 通过 `params["assets"]` 暴露给 workload。
+- **可复现不泄密**：`describe()` 把资产 `identity()`（`name@version + sha256`）折进 config_hash——**只存指纹，不存内容**；判分键内容永不入 record。
+- **判分键抗污染**：一个 task 的方法（怎么判）可开源，但其 held-out 键值可声明为 `source: private`——"怎么判"公开、"标准答案"私有，天然抗背题。
+- **扩展点**：私有解析器实现 `PrivateAssetResolver`（`name` + `resolve(spec, cache_dir)`），经 `clousight_bench.asset_resolvers` 注册；开源核心不带任何实现。`clousight-bench-pro` 的 `cb-dataservice` 提供 `DataServiceAssetResolver`（`CLOUSIGHT_BENCH_TOKEN` 鉴权 + sha256 校验）。
+
 ## 数据契约与扩展点
 
 `ResultRecord` 承载三条独立通道，互不覆盖，读者按需选取：

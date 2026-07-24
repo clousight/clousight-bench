@@ -149,6 +149,22 @@ class ResultEnricher(ABC):
         """Return the record, possibly with extra metrics / raw annotations."""
 
 
+class PrivateAssetResolver(ABC):
+    """Fetch a private/licensed benchmark asset (dataset, held-out scoring keys).
+
+    Open-core ships NO resolver; commercial packs register one via the
+    ``clousight_bench.asset_resolvers`` entry point (e.g. token-authenticated
+    download from the data service). Given an ``AssetSpec`` with
+    ``source == 'private'``, return a local path to the resolved contents.
+    """
+
+    name: str = "abstract"
+
+    @abstractmethod
+    def resolve(self, spec: Any, cache_dir: Any | None = None) -> Any:
+        """Return a local path (str | Path) to the private asset's contents."""
+
+
 _SECRET_HINTS = ("key", "secret", "token", "password", "credential")
 
 

@@ -82,20 +82,44 @@ class WorkloadEngine:
         return str(self.manifest["version"])
 
     def describe(self) -> dict[str, Any]:
-        """Identity folded into config_hash: name + version + declared metrics."""
+        """Identity folded into config_hash: name + version + declared metrics +
+        asset identities (name@version + sha256, never contents)."""
+        from clousight_bench.core.assets import load_asset_specs
+
         return {
             "workload": self.name,
             "workload_version": self.version,
             "declared_metrics": self.manifest.get("metrics", []),
+            "assets": [s.identity() for s in load_asset_specs(self.manifest)],
         }
+
+    def resolve_assets(self, cache_dir: Path | None = None) -> dict[str, str]:
+        """Resolve every declared asset to a local path (bundled/remote/private).
+
+        Returns {asset_name: path}. Raises NeedLicense for private assets when no
+        licensed resolver is installed -- surfaced before the workload runs."""
+        from clousight_bench.core.assets import load_asset_specs, resolve_asset
+
+        resolved: dict[str, str] = {}
+        for spec in load_asset_specs(self.manifest):
+            path = resolve_asset(spec, base_dir=self.workload_dir, cache_dir=cache_dir)
+            resolved[spec.name] = str(path)
+        return resolved
 
     def run(self, params: dict[str, Any] | None = None, timeout_s: int = 3600) -> WorkloadResult:
         entry = (self.workload_dir / str(self.manifest["entrypoint"])).resolve()
         if not entry.exists():
             raise WorkloadError(f"entrypoint {entry} does not exist")
 
+        # Resolve declared assets up front; expose their local paths to the
+        # workload under params["assets"] (name -> path).
+        payload = dict(params or {})
+        assets = self.resolve_assets()
+        if assets:
+            payload["assets"] = assets
+
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
-            json.dump(params or {}, f, ensure_ascii=False)
+            json.dump(payload, f, ensure_ascii=False)
             params_file = f.name
 
         proc = subprocess.run(

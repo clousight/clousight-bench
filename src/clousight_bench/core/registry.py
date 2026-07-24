@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from importlib.metadata import entry_points
 
-from clousight_bench.core.plugin import DomainPack, ResultEnricher
+from clousight_bench.core.plugin import DomainPack, PrivateAssetResolver, ResultEnricher
 
 ENTRY_POINT_GROUP = "clousight_bench.domains"
 ENRICHER_ENTRY_POINT_GROUP = "clousight_bench.enrichers"
+ASSET_RESOLVER_ENTRY_POINT_GROUP = "clousight_bench.asset_resolvers"
 
 
 class RegistryError(RuntimeError):
@@ -49,3 +50,18 @@ def load_enrichers() -> list[ResultEnricher]:
             raise RegistryError(f"entry point {ep.name!r} is not a ResultEnricher")
         enrichers.append(inst)
     return sorted(enrichers, key=lambda e: e.name)
+
+
+def load_asset_resolvers() -> list[PrivateAssetResolver]:
+    """Instantiate every installed private asset resolver, ordered by name.
+
+    Open-core ships none, so this is empty until a commercial pack is installed
+    -> private assets raise NeedLicense with a clear message."""
+    resolvers: list[PrivateAssetResolver] = []
+    for ep in entry_points(group=ASSET_RESOLVER_ENTRY_POINT_GROUP):
+        cls = ep.load()
+        inst = cls()
+        if not isinstance(inst, PrivateAssetResolver):
+            raise RegistryError(f"entry point {ep.name!r} is not a PrivateAssetResolver")
+        resolvers.append(inst)
+    return sorted(resolvers, key=lambda r: r.name)
