@@ -68,8 +68,17 @@ Reports never blend dimensions into one score.
 **前置校验阶段（PREFLIGHT）**：上述校验不仅是独立命令，还是**生命周期的一个阶段**。`core/preflight.py` 提供 `Check` / `PreflightReport` 与可复用校验函数（`credential_check` / `sdk_check` / `mock_reachable_check`），`doctor` 与 orchestrator **共用同一批函数**（单一真源）。
 
 - `ProviderAdapter.preflight() -> PreflightReport`：默认校验凭证 + provider SDK。跨域可用。
-- `AgentRuntimeAdapter.preflight()`：`super()` 之上，对**真云平台**（provider 非空）追加 `mock_base_url` 可达校验 + `check_permissions()`（默认返回 WARNING「未验证」；接真 adapter 覆写为 STS GetCallerIdentity / RAM dry-run 等廉价鉴权调用，返回 CRITICAL）。local-sim（provider 为空、自托管 mock）不加这两项，永远通过。
-- orchestrator 在 RESOLVE 之后、SETUP 之前跑 `adapter.preflight()`；任一 CRITICAL 失败即**早退**（不 provision），落一条 `ok=False`、`metrics.preflight_ok=False`、`error="preflight failed: ..."`、`notes=` 清单的记录。`--skip-preflight` 关闭该 gate。
+- `AgentRuntimeAdapter.preflight(task)`：`super()` 之上，对**真云平台**（provider 非空）追加 `mock_base_url` 可达校验 + `check_permissions(task)`。local-sim（provider 为空、自托管 mock）不加这两项，永远通过。
+- orchestrator 在 RESOLVE 之后、SETUP 之前跑 `adapter.preflight(task)`；任一 CRITICAL 失败即**早退**（不 provision），落一条 `ok=False`、`metrics.preflight_ok=False`、`error="preflight failed: ..."`、`notes=` 清单的记录。`--skip-preflight` 关闭该 gate。
+
+### 最小权限：(benchmark × 云) 矩阵映射
+
+不同 benchmark 对不同云依赖的最小权限不同，因此权限校验**按 task 映射**，职责拆成两侧：
+
+- **Task 声明 WHAT**：`Task.required_permissions: tuple[str, ...]` 列出**抽象能力令牌**（与云无关）。令牌定义在 `domains/agent_runtime/permissions.py`：`session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`。当前五维声明：T1.2=`session:create,session:state`；T1.3=`session:create,tool:invoke`；T2.1=`tool:register`；T4.1=`session:create,tool:invoke,trace:read`；T4.2=`session:create,tool:invoke,trace:export`。
+- **Adapter 说 HOW + 验**：每个真云 adapter 定义 `PERMISSION_MAP`（令牌 → 该云的具体最小 IAM/RAM 动作），`required_actions(task)` 把 task 的令牌解析为该云动作集，`_probe_permissions(actions)` 做真实鉴权（默认 `None`=未验证 → WARNING 并列出「本次 benchmark 在该云所需的最小动作」；接真 adapter 覆写为 STS GetCallerIdentity / RAM policy 模拟 / dry-run，返回 `(ok, missing)` → 缺失即 CRITICAL 阻断）。
+
+于是「本次运行的最小权限」= adapter 对 task 令牌的映射；**加维度**只需在 Task 上声明令牌，**加云**只需在 Adapter 上补 `PERMISSION_MAP`，互不侵入。`csbench doctor --domain <d> --platform <p> --task <t>` 直接打印该 (benchmark×云) 的最小动作清单。
 
 ## 数据契约与扩展点
 

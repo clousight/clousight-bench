@@ -15,6 +15,7 @@ from urllib import request
 
 from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
 from clousight_bench.domains.agent_runtime import openinference
+from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
     CapabilityNotSupported,
@@ -36,6 +37,7 @@ class TraceCompletenessTask(Task):
     task_id = "T4.1"
     title = "Trace span completeness (OpenInference)"
     evidence_layer = "C"
+    required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE, perm.TRACE_READ)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {

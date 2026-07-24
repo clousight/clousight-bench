@@ -70,32 +70,80 @@ class AgentRuntimeAdapter(ProviderAdapter):
     def mock_base_url(self, value: str) -> None:
         self.target["mock_base_url"] = value
 
-    def preflight(self) -> Any:
+    # Per-cloud map: abstract capability token -> concrete minimal cloud actions.
+    # Each real adapter overrides this; local-sim leaves it empty (no cloud perms).
+    PERMISSION_MAP: dict[str, list[str]] = {}
+
+    def preflight(self, task: Any | None = None) -> Any:
         """Credentials + SDK (from core) plus agent-runtime specifics: for a
         real cloud run the pinned mock universe must be reachable and the
-        identity must have the needed permissions. local-sim (provider-less,
-        self-hosted mock) adds neither, so it always passes."""
+        identity must have the *minimal permissions this specific benchmark
+        needs*. local-sim (provider-less, self-hosted mock) adds neither, so it
+        always passes."""
         from clousight_bench.core import preflight as pf
         from clousight_bench.core.credentials import infer_provider
 
-        report = super().preflight()
+        report = super().preflight(task)
         provider = infer_provider(self.target, self.name)
         if provider is not None:  # real cloud platform
             report.add(pf.mock_reachable_check(str(self.target.get("mock_base_url", ""))))
-            report.add(*self.check_permissions())
+            report.add(*self.check_permissions(task))
         return report
 
-    def check_permissions(self) -> list[Any]:
-        """Probe that the resolved identity has the permissions the tasks need.
+    def required_actions(self, task: Any | None) -> tuple[list[str], list[str]]:
+        """Map a task's abstract permission tokens to this cloud's concrete
+        minimal actions. Returns (actions, unmapped_tokens)."""
+        tokens = list(getattr(task, "required_permissions", ()) or ())
+        actions: list[str] = []
+        unmapped: list[str] = []
+        for token in tokens:
+            mapped = self.PERMISSION_MAP.get(token)
+            if mapped is None:
+                unmapped.append(token)
+            else:
+                actions.extend(mapped)
+        return list(dict.fromkeys(actions)), unmapped  # dedupe, preserve order
 
-        Default: not verified (a skeleton can't call the cloud). A wired adapter
-        overrides this to make a cheap identity/authorization call (e.g. STS
-        GetCallerIdentity, a dry-run describe) and return CRITICAL checks."""
-        from clousight_bench.core.preflight import WARNING, Check
+    def _probe_permissions(self, actions: list[str]) -> tuple[bool, list[str]] | None:
+        """Verify the resolved identity actually holds ``actions``.
 
-        return [Check("permissions", ok=True, severity=WARNING,
-                      detail="not verified by this adapter",
-                      remediation="wired adapters verify identity/permissions before load")]
+        Return (ok, missing) after a cheap dry-run / authorization-simulation
+        call, or None if this adapter cannot verify (skeleton). A wired adapter
+        overrides this (e.g. AWS ``iam:SimulatePrincipalPolicy`` / a dry-run
+        describe; Aliyun RAM policy check)."""
+        return None
+
+    def check_permissions(self, task: Any | None = None) -> list[Any]:
+        """Check exactly the minimal permissions this benchmark needs on this
+        cloud. The required set is a (benchmark x cloud) mapping: the task's
+        capability tokens resolved through this adapter's PERMISSION_MAP."""
+        from clousight_bench.core.preflight import CRITICAL, WARNING, Check
+
+        if task is None:
+            return [Check("permissions", ok=True, severity=WARNING,
+                          detail="no task context (run-level check only)")]
+        actions, unmapped = self.required_actions(task)
+        checks: list[Any] = []
+        if unmapped:
+            checks.append(Check("permissions:mapping", ok=False, severity=WARNING,
+                                detail=f"no {self.name} mapping for tokens {unmapped}",
+                                remediation="add these to the adapter's PERMISSION_MAP"))
+        label = f"permissions[{getattr(task, 'task_id', '?')}]"
+        probe = self._probe_permissions(actions)
+        if probe is None:  # skeleton: surface the minimal action list, don't block
+            checks.append(Check(label, ok=True, severity=WARNING,
+                                detail=f"needs {actions or 'none'} — not verified by this adapter",
+                                remediation="a wired adapter verifies via dry-run/policy simulation"))
+        else:
+            ok, missing = probe
+            if ok:
+                checks.append(Check(label, ok=True, severity=CRITICAL,
+                                    detail=f"identity holds {actions or 'none'}"))
+            else:
+                checks.append(Check(label, ok=False, severity=CRITICAL,
+                                    detail=f"missing {missing}",
+                                    remediation=f"grant the identity: {', '.join(missing)}"))
+        return checks
 
     @abstractmethod
     def create_session(self, spec: dict[str, Any] | None = None) -> str:

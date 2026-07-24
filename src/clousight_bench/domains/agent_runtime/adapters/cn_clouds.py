@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
     InvocationTrace,
@@ -40,6 +41,15 @@ class AliyunAgentRunAdapter(AgentRuntimeAdapter):
 
     name = "aliyun-agentrun"
     DOCS = "https://help.aliyun.com/ (AgentRun)"
+    # Abstract capability token -> Aliyun RAM action(s) (minimal per benchmark).
+    PERMISSION_MAP = {
+        perm.SESSION_CREATE: ["agentrun:CreateSession", "agentrun:DeleteSession"],
+        perm.SESSION_STATE: ["agentrun:PutSessionState", "agentrun:GetSessionState"],
+        perm.TOOL_INVOKE: ["agentrun:InvokeAgent"],
+        perm.TOOL_REGISTER: ["agentrun:RegisterTool"],
+        perm.TRACE_READ: ["agentrun:GetTrace"],
+        perm.TRACE_EXPORT: ["agentrun:ExportTrace"],
+    }
 
     def create_session(self, spec: dict[str, Any] | None = None) -> str:
         raise _NotWiredError(self.name, self.DOCS)
@@ -56,6 +66,15 @@ class HuaweiAgentArtsAdapter(AgentRuntimeAdapter):
 
     name = "huawei-agentarts"
     DOCS = "https://support.huaweicloud.com/ (AgentArts)"
+    # Abstract capability token -> Huawei IAM action(s) (minimal per benchmark).
+    PERMISSION_MAP = {
+        perm.SESSION_CREATE: ["agentarts:session:create", "agentarts:session:delete"],
+        perm.SESSION_STATE: ["agentarts:session:putState", "agentarts:session:getState"],
+        perm.TOOL_INVOKE: ["agentarts:agent:invoke"],
+        perm.TOOL_REGISTER: ["agentarts:tool:register"],
+        perm.TRACE_READ: ["agentarts:trace:get"],
+        perm.TRACE_EXPORT: ["agentarts:trace:export"],
+    }
 
     def create_session(self, spec: dict[str, Any] | None = None) -> str:
         raise _NotWiredError(self.name, self.DOCS)
@@ -74,6 +93,15 @@ class VolcengineAgentKitAdapter(AgentRuntimeAdapter):
 
     name = "volcengine-agentkit"
     DOCS = "https://www.volcengine.com/docs/86681 (AgentKit)"
+    # Abstract capability token -> Volcengine IAM action(s) (minimal per benchmark).
+    PERMISSION_MAP = {
+        perm.SESSION_CREATE: ["agentkit:CreateSession", "agentkit:DeleteSession"],
+        perm.SESSION_STATE: ["agentkit:PutSessionState", "agentkit:GetSessionState"],
+        perm.TOOL_INVOKE: ["agentkit:InvokeAgent"],
+        perm.TOOL_REGISTER: ["agentkit:RegisterTool"],
+        perm.TRACE_READ: ["agentkit:GetTrace"],
+        perm.TRACE_EXPORT: ["agentkit:ExportTrace"],
+    }
 
     def describe(self) -> dict[str, Any]:
         desc = super().describe()

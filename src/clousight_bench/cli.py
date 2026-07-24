@@ -145,7 +145,11 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 def _cmd_doctor(args: argparse.Namespace) -> int:
     """Preflight, standalone. Shares the exact check functions the orchestrator
-    runs before a real run (single source of truth in core/preflight.py)."""
+    runs before a real run (single source of truth in core/preflight.py).
+
+    With --domain/--platform (and optionally --task) it runs the *adapter's*
+    full preflight, so you see the minimal permissions that specific benchmark
+    needs on that cloud -- the (benchmark x cloud) matrix."""
     from clousight_bench.core import preflight as pf
     from clousight_bench.core.credentials import PROVIDER_CREDENTIALS, infer_provider
 
@@ -156,6 +160,30 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     if args.provider:
         target["provider"] = args.provider
 
+    # Full adapter preflight when we can resolve a domain + platform.
+    if args.domain and args.platform:
+        from clousight_bench.core.registry import get_domain
+
+        pack = get_domain(args.domain)
+        adapter_classes = pack.adapters()
+        if args.platform not in adapter_classes:
+            print(f"\u2717 platform — {args.platform!r} not in domain {args.domain!r}: "
+                  f"{', '.join(sorted(adapter_classes))}")
+            return 1
+        adapter = adapter_classes[args.platform](target)
+        task = None
+        if args.task:
+            task_classes = pack.tasks()
+            if args.task not in task_classes:
+                print(f"\u2717 task — {args.task!r} not in domain {args.domain!r}: "
+                      f"{', '.join(sorted(task_classes))}")
+                return 1
+            task = task_classes[args.task]()
+        report = adapter.preflight(task)
+        print(report.format())
+        return 0 if report.ok else 1
+
+    # Config/provider-only mode (no adapter): creds + sdk + mock.
     provider = infer_provider(target, args.platform)
     if provider is None:
         print(f"\u2717 provider — unknown; set target.provider or pass --provider "
@@ -166,8 +194,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     report.add(pf.Check("provider", ok=True, detail=provider))
     report.add(pf.credential_check(target, args.platform))
     report.add(pf.sdk_check(target, args.platform))
-    if provider is not None:
-        report.add(pf.mock_reachable_check(str(target.get("mock_base_url", ""))))
+    report.add(pf.mock_reachable_check(str(target.get("mock_base_url", ""))))
 
     print(report.format())
     return 0 if report.ok else 1
@@ -206,6 +233,8 @@ def main(argv: list[str] | None = None) -> int:
     doc_p.add_argument("--config", help="YAML config to check")
     doc_p.add_argument("--provider", help="provider override (aws/aliyun/huawei/volcengine)")
     doc_p.add_argument("--platform", help="platform name, used to infer provider")
+    doc_p.add_argument("--domain", help="domain; with --platform runs the adapter's full preflight")
+    doc_p.add_argument("--task", help="task id; check the minimal permissions THIS benchmark needs")
 
     args = parser.parse_args(argv)
     if args.command == "list":

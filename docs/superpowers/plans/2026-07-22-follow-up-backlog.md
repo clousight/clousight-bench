@@ -37,6 +37,12 @@
   - orchestrator 在 provision 前跑 preflight，CRITICAL 失败即早退落 `ok=False` 记录；`csbench run --skip-preflight` 可关闭。
   - 12 个新测试（report 逻辑 / 各 check / 真云早退 vs skip 后中途失败 / local-sim 正常跑）。
   - 待办（接真 adapter 时）：把各真云 adapter 的 `check_permissions()` 覆写为真实鉴权调用（STS GetCallerIdentity / RAM dry-run / GetCallerIdentity 等）——归入 A 组。
+- [x] **权限按 (benchmark × 云) 映射**（`clousight-bench`）→ **已实现**（2026-07-24）
+  - `permissions.py` 抽象能力令牌；`Task.required_permissions` 声明每维所需令牌（与云无关）。
+  - 各真云 adapter `PERMISSION_MAP`（令牌 → 该云具体最小动作）；`required_actions(task)` + `_probe_permissions(actions)`（默认 WARNING 列最小动作，接真覆写为鉴权调用 → 缺失 CRITICAL）。
+  - orchestrator/preflight 传入 task；`csbench doctor --domain/--platform/--task` 打印该 (benchmark×云) 最小动作清单。
+  - 6 个新测试（跨 task / 跨云动作不同 / 未映射令牌告警 / 列最小动作 / 模拟已接真时缺失即 CRITICAL）。
+  - 待办：接真时把 `_probe_permissions` 覆写为各云真实策略模拟/dry-run——归入 A 组。
 
 ## C. 评审 Minor（来自 2026-07-21 整体评审）— **已全部清理**
 

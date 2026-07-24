@@ -60,7 +60,7 @@ def execute(
 
     # PREFLIGHT: fail fast before provisioning anything
     if preflight:
-        report = adapter.preflight()
+        report = adapter.preflight(task)
         if not report.ok:
             logger.error("run %s aborted at preflight:\n%s", run_id, report.format())
             record = ResultRecord(

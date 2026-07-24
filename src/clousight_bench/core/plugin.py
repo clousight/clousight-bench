@@ -79,13 +79,17 @@ class ProviderAdapter(ABC):
 
         return resolve_credentials(self.target, platform=self.name)
 
-    def preflight(self) -> Any:
+    def preflight(self, task: Task | None = None) -> Any:
         """Check prerequisites BEFORE provisioning; return a PreflightReport.
 
         The orchestrator runs this first and aborts on any CRITICAL failure, so
         missing credentials / permissions / connectivity surface up front rather
         than mid-run. Default checks credentials + provider SDK; domain adapters
         override to add connectivity / permission probes (calling super()).
+
+        ``task`` (when provided) lets adapters check exactly the *minimal*
+        permissions that specific benchmark needs on this cloud, since the
+        required permission set is a (benchmark x cloud) matrix.
         """
         from clousight_bench.core import preflight as pf
 
@@ -101,6 +105,10 @@ class Task(ABC):
     task_id: str = "abstract"
     title: str = ""
     evidence_layer: str = "C"
+    # Abstract capability tokens this benchmark exercises (cloud-independent).
+    # The adapter maps these to each cloud's concrete minimal permissions and
+    # verifies them at preflight. Empty = no special permissions declared.
+    required_permissions: tuple[str, ...] = ()
 
     @abstractmethod
     def config(self, params: dict[str, Any]) -> dict[str, Any]:

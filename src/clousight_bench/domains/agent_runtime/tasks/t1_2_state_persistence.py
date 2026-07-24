@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
+from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
     CapabilityNotSupported,
@@ -24,6 +25,7 @@ class StatePersistenceTask(Task):
     task_id = "T1.2"
     title = "Session state persistence"
     evidence_layer = "C"
+    required_permissions = (perm.SESSION_CREATE, perm.SESSION_STATE)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id, "probe_state": _PROBE_STATE}

@@ -15,6 +15,7 @@ from typing import Any
 from urllib import request
 
 from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
+from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter, ToolCall
 
 # The agent plan: read prices 5 times (a long-ish tool loop). Fault hits call #3.
@@ -36,6 +37,7 @@ class FaultRecoveryTask(Task):
     task_id = "T1.3"
     title = "Tool-failure recovery"
     evidence_layer = "C"
+    required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {
