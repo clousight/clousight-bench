@@ -44,7 +44,8 @@
   - `clousight-bench-pro` · `cb-dataservice`：`DataServiceAssetResolver`（`CLOUSIGHT_BENCH_TOKEN` 鉴权 + sha256 校验），入口点注册。
   - 16 个新测试（core 12 + pro 4）；architecture 新增「测评集分发（三层）」节。
   - 公开数据集模板：`examples/asset-manifests/`（NYC taxi / SWE-bench Lite / HotpotQA remote + private held-out + bundled）+ README + 3 个解析守卫测试（不下载）。
-  - 待办（接真时）：为各 remote 模板补真实 sha256；数据服务真实下载端点、held-out 判分键实际入库——归入 A 组。
+  - **可跑端到端示例**：`workloads/gsm8k-stats/`（真下载 GSM8K test.jsonl 749KB，sha256 已 pin，MIT，stdlib）→ 下载+校验+缓存+消费，输出 1319 题统计；`tests/test_gsm8k_e2e.py`（离线解析守卫 + 联网端到端，`CLOUSIGHT_BENCH_NETWORK_TESTS=1` 开启）。
+  - 待办（接真时）：为其余 remote 模板（NYC taxi/SWE-bench/HotpotQA）补真实 sha256；数据服务真实下载端点、held-out 判分键实际入库——归入 A 组。
 - [x] **权限按 (benchmark × 云) 映射**（`clousight-bench`）→ **已实现**（2026-07-24）
   - `permissions.py` 抽象能力令牌；`Task.required_permissions` 声明每维所需令牌（与云无关）。
   - 各真云 adapter `PERMISSION_MAP`（令牌 → 该云具体最小动作）；`required_actions(task)` + `_probe_permissions(actions)`（默认 WARNING 列最小动作，接真覆写为鉴权调用 → 缺失 CRITICAL）。

@@ -1,0 +1,23 @@
+name: gsm8k-stats
+version: 0.1.0
+entrypoint: ./run.py
+description: >
+  End-to-end example of the remote asset tier: downloads the real GSM8K test set
+  (grade-school math word problems), verifies its sha256, caches it, and computes
+  corpus statistics. Small (~750 KB), stdlib-only, no cloud account, no extra deps
+  -- the lowest-friction way to exercise download -> checksum -> cache -> consume.
+assets:
+  - name: gsm8k-test
+    source: remote
+    uri: https://raw.githubusercontent.com/openai/grade-school-math/master/grade_school_math/data/test.jsonl
+    sha256: "3730d312f6e3440559ace48831e51066acaca737f6eabec99bccb9e4b3c39d14"
+    license: "MIT (openai/grade-school-math)"
+    version: "test"
+params:
+  limit: { type: integer, default: 0, description: "0 = all problems; >0 = first N" }
+metrics:
+  - num_problems
+  - avg_question_chars
+  - avg_reasoning_steps
+  - final_answer_rate
+  - duration_ms
