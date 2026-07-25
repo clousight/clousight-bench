@@ -59,8 +59,7 @@ jobs:
       - name: Smoke installed wheel outside checkout
         working-directory: /tmp
         run: |
-          /tmp/csbench-wheel/bin/python -c \
-            'import clousight_bench; assert clousight_bench.__version__ == "0.2.0"'
+          /tmp/csbench-wheel/bin/python -c "import importlib.metadata as m, importlib.resources as r, clousight_bench as cb; assert cb.__version__ == m.version('clousight-bench'), (cb.__version__, m.version('clousight-bench')); root = r.files('clousight_bench.resources.workloads'); reqs = [('wordcount-py', 'run.py'), ('gsm8k-stats', 'run.py'), ('ycsb-wrapper', 'run.sh')]; missing = [n for n, e in reqs if not (root.joinpath(n, 'manifest.yaml').is_file() and root.joinpath(n, e).is_file())]; assert not missing, missing; print('wheel version + packaged workloads verified')"
           /tmp/csbench-wheel/bin/csbench list --verbose
           /tmp/csbench-wheel/bin/csbench run \
             --domain agent-runtime --task T1.3 --platform local-sim \
