@@ -36,8 +36,36 @@ def atomic_write_text(path: Path, text: str) -> Path:
 
 def emergency_write_text(name: str, text: str) -> Path:
     """Write ``text`` into the system temp directory and return its absolute path."""
+    if (
+        not name
+        or name in {".", ".."}
+        or Path(name).is_absolute()
+        or Path(name).name != name
+        or "/" in name
+        or "\\" in name
+    ):
+        raise ValueError("emergency file name must be a safe basename")
+
     directory = Path(tempfile.gettempdir()).resolve() / EMERGENCY_DIR_NAME
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / name
-    path.write_text(text, encoding="utf-8")
+
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    directory_fd = os.open(directory, directory_flags)
+    try:
+        file_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+        file_flags |= getattr(os, "O_NOFOLLOW", 0)
+        file_fd = os.open(name, file_flags, 0o600, dir_fd=directory_fd)
+        try:
+            with os.fdopen(file_fd, "w", encoding="utf-8") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+        except BaseException:
+            os.unlink(name, dir_fd=directory_fd)
+            raise
+    finally:
+        os.close(directory_fd)
+
     return path.resolve()

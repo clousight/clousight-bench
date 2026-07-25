@@ -53,3 +53,53 @@ def test_emergency_write_returns_an_absolute_path_under_the_temp_dir(
     assert path.parent.name == EMERGENCY_DIR_NAME
     assert path.parent.parent == Path(tmp_path).resolve()
     assert path.read_text(encoding="utf-8") == '{"x":1}'
+
+
+@pytest.mark.parametrize("name", ["../escaped.json", "nested/escaped.json"])
+def test_emergency_write_rejects_path_traversal_and_subpaths(
+    name, tmp_path, monkeypatch
+):
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+
+    with pytest.raises(ValueError, match="basename"):
+        emergency_write_text(name, "unsafe")
+
+    assert not (tmp_path / "escaped.json").exists()
+    assert not (tmp_path / EMERGENCY_DIR_NAME / "nested").exists()
+
+
+def test_emergency_write_rejects_absolute_paths(tmp_path, monkeypatch):
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    target = tmp_path / "absolute.json"
+
+    with pytest.raises(ValueError, match="basename"):
+        emergency_write_text(str(target), "unsafe")
+
+    assert not target.exists()
+
+
+def test_emergency_write_does_not_overwrite_an_existing_file(tmp_path, monkeypatch):
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    directory = tmp_path / EMERGENCY_DIR_NAME
+    directory.mkdir()
+    target = directory / "existing.json"
+    target.write_text("original", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        emergency_write_text(target.name, "replacement")
+
+    assert target.read_text(encoding="utf-8") == "original"
+
+
+def test_emergency_write_does_not_follow_a_symlink(tmp_path, monkeypatch):
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    directory = tmp_path / EMERGENCY_DIR_NAME
+    directory.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text("original", encoding="utf-8")
+    (directory / "linked.json").symlink_to(outside)
+
+    with pytest.raises(FileExistsError):
+        emergency_write_text("linked.json", "replacement")
+
+    assert outside.read_text(encoding="utf-8") == "original"
