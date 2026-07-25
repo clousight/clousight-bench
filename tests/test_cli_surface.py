@@ -126,7 +126,12 @@ def test_doctor_unknown_platform_returns_usage_error(capsys):
     assert "csbench list" in captured.err
 
 
-def test_doctor_skeleton_returns_usage_error(capsys):
+def test_doctor_skeleton_warns_but_still_runs_preflight(capsys):
+    """doctor is diagnostic, not execution: a skeleton adapter must not be a
+    hard usage error here. It should print a clear warning that this platform
+    is a skeleton (wiring / preflight requirements only, never a live check),
+    then still call adapter.preflight(task) so the (benchmark x cloud) minimal
+    permission list is visible before anyone wires the adapter."""
     rc = main(
         [
             "doctor",
@@ -140,6 +145,23 @@ def test_doctor_skeleton_returns_usage_error(capsys):
     )
     captured = capsys.readouterr()
 
-    assert rc == 2
-    assert "skeleton" in captured.err
-    assert "csbench list" in captured.err
+    assert rc != 2
+    assert not captured.err
+    assert "skeleton" in captured.out
+    assert "permissions" in captured.out
+
+
+def test_doctor_skeleton_without_task_still_shows_wiring_warning(capsys):
+    rc = main(
+        [
+            "doctor",
+            "--domain",
+            "agent-runtime",
+            "--platform",
+            "aliyun-agentrun",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert rc != 2
+    assert "skeleton" in captured.out

@@ -19,7 +19,6 @@ from typing import Any
 import yaml
 
 from clousight_bench.core.errors import (
-    AdapterNotRunnableError,
     UnknownPlatformError,
     UnknownTaskError,
     UserInputError,
@@ -187,7 +186,12 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
     With --domain/--platform (and optionally --task) it runs the *adapter's*
     full preflight, so you see the minimal permissions that specific benchmark
-    needs on that cloud -- the (benchmark x cloud) matrix."""
+    needs on that cloud -- the (benchmark x cloud) matrix.
+
+    A skeleton platform is never rejected here (that hard gate belongs to
+    `csbench run`): doctor prints a warning that it is not implemented and
+    still runs preflight, since the wiring / permission requirements it shows
+    are exactly what a contributor needs before wiring the adapter."""
     from clousight_bench.core import preflight as pf
     from clousight_bench.core.credentials import PROVIDER_CREDENTIALS, infer_provider
 
@@ -211,9 +215,14 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             )
         adapter_cls = adapter_classes[args.platform]
         if not adapter_cls.is_runnable():
-            raise AdapterNotRunnableError(
-                f"platform {args.platform!r} is a skeleton and cannot run; "
-                "choose a reference/wired adapter or implement this adapter first"
+            # doctor is diagnostic, not execution: a skeleton must never look
+            # runnable, but showing its wiring / preflight requirements (creds,
+            # SDK, minimal permissions) is exactly what a contributor needs
+            # before wiring it. `csbench run` keeps the hard skeleton gate.
+            print(
+                f"! {args.platform}: skeleton adapter — not implemented, "
+                "cannot run. Showing wiring / preflight requirements only "
+                "(not a live check of this platform)."
             )
         adapter = adapter_cls(target)
         task = None
