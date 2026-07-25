@@ -45,8 +45,8 @@ The core only orchestrates that lifecycle. Everything product-specific is a plug
 
 | Plugin | One per | Examples |
 |---|---|---|
-| **DomainPack** | product category | `agent-runtime`, `bigdata-emr` (skeleton), database / compute / messaging (planned) |
-| **ProviderAdapter** | (domain, cloud) | `local-sim`, `aliyun-agentrun`, `huawei-agentarts`, `volcengine-agentkit`, `aws-emr` |
+| **DomainPack** | product category | `agent-runtime`; `bigdata-emr` (available: `local-process` reference, `aws-emr` skeleton); database / compute / messaging (planned) |
+| **ProviderAdapter** | (domain, cloud) | `local-sim`, `local-process`, `aliyun-agentrun`, `huawei-agentarts`, `volcengine-agentkit`, `aws-emr` |
 | **WorkloadEngine** | load generator | any language, process boundary: `manifest.yaml` + executable + JSONL on stdout. Wrap YCSB / TPC-DS / OpenMessaging Benchmark / fio instead of reimplementing them. |
 
 Domains register via the `clousight_bench.domains` entry point — third-party packs install like any Python package and appear in `csbench list`.
