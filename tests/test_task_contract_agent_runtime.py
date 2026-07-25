@@ -125,3 +125,94 @@ def test_environment_facts_are_declared_and_non_sensitive():
         "recovery_policy": "auto-retry",
         "max_retries": 3,
     }
+
+
+def test_t2_1_execute_records_each_registration_path_attempt():
+    from clousight_bench.domains.agent_runtime.tasks.t2_1_tool_registration import (
+        ToolRegistrationTask,
+    )
+
+    task = ToolRegistrationTask()
+    bundle = _run(task, LocalSimAdapter({"tool_registration": ["mcp"]}))
+    assert bundle.observations["support"] == {
+        "mcp": True,
+        "openapi": False,
+        "native": False,
+    }
+    assert "supported_count" not in bundle.observations
+
+
+def test_t2_1_score_counts_paths_and_flags_a_runtime_with_none():
+    from clousight_bench.domains.agent_runtime.tasks.t2_1_tool_registration import (
+        ToolRegistrationTask,
+    )
+
+    task = ToolRegistrationTask()
+    result = task.score(_run(task, LocalSimAdapter({"tool_registration": ["mcp"]})))
+    assert result.measurements["supported_paths"].value == ["mcp"]
+    assert result.measurements["supported_count"].value == 1
+    assert result.measurements["openapi"].value is False
+    assert result.findings == []
+    assert result.unsupported is False
+
+    none_result = task.score(_run(task, LocalSimAdapter({"tool_registration": []})))
+    assert none_result.unsupported is True
+    assert [f.code for f in none_result.findings] == [
+        "agent_runtime.no_tool_registration_path"
+    ]
+
+
+def test_t4_1_score_flags_missing_span_kinds():
+    from clousight_bench.domains.agent_runtime.tasks.t4_1_trace_completeness import (
+        TraceCompletenessTask,
+    )
+
+    task = TraceCompletenessTask()
+    full = task.score(_run(task, LocalSimAdapter()))
+    assert full.measurements["span_completeness"].value == 1.0
+    assert full.measurements["kinds_missing"].value == []
+    assert full.findings == []
+
+    partial = task.score(
+        _run(task, LocalSimAdapter({"trace": {"completeness": "partial"}}))
+    )
+    assert partial.measurements["span_completeness"].value < 1.0
+    assert "TOOL" in partial.measurements["kinds_missing"].value
+    assert [(f.code, f.severity) for f in partial.findings] == [
+        ("agent_runtime.trace_spans_missing", "warning")
+    ]
+
+
+def test_t4_1_absent_trace_api_is_unsupported():
+    from clousight_bench.domains.agent_runtime.adapters.base import CapabilityNotSupported
+    from clousight_bench.domains.agent_runtime.tasks.t4_1_trace_completeness import (
+        TraceCompletenessTask,
+    )
+
+    class _NoTrace(LocalSimAdapter):
+        def get_trace(self, session_id):
+            raise CapabilityNotSupported("get_trace")
+
+    task = TraceCompletenessTask()
+    result = task.score(_run(task, _NoTrace()))
+    assert result.unsupported is True
+    assert result.measurements["trace_capability"].value == "unsupported"
+    assert result.measurements["span_completeness"].value == 0.0
+    assert [f.code for f in result.findings] == ["agent_runtime.trace_api_absent"]
+
+
+def test_t4_2_score_validates_the_otel_payload():
+    from clousight_bench.domains.agent_runtime.tasks.t4_2_otel_export import OtelExportTask
+
+    task = OtelExportTask()
+    ok = task.score(_run(task, LocalSimAdapter()))
+    assert ok.measurements["otel_export_supported"].value is True
+    assert ok.measurements["otel_valid"].value is True
+    assert ok.measurements["span_count"].value >= 1
+    assert ok.findings == []
+
+    absent = task.score(_run(task, LocalSimAdapter({"trace": {"otel_export": False}})))
+    assert absent.unsupported is True
+    assert absent.measurements["otel_export_supported"].value is False
+    assert absent.measurements["otel_valid"].value is False
+    assert [f.code for f in absent.findings] == ["agent_runtime.otel_export_absent"]
