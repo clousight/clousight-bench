@@ -26,6 +26,8 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
 
 class LocalSimAdapter(AgentRuntimeAdapter):
     name = "local-sim"
+    status = "reference"
+    provider = None
 
     def __init__(self, target: dict[str, Any] | None = None) -> None:
         super().__init__(target)

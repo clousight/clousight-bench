@@ -41,7 +41,7 @@ CLI (csbench)
 | `DomainPack` | declare tasks + adapters for a product category | `clousight_bench.domains` entry point |
 | `ProviderAdapter` | provision / talk to / tear down one system under test | referenced by a DomainPack |
 | `Task` | one benchmark dimension: config (hashed), run, score, evidence layer | referenced by a DomainPack |
-| `WorkloadEngine` | run a manifest-described load generator as a subprocess | `workloads/<name>/manifest.yaml` |
+| `WorkloadEngine` | run a manifest-described load generator as a subprocess | `src/clousight_bench/resources/workloads/<name>/manifest.yaml`, resolved via `core/resources.py::reference_workload_path()` |
 
 Built-in and third-party (including closed-source commercial) packs load
 identically — installing a package or dropping in a workload directory is enough.
@@ -54,7 +54,21 @@ Reports never blend dimensions into one score.
 ## Current domains
 
 - `agent-runtime` — sessions, tool calling, fault recovery, observability. Five dimensions implemented (all runnable on `local-sim`): T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace span completeness (OpenInference) · T4.2 OTel export compat. Capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
-- `bigdata-emr` — skeleton proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol.
+- `bigdata-emr` — minimal domain pack proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol. (This is a small task/adapter surface, not the `skeleton` `AdapterStatus` value — its `local-process` adapter is `reference`; only its `aws-emr` adapter is `skeleton`.)
+
+## 0.2 Developer Preview readiness
+
+- `reference` and `wired` adapters can execute.
+- `experimental` adapters can execute with preview caveats.
+- `skeleton` adapters are discoverable but rejected before preflight.
+- Current runnable references are `local-sim` and `local-process`; no real-cloud
+  adapter is wired.
+- Bundled workloads live in `clousight_bench.resources.workloads` and are
+  resolved with `core.resources.reference_workload_path()`, so wheel and
+  editable installs use the same files.
+
+Phase 1A retains ResultRecord schema `1.0` and plugin API `1.0`. Their `0.2`
+replacement is designed but is not implemented until Phase 1B/1D.
 
 ## 凭证与上手（便捷层）
 
@@ -137,4 +151,12 @@ run_id | domain | task_id | platform | config_hash | series | t | value | unit
 
 **扩展点**：`clousight_bench.enrichers` entry-point group 承载 `ResultEnricher` 子类——`name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`。`orchestrator.execute(spec, results_dir=None, enrich=True)` 在构造完 `record`、`_persist` 之前，按 `registry.load_enrichers()` 返回的列表（按 `name` 排序，确定性执行顺序）依次调用。核心不带任何 enricher 实现（如成本预估）——商业插件通过 entry point 注入；CLI `csbench run --no-enrich` 可跳过整个链路。
 
-**插件兼容契约**：`clousight_bench.PLUGIN_API_VERSION = "1.0"`（SemVer）。当 schema 字段、entry-point group 名、`ResultEnricher`/`ResultStore` 签名发生不兼容变更时才升 MAJOR；商业插件的 `pyproject.toml` 应 pin `clousight-bench>=1.0,<2.0`。
+**插件兼容契约**：`clousight_bench.PLUGIN_API_VERSION = "1.0"`（SemVer）。当 schema 字段、entry-point group 名、`ResultEnricher`/`ResultStore` 签名发生不兼容变更时才升 MAJOR。**包版本与插件 API 版本是两个独立维度**：`clousight_bench.__version__`（当前 `0.2.0`）随每次发布递增，`PLUGIN_API_VERSION` 只在插件面发生不兼容变更时才动，二者不同步演进。Phase 1A 的商业插件 `pyproject.toml` 按当前包版本 pin `clousight-bench>=0.2,<0.3`（`>=1.0,<2.0` 是早期设计文档里按 `PLUGIN_API_VERSION` 主版本设想的目标态写法，尚未随 0.2 开发者预览调整回真实包版本，此处更正）。
+
+**Pro 三个扩展边界**（由 `clousight-bench-pro` 通过 entry point 注入；开源核心不携带任何实现）：
+
+| 接口 | 职责 | Phase 1A 状态 |
+|---|---|---|
+| `ResultEnricher`（`core/plugin.py`） | 对已生成的 `ResultRecord` 追加派生指标（如成本估算） | 已实现：`clousight_bench.enrichers` entry point，`registry.load_enrichers()` 加载 |
+| `PrivateAssetResolver`（`core/plugin.py`） | 解析私有/授权资产（数据集、held-out 判分键） | 已实现：`clousight_bench.asset_resolvers` entry point；`cb-dataservice` 的 `DataServiceAssetResolver` 已注册 |
+| `ResultPublisher` | 可选的结果发布/签名/团队报告 | **保留/计划中的第三边界，Phase 1A 未实现**——仅见于设计文档（`docs/superpowers/specs/2026-07-25-open-source-core-hardening-design.md`），核心未定义该抽象，Pro 也未注册任何实现 |

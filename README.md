@@ -4,6 +4,24 @@
 
 > Clousight Bench is the measuring stick of Clousight: open methods anyone can reproduce; evidence-graded results, never a blended vanity score.
 
+> **0.2.0 Developer Preview.** The local reference baselines are runnable.
+> Real-cloud adapters are visible for contributors but are not wired yet.
+
+Run `csbench list --verbose` to inspect task metadata and adapter readiness.
+
+| Adapter | Status | Runnable |
+|---|---|---|
+| `local-sim` | reference | yes |
+| `local-process` | reference | yes |
+| `aliyun-agentrun` | skeleton | no |
+| `huawei-agentarts` | skeleton | no |
+| `volcengine-agentkit` | skeleton | no |
+| `aws-emr` | skeleton | no |
+
+Adapter status is part of the public contract:
+`reference` and `wired` can run; `experimental` can run with preview caveats;
+`skeleton` is discoverable for contributors but is rejected before preflight.
+
 ## The reproducibility contract (read this first)
 
 Every number this framework produces is classified before you trust it:
@@ -27,8 +45,8 @@ The core only orchestrates that lifecycle. Everything product-specific is a plug
 
 | Plugin | One per | Examples |
 |---|---|---|
-| **DomainPack** | product category | `agent-runtime`, `bigdata-emr` (skeleton), database / compute / messaging (planned) |
-| **ProviderAdapter** | (domain, cloud) | `local-sim`, `aliyun-agentrun`, `huawei-agentarts`, `volcengine-agentkit`, `aws-emr` |
+| **DomainPack** | product category | `agent-runtime`; `bigdata-emr` (available: `local-process` reference, `aws-emr` skeleton); database / compute / messaging (planned) |
+| **ProviderAdapter** | (domain, cloud) | `local-sim`, `local-process`, `aliyun-agentrun`, `huawei-agentarts`, `volcengine-agentkit`, `aws-emr` |
 | **WorkloadEngine** | load generator | any language, process boundary: `manifest.yaml` + executable + JSONL on stdout. Wrap YCSB / TPC-DS / OpenMessaging Benchmark / fio instead of reimplementing them. |
 
 Domains register via the `clousight_bench.domains` entry point — third-party packs install like any Python package and appear in `csbench list`.
@@ -47,6 +65,9 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/csbench run --domain agent-runtime --task T1.3 --platform local-sim
 .venv/bin/csbench run --domain agent-runtime --task T1.3 --platform local-sim \
     --config configs/local-sim.fail-fast.yaml
+
+# J1.1 wordcount through the packaged local-process workload:
+.venv/bin/csbench run --domain bigdata-emr --task J1.1 --platform local-process
 
 # aggregate everything under results/ into a comparison report
 .venv/bin/csbench report
@@ -96,7 +117,8 @@ for your own account, network and region. That is the point.
 - [x] Onboarding: `csbench init` (scaffold private config + `.env.example`, auto-gitignored) and `csbench doctor` (preflight credentials + connectivity); credentials reuse the cloud's default chain (env / profile / role), never stored in configs
 - [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, **five dimensions** end-to-end on `local-sim` — T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace completeness (OpenInference) · T4.2 OTel export
 - [ ] `agent-runtime`: wire aliyun-agentrun / huawei-agentarts / volcengine-agentkit adapters (skeletons in-tree)
-- [x] `bigdata-emr` skeleton: J1.1 wordcount smoke via the cross-language workload protocol, `local-process` adapter, `aws-emr` Terraform-backed adapter skeleton
+- [x] `bigdata-emr`: J1.1 wordcount smoke via the cross-language workload protocol and `local-process` reference adapter
+- [ ] `bigdata-emr`: wire the `aws-emr` Terraform-backed adapter (skeleton in-tree)
 - [ ] database / compute / messaging domain packs
 
 ## Contributing

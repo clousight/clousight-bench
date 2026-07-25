@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from importlib.metadata import entry_points
 
+from clousight_bench.core.errors import UnknownDomainError, UserInputError
 from clousight_bench.core.plugin import DomainPack, PrivateAssetResolver, ResultEnricher
 
 ENTRY_POINT_GROUP = "clousight_bench.domains"
@@ -16,7 +17,7 @@ ENRICHER_ENTRY_POINT_GROUP = "clousight_bench.enrichers"
 ASSET_RESOLVER_ENTRY_POINT_GROUP = "clousight_bench.asset_resolvers"
 
 
-class RegistryError(RuntimeError):
+class RegistryError(UserInputError):
     pass
 
 
@@ -36,7 +37,9 @@ def get_domain(name: str) -> DomainPack:
     domains = load_domains()
     if name not in domains:
         available = ", ".join(sorted(domains)) or "<none installed>"
-        raise RegistryError(f"domain {name!r} not found. Installed domains: {available}")
+        raise UnknownDomainError(
+            f"domain {name!r} not found. Installed domains: {available}"
+        )
     return domains[name]
 
 

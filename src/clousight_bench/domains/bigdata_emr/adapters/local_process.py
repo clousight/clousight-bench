@@ -17,6 +17,8 @@ from clousight_bench.domains.bigdata_emr.adapters.base import BigDataClusterAdap
 
 class LocalProcessAdapter(BigDataClusterAdapter):
     name = "local-process"
+    status = "reference"
+    provider = None
 
     def submit(self, workload_dir: str, params: dict[str, Any]) -> WorkloadResult:
         engine = WorkloadEngine(Path(workload_dir))

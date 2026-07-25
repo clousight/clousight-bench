@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
+from clousight_bench.core.resources import reference_workload_path
 from clousight_bench.domains.bigdata_emr.adapters.base import BigDataClusterAdapter
 
 # Which workload directory (cross-language, manifest-described) this task drives.
@@ -27,13 +28,11 @@ class WordcountSmokeTask(Task):
     evidence_layer = "C"
 
     def _workload_dir(self, params: dict[str, Any]) -> Path:
-        # Resolve relative to the repo's workloads/ dir unless an absolute path is given.
-        wl = params.get("workload", DEFAULT_WORKLOAD)
-        p = Path(wl)
-        if p.is_absolute():
-            return p
-        repo_root = Path(__file__).resolve().parents[5]
-        return repo_root / "workloads" / wl
+        workload = str(params.get("workload", DEFAULT_WORKLOAD))
+        path = Path(workload)
+        if path.is_absolute():
+            return path
+        return reference_workload_path(workload)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {

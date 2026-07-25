@@ -34,6 +34,8 @@ class _NotWiredError(NotImplementedError):
 
 class AwsEmrAdapter(BigDataClusterAdapter):
     name = "aws-emr"
+    status = "skeleton"
+    provider = "aws"
 
     def describe(self) -> dict[str, Any]:
         desc = super().describe()

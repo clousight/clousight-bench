@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from clousight_bench.core.schema import ResultRecord
 
@@ -43,6 +43,9 @@ class TaskOutput:
     artifacts: list[dict[str, Any]] = field(default_factory=list)
 
 
+AdapterStatus = Literal["reference", "experimental", "wired", "skeleton"]
+
+
 class ProviderAdapter(ABC):
     """Connects the framework to one system under test.
 
@@ -53,9 +56,15 @@ class ProviderAdapter(ABC):
     """
 
     name: str = "abstract"
+    status: AdapterStatus = "experimental"
+    provider: str | None = None
 
     def __init__(self, target: dict[str, Any] | None = None) -> None:
         self.target = target or {}
+
+    @classmethod
+    def is_runnable(cls) -> bool:
+        return cls.status != "skeleton"
 
     def setup(self) -> None:  # noqa: B027 - optional hook
         """Provision / connect. Default no-op."""
