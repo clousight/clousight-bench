@@ -20,6 +20,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from clousight_bench.core.errors import (
+    AdapterNotRunnableError,
+    UnknownPlatformError,
+    UnknownTaskError,
+)
 from clousight_bench.core.registry import get_domain, load_enrichers
 from clousight_bench.core.schema import ResultRecord, RunSpec, config_hash, new_run_id, utc_now
 from clousight_bench.core.store import ResultStore
@@ -42,12 +47,25 @@ def execute(
     pack = get_domain(spec.domain)
     task_classes = pack.tasks()
     if spec.task_id not in task_classes:
-        raise KeyError(f"task {spec.task_id!r} not in domain {spec.domain!r}: {sorted(task_classes)}")
+        raise UnknownTaskError(
+            f"task {spec.task_id!r} not in domain {spec.domain!r}: {sorted(task_classes)}"
+        )
     adapter_classes = pack.adapters()
     if spec.platform not in adapter_classes:
-        raise KeyError(f"platform {spec.platform!r} not in domain {spec.domain!r}: {sorted(adapter_classes)}")
+        raise UnknownPlatformError(
+            f"platform {spec.platform!r} not in domain {spec.domain!r}: "
+            f"{sorted(adapter_classes)}"
+        )
+
+    adapter_cls = adapter_classes[spec.platform]
+    if not adapter_cls.is_runnable():
+        raise AdapterNotRunnableError(
+            f"platform {spec.platform!r} is a skeleton and cannot run; "
+            "choose a reference/wired adapter or implement this adapter first"
+        )
+
     task = task_classes[spec.task_id]()
-    adapter = adapter_classes[spec.platform](spec.target)
+    adapter = adapter_cls(spec.target)
 
     full_config = {
         "domain": spec.domain,

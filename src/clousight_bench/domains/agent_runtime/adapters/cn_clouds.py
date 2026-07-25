@@ -40,6 +40,8 @@ class AliyunAgentRunAdapter(AgentRuntimeAdapter):
     """Aliyun AgentRun (GA). Sessions map to AgentRun runtime sessions."""
 
     name = "aliyun-agentrun"
+    status = "skeleton"
+    provider = "aliyun"
     DOCS = "https://help.aliyun.com/ (AgentRun)"
     # Abstract capability token -> Aliyun RAM action(s) (minimal per benchmark).
     PERMISSION_MAP = {
@@ -65,6 +67,8 @@ class HuaweiAgentArtsAdapter(AgentRuntimeAdapter):
     """Huawei Cloud AgentArts (GA)."""
 
     name = "huawei-agentarts"
+    status = "skeleton"
+    provider = "huawei"
     DOCS = "https://support.huaweicloud.com/ (AgentArts)"
     # Abstract capability token -> Huawei IAM action(s) (minimal per benchmark).
     PERMISSION_MAP = {
@@ -92,6 +96,8 @@ class VolcengineAgentKitAdapter(AgentRuntimeAdapter):
     ``target['mode'] = 'veadk' | 'generic'`` and fold it into describe()."""
 
     name = "volcengine-agentkit"
+    status = "skeleton"
+    provider = "volcengine"
     DOCS = "https://www.volcengine.com/docs/86681 (AgentKit)"
     # Abstract capability token -> Volcengine IAM action(s) (minimal per benchmark).
     PERMISSION_MAP = {

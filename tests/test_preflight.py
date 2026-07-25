@@ -2,6 +2,9 @@
 from clousight_bench.core import preflight as pf
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.schema import RunSpec
+from clousight_bench.domains.agent_runtime.adapters.cn_clouds import (
+    AliyunAgentRunAdapter,
+)
 
 
 def _clear_aws(monkeypatch, tmp_path):
@@ -66,6 +69,7 @@ def test_real_adapter_preflight_fails_without_prereqs(monkeypatch, tmp_path):
 # --- orchestrator gate: abort BEFORE setup/execute --------------------------
 
 def test_run_aborts_at_preflight_not_midrun(monkeypatch, tmp_path):
+    monkeypatch.setattr(AliyunAgentRunAdapter, "status", "wired")
     _clear_aws(monkeypatch, tmp_path)
     spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun",
                    target={"region": "cn-hangzhou"})
@@ -79,6 +83,7 @@ def test_run_aborts_at_preflight_not_midrun(monkeypatch, tmp_path):
 
 
 def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(AliyunAgentRunAdapter, "status", "wired")
     _clear_aws(monkeypatch, tmp_path)
     spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun",
                    target={"region": "cn-hangzhou"})
