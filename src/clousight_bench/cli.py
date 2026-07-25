@@ -18,12 +18,13 @@ from typing import Any
 
 import yaml
 
+from clousight_bench.core.errors import UserInputError
 from clousight_bench.core.orchestrator import DEFAULT_RESULTS_DIR, execute
 from clousight_bench.core.registry import load_domains
 from clousight_bench.core.schema import RunSpec
 
 
-def _cmd_list(_args: argparse.Namespace) -> int:
+def _cmd_list(args: argparse.Namespace) -> int:
     domains = load_domains()
     if not domains:
         print("no domain packs installed")
@@ -32,9 +33,39 @@ def _cmd_list(_args: argparse.Namespace) -> int:
         print(f"domain: {name}")
         if pack.description:
             print(f"  {pack.description}")
-        print(f"  tasks     : {', '.join(sorted(pack.tasks()))}")
-        print(f"  platforms : {', '.join(sorted(pack.adapters()))}")
+        if not args.verbose:
+            print(f"  tasks     : {', '.join(sorted(pack.tasks()))}")
+            print(f"  platforms : {', '.join(sorted(pack.adapters()))}")
+            continue
+        print("  tasks:")
+        for task_id, task_cls in sorted(pack.tasks().items()):
+            print(
+                f"    {task_id:<8} {task_cls.title} "
+                f"[evidence={task_cls.evidence_layer}]"
+            )
+        print("  platforms:")
+        for platform, adapter_cls in sorted(pack.adapters().items()):
+            provider = adapter_cls.provider or "local"
+            print(
+                f"    {platform:<24} status={adapter_cls.status} "
+                f"provider={provider}"
+            )
     return 0
+
+
+def _load_config(path: str | None) -> dict[str, Any]:
+    if not path:
+        return {}
+    config_path = Path(path)
+    try:
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError as exc:
+        raise UserInputError(f"config not found: {config_path}") from exc
+    except yaml.YAMLError as exc:
+        raise UserInputError(f"invalid YAML in {config_path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise UserInputError(f"config root must be a mapping: {config_path}")
+    return data
 
 
 def _parse_params(pairs: list[str]) -> dict[str, Any]:
@@ -53,8 +84,8 @@ def _parse_params(pairs: list[str]) -> dict[str, Any]:
 def _cmd_run(args: argparse.Namespace) -> int:
     target: dict[str, Any] = {}
     params: dict[str, Any] = {}
-    if args.config:
-        cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
+    cfg = _load_config(args.config)
+    if cfg:
         target = cfg.get("target", {})
         params = cfg.get("params", {})
     params.update(_parse_params(args.param))
@@ -154,8 +185,8 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     from clousight_bench.core.credentials import PROVIDER_CREDENTIALS, infer_provider
 
     target: dict[str, Any] = {}
-    if args.config:
-        cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
+    cfg = _load_config(args.config)
+    if cfg:
         target = cfg.get("target", {})
     if args.provider:
         target["provider"] = args.provider
@@ -200,13 +231,25 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def _dispatch(args: argparse.Namespace) -> int:
+    handlers = {
+        "list": _cmd_list,
+        "run": _cmd_run,
+        "report": _cmd_report,
+        "init": _cmd_init,
+        "doctor": _cmd_doctor,
+    }
+    return handlers[args.command](args)
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = argparse.ArgumentParser(prog="csbench", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("list", help="list installed domains, tasks and platforms")
+    list_p = sub.add_parser("list", help="list installed domains, tasks and platforms")
+    list_p.add_argument("--verbose", action="store_true", help="show task and adapter metadata")
 
     run_p = sub.add_parser("run", help="run one task against one platform")
     run_p.add_argument("--domain", required=True)
@@ -237,17 +280,12 @@ def main(argv: list[str] | None = None) -> int:
     doc_p.add_argument("--task", help="task id; check the minimal permissions THIS benchmark needs")
 
     args = parser.parse_args(argv)
-    if args.command == "list":
-        return _cmd_list(args)
-    if args.command == "run":
-        return _cmd_run(args)
-    if args.command == "report":
-        return _cmd_report(args)
-    if args.command == "init":
-        return _cmd_init(args)
-    if args.command == "doctor":
-        return _cmd_doctor(args)
-    return 1
+    try:
+        return _dispatch(args)
+    except UserInputError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        print("hint: run `csbench list --verbose` to inspect valid choices", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":
