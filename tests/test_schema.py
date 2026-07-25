@@ -68,3 +68,11 @@ def test_from_dict_tolerates_unknown_keys():
 def test_plugin_api_version_exposed():
     import clousight_bench
     assert clousight_bench.PLUGIN_API_VERSION == "1.0"
+
+
+def test_package_version_is_0_2_preview():
+    import clousight_bench
+
+    assert clousight_bench.__version__ == "0.2.0"
+    assert clousight_bench.RUNNER_VERSION == "0.2.0"
+    assert clousight_bench.PLUGIN_API_VERSION == "1.0"
