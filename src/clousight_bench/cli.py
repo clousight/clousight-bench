@@ -18,7 +18,12 @@ from typing import Any
 
 import yaml
 
-from clousight_bench.core.errors import UserInputError
+from clousight_bench.core.errors import (
+    AdapterNotRunnableError,
+    UnknownPlatformError,
+    UnknownTaskError,
+    UserInputError,
+)
 from clousight_bench.core.orchestrator import DEFAULT_RESULTS_DIR, execute
 from clousight_bench.core.registry import load_domains
 from clousight_bench.core.schema import RunSpec
@@ -58,11 +63,13 @@ def _load_config(path: str | None) -> dict[str, Any]:
         return {}
     config_path = Path(path)
     try:
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise UserInputError(f"config not found: {config_path}") from exc
     except yaml.YAMLError as exc:
         raise UserInputError(f"invalid YAML in {config_path}: {exc}") from exc
+    if data is None:
+        data = {}
     if not isinstance(data, dict):
         raise UserInputError(f"config root must be a mapping: {config_path}")
     return data
@@ -198,17 +205,25 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         pack = get_domain(args.domain)
         adapter_classes = pack.adapters()
         if args.platform not in adapter_classes:
-            print(f"\u2717 platform — {args.platform!r} not in domain {args.domain!r}: "
-                  f"{', '.join(sorted(adapter_classes))}")
-            return 1
-        adapter = adapter_classes[args.platform](target)
+            raise UnknownPlatformError(
+                f"platform {args.platform!r} not in domain {args.domain!r}: "
+                f"{sorted(adapter_classes)}"
+            )
+        adapter_cls = adapter_classes[args.platform]
+        if not adapter_cls.is_runnable():
+            raise AdapterNotRunnableError(
+                f"platform {args.platform!r} is a skeleton and cannot run; "
+                "choose a reference/wired adapter or implement this adapter first"
+            )
+        adapter = adapter_cls(target)
         task = None
         if args.task:
             task_classes = pack.tasks()
             if args.task not in task_classes:
-                print(f"\u2717 task — {args.task!r} not in domain {args.domain!r}: "
-                      f"{', '.join(sorted(task_classes))}")
-                return 1
+                raise UnknownTaskError(
+                    f"task {args.task!r} not in domain {args.domain!r}: "
+                    f"{sorted(task_classes)}"
+                )
             task = task_classes[args.task]()
         report = adapter.preflight(task)
         print(report.format())
