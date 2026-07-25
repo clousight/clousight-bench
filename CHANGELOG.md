@@ -22,6 +22,10 @@ Developer-preview reset before the first public release.
   / `AdapterNotRunnableError` (all `UserInputError` subclasses) instead of a
   bare `KeyError`, so callers of the Python API get a stable, catchable
   exception hierarchy — the same one the CLI maps to exit code 2.
+- The repository is public and Apache-2.0 licensed; `main` is protected by a
+  ruleset requiring a pull request and the full CI matrix, with force push and
+  branch deletion blocked for everyone. Security reports go through GitHub
+  Security Advisories, not public issues.
 
 ### Fixed
 

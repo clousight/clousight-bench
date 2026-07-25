@@ -7,6 +7,14 @@
 > **0.2.0 Developer Preview.** The local reference baselines are runnable.
 > Real-cloud adapters are visible for contributors but are not wired yet.
 
+**Repository status.** This repository is public and Apache-2.0 licensed.
+`main` is protected: every change lands through a pull request that passes
+ruff, pytest and the no-cloud smoke on Python 3.10–3.13 plus a separate
+installed-wheel smoke. No approving review is required, force pushes and branch
+deletion are blocked, and the rules bind administrators too. Commercial plugins
+are developed in a separate private repository and are not required to run
+anything in this one.
+
 Run `csbench list --verbose` to inspect task metadata and adapter readiness.
 
 | Adapter | Status | Runnable |

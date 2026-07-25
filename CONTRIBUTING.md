@@ -14,6 +14,20 @@ git commit -s -m "your message"
 This appends `Signed-off-by: Your Name <you@example.com>`, certifying you have
 the right to submit the code under the project's Apache-2.0 license.
 
+## How changes land
+
+`main` accepts no direct pushes. Open a pull request; it merges once these
+checks pass:
+
+| Check | What it runs |
+|---|---|
+| `test (3.10)` … `test (3.13)` | `ruff check src tests`, `pytest -q`, and the no-cloud local smoke |
+| `wheel-smoke` | builds a wheel, installs it into a clean virtualenv, and runs `csbench` **outside** the checkout |
+
+No approving review is required, but the branch must be up to date with `main`
+before merging. Force pushes to `main` and deleting `main` are blocked for
+everyone, administrators included.
+
 ## How to extend
 
 The abstraction cuts at the lifecycle (`provision → setup → execute → collect →
