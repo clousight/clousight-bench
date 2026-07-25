@@ -56,6 +56,20 @@ Reports never blend dimensions into one score.
 - `agent-runtime` — sessions, tool calling, fault recovery, observability. Five dimensions implemented (all runnable on `local-sim`): T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace span completeness (OpenInference) · T4.2 OTel export compat. Capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
 - `bigdata-emr` — skeleton proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol.
 
+## 0.2 Developer Preview readiness
+
+- `reference` and `wired` adapters can execute.
+- `experimental` adapters can execute with preview caveats.
+- `skeleton` adapters are discoverable but rejected before preflight.
+- Current runnable references are `local-sim` and `local-process`; no real-cloud
+  adapter is wired.
+- Bundled workloads live in `clousight_bench.resources.workloads` and are
+  resolved with `core.resources.reference_workload_path()`, so wheel and
+  editable installs use the same files.
+
+Phase 1A retains ResultRecord schema `1.0` and plugin API `1.0`. Their `0.2`
+replacement is designed but is not implemented until Phase 1B/1D.
+
 ## 凭证与上手（便捷层）
 
 原则：**绝不让用户为 benchmark 单独造一套密钥**，复用云自己的默认凭证链。
