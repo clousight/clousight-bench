@@ -41,11 +41,19 @@ def test_adapter_status_distinguishes_reference_from_skeleton():
     bigdata = get_domain("bigdata-emr").adapters()
 
     assert agent["local-sim"].status == "reference"
+    assert agent["local-sim"].provider is None
     assert agent["local-sim"].is_runnable()
     assert agent["aliyun-agentrun"].status == "skeleton"
+    assert agent["aliyun-agentrun"].provider == "aliyun"
     assert not agent["aliyun-agentrun"].is_runnable()
+    assert agent["huawei-agentarts"].status == "skeleton"
+    assert agent["huawei-agentarts"].provider == "huawei"
+    assert agent["volcengine-agentkit"].status == "skeleton"
+    assert agent["volcengine-agentkit"].provider == "volcengine"
     assert bigdata["local-process"].status == "reference"
+    assert bigdata["local-process"].provider is None
     assert bigdata["aws-emr"].status == "skeleton"
+    assert bigdata["aws-emr"].provider == "aws"
 
 
 def test_orchestrator_rejects_skeleton_before_preflight(tmp_path):
