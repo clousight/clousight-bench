@@ -1,6 +1,10 @@
+import re
+import sys
+
 import pytest
 
-from clousight_bench.cli import main
+from clousight_bench.cli import _load_config, main
+from clousight_bench.core.errors import UserInputError
 
 
 def test_list_verbose_shows_task_and_adapter_status(capsys):
@@ -165,3 +169,55 @@ def test_doctor_skeleton_without_task_still_shows_wiring_warning(capsys):
 
     assert rc != 2
     assert "skeleton" in captured.out
+
+
+def test_load_config_rejects_a_directory_path(tmp_path):
+    directory = tmp_path / "not-a-file.yaml"
+    directory.mkdir()
+
+    with pytest.raises(UserInputError, match=re.escape(str(directory))):
+        _load_config(str(directory))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX permission bits")
+def test_load_config_rejects_an_unreadable_file(tmp_path):
+    config = tmp_path / "no-access.yaml"
+    config.write_text("target: {}\n", encoding="utf-8")
+    config.chmod(0o000)
+    try:
+        with pytest.raises(UserInputError, match=re.escape(str(config))):
+            _load_config(str(config))
+    finally:
+        config.chmod(0o644)
+
+
+def test_load_config_rejects_non_utf8_content(tmp_path):
+    config = tmp_path / "bad-encoding.yaml"
+    config.write_bytes("target:\n  region: \u4e2d\u56fd\n".encode("gb2312"))
+
+    with pytest.raises(UserInputError, match=re.escape(str(config))):
+        _load_config(str(config))
+
+
+def test_run_rejects_a_directory_config_with_usage_error(tmp_path, capsys):
+    directory = tmp_path / "cfg.yaml"
+    directory.mkdir()
+
+    rc = main(
+        [
+            "run",
+            "--domain",
+            "agent-runtime",
+            "--task",
+            "T1.3",
+            "--platform",
+            "local-sim",
+            "--config",
+            str(directory),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert str(directory) in captured.err
+    assert "Traceback" not in captured.err

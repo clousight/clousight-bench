@@ -65,6 +65,11 @@ def _load_config(path: str | None) -> dict[str, Any]:
         data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise UserInputError(f"config not found: {config_path}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        # Anything else the filesystem/decoder can raise while reading a user-
+        # supplied path (a directory, unreadable permissions, non-UTF-8 bytes,
+        # ...) is a bad input, not an internal bug -- report it the same way.
+        raise UserInputError(f"cannot read config {config_path}: {exc}") from exc
     except yaml.YAMLError as exc:
         raise UserInputError(f"invalid YAML in {config_path}: {exc}") from exc
     if data is None:
