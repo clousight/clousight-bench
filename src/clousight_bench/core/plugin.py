@@ -27,6 +27,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from clousight_bench.core.redaction import redact
 from clousight_bench.core.schema import ResultRecord
 
 
@@ -73,8 +74,8 @@ class ProviderAdapter(ABC):
         """Release everything setup() created. Default no-op."""
 
     def describe(self) -> dict[str, Any]:
-        """Non-secret target description, folded into config_hash."""
-        return {"adapter": self.name, "target": _redact(self.target)}
+        """Non-secret target description, folded into the implementation fingerprint."""
+        return {"adapter": self.name, "target": redact(self.target)}
 
     def resolve_credentials(self) -> Any:
         """Report where this adapter's credentials come from (never the secret).
@@ -172,19 +173,3 @@ class PrivateAssetResolver(ABC):
     @abstractmethod
     def resolve(self, spec: Any, cache_dir: Any | None = None) -> Any:
         """Return a local path (str | Path) to the private asset's contents."""
-
-
-_SECRET_HINTS = ("key", "secret", "token", "password", "credential")
-
-
-def _redact(target: dict[str, Any]) -> dict[str, Any]:
-    """Best-effort scrub so secrets never reach config_hash / result files."""
-    clean: dict[str, Any] = {}
-    for k, v in target.items():
-        if any(hint in k.lower() for hint in _SECRET_HINTS):
-            clean[k] = "<redacted>"
-        elif isinstance(v, dict):
-            clean[k] = _redact(v)
-        else:
-            clean[k] = v
-    return clean
