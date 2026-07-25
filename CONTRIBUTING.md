@@ -35,6 +35,13 @@ teardown → score → report`); everything product-specific is a plugin.
 - Changing task/scoring logic for a **shipped** dimension requires a version bump
   and a changelog entry — published numbers must stay attributable.
 
+Before opening a PR that touches packaging, build the wheel and run the smoke
+outside the checkout. Editable installs are not sufficient evidence because
+repository-relative resource bugs do not reproduce there.
+
+New adapters must declare one of `reference`, `experimental`, `wired`, or
+`skeleton`. A skeleton must never be presented as runnable.
+
 ## Before you push
 
 ```bash
@@ -44,4 +51,5 @@ pytest -q
 csbench run --domain agent-runtime --task T1.3 --platform local-sim   # local smoke
 ```
 
-CI runs lint · test · local baseline smoke on Python 3.10 / 3.12 / 3.13.
+CI runs lint · test · local baseline smoke on Python 3.10 / 3.11 / 3.12 / 3.13,
+plus an installed-wheel smoke in an isolated Python 3.12 environment.
