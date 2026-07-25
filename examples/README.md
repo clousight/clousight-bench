@@ -24,8 +24,16 @@ csbench run --domain bigdata-emr --task J1.1 --platform local-process \
 ```
 
 Same lifecycle as the agent-runtime run, but the "system under test" is a
-subprocess workload (`workloads/wordcount-py`) reached over the cross-language
-JSONL protocol — proof the abstraction carries a non-agent product.
+packaged subprocess workload reached over the cross-language JSONL protocol —
+proof the abstraction carries a non-agent product. Resolve it safely from either
+an editable or wheel install:
+
+```python
+from clousight_bench.core.resources import reference_workload_path
+from clousight_bench.core.workload import WorkloadEngine
+
+engine = WorkloadEngine(reference_workload_path("wordcount-py"))
+```
 
 ## 3. Aggregate into a comparison report
 

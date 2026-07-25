@@ -34,14 +34,17 @@ derived benchmark numbers) before adding it. The identity folded into
 
 ## Runnable end-to-end demo (real dataset, no cloud)
 
-`workloads/gsm8k-stats/` is a complete, runnable example of the `remote` tier:
-it downloads the real **GSM8K** test set (~750 KB, MIT), verifies its pinned
-`sha256`, caches it, and computes corpus stats — stdlib only, no cloud account.
+The packaged `gsm8k-stats` reference workload is a complete, runnable example of
+the `remote` tier: it downloads the real **GSM8K** test set (~750 KB, MIT),
+verifies its pinned `sha256`, caches it, and computes corpus stats — stdlib only,
+no cloud account.
 
 ```bash
 python - <<'PY'
+from clousight_bench.core.resources import reference_workload_path
 from clousight_bench.core.workload import WorkloadEngine
-eng = WorkloadEngine("workloads/gsm8k-stats")
+
+eng = WorkloadEngine(reference_workload_path("gsm8k-stats"))
 print("assets ->", eng.resolve_assets())   # download + checksum + cache
 print(eng.run().metrics)                    # {'num_problems': 1319, 'final_answer_rate': 1.0, ...}
 PY
