@@ -19,8 +19,7 @@ fails), so both runs are replayable and their `config_hash` values are stable.
 ## 2. Big data: a batch job on a local "cluster"
 
 ```bash
-csbench run --domain bigdata-emr --task J1.1 --platform local-process \
-    --config configs/bigdata-emr.local.yaml
+csbench run --domain bigdata-emr --task J1.1 --platform local-process
 ```
 
 Same lifecycle as the agent-runtime run, but the "system under test" is a
