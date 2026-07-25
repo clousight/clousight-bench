@@ -2,9 +2,16 @@
 
 ## Reporting
 
-This repository remains private during the 0.2 developer-preview phase.
-Report suspected vulnerabilities through the private repository's maintainer
-channel; do not copy vulnerability details into public issues or chat rooms.
+Clousight Bench is a public repository. **Do not open a public issue, pull
+request or discussion for a suspected vulnerability.** Report it privately
+through GitHub Security Advisories:
+
+<https://github.com/clousight/clousight-bench/security/advisories/new>
+
+We acknowledge reports within five working days. Commercial plugins live in a
+separate private repository; a vulnerability that only affects a commercial
+plugin should be reported through the same advisory form and will be routed
+privately.
 
 ## Current trust boundary
 

@@ -70,6 +70,14 @@ Reports never blend dimensions into one score.
 Phase 1A retains ResultRecord schema `1.0` and plugin API `1.0`. Their `0.2`
 replacement is designed but is not implemented until Phase 1B/1D.
 
+This repository is public and Apache-2.0 licensed; it contains the whole open
+core. Commercial plugins (`cb-pricing`, `cb-samplers`, `cb-dataservice`,
+`cb-adapters-enterprise`) live in the separate private `clousight-bench-pro`
+repository and attach only through the published entry points
+`clousight_bench.domains`, `clousight_bench.enrichers` and
+`clousight_bench.asset_resolvers`. Nothing in the open core imports, requires or
+degrades without them.
+
 ## 凭证与上手（便捷层）
 
 原则：**绝不让用户为 benchmark 单独造一套密钥**，复用云自己的默认凭证链。
