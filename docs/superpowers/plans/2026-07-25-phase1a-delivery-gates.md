@@ -111,7 +111,7 @@ git rebase origin/main
 git log --oneline origin/main..HEAD | wc -l
 ```
 
-Expected: the rebase reports `Successfully rebased` or `Current branch ... is up to date`, and the commit count is `19` (verified in this worktree on 2026-07-25).
+Expected: the rebase reports `Successfully rebased` or `Current branch ... is up to date`, and the commit count is `21` (verified after the final Phase 1B plan self-review on 2026-07-25).
 
 If the rebase reports conflicts, resolve each conflicted file, `git add` it, and `git rebase --continue`. Abort with `git rebase --abort` if the branch cannot be rebased cleanly, and re-run this step after fixing `main`.
 

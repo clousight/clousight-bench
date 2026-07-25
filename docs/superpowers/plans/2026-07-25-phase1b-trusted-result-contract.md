@@ -1122,7 +1122,14 @@ class Fingerprints:
 
 @dataclass
 class ResultRecord:
-    """One benchmark result in schema 0.2."""
+    """One benchmark result in schema 0.2.
+
+    ``observations`` holds the raw evidence a re-score would replay. When that
+    evidence is too large to inline, a Task stores an artifact pointer instead
+    — ``{"trace": {"$artifact": "trace.jsonl"}}`` — where the value names an
+    entry in ``artifacts``. Either shape is valid; ``observations`` must never
+    be dropped just because the payload is big.
+    """
 
     run: RunInfo
     identity: Identity
@@ -3891,7 +3898,12 @@ class ResultStore:
     def persist(self, record: ResultRecord) -> Path:
         series_pointer: dict[str, Any] | None = None
         if STORE_AVAILABLE and record.series and "$parquet" not in record.series:
-            series_pointer = {"$parquet": self._write_series_parquet(record)}
+            try:
+                series_pointer = {"$parquet": self._write_series_parquet(record)}
+            except OSError:
+                # The sidecar is an optimisation. If it cannot be written we keep
+                # the series inline rather than losing the observation.
+                series_pointer = None
 
         record.run.stages["PERSIST"] = "ok"
         try:
@@ -4315,6 +4327,21 @@ def test_series_externalized_to_parquet_and_queryable(tmp_path):
         "SELECT series, unit, count(*) AS n FROM series GROUP BY series, unit"
     )
     assert rows == [{"series": "latency_ms", "unit": "ms", "n": 2}]
+
+
+@pytest.mark.skipif(not STORE_AVAILABLE, reason="requires [store] extra")
+def test_an_unwritable_parquet_sidecar_keeps_the_series_inline(tmp_path, monkeypatch):
+    import clousight_bench.core.store as store_mod
+
+    def _boom(self, record):
+        raise OSError("no space left on device")
+
+    monkeypatch.setattr(store_mod.ResultStore, "_write_series_parquet", _boom)
+    path = ResultStore(tmp_path).persist(_rec(series={"latency_ms": [[1, 10.0]]}))
+
+    assert json.loads(path.read_text(encoding="utf-8"))["series"] == {
+        "latency_ms": [[1, 10.0]]
+    }
 
 
 def test_series_inline_when_store_unavailable(tmp_path, monkeypatch):
@@ -5625,9 +5652,6 @@ ln -sfn /Users/bowang/IdeaProjects/clousight-bench/.worktrees/phase1b-trusted-re
 readlink .worktrees/clousight-bench
 git fetch origin
 git worktree add .worktrees/phase1b-contract-compat -b feat/phase1b-contract-compat origin/main
-cd .worktrees/phase1b-contract-compat
-ln -sfn /Users/bowang/IdeaProjects/clousight-bench/.worktrees/phase1b-trusted-result-contract \
-  ../clousight-bench-phase1b || true
 ```
 
 Expected: `readlink` prints the Phase 1B Core worktree path, and the new Pro
