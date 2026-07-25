@@ -27,6 +27,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from clousight_bench.core.observation import ObservationBundle, TaskResult, collect
 from clousight_bench.core.redaction import redact
 from clousight_bench.core.schema import ResultRecord
 
@@ -110,11 +111,21 @@ class ProviderAdapter(ABC):
 
 
 class Task(ABC):
-    """One benchmark dimension. Deterministic where the evidence layer says so."""
+    """One benchmark dimension, split into observation and scoring.
+
+    ``execute`` may talk to the cloud; it returns only raw, replayable evidence.
+    ``score`` is a pure function of that evidence: it must not read credentials,
+    create resources or mutate the bundle it is given, which is exactly what
+    makes a stored observation re-scorable after a scorer fix.
+    """
 
     task_id: str = "abstract"
     title: str = ""
     evidence_layer: str = "C"
+    # Bumped whenever the observation procedure or the scoring rules change, so
+    # a published number stays attributable to the code that produced it.
+    task_revision: str = "0"
+    scorer_revision: str = "0"
     # Abstract capability tokens this benchmark exercises (cloud-independent).
     # The adapter maps these to each cloud's concrete minimal permissions and
     # verifies them at preflight. Empty = no special permissions declared.
@@ -122,11 +133,58 @@ class Task(ABC):
 
     @abstractmethod
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Everything that determines the result -> hashed for reproducibility."""
+        """The controlled inputs that determine the result -> benchmark fingerprint."""
 
-    @abstractmethod
+    def execute(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> ObservationBundle:
+        """Drive the system under test and return raw observations only."""
+        raise NotImplementedError(f"{type(self).__name__} must implement execute()")
+
+    def score(self, observations: ObservationBundle) -> TaskResult:
+        """Turn observations into measurements and findings. Pure function."""
+        raise NotImplementedError(f"{type(self).__name__} must implement score()")
+
+    def environment_facts(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Non-sensitive environment facts this benchmark depends on.
+
+        Folded into the environment fingerprint. Never return a credential,
+        hostname, username or raw environment variable.
+        """
+        return {}
+
+    def workload_identity(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Workload and asset identity folded into the benchmark fingerprint.
+
+        Tasks that drive a WorkloadEngine override this; the default declares no
+        workload. Keys are exactly ``workload``, ``workload_version`` and
+        ``assets``.
+        """
+        return {"workload": "", "workload_version": "", "assets": []}
+
     def run(self, adapter: ProviderAdapter, params: dict[str, Any]) -> TaskOutput:
-        """Execute against the adapter and score the observation."""
+        """TEMPORARY Phase 1B bridge — deleted with TaskOutput at the cutover.
+
+        Lets the still-1.0 orchestrator drive a migrated execute/score Task, so
+        the built-in tasks can migrate one group at a time with the suite green
+        the whole way.
+        """
+        bundle = collect(self.execute(adapter, params))
+        result = self.score(bundle)
+        return TaskOutput(
+            metrics={
+                name: measurement.value
+                for name, measurement in result.measurements.items()
+            },
+            evidence_layer=self.evidence_layer,
+            ok=not any(finding.severity == "critical" for finding in result.findings),
+            raw=dict(bundle.observations),
+            notes=result.notes,
+            series=dict(bundle.series),
+            artifacts=list(bundle.artifacts),
+        )
 
 
 class DomainPack(ABC):
