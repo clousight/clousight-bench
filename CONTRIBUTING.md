@@ -24,7 +24,7 @@ teardown → score → report`); everything product-specific is a plugin.
 | A **platform** | one `ProviderAdapter` subclass + one `configs/*.example.yaml`. Surface the platform's own retry/session/trace behavior; never reimplement task or scoring logic. |
 | A **dimension** | one `Task` subclass with its own `config()` (hashed inputs), `run()` + scoring, and a declared `evidence_layer`. |
 | A **product category** | one `DomainPack` registered via the `clousight_bench.domains` entry point. |
-| A **load generator** | one `workloads/<name>/` dir: `manifest.yaml` + an executable speaking the JSONL protocol. Wrap a mature tool (YCSB / TPC-DS / sysbench) rather than reinventing it. |
+| A **load generator** | one `src/clousight_bench/resources/workloads/<name>/` dir: `manifest.yaml` + an executable speaking the JSONL protocol. Resolve it with `clousight_bench.core.resources.reference_workload_path(name)` — never build the path by concatenating it onto the repository root, since that breaks under a wheel install. Wrap a mature tool (YCSB / TPC-DS / sysbench) rather than reinventing it. |
 
 ## Reproducibility rules (non-negotiable)
 

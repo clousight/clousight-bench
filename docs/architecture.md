@@ -41,7 +41,7 @@ CLI (csbench)
 | `DomainPack` | declare tasks + adapters for a product category | `clousight_bench.domains` entry point |
 | `ProviderAdapter` | provision / talk to / tear down one system under test | referenced by a DomainPack |
 | `Task` | one benchmark dimension: config (hashed), run, score, evidence layer | referenced by a DomainPack |
-| `WorkloadEngine` | run a manifest-described load generator as a subprocess | `workloads/<name>/manifest.yaml` |
+| `WorkloadEngine` | run a manifest-described load generator as a subprocess | `src/clousight_bench/resources/workloads/<name>/manifest.yaml`, resolved via `core/resources.py::reference_workload_path()` |
 
 Built-in and third-party (including closed-source commercial) packs load
 identically — installing a package or dropping in a workload directory is enough.
@@ -54,7 +54,7 @@ Reports never blend dimensions into one score.
 ## Current domains
 
 - `agent-runtime` — sessions, tool calling, fault recovery, observability. Five dimensions implemented (all runnable on `local-sim`): T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace span completeness (OpenInference) · T4.2 OTel export compat. Capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
-- `bigdata-emr` — skeleton proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol.
+- `bigdata-emr` — minimal domain pack proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol. (This is a small task/adapter surface, not the `skeleton` `AdapterStatus` value — its `local-process` adapter is `reference`; only its `aws-emr` adapter is `skeleton`.)
 
 ## 0.2 Developer Preview readiness
 
