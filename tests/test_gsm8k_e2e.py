@@ -11,9 +11,10 @@ import pytest
 import yaml
 
 from clousight_bench.core.assets import REMOTE, load_asset_specs
+from clousight_bench.core.resources import reference_workload_path
 from clousight_bench.core.workload import WorkloadEngine
 
-_WL = Path(__file__).resolve().parents[1] / "workloads" / "gsm8k-stats"
+_WL = reference_workload_path("gsm8k-stats")
 _NETWORK = os.environ.get("CLOUSIGHT_BENCH_NETWORK_TESTS") == "1"
 
 

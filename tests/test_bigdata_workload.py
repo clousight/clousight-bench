@@ -3,17 +3,15 @@
 Proves the SAME lifecycle carries a non-agent product, and that the WorkloadEngine
 parses the JSONL protocol from a subprocess.
 """
-from pathlib import Path
 
 from clousight_bench.core.orchestrator import execute
+from clousight_bench.core.resources import reference_workload_path
 from clousight_bench.core.schema import RunSpec
 from clousight_bench.core.workload import WorkloadEngine
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
 
 def test_workload_engine_parses_jsonl_protocol():
-    engine = WorkloadEngine(REPO_ROOT / "workloads" / "wordcount-py")
+    engine = WorkloadEngine(reference_workload_path("wordcount-py"))
     assert engine.name == "wordcount-py"
     result = engine.run({"rows": 1000, "seed": 7})
     assert result.ok
@@ -22,7 +20,7 @@ def test_workload_engine_parses_jsonl_protocol():
 
 
 def test_workload_identity_in_describe():
-    engine = WorkloadEngine(REPO_ROOT / "workloads" / "wordcount-py")
+    engine = WorkloadEngine(reference_workload_path("wordcount-py"))
     desc = engine.describe()
     assert desc["workload"] == "wordcount-py"
     assert "declared_metrics" in desc
