@@ -56,7 +56,16 @@ from clousight_bench.core.observation import (
     validate_observation_bundle,
 )
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
-from clousight_bench.core.publish import ResultPublisher, append_receipt
+from clousight_bench.core.publish import (
+    ResultPublisher,
+    append_receipt,
+    begin_publish_attempt,
+    load_trusted_record,
+    make_idempotency_key,
+    publisher_name,
+    receipt_is_json_safe,
+    safe_error_message,
+)
 from clousight_bench.core.record import (
     Environment,
     Fingerprints,
@@ -582,17 +591,17 @@ def _finish(
         record = _enrich(record, results_dir, debug)
     else:
         record.run.stages["ENRICH"] = "skipped"
-    if publisher is None:
-        # A disabled optional stage is known before persistence. Recording the
-        # skip here keeps the returned/printed record identical to durable JSON.
-        record.run.stages["PUBLISH"] = "skipped"
+    # Publishing is an out-of-record side effect. Receipts are its only source
+    # of truth, so the core record always durably says this optional stage was
+    # skipped and its digest remains valid after execute() returns.
+    record.run.stages["PUBLISH"] = "skipped"
     record.run.finished_at = utc_now()
     path = ResultStore(results_dir).persist(record)
     if record.run.stages.get("PERSIST") == "ok":
         logger.info("result -> %s", path)
     else:
         logger.error("result NOT written to %s; degraded record -> %s", results_dir, path)
-    _publish(record, results_dir, publisher, debug)
+    _publish(path, results_dir, publisher, debug)
     return record
 
 
@@ -665,49 +674,141 @@ def _enrich(record: ResultRecord, results_dir: Path, debug: bool) -> ResultRecor
 
 
 def _publish(
-    record: ResultRecord,
+    record_path: Path,
     results_dir: Path,
     publisher: ResultPublisher | None,
     debug: bool,
 ) -> None:
-    """Publish a copy of the durable record and keep the outcome in a receipt."""
+    """Publish only a reloaded, verified durable record; receipts own outcome."""
     if publisher is None:
         return
-    if record.run.stages.get("PERSIST") != "ok":
-        record.run.stages["PUBLISH"] = "skipped"
+
+    name, name_error = publisher_name(publisher)
+    try:
+        trusted = load_trusted_record(record_path, results_dir)
+    except Exception as exc:  # noqa: BLE001 - fail closed before remote side effects
+        _append_publish_receipt(
+            results_dir,
+            {
+                "publisher": name,
+                "at": utc_now(),
+                "state": "failed",
+                "ok": False,
+                "code": "persisted_record_invalid",
+                "type": type(exc).__name__,
+                "message": safe_error_message(exc),
+            },
+            "unknown",
+            debug,
+        )
+        _log_traceback(results_dir, "unknown", debug, exc)
         return
 
-    receipt: dict[str, Any] = {
-        "run_id": record.run.run_id,
-        "publisher": publisher.name,
+    key = make_idempotency_key(trusted, name)
+    base: dict[str, Any] = {
+        "run_id": trusted.run.run_id,
+        "publisher": name,
+        "idempotency_key": key,
+        "record_digest": trusted.fingerprints.record_digest,
         "at": utc_now(),
     }
-    try:
-        detail = publisher.publish(deepcopy(record))
-        if not isinstance(detail, dict):
-            raise TypeError(
-                f"publisher {publisher.name!r} returned "
-                f"{type(detail).__name__}, not a dict"
-            )
-        record.run.stages["PUBLISH"] = "ok"
-        receipt.update({"ok": True, "detail": detail})
-    except Exception as exc:  # noqa: BLE001 - upload failure is not a benchmark failure
-        record.run.stages["PUBLISH"] = "failed"
-        receipt.update(
+    if name_error is not None:
+        _append_publish_receipt(
+            results_dir,
             {
+                **base,
+                "state": "failed",
                 "ok": False,
-                "code": "publish_failed",
-                "type": type(exc).__name__,
-                "message": scrub_identity_text(str(exc)),
-            }
+                "code": "publisher_name_invalid",
+                "type": type(name_error).__name__,
+                "message": safe_error_message(name_error),
+            },
+            trusted.run.run_id,
+            debug,
         )
-        _log_traceback(results_dir, record.run.run_id, debug, exc)
+        _log_traceback(results_dir, trusted.run.run_id, debug, name_error)
+        return
 
     try:
+        reservation = begin_publish_attempt(
+            results_dir,
+            run_id=trusted.run.run_id,
+            publisher=name,
+            idempotency_key=key,
+            record_digest=trusted.fingerprints.record_digest,
+            at=base["at"],
+        )
+    except Exception as exc:  # noqa: BLE001 - no pending receipt means no remote call
+        _log_traceback(results_dir, trusted.run.run_id, debug, exc)
+        return
+    if not reservation.should_publish:
+        return
+
+    detail: Any = None
+    publish_error: BaseException | None = None
+    try:
+        detail = publisher.publish(deepcopy(trusted))
+    except Exception as exc:  # noqa: BLE001 - remote failure belongs in the receipt
+        publish_error = exc
+
+    terminal = {
+        **base,
+        "attempt_id": reservation.attempt_id,
+    }
+    try:
+        after = load_trusted_record(record_path, results_dir)
+        if after.fingerprints.record_digest != trusted.fingerprints.record_digest:
+            raise ValueError("persisted result changed after publisher invocation")
+    except Exception as exc:  # noqa: BLE001 - extension may have tampered out-of-process
+        terminal.update(
+            {
+                "state": "indeterminate",
+                "ok": False,
+                "code": "persisted_record_changed",
+                "type": type(exc).__name__,
+                "message": safe_error_message(exc),
+            }
+        )
+    else:
+        if publish_error is not None:
+            terminal.update(
+                {
+                    "state": "failed",
+                    "ok": False,
+                    "code": "publish_failed",
+                    "type": type(publish_error).__name__,
+                    "message": safe_error_message(publish_error),
+                }
+            )
+        elif not isinstance(detail, dict) or not receipt_is_json_safe({"detail": detail}):
+            terminal.update(
+                {
+                    "state": "indeterminate",
+                    "ok": False,
+                    "code": "publish_detail_invalid",
+                    "type": type(detail).__name__,
+                    "message": "publisher returned a non-JSON detail dict",
+                }
+            )
+        else:
+            terminal.update({"state": "success", "ok": True, "detail": detail})
+
+    _append_publish_receipt(results_dir, terminal, trusted.run.run_id, debug)
+
+
+def _append_publish_receipt(
+    results_dir: Path,
+    receipt: dict[str, Any],
+    run_id: str,
+    debug: bool,
+) -> bool:
+    """Receipt storage failure is observable locally but never escapes."""
+    try:
         append_receipt(results_dir, receipt)
-    except Exception as exc:  # noqa: BLE001 - the durable local result must survive
-        record.run.stages["PUBLISH"] = "failed"
-        _log_traceback(results_dir, record.run.run_id, debug, exc)
+    except Exception as exc:  # noqa: BLE001 - preserve the durable core result
+        _log_traceback(results_dir, run_id, debug, exc)
+        return False
+    return True
 
 
 def _validate_enriched_record(candidate: Any, baseline: ResultRecord) -> None:
