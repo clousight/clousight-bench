@@ -60,11 +60,13 @@ from clousight_bench.core.publish import (
     ResultPublisher,
     append_receipt,
     begin_publish_attempt,
-    load_trusted_record,
+    capture_trusted_snapshot,
     make_idempotency_key,
     publisher_name,
     receipt_is_json_safe,
+    restore_trusted_snapshot,
     safe_error_message,
+    snapshot_is_unchanged,
 )
 from clousight_bench.core.record import (
     Environment,
@@ -685,7 +687,8 @@ def _publish(
 
     name, name_error = publisher_name(publisher)
     try:
-        trusted = load_trusted_record(record_path, results_dir)
+        snapshot = capture_trusted_snapshot(record_path, results_dir)
+        trusted = snapshot.record
     except Exception as exc:  # noqa: BLE001 - fail closed before remote side effects
         _append_publish_receipt(
             results_dir,
@@ -694,6 +697,7 @@ def _publish(
                 "at": utc_now(),
                 "state": "failed",
                 "ok": False,
+                "publisher_called": False,
                 "code": "persisted_record_invalid",
                 "type": type(exc).__name__,
                 "message": safe_error_message(exc),
@@ -719,6 +723,7 @@ def _publish(
                 **base,
                 "state": "failed",
                 "ok": False,
+                "publisher_called": False,
                 "code": "publisher_name_invalid",
                 "type": type(name_error).__name__,
                 "message": safe_error_message(name_error),
@@ -754,28 +759,39 @@ def _publish(
     terminal = {
         **base,
         "attempt_id": reservation.attempt_id,
+        "publisher_called": True,
     }
+    tampering_error: BaseException | None = None
     try:
-        after = load_trusted_record(record_path, results_dir)
-        if after.fingerprints.record_digest != trusted.fingerprints.record_digest:
-            raise ValueError("persisted result changed after publisher invocation")
+        if not snapshot_is_unchanged(snapshot, results_dir):
+            raise ValueError("persisted result bytes changed after publisher invocation")
     except Exception as exc:  # noqa: BLE001 - extension may have tampered out-of-process
+        tampering_error = exc
+
+    if tampering_error is not None:
+        try:
+            restore_trusted_snapshot(snapshot, results_dir)
+            code = "publisher_tampering_restored"
+            message = safe_error_message(tampering_error)
+        except Exception as restore_error:  # noqa: BLE001 - report loss of containment
+            code = "publisher_tampering_restore_failed"
+            message = safe_error_message(restore_error)
         terminal.update(
             {
                 "state": "indeterminate",
                 "ok": False,
-                "code": "persisted_record_changed",
-                "type": type(exc).__name__,
-                "message": safe_error_message(exc),
+                "code": code,
+                "type": type(tampering_error).__name__,
+                "message": message,
             }
         )
     else:
         if publish_error is not None:
             terminal.update(
                 {
-                    "state": "failed",
+                    "state": "indeterminate",
                     "ok": False,
-                    "code": "publish_failed",
+                    "code": "publisher_called_outcome_indeterminate",
                     "type": type(publish_error).__name__,
                     "message": safe_error_message(publish_error),
                 }

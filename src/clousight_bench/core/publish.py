@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from clousight_bench.core.fingerprints import record_digest
+from clousight_bench.core.persistence import atomic_write_bytes
 from clousight_bench.core.record import ResultRecord
 from clousight_bench.core.redaction import (
     find_identity_leaks,
@@ -64,6 +65,17 @@ class PublishReservation:
     attempt_id: str
 
 
+@dataclass(frozen=True)
+class TrustedRecordSnapshot:
+    """Exact durable bytes around one synchronous publisher invocation."""
+
+    record: ResultRecord
+    record_path: Path
+    record_bytes: bytes
+    sidecar_path: Path | None
+    sidecar_bytes: bytes | None
+
+
 def publisher_name(publisher: ResultPublisher) -> tuple[str, BaseException | None]:
     """Read and normalize an extension-owned name without trusting the property."""
     fallback = "publisher"
@@ -85,7 +97,16 @@ def publisher_name(publisher: ResultPublisher) -> tuple[str, BaseException | Non
 
 def load_trusted_record(path: Path, results_dir: Path) -> ResultRecord:
     """Reload and verify the exact durable record a publisher may consume."""
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    return capture_trusted_snapshot(path, results_dir).record
+
+
+def capture_trusted_snapshot(
+    path: Path, results_dir: Path
+) -> TrustedRecordSnapshot:
+    """Validate and retain the exact record and referenced sidecar bytes."""
+    record_path = Path(path)
+    record_bytes = record_path.read_bytes()
+    payload = json.loads(record_bytes)
     if not isinstance(payload, dict):
         raise TypeError("persisted result must be a JSON object")
     record = ResultRecord.from_dict(payload)
@@ -95,12 +116,53 @@ def load_trusted_record(path: Path, results_dir: Path) -> ResultRecord:
     leaks = find_identity_leaks(payload)
     if leaks:
         raise ValueError(f"persisted result contains operator identity at {leaks}")
-    _, sidecar_error = validate_sidecar(Path(results_dir), payload)
+    sidecar_path, sidecar_error = validate_sidecar(Path(results_dir), payload)
     if sidecar_error is not None:
         raise ValueError(sidecar_error)
     if record.run.stages.get("PERSIST") != "ok":
         raise ValueError("persisted result is not trusted: PERSIST is not ok")
-    return record
+    sidecar_bytes = sidecar_path.read_bytes() if sidecar_path is not None else None
+    if sidecar_path is not None:
+        confirmed_path, confirmed_error = validate_sidecar(Path(results_dir), payload)
+        if confirmed_error is not None or confirmed_path != sidecar_path:
+            raise ValueError(confirmed_error or "sidecar path changed while snapshotting")
+        if sidecar_path.read_bytes() != sidecar_bytes:
+            raise ValueError("sidecar bytes changed while snapshotting")
+    return TrustedRecordSnapshot(
+        record=record,
+        record_path=record_path,
+        record_bytes=record_bytes,
+        sidecar_path=sidecar_path,
+        sidecar_bytes=sidecar_bytes,
+    )
+
+
+def snapshot_is_unchanged(
+    snapshot: TrustedRecordSnapshot, results_dir: Path
+) -> bool:
+    """Revalidate content and require byte-for-byte equality."""
+    current = capture_trusted_snapshot(snapshot.record_path, results_dir)
+    return (
+        current.record_bytes == snapshot.record_bytes
+        and current.sidecar_path == snapshot.sidecar_path
+        and current.sidecar_bytes == snapshot.sidecar_bytes
+    )
+
+
+def restore_trusted_snapshot(
+    snapshot: TrustedRecordSnapshot, results_dir: Path
+) -> None:
+    """Atomically restore synchronous tampering, then verify the restoration.
+
+    A publisher can still launch a background process that tampers again after
+    this check. Preventing sustained out-of-process mutation requires the
+    Phase 1D sandbox boundary.
+    """
+    if snapshot.sidecar_path is not None and snapshot.sidecar_bytes is not None:
+        atomic_write_bytes(snapshot.sidecar_path, snapshot.sidecar_bytes)
+    atomic_write_bytes(snapshot.record_path, snapshot.record_bytes)
+    if not snapshot_is_unchanged(snapshot, results_dir):
+        raise RuntimeError("restored persisted result did not remain stable")
 
 
 def make_idempotency_key(record: ResultRecord, name: str) -> str:
@@ -129,6 +191,7 @@ def begin_publish_attempt(
         "at": at,
         "state": "pending",
         "ok": False,
+        "publisher_called": False,
     }
     with _locked_receipts(results_dir, readable=True) as (fd, _):
         receipts = _read_receipts(fd)
@@ -153,6 +216,21 @@ def begin_publish_attempt(
                     **pending,
                     "state": "indeterminate",
                     "code": "prior_attempt_indeterminate",
+                },
+            )
+            return PublishReservation(False, idempotency_key, attempt_id)
+
+        if any(
+            item.get("state") == "failed"
+            and item.get("publisher_called") is not False
+            for item in same_key
+        ):
+            _write_receipt(
+                fd,
+                {
+                    **pending,
+                    "state": "indeterminate",
+                    "code": "prior_called_failure",
                 },
             )
             return PublishReservation(False, idempotency_key, attempt_id)
@@ -238,9 +316,16 @@ def _locked_receipts(
     path = root / RECEIPTS_FILE
     flags = os.O_CREAT | os.O_APPEND | (os.O_RDWR if readable else os.O_WRONLY)
     with _RECEIPT_LOCK:
-        fd = os.open(path, flags, 0o600)
+        try:
+            fd = os.open(path, flags | os.O_EXCL, 0o600)
+            created = True
+        except FileExistsError:
+            fd = os.open(path, flags, 0o600)
+            created = False
         try:
             os.fchmod(fd, 0o600)
+            if created:
+                _fsync_directory(root)
             try:
                 import fcntl
 
@@ -256,6 +341,15 @@ def _locked_receipts(
             except ImportError:  # pragma: no cover
                 pass
             os.close(fd)
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_fd = os.open(path, flags)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
 
 
 def _read_receipts(fd: int) -> list[dict[str, Any]]:
