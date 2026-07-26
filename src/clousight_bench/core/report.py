@@ -13,11 +13,12 @@ observation (B).
 from __future__ import annotations
 
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from clousight_bench.core.record import RecordError, ResultRecord
+from clousight_bench.core.record import SCHEMA_VERSION, RecordError, ResultRecord
 
 _SKIP_FILES = {"comparison.json", "migration-manifest.json", "publish-receipts.jsonl"}
 _STATUS_MARK = {
@@ -29,53 +30,105 @@ _STATUS_MARK = {
 
 
 def _load_results(results_dir: Path) -> list[ResultRecord]:
+    """Read every record we can, and say out loud which ones we could not.
+
+    A silently skipped file is how a stale or half-migrated results directory
+    turns into a confidently wrong report, so each skip is named on stderr with
+    its reason -- and a pre-0.2 record gets the migration command with it.
+    """
     records: list[ResultRecord] = []
+    skipped: list[str] = []
     for path in sorted(results_dir.rglob("*.json")):
         if path.name in _SKIP_FILES:
             continue
+        reason = None
         try:
-            records.append(ResultRecord.from_dict(json.loads(path.read_text(encoding="utf-8"))))
-        except (json.JSONDecodeError, KeyError, TypeError, RecordError):
-            continue
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            reason = f"unreadable: {exc.strerror or exc}"
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            reason = f"not valid JSON: {exc}"
+        else:
+            if not isinstance(data, dict):
+                reason = f"not a JSON object (got {type(data).__name__})"
+            elif str(data.get("schema_version", "")) != SCHEMA_VERSION:
+                reason = (
+                    f"schema {data.get('schema_version', '<missing>')!r}, "
+                    f"expected {SCHEMA_VERSION!r} — run `csbench migrate-results` "
+                    "to bring old runs forward"
+                )
+            else:
+                try:
+                    records.append(ResultRecord.from_dict(data))
+                except (KeyError, TypeError, ValueError, RecordError) as exc:
+                    reason = f"malformed record: {type(exc).__name__}: {exc}"
+        if reason is not None:
+            skipped.append(f"{path}: {reason}")
+
+    for line in skipped:
+        print(f"clousight-bench: skipped {line}", file=sys.stderr)
+    if skipped:
+        print(
+            f"clousight-bench: skipped {len(skipped)} result file(s), "
+            f"read {len(records)}",
+            file=sys.stderr,
+        )
     return records
 
 
 def _latest_per_cell(
     records: list[ResultRecord],
 ) -> dict[tuple[str, str, str], ResultRecord]:
-    """Keep the most recent record per (domain, task, adapter)."""
+    """Keep the most recent record per (domain, task, adapter).
+
+    Ties on ``started_at`` (same second, parallel runs) are broken by run_id, so
+    two reports over the same directory never disagree.
+    """
     latest: dict[tuple[str, str, str], ResultRecord] = {}
     for rec in records:
         key = (rec.identity.domain, rec.identity.task_id, rec.identity.adapter)
         current = latest.get(key)
-        if current is None or rec.run.started_at >= current.run.started_at:
+        if current is None or (rec.run.started_at, rec.run.run_id) > (
+            current.run.started_at,
+            current.run.run_id,
+        ):
             latest[key] = rec
     return latest
 
 
-def _fmt_measurements(measurements: dict[str, dict[str, Any]]) -> str:
+def _fmt_measurements(measurements: dict[str, Any]) -> str:
     if not measurements:
         return "—"
     parts = []
     for name, m in sorted(measurements.items()):
+        if not isinstance(m, dict):
+            parts.append(f"{name}={m}")
+            continue
         unit = f" {m['unit']}" if m.get("unit") else ""
-        parts.append(f"{name}={m['value']}{unit} [{m['evidence']}]")
+        evidence = f" [{m['evidence']}]" if m.get("evidence") else ""
+        parts.append(f"{name}={m.get('value', '—')}{unit}{evidence}")
     return "<br>".join(parts)
 
 
 def _red_flags(records: dict[tuple[str, str, str], ResultRecord]) -> list[str]:
     flags: list[str] = []
     for (domain, task, adapter), rec in sorted(records.items()):
+        where = f"- `{domain}/{task}` on **{adapter}**"
         if rec.status != "completed":
-            reason = rec.errors[0]["message"] if rec.errors else "see result"
-            flags.append(
-                f"- `{domain}/{task}` on **{adapter}**: status `{rec.status}` — {reason}"
+            first = rec.errors[0] if rec.errors else None
+            reason = (
+                first.get("message") or first.get("code") or "see result"
+                if isinstance(first, dict)
+                else "see result"
             )
+            flags.append(f"{where}: status `{rec.status}` — {reason}")
         for finding in rec.findings:
+            if not isinstance(finding, dict):
+                continue
             if finding.get("severity") in ("warning", "critical"):
                 flags.append(
-                    f"- `{domain}/{task}` on **{adapter}**: "
-                    f"`{finding['code']}` ({finding['severity']}) — {finding['summary']}"
+                    f"{where}: `{finding.get('code', 'unknown')}` "
+                    f"({finding['severity']}) — {finding.get('summary', '')}"
                 )
     return flags
 

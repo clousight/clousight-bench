@@ -83,7 +83,7 @@ def _parse_params(pairs: list[str]) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for pair in pairs:
         if "=" not in pair:
-            raise SystemExit(f"--param expects key=value, got {pair!r}")
+            raise UserInputError(f"--param expects key=value, got {pair!r}")
         key, value = pair.split("=", 1)
         try:
             params[key] = json.loads(value)
@@ -93,6 +93,19 @@ def _parse_params(pairs: list[str]) -> dict[str, Any]:
 
 
 _EXIT_BY_STATUS = {"completed": 0, "unsupported": 0, "failed": 1, "invalid": 1}
+
+
+def _exit_code(record: Any) -> int:
+    """Exit on the benchmark's verdict -- unless the record never reached disk.
+
+    A run that measured perfectly but could not be written where the caller
+    asked for it is not a success from a script's point of view: the file it
+    is about to read is not there.
+    """
+    code = _EXIT_BY_STATUS[record.status]
+    if record.run.stages.get("PERSIST") != "ok":
+        code = max(code, 1)
+    return code
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -119,7 +132,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         debug=args.debug,
     )
     print(record.to_json())
-    return _EXIT_BY_STATUS[record.status]
+    return _exit_code(record)
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
@@ -145,7 +158,10 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     provider = args.provider
     if provider not in PROVIDER_CREDENTIALS:
-        raise SystemExit(f"unknown provider {provider!r}; choose from: {', '.join(PROVIDER_CREDENTIALS)}")
+        raise UserInputError(
+            f"unknown provider {provider!r}; "
+            f"choose from: {', '.join(PROVIDER_CREDENTIALS)}"
+        )
     spec = PROVIDER_CREDENTIALS[provider]
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
