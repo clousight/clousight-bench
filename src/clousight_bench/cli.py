@@ -4,6 +4,7 @@
     csbench run --domain agent-runtime --task T1.3 \
             --platform local-sim [--config cfg.yaml] [--param k=v ...] [--debug]
     csbench report [--results results/] [--out results/comparison.md]
+    #   results/publish-receipts.jsonl records publish attempts (append-only)
     csbench init aws [--domain agent-runtime] [--out .]  # scaffold private config + .env.example
     csbench doctor --config x.local.yaml                 # preflight: creds + connectivity
 """

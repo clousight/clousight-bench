@@ -56,6 +56,7 @@ from clousight_bench.core.observation import (
     validate_observation_bundle,
 )
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.core.publish import ResultPublisher, append_receipt
 from clousight_bench.core.record import (
     Environment,
     Fingerprints,
@@ -102,6 +103,7 @@ def execute(
     results_dir: Path | None = None,
     enrich: bool = True,
     preflight: bool = True,
+    publisher: ResultPublisher | None = None,
     debug: bool = False,
 ) -> ResultRecord:
     """Run one RunSpec through the full lifecycle and persist the result."""
@@ -132,7 +134,13 @@ def execute(
             run_id, started_at, stages, prepared, "invalid", None, findings,
             ObservationBundle(), errors,
         )
-        return _finish(record, results_dir, enrich=False, debug=debug)
+        return _finish(
+            record,
+            results_dir,
+            enrich=False,
+            publisher=publisher,
+            debug=debug,
+        )
 
     adapter = prepared.adapter
     bundle = ObservationBundle()
@@ -152,7 +160,13 @@ def execute(
                 run_id, started_at, stages, prepared, "invalid", None, findings,
                 ObservationBundle(), errors,
             )
-            return _finish(record, results_dir, enrich=False, debug=debug)
+            return _finish(
+                record,
+                results_dir,
+                enrich=False,
+                publisher=publisher,
+                debug=debug,
+            )
         stages["PREFLIGHT"] = "ok"
     else:
         stages["PREFLIGHT"] = "skipped"
@@ -174,7 +188,13 @@ def execute(
             ObservationBundle(),
             errors,
         )
-        return _finish(record, results_dir, enrich=False, debug=debug)
+        return _finish(
+            record,
+            results_dir,
+            enrich=False,
+            publisher=publisher,
+            debug=debug,
+        )
 
     # SETUP -> EXECUTE -> COLLECT, with TEARDOWN as the mandatory finally boundary.
     try:
@@ -242,7 +262,13 @@ def execute(
         run_id, started_at, stages, prepared, _status_for(errors, result), result,
         findings, bundle, errors,
     )
-    return _finish(record, results_dir, enrich=enrich, debug=debug)
+    return _finish(
+        record,
+        results_dir,
+        enrich=enrich,
+        publisher=publisher,
+        debug=debug,
+    )
 
 
 def _resolve(spec: RunSpec) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
@@ -546,18 +572,27 @@ def _build_record(
 
 
 def _finish(
-    record: ResultRecord, results_dir: Path, enrich: bool, debug: bool
+    record: ResultRecord,
+    results_dir: Path,
+    enrich: bool,
+    publisher: ResultPublisher | None,
+    debug: bool,
 ) -> ResultRecord:
     if enrich:
         record = _enrich(record, results_dir, debug)
     else:
         record.run.stages["ENRICH"] = "skipped"
+    if publisher is None:
+        # A disabled optional stage is known before persistence. Recording the
+        # skip here keeps the returned/printed record identical to durable JSON.
+        record.run.stages["PUBLISH"] = "skipped"
     record.run.finished_at = utc_now()
     path = ResultStore(results_dir).persist(record)
     if record.run.stages.get("PERSIST") == "ok":
         logger.info("result -> %s", path)
     else:
         logger.error("result NOT written to %s; degraded record -> %s", results_dir, path)
+    _publish(record, results_dir, publisher, debug)
     return record
 
 
@@ -580,9 +615,35 @@ def _enrich(record: ResultRecord, results_dir: Path, debug: bool) -> ResultRecor
             enriched = enricher.enrich(deepcopy(baseline))
         except Exception as exc:  # noqa: BLE001
             record.errors.append(
-                _stage_error("ENRICH", exc, code=f"enricher_failed:{name}").to_dict()
+                _scrubbed(
+                    StageError(
+                        stage="ENRICH",
+                        code="enricher_failed",
+                        type=type(exc).__name__,
+                        message=f"{name}: {exc}",
+                        retryable=False,
+                    )
+                ).to_dict()
             )
             _log_traceback(results_dir, run_id, debug, exc)
+            failed = True
+            continue
+        if not isinstance(enriched, ResultRecord):
+            exc = TypeError(
+                f"enricher {name!r} returned "
+                f"{type(enriched).__name__}, not a ResultRecord"
+            )
+            record.errors.append(
+                _scrubbed(
+                    StageError(
+                        stage="ENRICH",
+                        code="enricher_failed",
+                        type=type(exc).__name__,
+                        message=str(exc),
+                        retryable=False,
+                    )
+                ).to_dict()
+            )
             failed = True
             continue
         try:
@@ -601,6 +662,52 @@ def _enrich(record: ResultRecord, results_dir: Path, debug: bool) -> ResultRecor
 
     record.run.stages["ENRICH"] = "failed" if failed else "ok"
     return record
+
+
+def _publish(
+    record: ResultRecord,
+    results_dir: Path,
+    publisher: ResultPublisher | None,
+    debug: bool,
+) -> None:
+    """Publish a copy of the durable record and keep the outcome in a receipt."""
+    if publisher is None:
+        return
+    if record.run.stages.get("PERSIST") != "ok":
+        record.run.stages["PUBLISH"] = "skipped"
+        return
+
+    receipt: dict[str, Any] = {
+        "run_id": record.run.run_id,
+        "publisher": publisher.name,
+        "at": utc_now(),
+    }
+    try:
+        detail = publisher.publish(deepcopy(record))
+        if not isinstance(detail, dict):
+            raise TypeError(
+                f"publisher {publisher.name!r} returned "
+                f"{type(detail).__name__}, not a dict"
+            )
+        record.run.stages["PUBLISH"] = "ok"
+        receipt.update({"ok": True, "detail": detail})
+    except Exception as exc:  # noqa: BLE001 - upload failure is not a benchmark failure
+        record.run.stages["PUBLISH"] = "failed"
+        receipt.update(
+            {
+                "ok": False,
+                "code": "publish_failed",
+                "type": type(exc).__name__,
+                "message": scrub_identity_text(str(exc)),
+            }
+        )
+        _log_traceback(results_dir, record.run.run_id, debug, exc)
+
+    try:
+        append_receipt(results_dir, receipt)
+    except Exception as exc:  # noqa: BLE001 - the durable local result must survive
+        record.run.stages["PUBLISH"] = "failed"
+        _log_traceback(results_dir, record.run.run_id, debug, exc)
 
 
 def _validate_enriched_record(candidate: Any, baseline: ResultRecord) -> None:

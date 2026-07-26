@@ -384,7 +384,7 @@ def test_skipped_means_deliberately_not_run_and_absent_means_never_reached(tmp_p
     assert record.run.stages["PREFLIGHT"] == "skipped"
     assert record.run.stages["ENRICH"] == "skipped"
     assert record.run.stages["PERSIST"] == "ok"
-    assert "PUBLISH" not in record.run.stages
+    assert record.run.stages["PUBLISH"] == "skipped"
 
 
 # --- I6: a TaskExecutionError is attributed to the stage that was running -----
