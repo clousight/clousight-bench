@@ -53,6 +53,7 @@ from clousight_bench.core.observation import (
     TaskExecutionError,
     TaskResult,
     collect,
+    validate_observation_bundle,
 )
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
 from clousight_bench.core.record import (
@@ -189,6 +190,11 @@ def execute(
         stage = _failed_stage(stages)
         if isinstance(exc.observations, ObservationBundle):
             bundle = exc.observations
+            if stage == "COLLECT":
+                try:
+                    validate_observation_bundle(bundle)
+                except Exception:  # noqa: BLE001 - invalid partial evidence is unsafe
+                    bundle = ObservationBundle()
         stages[stage] = "failed"
         errors.append(
             _scrubbed(

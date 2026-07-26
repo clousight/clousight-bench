@@ -492,7 +492,9 @@ def test_malformed_partial_bundle_from_collect_error_cannot_escape_record_build(
     tmp_path, monkeypatch
 ):
     malformed = ObservationBundle()
-    malformed.observations = ["not-a-mapping"]
+    malformed.observations = {"ratio": float("nan")}
+    malformed.series = {"latency_ms": [[1, float("nan")]]}
+    malformed.artifacts = {"not": "a-list"}
 
     def _boom(bundle):
         raise TaskExecutionError(
@@ -506,8 +508,15 @@ def test_malformed_partial_bundle_from_collect_error_cannot_escape_record_build(
 
     assert record.status == "failed"
     assert record.run.stages["COLLECT"] == "failed"
+    assert record.run.stages["PERSIST"] == "ok"
+    assert [error["stage"] for error in record.errors] == ["COLLECT"]
     assert record.observations == {}
-    assert _persisted(tmp_path)["observations"] == {}
+    assert record.series == {}
+    assert record.artifacts == []
+    persisted = _persisted(tmp_path)
+    assert persisted["observations"] == {}
+    assert persisted["series"] == {}
+    assert persisted["artifacts"] == []
 
 
 @pytest.mark.parametrize("bad_value", [object(), float("nan")])

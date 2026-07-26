@@ -130,8 +130,8 @@ class TaskExecutionError(RuntimeError):
         self.retryable = retryable
 
 
-def collect(bundle: ObservationBundle) -> ObservationBundle:
-    """COLLECT: prove the raw bundle is well formed and canonically encodable."""
+def validate_observation_bundle(bundle: ObservationBundle) -> None:
+    """Raise when a full or partial observation bundle is unsafe to record."""
     if not isinstance(bundle, ObservationBundle):
         raise ObservationError(
             f"execute() must return an ObservationBundle, got {type(bundle).__name__}"
@@ -172,4 +172,9 @@ def collect(bundle: ObservationBundle) -> ObservationBundle:
                 f"artifact needs a path or uri pointer: {artifact!r}"
             )
     canonical_json(bundle.to_dict())  # raises CanonicalJSONError on NaN / bad types
+
+
+def collect(bundle: ObservationBundle) -> ObservationBundle:
+    """COLLECT: prove the raw bundle is well formed and canonically encodable."""
+    validate_observation_bundle(bundle)
     return bundle
