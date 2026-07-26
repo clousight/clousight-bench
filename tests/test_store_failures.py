@@ -125,6 +125,40 @@ def test_no_orphan_sidecar_is_left_when_the_record_write_fails(tmp_path, monkeyp
     assert list((tmp_path / "results").rglob("*.parquet")) == []
 
 
+@pytest.mark.skipif(not STORE_AVAILABLE, reason="requires [store] extra")
+def test_unlink_failure_quarantines_orphan_sidecar_from_queries(tmp_path, monkeypatch):
+    import clousight_bench.core.store as store_mod
+
+    results = tmp_path / "results"
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path / "tmp"))
+    real_atomic_write_text = store_mod.atomic_write_text
+    real_unlink = type(results).unlink
+
+    def _record_write_fails(path, text):
+        raise OSError("record volume unavailable")
+
+    def _sidecar_unlink_fails(path, *args, **kwargs):
+        if path.name == "series.parquet":
+            raise OSError("sidecar is busy")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(store_mod, "atomic_write_text", _record_write_fails)
+    monkeypatch.setattr(type(results), "unlink", _sidecar_unlink_fails)
+    ResultStore(results).persist(_rec(series={"latency_ms": [[1, 10.0]]}))
+
+    monkeypatch.setattr(store_mod, "atomic_write_text", real_atomic_write_text)
+    monkeypatch.setattr(type(results), "unlink", real_unlink)
+    valid = _rec(
+        run=RunInfo(run_id="run-y", started_at=utc_now(), finished_at=utc_now()),
+        series={"latency_ms": [[2, 20.0]]},
+    )
+    ResultStore(results).persist(valid)
+
+    assert not (results / "agent-runtime" / "local-sim" / "run-x" / "series.parquet").exists()
+    rows = ResultStore(results).query_series("SELECT DISTINCT run_id FROM series")
+    assert rows == [{"run_id": "run-y"}]
+
+
 def test_a_non_numeric_series_stays_inline_instead_of_failing(tmp_path):
     record = _rec(series={"phase": [[1, "warmup"]]})
     path = ResultStore(tmp_path).persist(record)

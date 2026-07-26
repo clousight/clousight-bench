@@ -18,7 +18,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.fingerprints import record_digest
 from clousight_bench.core.record import SCHEMA_VERSION, RecordError, ResultRecord
+from clousight_bench.core.store import validate_sidecar
 
 _SKIP_FILES = {"comparison.json", "migration-manifest.json", "publish-receipts.jsonl"}
 _STATUS_MARK = {
@@ -59,7 +61,18 @@ def _load_results(results_dir: Path) -> list[ResultRecord]:
                 )
             else:
                 try:
-                    records.append(ResultRecord.from_dict(data))
+                    expected_digest = data.get("fingerprints", {}).get("record_digest")
+                    if (
+                        not isinstance(expected_digest, str)
+                        or record_digest(data) != expected_digest
+                    ):
+                        reason = "record digest mismatch"
+                    else:
+                        _, sidecar_error = validate_sidecar(results_dir, data)
+                        if sidecar_error is not None:
+                            reason = sidecar_error
+                        else:
+                            records.append(ResultRecord.from_dict(data))
                 except (KeyError, TypeError, ValueError, RecordError) as exc:
                     reason = f"malformed record: {type(exc).__name__}: {exc}"
         if reason is not None:

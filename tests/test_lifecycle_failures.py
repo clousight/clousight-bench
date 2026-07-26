@@ -230,6 +230,35 @@ def test_enricher_candidate_must_pass_record_structure_sanity(tmp_path, monkeypa
     assert record.errors[-1]["code"] == "enricher_invalid_record:structurally-bad"
 
 
+@pytest.mark.parametrize("target", ["measurements", "findings"])
+def test_enricher_cannot_rewrite_core_scoring(tmp_path, monkeypatch, target):
+    class ScoreRewriter(ResultEnricher):
+        name = "score-rewriter"
+
+        def enrich(self, record):
+            if target == "measurements":
+                record.measurements["hits"]["value"] = 999
+            else:
+                record.findings.append(
+                    {
+                        "code": "forged",
+                        "severity": "info",
+                        "summary": "forged",
+                        "evidence": "C",
+                        "details": {},
+                    }
+                )
+            return record
+
+    monkeypatch.setattr(orch, "load_enrichers", lambda: [ScoreRewriter()])
+    record = _run(tmp_path)
+
+    assert record.measurements["hits"]["value"] == 3
+    assert record.findings == []
+    assert record.run.stages["ENRICH"] == "failed"
+    assert record.errors[-1]["code"] == "enricher_invalid_record:score-rewriter"
+
+
 # --- I1: plugin code that crashes before provisioning is recorded, not raised -
 
 def test_environment_facts_failure_is_recorded_and_nothing_is_provisioned(
@@ -401,7 +430,8 @@ def test_non_canonical_observations_fail_collect_and_are_still_persisted(
     assert record.run.stages["SCORE"] == "skipped"
     stages = [e["stage"] for e in record.errors]
     assert stages[0] == "COLLECT"
-    assert "PERSIST" in stages
+    assert "PERSIST" not in stages
+    assert record.run.stages["PERSIST"] == "ok"
 
     files = [p for p in tmp_path.rglob("*.json")]
     assert len(files) == 1
@@ -429,6 +459,55 @@ def test_a_datetime_observation_is_reported_at_collect(tmp_path, monkeypatch):
     assert record.run.stages["COLLECT"] == "failed"
     assert record.errors[0]["stage"] == "COLLECT"
     assert "datetime" in record.errors[0]["message"]
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [
+        ("observations", ["not-a-mapping"]),
+        ("series", ["not-a-mapping"]),
+        ("artifacts", {"not": "a-list"}),
+    ],
+)
+def test_invalid_observation_bundle_container_fails_collect_and_still_persists(
+    tmp_path, monkeypatch, field, bad_value
+):
+    bundle = ObservationBundle()
+    setattr(bundle, field, bad_value)
+    monkeypatch.setattr(_Task, "execute", lambda self, adapter, params: bundle)
+
+    record = _run(tmp_path)
+
+    assert record.status == "failed"
+    assert record.run.stages["COLLECT"] == "failed"
+    assert record.run.stages["SCORE"] == "skipped"
+    assert record.errors[0]["stage"] == "COLLECT"
+    assert record.observations == {}
+    assert record.series == {}
+    assert record.artifacts == []
+    assert _persisted(tmp_path)["status"] == "failed"
+
+
+def test_malformed_partial_bundle_from_collect_error_cannot_escape_record_build(
+    tmp_path, monkeypatch
+):
+    malformed = ObservationBundle()
+    malformed.observations = ["not-a-mapping"]
+
+    def _boom(bundle):
+        raise TaskExecutionError(
+            "collect failed",
+            observations=malformed,
+            code="collect_failed",
+        )
+
+    monkeypatch.setattr(orch, "collect", _boom)
+    record = _run(tmp_path)
+
+    assert record.status == "failed"
+    assert record.run.stages["COLLECT"] == "failed"
+    assert record.observations == {}
+    assert _persisted(tmp_path)["observations"] == {}
 
 
 @pytest.mark.parametrize("bad_value", [object(), float("nan")])

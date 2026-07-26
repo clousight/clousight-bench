@@ -207,6 +207,8 @@ def execute(
         stages[stage] = "failed"
         errors.append(_stage_error(stage, exc))
         _log_traceback(results_dir, run_id, debug, exc)
+        if stage == "COLLECT":
+            bundle = ObservationBundle()
     finally:
         try:
             adapter.teardown()
@@ -527,9 +529,11 @@ def _build_record(
             for name, m in (result.measurements if result else {}).items()
         },
         findings=[f.to_dict() for f in all_findings],
-        observations=dict(bundle.observations),
-        series=dict(bundle.series),
-        artifacts=list(bundle.artifacts),
+        observations=(
+            dict(bundle.observations) if isinstance(bundle.observations, dict) else {}
+        ),
+        series=dict(bundle.series) if isinstance(bundle.series, dict) else {},
+        artifacts=list(bundle.artifacts) if isinstance(bundle.artifacts, list) else [],
         extensions=extensions,
         errors=[e.to_dict() for e in errors],
     )
@@ -635,6 +639,8 @@ def _validate_enriched_record(candidate: Any, baseline: ResultRecord) -> None:
         "environment",
         "fingerprints",
         "status",
+        "measurements",
+        "findings",
         "observations",
         "series",
         "artifacts",

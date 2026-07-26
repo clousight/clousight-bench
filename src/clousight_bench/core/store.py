@@ -30,7 +30,9 @@ import io
 import json
 import logging
 import sys
+import uuid
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +78,46 @@ class _Sidecar:
 
     def pointer(self) -> dict[str, Any]:
         return {"$parquet": self.relpath, "sha256": self.sha256, "rows": self.rows}
+
+
+def validate_sidecar(
+    results_dir: Path, payload: dict[str, Any]
+) -> tuple[Path | None, str | None]:
+    """Resolve and verify the sidecar referenced by one trusted record payload."""
+    pointer = payload.get("series")
+    if not isinstance(pointer, dict) or "$parquet" not in pointer:
+        return None, None
+    relpath = pointer.get("$parquet")
+    expected_sha = pointer.get("sha256")
+    expected_rows = pointer.get("rows")
+    if (
+        not isinstance(relpath, str)
+        or not isinstance(expected_sha, str)
+        or not isinstance(expected_rows, int)
+        or isinstance(expected_rows, bool)
+        or expected_rows < 0
+    ):
+        return None, "malformed sidecar pointer"
+    root = Path(results_dir).resolve()
+    path = (root / relpath).resolve()
+    if not path.is_relative_to(root):
+        return None, "sidecar path escapes the results directory"
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        return None, f"sidecar unreadable: {exc}"
+    actual_sha = "sha256:" + hashlib.sha256(data).hexdigest()
+    if actual_sha != expected_sha:
+        return None, "sidecar sha256 mismatch"
+    try:
+        import pyarrow.parquet as pq
+
+        actual_rows = pq.ParquetFile(path).metadata.num_rows
+    except (ImportError, OSError, ValueError) as exc:
+        return None, f"sidecar unreadable: {exc}"
+    if actual_rows != expected_rows:
+        return None, "sidecar rows mismatch"
+    return path, None
 
 
 def _drop_evidence(record: ResultRecord) -> None:
@@ -177,10 +219,7 @@ class ResultStore:
     ) -> Path:
         """A write we could not complete as asked, completed as well as we can."""
         if written_sidecar is not None:
-            try:
-                written_sidecar.unlink(missing_ok=True)
-            except OSError:  # pragma: no cover - best effort cleanup
-                logger.warning("could not remove the orphan sidecar %s", written_sidecar)
+            _isolate_or_remove_sidecar(written_sidecar)
         record.series = dict(inline_series)  # never point at a sidecar we removed
         record.run.stages["PERSIST"] = "failed"
         record.status = "failed"
@@ -306,14 +345,32 @@ class ResultStore:
             )
         import duckdb
 
-        pattern = str(self.results_dir / glob)
+        paths: list[str] = []
+        for record_path in sorted(self.results_dir.rglob("*.json")):
+            try:
+                payload = json.loads(record_path.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    continue
+                expected = payload.get("fingerprints", {}).get("record_digest")
+                if not isinstance(expected, str) or record_digest(payload) != expected:
+                    continue
+                sidecar, error = validate_sidecar(self.results_dir, payload)
+                if error is not None or sidecar is None:
+                    continue
+                relative = sidecar.relative_to(self.results_dir.resolve()).as_posix()
+                if fnmatch(relative, glob):
+                    paths.append(str(sidecar))
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+        if not paths:
+            return []
         con = duckdb.connect()
         try:
             # Pass the (possibly glob) path via the relation API, not string
             # interpolation, so paths with quotes / special chars cannot break
             # out of the SQL (parameters aren't allowed inside CREATE VIEW
             # read_parquet).
-            con.read_parquet(pattern).create_view("series")
+            con.read_parquet(paths).create_view("series")
             cur = con.execute(sql or "SELECT * FROM series")
             cols = [d[0] for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
@@ -358,6 +415,22 @@ def _remove_empty_run_dir(run_dir: Path) -> None:
         pass
     except OSError:
         logger.warning("could not remove failed sidecar directory %s", run_dir)
+
+
+def _isolate_or_remove_sidecar(path: Path) -> None:
+    """Delete an orphan, or atomically move it outside the query glob."""
+    try:
+        path.unlink(missing_ok=True)
+        return
+    except OSError as exc:
+        logger.warning("could not remove orphan sidecar %s: %s", path, exc)
+    quarantine = path.with_name(f".{path.name}.quarantine-{uuid.uuid4().hex}")
+    try:
+        path.replace(quarantine)
+    except OSError as exc:
+        # query_series only reads sidecars referenced by a digest-valid record,
+        # so even a file that cannot be renamed remains invisible.
+        logger.error("could not quarantine orphan sidecar %s: %s", path, exc)
 
 
 def _emergency_write_unique(name: str, text: str) -> Path:

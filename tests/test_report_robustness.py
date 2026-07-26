@@ -3,7 +3,10 @@ import json
 
 import pytest
 
+from clousight_bench.core.fingerprints import record_digest
+from clousight_bench.core.record import ResultRecord
 from clousight_bench.core.report import generate_report
+from clousight_bench.core.store import STORE_AVAILABLE, ResultStore
 
 _LEGACY = {
     "schema_version": "1.0",
@@ -34,6 +37,7 @@ def _record(run_id="run-1", started_at="2026-07-26T00:00:00Z", **overrides):
         "extensions": {}, "errors": [],
     }
     payload.update(overrides)
+    payload["fingerprints"]["record_digest"] = record_digest(payload)
     return payload
 
 
@@ -76,6 +80,47 @@ def test_a_good_record_next_to_a_broken_one_still_renders(tmp_path, capsys):
     report = generate_report(tmp_path)
     assert "p99_ms=9 ms [C]" in report
     assert "bad.json" in capsys.readouterr().err
+
+
+def test_tampered_measurement_is_never_rendered(tmp_path, capsys):
+    payload = _record()
+    payload["measurements"]["p99_ms"]["value"] = 999999
+    _write(tmp_path, "tampered.json", payload)
+
+    report = generate_report(tmp_path)
+
+    assert "999999" not in report
+    assert "No schema 0.2 results found" in report
+    assert "record digest mismatch" in capsys.readouterr().err
+
+
+@pytest.mark.skipif(not STORE_AVAILABLE, reason="requires [store] extra")
+@pytest.mark.parametrize("tamper", ["sha256", "rows"])
+def test_tampered_sidecar_is_never_trusted(tmp_path, capsys, tamper):
+    record = ResultRecord.from_dict(
+        _record(
+            series={"latency_ms": [[1, 10.0], [2, 20.0]]},
+            measurements={
+                "latency_ms": {"value": 15, "unit": "ms", "evidence": "C"}
+            },
+        )
+    )
+    path = ResultStore(tmp_path).persist(record)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    pointer = payload["series"]
+    if tamper == "sha256":
+        sidecar = tmp_path / pointer["$parquet"]
+        sidecar.write_bytes(sidecar.read_bytes() + b"tampered")
+    else:
+        pointer["rows"] += 1
+        payload["fingerprints"]["record_digest"] = record_digest(payload)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = generate_report(tmp_path)
+
+    assert "latency_ms=15" not in report
+    assert "No schema 0.2 results found" in report
+    assert f"sidecar {tamper} mismatch" in capsys.readouterr().err
 
 
 def test_measurements_missing_optional_keys_do_not_crash_the_renderer(tmp_path):
