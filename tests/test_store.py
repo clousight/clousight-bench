@@ -57,12 +57,22 @@ def test_persist_leaves_no_temp_file(tmp_path):
 
 
 def test_persist_refuses_to_write_an_operator_identity(tmp_path, monkeypatch):
+    """Refusing to publish the leak must not mean refusing to keep the result."""
     monkeypatch.setattr(
         "clousight_bench.core.store.find_identity_leaks",
-        lambda payload: ["$.environment.facts.host"],
+        lambda payload: (
+            ["$.environment.facts.host"] if payload["environment"]["facts"] else []
+        ),
     )
-    with pytest.raises(SensitiveDataError, match="operator-identifying"):
-        ResultStore(tmp_path).persist(_rec(facts={"host": "build-box"}))
+    record = _rec(facts={"host": "build-box"})
+    path = ResultStore(tmp_path).persist(record)
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    assert "build-box" not in json.dumps(data)
+    assert data["environment"]["facts"] == {}
+    assert data["errors"][-1]["code"] == "identity_leak"
+    assert data["errors"][-1]["type"] == SensitiveDataError.__name__
+    assert data["run"]["stages"]["PERSIST"] == "failed"
 
 
 def test_primary_write_failure_falls_back_to_an_emergency_file(tmp_path, monkeypatch, capsys):
@@ -95,9 +105,11 @@ def test_series_externalized_to_parquet_and_queryable(tmp_path):
     record_json = json.loads(
         (tmp_path / "agent-runtime" / "local-sim" / "T1.3-run-x.json").read_text()
     )
-    assert record_json["series"] == {
-        "$parquet": "agent-runtime/local-sim/run-x/series.parquet"
-    }
+    assert record_json["series"]["$parquet"] == (
+        "agent-runtime/local-sim/run-x/series.parquet"
+    )
+    assert record_json["series"]["rows"] == 2
+    assert record_json["series"]["sha256"].startswith("sha256:")
     rows = store.query_series(
         "SELECT series, unit, count(*) AS n FROM series GROUP BY series, unit"
     )
@@ -111,7 +123,7 @@ def test_an_unwritable_parquet_sidecar_keeps_the_series_inline(tmp_path, monkeyp
     def _boom(self, record):
         raise OSError("no space left on device")
 
-    monkeypatch.setattr(store_mod.ResultStore, "_write_series_parquet", _boom)
+    monkeypatch.setattr(store_mod.ResultStore, "_build_series_sidecar", _boom)
     path = ResultStore(tmp_path).persist(_rec(series={"latency_ms": [[1, 10.0]]}))
 
     assert json.loads(path.read_text(encoding="utf-8"))["series"] == {

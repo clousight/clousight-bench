@@ -4,6 +4,8 @@ from clousight_bench.core.redaction import (
     find_identity_leaks,
     identity_values,
     redact,
+    scrub_identities,
+    scrub_identity_text,
 )
 
 
@@ -46,3 +48,41 @@ def test_find_identity_leaks_reports_paths_for_exact_matches():
 def test_find_identity_leaks_ignores_substrings_and_clean_payloads():
     assert find_identity_leaks({"a": "build-box-2"}, identities=("build-box",)) == []
     assert find_identity_leaks({"a": 1, "b": None}, identities=("build-box",)) == []
+
+
+def test_scrub_identity_text_removes_embedded_machine_identities():
+    text = scrub_identity_text(
+        "/home/alice/results: permission denied on build-box",
+        identities=("alice", "build-box"),
+    )
+    assert "alice" not in text
+    assert "build-box" not in text
+    assert "permission denied" in text
+    assert REDACTED in text
+
+
+def test_scrub_identity_text_leaves_a_clean_message_alone():
+    assert scrub_identity_text("connection reset", identities=("alice",)) == (
+        "connection reset"
+    )
+
+
+def test_scrub_identities_walks_a_whole_payload():
+    payload = {
+        "errors": [{"message": "/home/alice/x failed"}],
+        "count": 3,
+        "host": "build-box",
+    }
+    clean = scrub_identities(payload, identities=("alice", "build-box"))
+
+    assert "alice" not in clean["errors"][0]["message"]
+    assert clean["host"] == REDACTED
+    assert clean["count"] == 3
+    assert payload["host"] == "build-box"  # input untouched
+
+
+def test_scrub_identities_uses_this_machine_by_default():
+    import getpass
+
+    user = getpass.getuser()
+    assert user not in scrub_identities({"m": f"/home/{user}/x"})["m"]

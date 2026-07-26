@@ -57,6 +57,42 @@ def identity_values() -> tuple[str, ...]:
     return tuple(dict.fromkeys(found))
 
 
+def scrub_identity_text(text: str, identities: tuple[str, ...] | None = None) -> str:
+    """Remove operator identities *embedded* in free text.
+
+    ``find_identity_leaks`` only sees a value that IS an identity; an error
+    message says ``/home/alice/results: permission denied``, which carries the
+    same identity as a substring. Longest first, so a hostname that contains a
+    username is replaced as one unit.
+    """
+    known = identity_values() if identities is None else identities
+    for value in sorted(known, key=len, reverse=True):
+        if value and value in text:
+            text = text.replace(value, REDACTED)
+    return text
+
+
+def scrub_identities(value: Any, identities: tuple[str, ...] | None = None) -> Any:
+    """Return a copy of ``value`` with every embedded identity replaced."""
+    known = identity_values() if identities is None else identities
+    if not known:
+        return value
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {
+                scrub_identity_text(str(key), known): walk(item)
+                for key, item in node.items()
+            }
+        if isinstance(node, (list, tuple)):
+            return [walk(item) for item in node]
+        if isinstance(node, str):
+            return scrub_identity_text(node, known)
+        return node
+
+    return walk(value)
+
+
 def find_identity_leaks(
     payload: Any, identities: tuple[str, ...] | None = None
 ) -> list[str]:

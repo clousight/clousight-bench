@@ -145,7 +145,9 @@ def test_teardown_error_alone_keeps_the_run_completed(tmp_path):
     assert record.measurements["hits"]["value"] == 3
 
 
-def test_score_failure_keeps_the_observations(tmp_path):
+def test_score_failure_keeps_the_observations(tmp_path, monkeypatch):
+    # Keep the series inline so this test reads the evidence, not a pointer to it.
+    monkeypatch.setattr("clousight_bench.core.store.STORE_AVAILABLE", False)
     _Task.score_raises = True
     record = _run(tmp_path)
     assert record.status == "failed"

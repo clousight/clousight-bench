@@ -37,8 +37,13 @@ def _require_encodable(label: str, value: Mapping[str, Any]) -> None:
         ) from exc
 
 
-def validate_run_spec(spec: RunSpec, task: Task) -> None:
-    """Validate a resolved run request without touching external resources."""
+def validate_run_spec(spec: RunSpec, task: Task) -> dict[str, Any]:
+    """Validate a resolved run request without touching external resources.
+
+    Returns the task's own validated config so the caller can fingerprint the
+    run without asking the task a second time -- ``config()`` may be expensive
+    and must not be able to answer differently on a second call.
+    """
     for field in ("domain", "task_id", "platform"):
         value = getattr(spec, field, None)
         if not isinstance(value, str) or not value.strip():
@@ -68,3 +73,4 @@ def validate_run_spec(spec: RunSpec, task: Task) -> None:
             f"got {type(config).__name__}"
         )
     _require_encodable("task config", config)
+    return dict(config)

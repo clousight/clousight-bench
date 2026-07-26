@@ -15,16 +15,16 @@ from pathlib import Path
 EMERGENCY_DIR_NAME = "clousight-bench-emergency"
 
 
-def atomic_write_text(path: Path, text: str) -> Path:
-    """Write ``text`` to ``path`` so readers see either the old or the new file."""
+def atomic_write_bytes(path: Path, data: bytes) -> Path:
+    """Write ``data`` to ``path`` so readers see either the old or the new file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     handle_fd, tmp_name = tempfile.mkstemp(
         dir=str(path.parent), prefix=f"{path.name}.", suffix=".tmp"
     )
     try:
-        with os.fdopen(handle_fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
+        with os.fdopen(handle_fd, "wb") as handle:
+            handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(tmp_name, path)
@@ -32,6 +32,11 @@ def atomic_write_text(path: Path, text: str) -> Path:
         Path(tmp_name).unlink(missing_ok=True)
         raise
     return path.resolve()
+
+
+def atomic_write_text(path: Path, text: str) -> Path:
+    """Write ``text`` to ``path`` so readers see either the old or the new file."""
+    return atomic_write_bytes(path, text.encode("utf-8"))
 
 
 def emergency_write_text(name: str, text: str) -> Path:

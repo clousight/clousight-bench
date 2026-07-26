@@ -9,15 +9,27 @@ always runs, even when setup itself failed half-way, and a teardown failure is
 recorded as its own stage error without overwriting the execute or collect
 error that caused it.
 
-RESOLVE and VALIDATE failures raise ``UserInputError`` and write no record: a
-request we could not parse never measured anything. Every later failure is a
-recorded outcome, because "the platform failed" is itself a benchmark finding.
+Three kinds of failure, three different answers:
+
+- a **request** we cannot parse (RESOLVE / VALIDATE) raises ``UserInputError``
+  and writes no record -- it never measured anything;
+- **plugin** code that crashes while describing or checking the benchmark is
+  recorded as a ``VALIDATE`` / ``PREFLIGHT`` stage error with status
+  ``invalid``, because nothing was provisioned and no number was produced;
+- the **platform** failing under test is a recorded outcome (``failed``),
+  because "the platform failed" is itself a benchmark finding.
+
+``run.stages`` reads exactly like that: ``ok`` / ``failed`` means the stage ran,
+``skipped`` means it was deliberately not run (a flag, or nothing to do), and an
+absent stage was never reached because an earlier one failed.
 """
 from __future__ import annotations
 
 import logging
 import platform as platform_mod
 import traceback
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +40,7 @@ from clousight_bench.core.errors import (
     UnknownTaskError,
 )
 from clousight_bench.core.fingerprints import (
+    UNKNOWN,
     benchmark_fingerprint,
     environment_fingerprint,
     implementation_fingerprint,
@@ -48,7 +61,7 @@ from clousight_bench.core.record import (
     RunInfo,
     StageError,
 )
-from clousight_bench.core.redaction import redact
+from clousight_bench.core.redaction import redact, scrub_identity_text
 from clousight_bench.core.registry import get_domain, load_enrichers
 from clousight_bench.core.schema import RunSpec, new_run_id, utc_now
 from clousight_bench.core.store import ResultStore
@@ -60,6 +73,25 @@ DEFAULT_RESULTS_DIR = Path("results")
 
 # Stages whose failure means the benchmark itself did not produce a verdict.
 _FATAL_STAGES = ("SETUP", "EXECUTE", "COLLECT", "SCORE")
+# Stages that fail before anything is provisioned: the request never ran.
+_INVALID_STAGES = ("VALIDATE", "PREFLIGHT")
+_EMPTY_WORKLOAD: dict[str, Any] = {"workload": "", "workload_version": "", "assets": []}
+
+
+@dataclass
+class _Prepared:
+    """Everything the record needs about a run, assembled defensively.
+
+    Each piece comes from plugin code that may crash; a crash here is recorded
+    (``errors``) instead of raised, and the missing piece falls back to a value
+    that still produces a well-formed, comparable record.
+    """
+
+    adapter: ProviderAdapter | None
+    identity: Identity
+    environment: Environment
+    fingerprints: Fingerprints
+    errors: list[StageError] = field(default_factory=list)
 
 
 def execute(
@@ -78,92 +110,46 @@ def execute(
 
     # RESOLVE -- raises UserInputError; no record is written.
     pack, task, adapter_cls = _resolve(spec)
-    adapter = adapter_cls(spec.target)
     stages["RESOLVE"] = "ok"
 
-    # VALIDATE -- raises UserInputError; no record is written.
-    validate_run_spec(spec, task)
+    # VALIDATE -- raises UserInputError; no record is written. The validated
+    # task config is reused below, so config() is called exactly once per run.
+    config = validate_run_spec(spec, task)
     stages["VALIDATE"] = "ok"
 
     logger.info("run %s: %s/%s on %s", run_id, spec.domain, spec.task_id, spec.platform)
 
-    workload = task.workload_identity(spec.params)
-    facts = task.environment_facts(adapter, spec.params)
-    identity = Identity(
-        domain=spec.domain,
-        task_id=task.task_id,
-        task_revision=task.task_revision,
-        scorer_revision=task.scorer_revision,
-        adapter=adapter_cls.name,
-        adapter_status=adapter_cls.status,
-        core_version=RUNNER_VERSION,
-        workload=str(workload["workload"]),
-        workload_version=str(workload["workload_version"]),
-        plugin_versions=_plugin_versions(pack, adapter_cls),
-    )
-    environment = Environment(
-        region=str(spec.target.get("region", "")),
-        mode="cloud" if adapter_cls.provider else "local",
-        python_version=platform_mod.python_version(),
-        os_name=platform_mod.system(),
-        facts=redact(facts),
-    )
-    fingerprints = Fingerprints(
-        benchmark=benchmark_fingerprint(
-            task_id=task.task_id,
-            task_revision=task.task_revision,
-            scorer_revision=task.scorer_revision,
-            workload=identity.workload,
-            workload_version=identity.workload_version,
-            assets=list(workload["assets"]),
-            params=task.config(spec.params),
-        ),
-        environment=environment_fingerprint(
-            region=environment.region, mode=environment.mode, facts=environment.facts
-        ),
-        implementation=implementation_fingerprint(
-            core_version=RUNNER_VERSION,
-            domain=spec.domain,
-            adapter=identity.adapter,
-            adapter_status=identity.adapter_status,
-            plugin_versions=identity.plugin_versions,
-        ),
-    )
-
+    prepared = _prepare(spec, pack, task, adapter_cls, config, results_dir, run_id, debug)
     findings: list[Finding] = []
+    if prepared.errors or prepared.adapter is None:
+        # Plugin code could not describe this run. Nothing was provisioned.
+        stages["VALIDATE"] = "failed"
+        errors.extend(prepared.errors)
+        record = _build_record(
+            run_id, started_at, stages, prepared, "invalid", None, findings,
+            ObservationBundle(), errors,
+        )
+        return _finish(record, results_dir, enrich=False, debug=debug)
+
+    adapter = prepared.adapter
     bundle = ObservationBundle()
     result: TaskResult | None = None
 
-    # PREFLIGHT -- a critical failure means the request could not be measured
-    # here, so the record is `invalid` and nothing is ever provisioned.
+    # PREFLIGHT -- a critical failure (or a crash in the check itself) means the
+    # request could not be measured here, so the record is `invalid` and nothing
+    # is ever provisioned.
     if preflight:
-        report = adapter.preflight(task)
-        if not report.ok:
-            logger.error("run %s aborted at preflight:\n%s", run_id, report.format())
+        gate_error, gate_finding = _preflight(adapter, task, run_id, results_dir, debug)
+        if gate_error is not None:
             stages["PREFLIGHT"] = "failed"
-            errors.append(
-                StageError(
-                    stage="PREFLIGHT",
-                    code="preflight_failed",
-                    type="PreflightFailure",
-                    message=report.summary(),
-                    retryable=True,
-                )
-            )
-            findings.append(
-                Finding(
-                    code="core.preflight_failed",
-                    severity="critical",
-                    summary=report.summary(),
-                    evidence="B",
-                    details={"checks": [c.line() for c in report.checks]},
-                )
-            )
+            errors.append(gate_error)
+            if gate_finding is not None:
+                findings.append(gate_finding)
             record = _build_record(
-                run_id, started_at, stages, identity, environment, fingerprints,
-                "invalid", None, findings, ObservationBundle(), errors,
+                run_id, started_at, stages, prepared, "invalid", None, findings,
+                ObservationBundle(), errors,
             )
-            return _finish(record, results_dir, enrich=False)
+            return _finish(record, results_dir, enrich=False, debug=debug)
         stages["PREFLIGHT"] = "ok"
     else:
         stages["PREFLIGHT"] = "skipped"
@@ -179,15 +165,21 @@ def execute(
         bundle = collect(bundle)
         stages["COLLECT"] = "ok"
     except TaskExecutionError as exc:
-        bundle = exc.observations
-        stages["EXECUTE"] = "failed"
+        # The task kept its partial evidence; attribute it to whichever stage
+        # was running, since setup and collect can raise this too.
+        stage = _failed_stage(stages)
+        if isinstance(exc.observations, ObservationBundle):
+            bundle = exc.observations
+        stages[stage] = "failed"
         errors.append(
-            StageError(
-                stage="EXECUTE",
-                code=exc.code,
-                type=type(exc).__name__,
-                message=str(exc),
-                retryable=exc.retryable,
+            _scrubbed(
+                StageError(
+                    stage=stage,
+                    code=exc.code,
+                    type=type(exc).__name__,
+                    message=str(exc),
+                    retryable=exc.retryable,
+                )
             )
         )
         _log_traceback(results_dir, run_id, debug, exc)
@@ -216,13 +208,13 @@ def execute(
             errors.append(_stage_error("SCORE", exc))
             _log_traceback(results_dir, run_id, debug, exc)
     else:
-        stages["SCORE"] = "skipped"
+        stages["SCORE"] = "skipped"  # nothing was collected to score
 
     record = _build_record(
-        run_id, started_at, stages, identity, environment, fingerprints,
-        _status_for(errors, result), result, findings, bundle, errors,
+        run_id, started_at, stages, prepared, _status_for(errors, result), result,
+        findings, bundle, errors,
     )
-    return _finish(record, results_dir, enrich=enrich)
+    return _finish(record, results_dir, enrich=enrich, debug=debug)
 
 
 def _resolve(spec: RunSpec) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
@@ -247,12 +239,156 @@ def _resolve(spec: RunSpec) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
     return pack, task_classes[spec.task_id](), adapter_cls
 
 
+def _prepare(
+    spec: RunSpec,
+    pack: DomainPack,
+    task: Task,
+    adapter_cls: type[ProviderAdapter],
+    config: dict[str, Any],
+    results_dir: Path,
+    run_id: str,
+    debug: bool,
+) -> _Prepared:
+    """Assemble identity, environment and fingerprints without trusting plugins."""
+    errors: list[StageError] = []
+
+    def record_failure(code: str, exc: BaseException) -> None:
+        errors.append(_stage_error("VALIDATE", exc, code=code))
+        _log_traceback(results_dir, run_id, debug, exc)
+
+    adapter: ProviderAdapter | None = None
+    try:
+        adapter = adapter_cls(spec.target)
+    except Exception as exc:  # noqa: BLE001 - a broken adapter is a recorded outcome
+        record_failure("adapter_init_failed", exc)
+
+    workload = dict(_EMPTY_WORKLOAD)
+    try:
+        declared = task.workload_identity(spec.params)
+        workload = {
+            "workload": str(declared["workload"]),
+            "workload_version": str(declared["workload_version"]),
+            "assets": list(declared["assets"]),
+        }
+    except Exception as exc:  # noqa: BLE001
+        record_failure("workload_identity_failed", exc)
+
+    facts: dict[str, Any] = {}
+    if adapter is not None:
+        try:
+            declared_facts = task.environment_facts(adapter, spec.params)
+            if not isinstance(declared_facts, Mapping):
+                raise TypeError(
+                    "environment_facts() must return a mapping, got "
+                    f"{type(declared_facts).__name__}"
+                )
+            facts = redact(dict(declared_facts))
+        except Exception as exc:  # noqa: BLE001
+            record_failure("environment_facts_failed", exc)
+
+    identity = Identity(
+        domain=spec.domain,
+        task_id=task.task_id,
+        task_revision=task.task_revision,
+        scorer_revision=task.scorer_revision,
+        adapter=adapter_cls.name,
+        adapter_status=adapter_cls.status,
+        core_version=RUNNER_VERSION,
+        workload=workload["workload"],
+        workload_version=workload["workload_version"],
+        plugin_versions=_plugin_versions(pack, adapter_cls),
+    )
+    environment = Environment(
+        region=str(spec.target.get("region", "")),
+        mode="cloud" if adapter_cls.provider else "local",
+        python_version=platform_mod.python_version(),
+        os_name=platform_mod.system(),
+        facts=facts,
+    )
+
+    try:
+        fingerprints = Fingerprints(
+            benchmark=benchmark_fingerprint(
+                task_id=task.task_id,
+                task_revision=task.task_revision,
+                scorer_revision=task.scorer_revision,
+                workload=identity.workload,
+                workload_version=identity.workload_version,
+                assets=list(workload["assets"]),
+                params=config,
+            ),
+            environment=environment_fingerprint(
+                region=environment.region, mode=environment.mode, facts=environment.facts
+            ),
+            implementation=implementation_fingerprint(
+                core_version=RUNNER_VERSION,
+                domain=spec.domain,
+                adapter=identity.adapter,
+                adapter_status=identity.adapter_status,
+                plugin_versions=identity.plugin_versions,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - an unhashable input is still recordable
+        record_failure("fingerprint_failed", exc)
+        fingerprints = Fingerprints(
+            benchmark=UNKNOWN, environment=UNKNOWN, implementation=UNKNOWN
+        )
+
+    return _Prepared(
+        adapter=adapter,
+        identity=identity,
+        environment=environment,
+        fingerprints=fingerprints,
+        errors=errors,
+    )
+
+
+def _preflight(
+    adapter: ProviderAdapter,
+    task: Task,
+    run_id: str,
+    results_dir: Path,
+    debug: bool,
+) -> tuple[StageError | None, Finding | None]:
+    """Run the gate. Returns the blocking error, or (None, None) when it passes."""
+    try:
+        report = adapter.preflight(task)
+        if report.ok:
+            return None, None
+        logger.error("run %s aborted at preflight:\n%s", run_id, report.format())
+        summary = report.summary()
+        checks = [check.line() for check in report.checks]
+        code, exc_type, retryable = "preflight_failed", "PreflightFailure", True
+    except Exception as exc:  # noqa: BLE001 - a crashing gate still blocks the run
+        _log_traceback(results_dir, run_id, debug, exc)
+        summary = f"preflight check raised {type(exc).__name__}: {exc}"
+        checks = []
+        code, exc_type = "preflight_error", type(exc).__name__
+        retryable = isinstance(exc, (ConnectionError, TimeoutError, OSError))
+
+    error = _scrubbed(
+        StageError(
+            stage="PREFLIGHT",
+            code=code,
+            type=exc_type,
+            message=summary,
+            retryable=retryable,
+        )
+    )
+    finding = Finding(
+        code="core.preflight_failed",
+        severity="critical",
+        summary=error.message,
+        evidence="B",
+        details={"checks": checks},
+    )
+    return error, finding
+
+
 def _plugin_versions(
     pack: DomainPack, adapter_cls: type[ProviderAdapter]
 ) -> dict[str, str]:
     from importlib.metadata import PackageNotFoundError, version
-
-    from clousight_bench.core.fingerprints import UNKNOWN
 
     modules = {
         type(pack).__module__.split(".")[0],
@@ -263,7 +399,7 @@ def _plugin_versions(
         distribution = module.replace("_", "-")
         try:
             versions[distribution] = version(distribution)
-        except PackageNotFoundError:
+        except (PackageNotFoundError, ValueError):
             versions[distribution] = UNKNOWN
     return versions
 
@@ -275,18 +411,26 @@ def _failed_stage(stages: dict[str, str]) -> str:
     return "COLLECT"
 
 
-def _stage_error(stage: str, exc: BaseException) -> StageError:
-    return StageError(
-        stage=stage,
-        code=f"{stage.lower()}_failed",
-        type=type(exc).__name__,
-        message=str(exc),
-        retryable=isinstance(exc, (ConnectionError, TimeoutError, OSError)),
+def _scrubbed(error: StageError) -> StageError:
+    """Stage messages quote paths and hosts; the record must not identify a machine."""
+    error.message = scrub_identity_text(error.message)
+    return error
+
+
+def _stage_error(stage: str, exc: BaseException, code: str | None = None) -> StageError:
+    return _scrubbed(
+        StageError(
+            stage=stage,
+            code=code or f"{stage.lower()}_failed",
+            type=type(exc).__name__,
+            message=str(exc),
+            retryable=isinstance(exc, (ConnectionError, TimeoutError, OSError)),
+        )
     )
 
 
 def _status_for(errors: list[StageError], result: TaskResult | None) -> str:
-    if any(e.stage == "PREFLIGHT" for e in errors):
+    if any(e.stage in _INVALID_STAGES for e in errors):
         return "invalid"
     if any(e.stage in _FATAL_STAGES for e in errors):
         return "failed"
@@ -299,9 +443,7 @@ def _build_record(
     run_id: str,
     started_at: str,
     stages: dict[str, str],
-    identity: Identity,
-    environment: Environment,
-    fingerprints: Fingerprints,
+    prepared: _Prepared,
     status: str,
     result: TaskResult | None,
     findings: list[Finding],
@@ -320,9 +462,9 @@ def _build_record(
             finished_at=utc_now(),
             stages=dict(stages),
         ),
-        identity=identity,
-        environment=environment,
-        fingerprints=fingerprints,
+        identity=prepared.identity,
+        environment=prepared.environment,
+        fingerprints=prepared.fingerprints,
         status=status,
         measurements={
             name: m.to_dict()
@@ -337,16 +479,62 @@ def _build_record(
     )
 
 
-def _finish(record: ResultRecord, results_dir: Path, enrich: bool) -> ResultRecord:
+def _finish(
+    record: ResultRecord, results_dir: Path, enrich: bool, debug: bool
+) -> ResultRecord:
     if enrich:
-        for enricher in load_enrichers():
-            record = enricher.enrich(record)
-        record.run.stages["ENRICH"] = "ok"
+        record = _enrich(record, results_dir, debug)
     else:
         record.run.stages["ENRICH"] = "skipped"
     record.run.finished_at = utc_now()
     path = ResultStore(results_dir).persist(record)
-    logger.info("result -> %s", path)
+    if record.run.stages.get("PERSIST") == "ok":
+        logger.info("result -> %s", path)
+    else:
+        logger.error("result NOT written to %s; degraded record -> %s", results_dir, path)
+    return record
+
+
+def _enrich(record: ResultRecord, results_dir: Path, debug: bool) -> ResultRecord:
+    """Apply third-party enrichers. Their bugs are recorded, never fatal."""
+    run_id = record.run.run_id
+    failed = False
+    try:
+        enrichers = load_enrichers()
+    except Exception as exc:  # noqa: BLE001 - a broken plugin must not eat the result
+        record.errors.append(_stage_error("ENRICH", exc, code="enricher_load_failed").to_dict())
+        _log_traceback(results_dir, run_id, debug, exc)
+        enrichers = []
+        failed = True
+
+    for enricher in enrichers:
+        name = getattr(enricher, "name", type(enricher).__name__)
+        try:
+            enriched = enricher.enrich(record)
+        except Exception as exc:  # noqa: BLE001
+            record.errors.append(
+                _stage_error("ENRICH", exc, code=f"enricher_failed:{name}").to_dict()
+            )
+            _log_traceback(results_dir, run_id, debug, exc)
+            failed = True
+            continue
+        if not isinstance(enriched, ResultRecord):
+            record.errors.append(
+                _stage_error(
+                    "ENRICH",
+                    TypeError(
+                        f"enricher {name!r} returned "
+                        f"{type(enriched).__name__}, not a ResultRecord; "
+                        "the un-enriched record was kept"
+                    ),
+                    code=f"enricher_dropped_record:{name}",
+                ).to_dict()
+            )
+            failed = True
+            continue
+        record = enriched
+
+    record.run.stages["ENRICH"] = "failed" if failed else "ok"
     return record
 
 
@@ -357,8 +545,11 @@ def _log_traceback(
     logger.exception("run %s stage failure", run_id, exc_info=exc)
     if not debug:
         return
-    log_dir = Path(results_dir) / "debug"
-    log_dir.mkdir(parents=True, exist_ok=True)
     text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
-    with (log_dir / f"{run_id}.log").open("a", encoding="utf-8") as handle:
-        handle.write(text)
+    try:
+        log_dir = Path(results_dir) / "debug"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with (log_dir / f"{run_id}.log").open("a", encoding="utf-8") as handle:
+            handle.write(text)
+    except OSError as log_exc:  # the log is a convenience; the error it logs is not
+        logger.warning("run %s: could not write the debug log: %s", run_id, log_exc)
