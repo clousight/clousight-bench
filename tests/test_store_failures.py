@@ -135,6 +135,18 @@ def test_a_non_numeric_series_stays_inline_instead_of_failing(tmp_path):
     assert record.to_dict() == data
 
 
+@pytest.mark.skipif(not STORE_AVAILABLE, reason="requires [store] extra")
+def test_sidecar_leak_check_matches_inline_record_key_policy(tmp_path, monkeypatch):
+    import clousight_bench.core.redaction as redaction
+
+    monkeypatch.setattr(redaction, "identity_values", lambda: ("latency_ms",))
+    record = _rec(series={"latency_ms": [[1, 10.0]]})
+    path = ResultStore(tmp_path).persist(record)
+
+    assert _written(path)["series"] == {"latency_ms": [[1, 10.0]]}
+    assert not list(tmp_path.rglob("*.parquet"))
+
+
 # --- C2 / I3: every render failure still produces a trustworthy record -------
 
 def test_an_identity_leak_is_never_written_but_the_record_still_lands(
@@ -170,13 +182,58 @@ def test_a_non_canonical_payload_degrades_to_a_minimal_record(tmp_path, capsys):
     assert "NaN" not in text
     data = json.loads(text)
     assert data["observations"] == {}
-    assert data["status"] == "completed"
+    assert data["status"] == "failed"
     assert data["measurements"]["p99_ms"]["value"] == 9
     assert data["run"]["stages"]["PERSIST"] == "failed"
     assert data["errors"][-1]["stage"] == "PERSIST"
+    assert data["extensions"]["core"]["persistence_degraded"] is True
     assert record_digest(data) == data["fingerprints"]["record_digest"]
     assert record.to_dict() == data
     assert capsys.readouterr().err
+
+
+def test_drop_scored_level_is_failed_and_keeps_the_core_marker(tmp_path, capsys):
+    record = _rec(
+        measurements={
+            "bad": {"value": object(), "unit": "", "evidence": "C"}
+        }
+    )
+    path = ResultStore(tmp_path).persist(record)
+    data = _written(path)
+
+    assert data["status"] == "failed"
+    assert data["measurements"] == {}
+    assert data["extensions"] == {"core": {"persistence_degraded": True}}
+    assert data["errors"][-1]["code"] == "persist_failed"
+    assert data["run"]["stages"]["PERSIST"] == "failed"
+    assert record.to_dict() == data
+    assert capsys.readouterr().err
+
+
+def test_fourth_level_minimum_is_always_canonical(tmp_path):
+    class Hostile:
+        def __str__(self):
+            raise RuntimeError("no string")
+
+    record = _rec(
+        identity=Identity(
+            domain=Hostile(),
+            task_id="T1.3",
+            task_revision="2",
+            scorer_revision="2",
+            adapter="local-sim",
+            adapter_status="reference",
+            core_version="0.2.0",
+        ),
+        measurements={"bad": {"value": Hostile(), "unit": "", "evidence": "C"}},
+        errors=[{"message": Hostile()}],
+    )
+    payload = ResultStore(tmp_path)._degraded_payload(record)
+
+    assert payload["schema_version"] == "0.2"
+    assert payload["status"] == "failed"
+    assert payload["run"]["stages"]["PERSIST"] == "failed"
+    assert record_digest(payload) == payload["fingerprints"]["record_digest"]
 
 
 def test_persist_never_reports_ok_before_the_bytes_are_on_disk(tmp_path, monkeypatch):
@@ -216,6 +273,61 @@ def test_the_emergency_record_inlines_the_series_without_a_dangling_pointer(
     err = capsys.readouterr().err
     assert str(path) in err
     assert "emergency" in err
+
+
+def test_sidecar_oserror_keeps_inline_result_and_removes_empty_run_dir(
+    tmp_path, monkeypatch
+):
+    import clousight_bench.core.store as store_mod
+
+    run_dir = tmp_path / "agent-runtime" / "local-sim" / "run-x"
+
+    def _boom(self, record):
+        run_dir.mkdir(parents=True)
+        raise OSError("sidecar disk full")
+
+    monkeypatch.setattr(store_mod.ResultStore, "_build_series_sidecar", _boom)
+    record = _rec(series={"latency_ms": [[1, 10.0]]})
+    path = ResultStore(tmp_path).persist(record)
+
+    assert _written(path)["series"] == {"latency_ms": [[1, 10.0]]}
+    assert _written(path)["run"]["stages"]["PERSIST"] == "ok"
+    assert not run_dir.exists()
+
+
+@pytest.mark.skipif(not STORE_AVAILABLE, reason="requires [store] extra")
+def test_sidecar_write_oserror_retries_inline_in_normal_results(tmp_path, monkeypatch):
+    def _boom(path, data):
+        raise OSError("sidecar volume unavailable")
+
+    monkeypatch.setattr("clousight_bench.core.store.atomic_write_bytes", _boom)
+    record = _rec(series={"latency_ms": [[1, 10.0]]})
+    path = ResultStore(tmp_path).persist(record)
+    data = _written(path)
+
+    assert path.parent == (tmp_path / "agent-runtime" / "local-sim").resolve()
+    assert data["series"] == {"latency_ms": [[1, 10.0]]}
+    assert data["run"]["stages"]["PERSIST"] == "ok"
+    assert not (tmp_path / "agent-runtime" / "local-sim" / "run-x").exists()
+
+
+def test_second_emergency_write_for_same_run_uses_a_unique_file(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path / "tmp"))
+
+    def _boom(path, text):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr("clousight_bench.core.store.atomic_write_text", _boom)
+    first = ResultStore(tmp_path / "results").persist(_rec())
+    second = ResultStore(tmp_path / "results").persist(_rec())
+
+    assert first != second
+    assert first.is_file()
+    assert second.is_file()
+    assert _written(first)["status"] == "failed"
+    assert _written(second)["status"] == "failed"
 
 
 def test_a_parquet_failure_never_fails_the_run(tmp_path, monkeypatch):

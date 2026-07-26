@@ -122,6 +122,19 @@ def _red_flags(records: dict[tuple[str, str, str], ResultRecord]) -> list[str]:
                 else "see result"
             )
             flags.append(f"{where}: status `{rec.status}` — {reason}")
+        persist_state = rec.run.stages.get("PERSIST")
+        if persist_state != "ok":
+            flags.append(
+                f"{where}: PERSIST is `{persist_state or 'absent'}` — result storage "
+                "is not trustworthy"
+            )
+        for error in rec.errors:
+            if not isinstance(error, dict):
+                flags.append(f"{where}: malformed recorded error — see result")
+                continue
+            stage = error.get("stage", "unknown")
+            reason = error.get("message") or error.get("code") or "see result"
+            flags.append(f"{where}: {stage} error — {reason}")
         for finding in rec.findings:
             if not isinstance(finding, dict):
                 continue

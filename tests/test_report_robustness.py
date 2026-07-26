@@ -98,6 +98,47 @@ def test_malformed_findings_do_not_crash_the_red_flag_list(tmp_path):
     assert "status `failed`" in report
 
 
+def test_persist_failure_is_flagged_even_if_status_is_completed(tmp_path):
+    _write(
+        tmp_path,
+        "persist.json",
+        _record(
+            status="completed",
+            run={
+                "run_id": "run-1",
+                "started_at": "2026-07-26T00:00:00Z",
+                "finished_at": "2026-07-26T00:00:00Z",
+                "stages": {"PERSIST": "failed"},
+            },
+        ),
+    )
+    report = generate_report(tmp_path)
+    assert "PERSIST" in report
+    assert "failed" in report
+
+
+def test_any_recorded_error_is_a_red_flag_even_if_status_is_completed(tmp_path):
+    _write(
+        tmp_path,
+        "teardown.json",
+        _record(
+            status="completed",
+            errors=[
+                {
+                    "stage": "TEARDOWN",
+                    "code": "teardown_failed",
+                    "type": "OSError",
+                    "message": "cleanup failed",
+                    "retryable": True,
+                }
+            ],
+        ),
+    )
+    report = generate_report(tmp_path)
+    assert "TEARDOWN" in report
+    assert "cleanup failed" in report
+
+
 def test_ties_on_started_at_are_broken_deterministically(tmp_path):
     _write(tmp_path, "a.json", _record(run_id="run-a", measurements={
         "p99_ms": {"value": 1, "unit": "ms", "evidence": "C"}}))

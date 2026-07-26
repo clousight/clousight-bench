@@ -9,7 +9,10 @@ identify the operator rather than the benchmark.
 from __future__ import annotations
 
 import getpass
+import re
 import socket
+from collections.abc import Callable
+from functools import lru_cache
 from typing import Any
 
 SECRET_HINTS: tuple[str, ...] = (
@@ -46,8 +49,17 @@ def redact(value: Any) -> Any:
 
 def identity_values() -> tuple[str, ...]:
     """This machine's operator-identifying strings, best effort."""
+    return _identity_values_cached(getpass.getuser, socket.gethostname, socket.getfqdn)
+
+
+@lru_cache(maxsize=8)
+def _identity_values_cached(
+    user_probe: Callable[[], str],
+    host_probe: Callable[[], str],
+    fqdn_probe: Callable[[], str],
+) -> tuple[str, ...]:
     found: list[str] = []
-    for probe in (getpass.getuser, socket.gethostname, socket.getfqdn):
+    for probe in (user_probe, host_probe, fqdn_probe):
         try:
             value = probe()
         except Exception:  # noqa: BLE001 - identity probing must never break a run
@@ -67,7 +79,15 @@ def scrub_identity_text(text: str, identities: tuple[str, ...] | None = None) ->
     """
     known = identity_values() if identities is None else identities
     for value in sorted(known, key=len, reverse=True):
-        if value and value in text:
+        if not value:
+            continue
+        if len(value) <= 4 and value.isalnum():
+            text = re.sub(
+                rf"(?<!\w){re.escape(value)}(?!\w)",
+                lambda _: REDACTED,
+                text,
+            )
+        elif value in text:
             text = text.replace(value, REDACTED)
     return text
 
@@ -80,10 +100,7 @@ def scrub_identities(value: Any, identities: tuple[str, ...] | None = None) -> A
 
     def walk(node: Any) -> Any:
         if isinstance(node, dict):
-            return {
-                scrub_identity_text(str(key), known): walk(item)
-                for key, item in node.items()
-            }
+            return {key: walk(item) for key, item in node.items()}
         if isinstance(node, (list, tuple)):
             return [walk(item) for item in node]
         if isinstance(node, str):

@@ -6,6 +6,7 @@ broken *plugin* code (recorded, nothing provisioned) and a failing *platform*
 """
 import getpass
 import json
+from copy import deepcopy
 
 import pytest
 
@@ -168,6 +169,67 @@ def test_one_failing_enricher_does_not_stop_the_next_one(tmp_path, monkeypatch):
     assert [e["stage"] for e in record.errors] == ["ENRICH"]
 
 
+def test_a_mutating_enricher_cannot_corrupt_core_fields(tmp_path, monkeypatch):
+    class Malicious(ResultEnricher):
+        name = "malicious"
+
+        def enrich(self, record):
+            record.errors.clear()
+            record.run.stages.clear()
+            record.identity.plugin_versions["forged"] = "999"
+            record.measurements["hits"]["value"] = float("nan")
+            return record
+
+    monkeypatch.setattr(orch, "load_enrichers", lambda: [Malicious()])
+    record = _run(tmp_path)
+
+    assert record.status == "completed"
+    assert record.measurements["hits"]["value"] == 3
+    assert "forged" not in record.identity.plugin_versions
+    assert record.run.stages["ENRICH"] == "failed"
+    assert record.errors[-1]["stage"] == "ENRICH"
+    assert record.errors[-1]["code"] == "enricher_invalid_record:malicious"
+
+
+def test_each_enricher_gets_a_copy_and_a_bad_candidate_is_discarded(
+    tmp_path, monkeypatch
+):
+    seen = {}
+
+    class Bad(ResultEnricher):
+        name = "bad"
+
+        def enrich(self, record):
+            seen["input"] = record
+            record.extensions["bad"] = {"value": object()}
+            return record
+
+    baseline = deepcopy
+    monkeypatch.setattr(orch, "load_enrichers", lambda: [Bad()])
+    record = _run(tmp_path)
+
+    assert seen["input"] is not record
+    assert "bad" not in record.extensions
+    assert baseline(record.to_dict()) == record.to_dict()
+    assert record.run.stages["ENRICH"] == "failed"
+
+
+def test_enricher_candidate_must_pass_record_structure_sanity(tmp_path, monkeypatch):
+    class StructurallyBad(ResultEnricher):
+        name = "structurally-bad"
+
+        def enrich(self, record):
+            record.measurements["broken"] = {"value": 1}
+            return record
+
+    monkeypatch.setattr(orch, "load_enrichers", lambda: [StructurallyBad()])
+    record = _run(tmp_path)
+
+    assert "broken" not in record.measurements
+    assert record.run.stages["ENRICH"] == "failed"
+    assert record.errors[-1]["code"] == "enricher_invalid_record:structurally-bad"
+
+
 # --- I1: plugin code that crashes before provisioning is recorded, not raised -
 
 def test_environment_facts_failure_is_recorded_and_nothing_is_provisioned(
@@ -234,6 +296,36 @@ def test_preflight_crash_is_recorded_as_a_preflight_failure(tmp_path, monkeypatc
     assert record.errors[0]["stage"] == "PREFLIGHT"
     assert record.errors[0]["type"] == "TimeoutError"
     assert record.errors[0]["retryable"] is True
+
+
+def test_environment_facts_are_not_collected_before_preflight_passes(
+    tmp_path, monkeypatch
+):
+    calls = []
+
+    class FailedReport:
+        ok = False
+        checks = []
+
+        def format(self):
+            return "blocked"
+
+        def summary(self):
+            return "blocked"
+
+    monkeypatch.setattr(
+        _Adapter, "preflight", lambda self, task=None: calls.append("preflight") or FailedReport()
+    )
+    monkeypatch.setattr(
+        _Task,
+        "environment_facts",
+        lambda self, adapter, params: calls.append("facts") or {"fake": True},
+    )
+    record = _run(tmp_path)
+
+    assert calls == ["preflight"]
+    assert record.status == "invalid"
+    assert record.environment.facts == {}
 
 
 def test_a_task_rejecting_params_stays_a_user_input_error_without_a_record(
@@ -337,6 +429,49 @@ def test_a_datetime_observation_is_reported_at_collect(tmp_path, monkeypatch):
     assert record.run.stages["COLLECT"] == "failed"
     assert record.errors[0]["stage"] == "COLLECT"
     assert "datetime" in record.errors[0]["message"]
+
+
+@pytest.mark.parametrize("bad_value", [object(), float("nan")])
+def test_non_canonical_scored_measurement_fails_score_and_keeps_observations(
+    tmp_path, monkeypatch, bad_value
+):
+    monkeypatch.setattr(
+        _Task,
+        "score",
+        lambda self, observations: TaskResult(
+            measurements={
+                "bad": Measurement(value=bad_value, unit="", evidence="C")
+            }
+        ),
+    )
+    record = _run(tmp_path)
+
+    assert record.status == "failed"
+    assert record.run.stages["SCORE"] == "failed"
+    assert record.observations == {"hits": 3}
+    assert record.measurements == {}
+    assert record.errors[0]["stage"] == "SCORE"
+
+
+def test_numpy_like_scored_measurement_fails_score(tmp_path, monkeypatch):
+    class NumpyLike:
+        def __float__(self):
+            return 1.0
+
+    monkeypatch.setattr(
+        _Task,
+        "score",
+        lambda self, observations: TaskResult(
+            measurements={
+                "bad": Measurement(value=NumpyLike(), unit="", evidence="C")
+            }
+        ),
+    )
+    record = _run(tmp_path)
+
+    assert record.status == "failed"
+    assert record.run.stages["SCORE"] == "failed"
+    assert record.measurements == {}
 
 
 # --- M3: a debug-log failure must never mask the error it was logging --------

@@ -67,6 +67,14 @@ def test_scrub_identity_text_leaves_a_clean_message_alone():
     )
 
 
+def test_short_common_identity_is_scrubbed_only_as_a_whole_word():
+    text = scrub_identity_text(
+        "user dev failed while device stayed healthy",
+        identities=("dev",),
+    )
+    assert text == f"user {REDACTED} failed while device stayed healthy"
+
+
 def test_scrub_identities_walks_a_whole_payload():
     payload = {
         "errors": [{"message": "/home/alice/x failed"}],
@@ -79,6 +87,16 @@ def test_scrub_identities_walks_a_whole_payload():
     assert clean["host"] == REDACTED
     assert clean["count"] == 3
     assert payload["host"] == "build-box"  # input untouched
+
+
+def test_scrub_identities_never_rewrites_dictionary_keys_or_collides():
+    payload = {"alice": "first", REDACTED: "second", "nested": {"alice": "alice"}}
+    clean = scrub_identities(payload, identities=("alice",))
+
+    assert set(clean) == {"alice", REDACTED, "nested"}
+    assert clean["alice"] == "first"
+    assert clean[REDACTED] == "second"
+    assert clean["nested"] == {"alice": REDACTED}
 
 
 def test_scrub_identities_uses_this_machine_by_default():

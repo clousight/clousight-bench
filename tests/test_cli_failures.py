@@ -64,9 +64,10 @@ def test_a_failed_persist_exits_non_zero_and_says_where_the_record_went(
     assert rc == 1
     assert "emergency" in captured.err
     printed = json.loads(captured.out)
-    assert printed["status"] == "completed"
+    assert printed["status"] == "failed"
     assert printed["run"]["stages"]["PERSIST"] == "failed"
     assert printed["errors"][-1]["stage"] == "PERSIST"
+    assert printed["extensions"]["core"]["persistence_degraded"] is True
 
 
 def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys):

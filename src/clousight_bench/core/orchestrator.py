@@ -29,11 +29,13 @@ import logging
 import platform as platform_mod
 import traceback
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from clousight_bench import RUNNER_VERSION
+from clousight_bench.core.canonical import canonical_json
 from clousight_bench.core.errors import (
     AdapterNotRunnableError,
     UnknownPlatformError,
@@ -154,10 +156,27 @@ def execute(
     else:
         stages["PREFLIGHT"] = "skipped"
 
+    environment_error = _complete_environment(
+        prepared, spec, task, results_dir, run_id, debug
+    )
+    if environment_error is not None:
+        stages["VALIDATE"] = "failed"
+        errors.append(environment_error)
+        record = _build_record(
+            run_id,
+            started_at,
+            stages,
+            prepared,
+            "invalid",
+            None,
+            findings,
+            ObservationBundle(),
+            errors,
+        )
+        return _finish(record, results_dir, enrich=False, debug=debug)
+
     # SETUP -> EXECUTE -> COLLECT, with TEARDOWN as the mandatory finally boundary.
-    entered_setup = False
     try:
-        entered_setup = True
         adapter.setup()
         stages["SETUP"] = "ok"
         bundle = task.execute(adapter, spec.params)
@@ -189,19 +208,20 @@ def execute(
         errors.append(_stage_error(stage, exc))
         _log_traceback(results_dir, run_id, debug, exc)
     finally:
-        if entered_setup:
-            try:
-                adapter.teardown()
-                stages["TEARDOWN"] = "ok"
-            except Exception as exc:  # noqa: BLE001 - never mask the primary error
-                stages["TEARDOWN"] = "failed"
-                errors.append(_stage_error("TEARDOWN", exc))
-                _log_traceback(results_dir, run_id, debug, exc)
+        try:
+            adapter.teardown()
+            stages["TEARDOWN"] = "ok"
+        except Exception as exc:  # noqa: BLE001 - never mask the primary error
+            stages["TEARDOWN"] = "failed"
+            errors.append(_stage_error("TEARDOWN", exc))
+            _log_traceback(results_dir, run_id, debug, exc)
 
     # SCORE -- pure; observations already collected survive a scorer failure.
     if stages.get("COLLECT") == "ok":
         try:
-            result = task.score(bundle)
+            candidate = task.score(bundle)
+            _validate_task_result(candidate)
+            result = candidate
             stages["SCORE"] = "ok"
         except Exception as exc:  # noqa: BLE001
             stages["SCORE"] = "failed"
@@ -273,19 +293,6 @@ def _prepare(
     except Exception as exc:  # noqa: BLE001
         record_failure("workload_identity_failed", exc)
 
-    facts: dict[str, Any] = {}
-    if adapter is not None:
-        try:
-            declared_facts = task.environment_facts(adapter, spec.params)
-            if not isinstance(declared_facts, Mapping):
-                raise TypeError(
-                    "environment_facts() must return a mapping, got "
-                    f"{type(declared_facts).__name__}"
-                )
-            facts = redact(dict(declared_facts))
-        except Exception as exc:  # noqa: BLE001
-            record_failure("environment_facts_failed", exc)
-
     identity = Identity(
         domain=spec.domain,
         task_id=task.task_id,
@@ -303,7 +310,7 @@ def _prepare(
         mode="cloud" if adapter_cls.provider else "local",
         python_version=platform_mod.python_version(),
         os_name=platform_mod.system(),
-        facts=facts,
+        facts={},
     )
 
     try:
@@ -341,6 +348,35 @@ def _prepare(
         fingerprints=fingerprints,
         errors=errors,
     )
+
+
+def _complete_environment(
+    prepared: _Prepared,
+    spec: RunSpec,
+    task: Task,
+    results_dir: Path,
+    run_id: str,
+    debug: bool,
+) -> StageError | None:
+    """Collect environment facts only after the preflight gate has passed."""
+    assert prepared.adapter is not None
+    try:
+        declared_facts = task.environment_facts(prepared.adapter, spec.params)
+        if not isinstance(declared_facts, Mapping):
+            raise TypeError(
+                "environment_facts() must return a mapping, got "
+                f"{type(declared_facts).__name__}"
+            )
+        prepared.environment.facts = redact(dict(declared_facts))
+        prepared.fingerprints.environment = environment_fingerprint(
+            region=prepared.environment.region,
+            mode=prepared.environment.mode,
+            facts=prepared.environment.facts,
+        )
+    except Exception as exc:  # noqa: BLE001 - broken plugin metadata is recordable
+        _log_traceback(results_dir, run_id, debug, exc)
+        return _stage_error("VALIDATE", exc, code="environment_facts_failed")
+    return None
 
 
 def _preflight(
@@ -439,6 +475,26 @@ def _status_for(errors: list[StageError], result: TaskResult | None) -> str:
     return "completed"
 
 
+def _validate_task_result(result: TaskResult) -> None:
+    """SCORE succeeds only when its complete output fits the public contract."""
+    if not isinstance(result, TaskResult):
+        raise TypeError(
+            f"score() must return a TaskResult, got {type(result).__name__}"
+        )
+    payload = {
+        "measurements": {
+            name: measurement.to_dict()
+            for name, measurement in result.measurements.items()
+        },
+        "findings": [finding.to_dict() for finding in result.findings],
+        "notes": result.notes,
+        "task_revision": result.task_revision,
+        "scorer_revision": result.scorer_revision,
+        "unsupported": result.unsupported,
+    }
+    canonical_json(payload)
+
+
 def _build_record(
     run_id: str,
     started_at: str,
@@ -509,8 +565,9 @@ def _enrich(record: ResultRecord, results_dir: Path, debug: bool) -> ResultRecor
 
     for enricher in enrichers:
         name = getattr(enricher, "name", type(enricher).__name__)
+        baseline = record
         try:
-            enriched = enricher.enrich(record)
+            enriched = enricher.enrich(deepcopy(baseline))
         except Exception as exc:  # noqa: BLE001
             record.errors.append(
                 _stage_error("ENRICH", exc, code=f"enricher_failed:{name}").to_dict()
@@ -518,16 +575,14 @@ def _enrich(record: ResultRecord, results_dir: Path, debug: bool) -> ResultRecor
             _log_traceback(results_dir, run_id, debug, exc)
             failed = True
             continue
-        if not isinstance(enriched, ResultRecord):
+        try:
+            _validate_enriched_record(enriched, baseline)
+        except Exception as exc:  # noqa: BLE001 - discard every malformed candidate
             record.errors.append(
                 _stage_error(
                     "ENRICH",
-                    TypeError(
-                        f"enricher {name!r} returned "
-                        f"{type(enriched).__name__}, not a ResultRecord; "
-                        "the un-enriched record was kept"
-                    ),
-                    code=f"enricher_dropped_record:{name}",
+                    exc,
+                    code=f"enricher_invalid_record:{name}",
                 ).to_dict()
             )
             failed = True
@@ -536,6 +591,58 @@ def _enrich(record: ResultRecord, results_dir: Path, debug: bool) -> ResultRecor
 
     record.run.stages["ENRICH"] = "failed" if failed else "ok"
     return record
+
+
+def _validate_enriched_record(candidate: Any, baseline: ResultRecord) -> None:
+    """Accept canonical records while protecting lifecycle-owned fields."""
+    if not isinstance(candidate, ResultRecord):
+        raise TypeError(
+            f"enricher returned {type(candidate).__name__}, not a ResultRecord"
+        )
+    payload = candidate.to_dict()
+    canonical_json(payload)
+    ResultRecord.from_dict(payload)
+    for name, measurement in payload["measurements"].items():
+        if not isinstance(name, str) or not isinstance(measurement, dict):
+            raise TypeError("measurement names and values must be strings and objects")
+        missing = {"value", "unit", "evidence"} - measurement.keys()
+        if missing:
+            raise ValueError(f"measurement {name!r} missing keys {sorted(missing)}")
+        if measurement["evidence"] not in ("A", "B", "C", "D"):
+            raise ValueError(f"measurement {name!r} has invalid evidence")
+    for finding in payload["findings"]:
+        if not isinstance(finding, dict):
+            raise TypeError("findings must contain objects")
+        missing = {"code", "severity", "summary", "evidence", "details"} - finding.keys()
+        if missing:
+            raise ValueError(f"finding missing keys {sorted(missing)}")
+    for error in payload["errors"]:
+        if not isinstance(error, dict):
+            raise TypeError("errors must contain objects")
+        fields = {"stage", "code", "type", "message", "retryable"}
+        missing = fields - error.keys()
+        if missing:
+            raise ValueError(f"stage error missing keys {sorted(missing)}")
+        extra = error.keys() - fields
+        if extra:
+            raise ValueError(f"stage error has unknown keys {sorted(extra)}")
+        StageError(**error)
+    before = baseline.to_dict()
+    protected = (
+        "schema_version",
+        "run",
+        "identity",
+        "environment",
+        "fingerprints",
+        "status",
+        "observations",
+        "series",
+        "artifacts",
+        "errors",
+    )
+    changed = [key for key in protected if payload[key] != before[key]]
+    if changed:
+        raise ValueError(f"enricher changed lifecycle-owned field(s): {changed}")
 
 
 def _log_traceback(

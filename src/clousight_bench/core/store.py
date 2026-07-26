@@ -91,7 +91,7 @@ def _drop_scored(record: ResultRecord) -> None:
     _drop_evidence(record)
     record.measurements = {}
     record.findings = []
-    record.extensions = {}
+    record.extensions = {"core": {"persistence_degraded": True}}
 
 
 class ResultStore:
@@ -119,8 +119,18 @@ class ResultStore:
             if sidecar is not None:
                 # After validation, never before: a refused record must not
                 # leave a sidecar behind, and the pointer is already hashed.
-                atomic_write_bytes(sidecar.path, sidecar.data)
-                written_sidecar = sidecar.path
+                try:
+                    atomic_write_bytes(sidecar.path, sidecar.data)
+                    written_sidecar = sidecar.path
+                except OSError as exc:
+                    logger.warning(
+                        "run %s: keeping the series inline, sidecar write failed: %s",
+                        record.run.run_id,
+                        exc,
+                    )
+                    _remove_empty_run_dir(self._run_dir(record))
+                    sidecar = None
+                    payload = self._payload(record, None, "ok")
             path = atomic_write_text(self._record_path(record), _dump(payload))
         except Exception as exc:  # noqa: BLE001 - losing a result is the worst outcome
             return self._persist_degraded(record, inline_series, written_sidecar, exc)
@@ -173,12 +183,15 @@ class ResultStore:
                 logger.warning("could not remove the orphan sidecar %s", written_sidecar)
         record.series = dict(inline_series)  # never point at a sidecar we removed
         record.run.stages["PERSIST"] = "failed"
+        record.status = "failed"
+        record.extensions = {"core": {"persistence_degraded": True}}
         error = _persist_error(exc)
         record.errors.append(error)
 
         payload = self._degraded_payload(record)
         text = _dump(payload)
-        record.fingerprints.record_digest = payload["fingerprints"]["record_digest"]
+        replacement = ResultRecord.from_dict(payload)
+        record.__dict__.update(replacement.__dict__)
 
         if not isinstance(exc, OSError):
             # The results directory itself is fine; keep the record where the
@@ -201,7 +214,7 @@ class ResultStore:
             f"-{record.run.run_id}.json"
         )
         try:
-            path = emergency_write_text(name, text)
+            path = _emergency_write_unique(name, text)
         except Exception:  # noqa: BLE001 - the record must not vanish in silence
             print(
                 "clousight-bench: could not write the results directory or the "
@@ -225,7 +238,10 @@ class ResultStore:
                 return self._payload(record, None, "failed")
             except Exception:  # noqa: BLE001 - try the next, smaller shape
                 continue
-        return self._payload(record, None, "failed", scrub=True)
+        try:
+            return self._payload(record, None, "failed", scrub=True)
+        except Exception:  # noqa: BLE001 - core-owned minimum must always encode
+            return _minimal_payload(record)
 
     # --- optional Parquet sidecar -------------------------------------------
 
@@ -235,6 +251,7 @@ class ResultStore:
         try:
             return self._build_series_sidecar(record)
         except Exception as exc:  # noqa: BLE001 - the sidecar is an optimisation
+            _remove_empty_run_dir(self._run_dir(record))
             logger.warning(
                 "run %s: keeping the series inline, sidecar failed: %s",
                 record.run.run_id,
@@ -263,6 +280,11 @@ class ResultStore:
                 rows["unit"].append(unit)
                 count += 1
 
+        leaks = find_identity_leaks(rows)
+        if leaks:
+            raise SensitiveDataError(
+                f"refusing operator-identifying values in series sidecar at {leaks}"
+            )
         buffer = io.BytesIO()
         pq.write_table(pa.table(rows), buffer)
         data = buffer.getvalue()
@@ -326,3 +348,89 @@ def _persist_error(exc: BaseException) -> dict[str, Any]:
             retryable=isinstance(exc, OSError),
         ).to_dict()
     )
+
+
+def _remove_empty_run_dir(run_dir: Path) -> None:
+    """A failed optional sidecar must not leave its empty directory behind."""
+    try:
+        run_dir.rmdir()
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.warning("could not remove failed sidecar directory %s", run_dir)
+
+
+def _emergency_write_unique(name: str, text: str) -> Path:
+    """Never overwrite another emergency result, even for the same run id."""
+    stem = Path(name).stem
+    suffix = Path(name).suffix
+    for attempt in range(1000):
+        candidate = name if attempt == 0 else f"{stem}-{attempt}{suffix}"
+        try:
+            return emergency_write_text(candidate, text)
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"could not allocate a unique emergency name for {name}")
+
+
+def _minimal_payload(record: ResultRecord) -> dict[str, Any]:
+    """Build a hand-owned canonical 0.2 record when every plugin field is bad."""
+    def text(value: Any) -> str:
+        try:
+            rendered = str(value)
+        except Exception:  # noqa: BLE001 - this is the no-plugin-data last resort
+            return "<unavailable>"
+        return scrub_identity_text(rendered)
+
+    payload: dict[str, Any] = {
+        "schema_version": "0.2",
+        "run": {
+            "run_id": text(record.run.run_id),
+            "started_at": text(record.run.started_at),
+            "finished_at": text(record.run.finished_at),
+            "stages": {"PERSIST": "failed"},
+        },
+        "identity": {
+            "domain": text(record.identity.domain),
+            "task_id": text(record.identity.task_id),
+            "task_revision": text(record.identity.task_revision),
+            "scorer_revision": text(record.identity.scorer_revision),
+            "adapter": text(record.identity.adapter),
+            "adapter_status": text(record.identity.adapter_status),
+            "core_version": text(record.identity.core_version),
+            "workload": "",
+            "workload_version": "",
+            "plugin_versions": {},
+        },
+        "environment": {
+            "region": "",
+            "mode": "unknown",
+            "python_version": "",
+            "os_name": "",
+            "facts": {},
+        },
+        "fingerprints": {
+            "benchmark": "unknown",
+            "environment": "unknown",
+            "implementation": "unknown",
+            "record_digest": "",
+        },
+        "status": "failed",
+        "measurements": {},
+        "findings": [],
+        "observations": {},
+        "series": {},
+        "artifacts": [],
+        "extensions": {"core": {"persistence_degraded": True}},
+        "errors": [
+            {
+                "stage": "PERSIST",
+                "code": "persist_failed",
+                "type": "CanonicalJSONError",
+                "message": "full result was not canonically encodable",
+                "retryable": False,
+            }
+        ],
+    }
+    payload["fingerprints"]["record_digest"] = record_digest(payload)
+    return payload
