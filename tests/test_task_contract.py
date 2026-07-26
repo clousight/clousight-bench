@@ -1,4 +1,4 @@
-"""Task.execute/score is the contract; run() is a bridge deleted at cutover."""
+"""Task.execute/score is the whole contract a concrete task must implement."""
 
 import pytest
 
@@ -7,6 +7,7 @@ from clousight_bench.core.observation import (
     Measurement,
     ObservationBundle,
     TaskResult,
+    collect,
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 
@@ -83,29 +84,28 @@ def test_default_environment_facts_and_workload_identity_are_empty():
 
 
 def test_execute_and_score_are_required_of_a_concrete_task():
-    task = _Unimplemented()
-    with pytest.raises(NotImplementedError, match="execute"):
-        task.execute(_Adapter(), {})
-    with pytest.raises(NotImplementedError, match="score"):
-        task.score(ObservationBundle())
+    with pytest.raises(TypeError, match="execute"):
+        _Unimplemented()
 
 
-def test_bridge_run_composes_execute_collect_and_score():
-    out = _Good().run(_Adapter(), {})
-    assert out.metrics == {"hits": 2}
-    assert out.evidence_layer == "C"
-    assert out.ok is True
-    assert out.raw == {"hits": 2}
-    assert out.series == {"latency_ms": [[1, 10.0]]}
-    assert out.artifacts[0]["kind"] == "trace"
-    assert out.notes == "hits=2"
-
-
-def test_bridge_run_reports_not_ok_on_a_critical_finding(monkeypatch):
+def test_a_task_composes_execute_collect_and_score(monkeypatch):
     task = _Good()
-    monkeypatch.setattr(
-        task,
-        "execute",
-        lambda adapter, params: ObservationBundle(observations={"hits": 0}),
-    )
-    assert task.run(_Adapter(), {}).ok is False
+    bundle = collect(task.execute(_Adapter(), {}))
+    result = task.score(bundle)
+
+    assert bundle.observations == {"hits": 2}
+    assert bundle.series == {"latency_ms": [[1, 10.0]]}
+    assert bundle.artifacts[0]["kind"] == "trace"
+    assert result.measurements["hits"].to_dict() == {
+        "value": 2,
+        "unit": "count",
+        "evidence": "C",
+    }
+    assert result.findings == []
+    assert result.notes == "hits=2"
+
+
+def test_score_reports_a_critical_finding_when_nothing_was_observed():
+    result = _Good().score(ObservationBundle(observations={"hits": 0}))
+    assert [f.code for f in result.findings] == ["tx.no_hits"]
+    assert result.findings[0].severity == "critical"

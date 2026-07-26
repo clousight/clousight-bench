@@ -1,11 +1,13 @@
-"""TaskOutput.series/artifacts must flow through the orchestrator into the record."""
+"""ObservationBundle series/artifacts must flow through the lifecycle into the record."""
 import clousight_bench.core.orchestrator as orch
-from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task, TaskOutput
+from clousight_bench.core.observation import Measurement, ObservationBundle, TaskResult
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
 from clousight_bench.core.schema import RunSpec
 
 
 class _Adapter(ProviderAdapter):
     name = "fake"
+    status = "reference"
 
 
 class _Task(Task):
@@ -15,12 +17,15 @@ class _Task(Task):
     def config(self, params):
         return {}
 
-    def run(self, adapter, params):
-        return TaskOutput(
-            metrics={"p99_ms": 1},
-            evidence_layer="C",
+    def execute(self, adapter, params):
+        return ObservationBundle(
             series={"latency_ms": [[1, 10.0]]},
             artifacts=[{"kind": "trace", "path": "p", "media": "m", "sha256": "sha256:x"}],
+        )
+
+    def score(self, observations):
+        return TaskResult(
+            measurements={"p99_ms": Measurement(value=1, unit="ms", evidence="C")}
         )
 
 

@@ -2,7 +2,7 @@
 
     csbench list                                        # installed domains / tasks / platforms
     csbench run --domain agent-runtime --task T1.3 \
-            --platform local-sim [--config cfg.yaml] [--param k=v ...]
+            --platform local-sim [--config cfg.yaml] [--param k=v ...] [--debug]
     csbench report [--results results/] [--out results/comparison.md]
     csbench init aws [--domain agent-runtime] [--out .]  # scaffold private config + .env.example
     csbench doctor --config x.local.yaml                 # preflight: creds + connectivity
@@ -92,6 +92,9 @@ def _parse_params(pairs: list[str]) -> dict[str, Any]:
     return params
 
 
+_EXIT_BY_STATUS = {"completed": 0, "unsupported": 0, "failed": 1, "invalid": 1}
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     target: dict[str, Any] = {}
     params: dict[str, Any] = {}
@@ -113,9 +116,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
         results_dir=Path(args.results),
         enrich=not args.no_enrich,
         preflight=not args.skip_preflight,
+        debug=args.debug,
     )
     print(record.to_json())
-    return 0 if record.ok else 2
+    return _EXIT_BY_STATUS[record.status]
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
@@ -290,6 +294,9 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--no-enrich", action="store_true", help="skip result enrichers")
     run_p.add_argument("--skip-preflight", action="store_true",
                        help="skip the preflight prerequisite checks (not recommended)")
+    run_p.add_argument("--debug", action="store_true",
+                       help="write stage tracebacks to <results>/debug/<run_id>.log "
+                            "(never into the record)")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))

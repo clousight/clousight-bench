@@ -3,7 +3,8 @@
 The framework's abstraction cut: workloads differ wildly across cloud products,
 but the *pipeline* is identical --
 
-    provision -> setup -> execute -> collect -> teardown -> score -> report
+    resolve -> validate -> preflight -> setup -> execute -> collect
+            -> score -> enrich -> persist -> publish
 
 So the core only orchestrates that lifecycle; everything product-specific lives
 in plugins:
@@ -24,26 +25,11 @@ and built-in packs are loaded identically.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from clousight_bench.core.observation import ObservationBundle, TaskResult, collect
+from clousight_bench.core.observation import ObservationBundle, TaskResult
 from clousight_bench.core.redaction import redact
 from clousight_bench.core.schema import ResultRecord
-
-
-@dataclass
-class TaskOutput:
-    """What a Task.run returns; the orchestrator wraps it into a ResultRecord."""
-
-    metrics: dict[str, Any]
-    evidence_layer: str
-    ok: bool = True
-    raw: dict[str, Any] = field(default_factory=dict)
-    notes: str = ""
-    series: dict[str, Any] = field(default_factory=dict)
-    artifacts: list[dict[str, Any]] = field(default_factory=list)
-
 
 AdapterStatus = Literal["reference", "experimental", "wired", "skeleton"]
 
@@ -135,15 +121,15 @@ class Task(ABC):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         """The controlled inputs that determine the result -> benchmark fingerprint."""
 
+    @abstractmethod
     def execute(
         self, adapter: ProviderAdapter, params: dict[str, Any]
     ) -> ObservationBundle:
         """Drive the system under test and return raw observations only."""
-        raise NotImplementedError(f"{type(self).__name__} must implement execute()")
 
+    @abstractmethod
     def score(self, observations: ObservationBundle) -> TaskResult:
         """Turn observations into measurements and findings. Pure function."""
-        raise NotImplementedError(f"{type(self).__name__} must implement score()")
 
     def environment_facts(
         self, adapter: ProviderAdapter, params: dict[str, Any]
@@ -163,28 +149,6 @@ class Task(ABC):
         ``assets``.
         """
         return {"workload": "", "workload_version": "", "assets": []}
-
-    def run(self, adapter: ProviderAdapter, params: dict[str, Any]) -> TaskOutput:
-        """TEMPORARY Phase 1B bridge — deleted with TaskOutput at the cutover.
-
-        Lets the still-1.0 orchestrator drive a migrated execute/score Task, so
-        the built-in tasks can migrate one group at a time with the suite green
-        the whole way.
-        """
-        bundle = collect(self.execute(adapter, params))
-        result = self.score(bundle)
-        return TaskOutput(
-            metrics={
-                name: measurement.value
-                for name, measurement in result.measurements.items()
-            },
-            evidence_layer=self.evidence_layer,
-            ok=not any(finding.severity == "critical" for finding in result.findings),
-            raw=dict(bundle.observations),
-            notes=result.notes,
-            series=dict(bundle.series),
-            artifacts=list(bundle.artifacts),
-        )
 
 
 class DomainPack(ABC):
