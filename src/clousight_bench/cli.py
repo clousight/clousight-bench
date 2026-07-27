@@ -3,6 +3,7 @@
     csbench list                                        # installed domains / tasks / platforms
     csbench run --domain agent-runtime --task T1.3 \
             --platform local-sim [--config cfg.yaml] [--param k=v ...] [--debug]
+    #   --repeat N --warmup W  -> run a plan and print a statistical aggregate
     csbench report [--results results/] [--out results/comparison.md]
     #   results/publish-receipts.jsonl records publish attempts (append-only)
     csbench migrate-results old-results/ --output new-results/ [--dry-run]
@@ -126,6 +127,26 @@ def _cmd_run(args: argparse.Namespace) -> int:
         target=target,
         params=params,
     )
+
+    if args.repeat != 1 or args.warmup != 0:
+        from clousight_bench.core.runplan import RunPlan, execute_plan
+
+        plan = RunPlan(spec, repeat=args.repeat, warmup=args.warmup)
+        aggregate = execute_plan(
+            plan,
+            results_dir=Path(args.results),
+            enrich=not args.no_enrich,
+            preflight=not args.skip_preflight,
+            debug=args.debug,
+        )
+        print(aggregate.to_json())
+        bad = sum(
+            count
+            for status, count in aggregate.status_counts.items()
+            if status not in ("completed", "unsupported")
+        )
+        return 1 if bad else 0
+
     record = execute(
         spec,
         results_dir=Path(args.results),
@@ -334,6 +355,10 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--debug", action="store_true",
                        help="write stage tracebacks to <results>/debug/<run_id>.log "
                             "(never into the record)")
+    run_p.add_argument("--repeat", type=int, default=1,
+                       help="measured repeats to run and aggregate (default: 1)")
+    run_p.add_argument("--warmup", type=int, default=0,
+                       help="warmup runs to execute first and exclude from statistics")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))

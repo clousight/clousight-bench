@@ -20,6 +20,8 @@ from typing import Any
 
 from clousight_bench.core.fingerprints import record_digest
 from clousight_bench.core.record import SCHEMA_VERSION, RecordError, ResultRecord
+from clousight_bench.core.runplan import AGGREGATES_DIRNAME
+from clousight_bench.core.statistics import NumericKind, aggregate_measurements
 from clousight_bench.core.store import validate_sidecar
 
 _SKIP_FILES = {"comparison.json", "migration-manifest.json", "publish-receipts.jsonl"}
@@ -42,6 +44,10 @@ def _load_results(results_dir: Path) -> list[ResultRecord]:
     skipped: list[str] = []
     for path in sorted(results_dir.rglob("*.json")):
         if path.name in _SKIP_FILES:
+            continue
+        # Run-plan aggregates are summaries of records, not records; the plan
+        # writer owns them and they never parse as a 0.2 ResultRecord.
+        if AGGREGATES_DIRNAME in path.relative_to(results_dir).parts:
             continue
         reason = None
         try:
@@ -123,6 +129,107 @@ def _fmt_measurements(measurements: dict[str, Any]) -> str:
     return "<br>".join(parts)
 
 
+def _is_warmup(rec: ResultRecord) -> bool:
+    """A warmup repeat is thrown-away evidence: never a representative or a stat."""
+    core = rec.extensions.get("core", {})
+    plan = core.get("run_plan", {}) if isinstance(core, dict) else {}
+    return isinstance(plan, dict) and plan.get("role") == "warmup"
+
+
+def _fmt_number(value: Any) -> str:
+    if isinstance(value, float):
+        if value.is_integer():
+            return str(int(value))
+        return f"{value:.4g}"
+    return str(value)
+
+
+def _fmt_stat(name: str, summary: dict[str, Any]) -> str:
+    evidence = f" [{summary['evidence']}]" if summary.get("evidence") else ""
+    if summary.get("kind") == NumericKind:
+        unit = f" {summary['unit']}" if summary.get("unit") else ""
+        mean = _fmt_number(summary["mean"])
+        stdev = _fmt_number(summary["stdev"])
+        p95 = _fmt_number(summary["p95"])
+        body = f"{mean}±{stdev}{unit} (n={summary['n']}, p95={p95})"
+    else:
+        mode = summary.get("mode")
+        agreement = summary.get("agreement", 0.0)
+        body = f"{mode} ×{int(round(agreement * summary['n']))}/{summary['n']}"
+        if summary.get("distinct", 1) > 1:
+            body += " (disagreement)"
+    return f"{name}={body}{evidence}"
+
+
+def _stats_section(measured: list[ResultRecord]) -> list[str]:
+    """Aggregate every comparable group of repeats into one distribution each.
+
+    A group is one (domain, task, adapter, benchmark, environment) fingerprint
+    tuple, so two runs are pooled only when they are literally the same
+    benchmark in the same environment. Groups with a single run add nothing the
+    matrix does not already show, so only real repeats (n >= 2) are rendered.
+    """
+    groups: dict[tuple[str, str, str, str, str], list[ResultRecord]] = defaultdict(list)
+    for rec in measured:
+        if rec.status not in ("completed", "unsupported"):
+            continue
+        key = (
+            rec.identity.domain,
+            rec.identity.task_id,
+            rec.identity.adapter,
+            rec.fingerprints.benchmark,
+            rec.fingerprints.environment,
+        )
+        groups[key].append(rec)
+
+    rendered: list[str] = []
+    for key in sorted(groups):
+        recs = groups[key]
+        if len(recs) < 2:
+            continue
+        domain, task, adapter, benchmark, _env = key
+        aggregates = aggregate_measurements([r.measurements for r in recs])
+        if not aggregates:
+            continue
+        short = benchmark.removeprefix("sha256:")[:12]
+        rendered.append(
+            f"- `{domain}/{task}` on **{adapter}** "
+            f"(n={len(recs)}, benchmark `{short}`)"
+        )
+        for name, summary in sorted(aggregates.items()):
+            rendered.append(f"  - {_fmt_stat(name, summary)}")
+
+    if not rendered:
+        return []
+    return ["## Repeated-run statistics", "", *rendered, ""]
+
+
+def _comparability_flags(measured: list[ResultRecord]) -> list[str]:
+    """Warn when one cell mixes benchmarks or code versions that cannot be compared."""
+    cells: dict[tuple[str, str, str], list[ResultRecord]] = defaultdict(list)
+    for rec in measured:
+        cells[(rec.identity.domain, rec.identity.task_id, rec.identity.adapter)].append(rec)
+
+    flags: list[str] = []
+    for (domain, task, adapter), recs in sorted(cells.items()):
+        where = f"- `{domain}/{task}` on **{adapter}**"
+        benchmarks = {r.fingerprints.benchmark for r in recs}
+        if len(benchmarks) > 1:
+            flags.append(
+                f"{where}: {len(benchmarks)} distinct benchmark fingerprints — these "
+                "are different benchmarks and must not be compared as one"
+            )
+            continue
+        implementations = {r.fingerprints.implementation for r in recs}
+        if len(implementations) > 1:
+            flags.append(
+                f"{where}: same benchmark, {len(implementations)} distinct "
+                "implementation fingerprints — the code changed, so compare only "
+                "with that caveat"
+            )
+    return flags
+
+
 def _red_flags(records: dict[tuple[str, str, str], ResultRecord]) -> list[str]:
     flags: list[str] = []
     for (domain, task, adapter), rec in sorted(records.items()):
@@ -173,7 +280,10 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
         out_path.write_text(report, encoding="utf-8")
         return report
 
-    latest = _latest_per_cell(records)
+    # Warmup repeats are throw-away evidence: never a matrix representative, a
+    # statistic or a comparability signal.
+    measured = [rec for rec in records if not _is_warmup(rec)]
+    latest = _latest_per_cell(measured)
     by_task: dict[tuple[str, str], dict[str, ResultRecord]] = defaultdict(dict)
     for (domain, task, adapter), rec in latest.items():
         by_task[(domain, task)][adapter] = rec
@@ -200,6 +310,15 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
                 f"{_fmt_measurements(rec.measurements)} | `{short}` | "
                 f"{rec.identity.core_version} |"
             )
+        lines.append("")
+
+    lines.extend(_stats_section(measured))
+
+    comparability = _comparability_flags(measured)
+    if comparability:
+        lines.append("## Comparability")
+        lines.append("")
+        lines.extend(comparability)
         lines.append("")
 
     flags = _red_flags(latest)

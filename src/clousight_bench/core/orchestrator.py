@@ -116,8 +116,16 @@ def execute(
     preflight: bool = True,
     publisher: ResultPublisher | None = None,
     debug: bool = False,
+    run_context: Mapping[str, Any] | None = None,
 ) -> ResultRecord:
-    """Run one RunSpec through the full lifecycle and persist the result."""
+    """Run one RunSpec through the full lifecycle and persist the result.
+
+    ``run_context`` (Phase 1C) tags this run's membership in a run plan. When
+    provided it is recorded verbatim under ``extensions["core"]["run_plan"]``,
+    so it is covered by ``record_digest`` (auditable, tamper-evident) but never
+    folded into a benchmark/environment/implementation fingerprint -- a warmup
+    and a measured repeat of the same benchmark must share those fingerprints.
+    """
     results_dir = Path(results_dir or DEFAULT_RESULTS_DIR)
     run_id = new_run_id()
     started_at = utc_now()
@@ -143,7 +151,7 @@ def execute(
         errors.extend(prepared.errors)
         record = _build_record(
             run_id, started_at, stages, prepared, "invalid", None, findings,
-            ObservationBundle(), errors,
+            ObservationBundle(), errors, run_context,
         )
         return _finish(
             record,
@@ -169,7 +177,7 @@ def execute(
                 findings.append(gate_finding)
             record = _build_record(
                 run_id, started_at, stages, prepared, "invalid", None, findings,
-                ObservationBundle(), errors,
+                ObservationBundle(), errors, run_context,
             )
             return _finish(
                 record,
@@ -198,6 +206,7 @@ def execute(
             findings,
             ObservationBundle(),
             errors,
+            run_context,
         )
         return _finish(
             record,
@@ -271,7 +280,7 @@ def execute(
 
     record = _build_record(
         run_id, started_at, stages, prepared, _status_for(errors, result), result,
-        findings, bundle, errors,
+        findings, bundle, errors, run_context,
     )
     return _finish(
         record,
@@ -550,12 +559,18 @@ def _build_record(
     findings: list[Finding],
     bundle: ObservationBundle,
     errors: list[StageError],
+    run_context: Mapping[str, Any] | None = None,
 ) -> ResultRecord:
     all_findings = list(findings) + list(result.findings if result else [])
-    extensions: dict[str, Any] = {}
+    core_extension: dict[str, Any] = {}
     if result is not None and result.notes:
+        core_extension["notes"] = result.notes
+    if run_context is not None:
+        core_extension["run_plan"] = dict(run_context)
+    extensions: dict[str, Any] = {}
+    if core_extension:
         # "core" is the reserved extension namespace; plugins use their own name.
-        extensions["core"] = {"notes": result.notes}
+        extensions["core"] = core_extension
     return ResultRecord(
         run=RunInfo(
             run_id=run_id,
