@@ -5,6 +5,7 @@
             --platform local-sim [--config cfg.yaml] [--param k=v ...] [--debug]
     csbench report [--results results/] [--out results/comparison.md]
     #   results/publish-receipts.jsonl records publish attempts (append-only)
+    csbench migrate-results old-results/ --output new-results/ [--dry-run]
     csbench init aws [--domain agent-runtime] [--out .]  # scaffold private config + .env.example
     csbench doctor --config x.local.yaml                 # preflight: creds + connectivity
 """
@@ -142,6 +143,24 @@ def _cmd_report(args: argparse.Namespace) -> int:
     out = generate_report(Path(args.results), Path(args.out) if args.out else None)
     print(out)
     return 0
+
+
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    from clousight_bench.core.migrate import MANIFEST_FILE, migrate_tree
+
+    dest = Path(args.output)
+    manifest = migrate_tree(Path(args.source), dest, dry_run=args.dry_run)
+    prefix = "dry-run: " if args.dry_run else ""
+    print(
+        f"{prefix}migrated={manifest.migrated} "
+        f"skipped={manifest.skipped} failed={manifest.failed}"
+    )
+    for entry in manifest.entries:
+        if entry.status != "migrated":
+            print(f"  {entry.status}: {entry.source} — {entry.reason}")
+    if not args.dry_run:
+        print(f"manifest: {dest.resolve() / MANIFEST_FILE}")
+    return 1 if manifest.failed else 0
 
 
 def _ensure_gitignore(root: Path, patterns: list[str]) -> None:
@@ -286,6 +305,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "list": _cmd_list,
         "run": _cmd_run,
         "report": _cmd_report,
+        "migrate-results": _cmd_migrate,
         "init": _cmd_init,
         "doctor": _cmd_doctor,
     }
@@ -318,6 +338,22 @@ def main(argv: list[str] | None = None) -> int:
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     rep_p.add_argument("--out", help="write markdown here (default: <results>/comparison.md)")
+
+    mig_p = sub.add_parser(
+        "migrate-results",
+        help="convert schema 1.0 result files into schema 0.2 (never in place)",
+    )
+    mig_p.add_argument("source", help="directory containing schema 1.0 result JSON")
+    mig_p.add_argument(
+        "--output",
+        required=True,
+        help="fresh destination directory; must be outside SOURCE",
+    )
+    mig_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report what would be migrated without writing anything",
+    )
 
     init_p = sub.add_parser("init", help="scaffold a private config + .env.example for a provider")
     init_p.add_argument("provider", help="cloud provider (aws, aliyun, huawei, volcengine)")
