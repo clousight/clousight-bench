@@ -58,6 +58,16 @@ Developer-preview reset before the first public release.
   `csbench run --debug`.
 - A minimal `ResultPublisher` boundary with append-only publish receipts. Core
   ships no publisher.
+- Run plans: `csbench run --repeat N --warmup W` executes the benchmark
+  `warmup + repeat` times (each still its own auditable `0.2` record), discards
+  the warmups, and writes a `run_plan_aggregate` under `results/aggregates/`.
+- Statistical aggregation over repeats (`core/statistics.py`): numeric
+  measurements get `n`, `mean`, `stdev`, `min`, `max`, `p50`, `p95` and `cv`;
+  label measurements get their distribution, `mode` and `agreement`.
+- Comparability-aware reporting: `csbench report` pools only records that share
+  a `benchmark` **and** `environment` fingerprint, and flags a cell that mixes
+  benchmarks (not comparable) or implementation fingerprints (comparable only
+  with the caveat that the code changed).
 
 ### Changed (breaking)
 

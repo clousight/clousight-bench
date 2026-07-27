@@ -67,6 +67,18 @@ The migrator never writes in place, never fabricates a fingerprint (unknown
 ones are the literal string `unknown`), and produces byte-identical output when
 run twice.
 
+One run is not a measurement. Repeat a benchmark and get a distribution:
+
+```bash
+csbench run --domain agent-runtime --task T1.3 --platform local-sim \
+  --repeat 5 --warmup 1
+```
+
+The warmup run is discarded; the five measured runs are reduced to `mean`,
+`stdev`, `p95` and `cv` (numeric) or a value distribution (labels), and only
+runs that share a `benchmark` and `environment` fingerprint are ever pooled.
+`csbench report` flags any cell whose numbers are not actually comparable.
+
 ## Why another benchmark framework
 
 Existing benchmarks pin the runtime and swap the model to report accuracy. Nobody independently benchmarks the **platform runtime engineering** — session hosting, tool-failure recovery, trace completeness, cost attribution — of managed cloud products. Clousight Bench does, and the abstraction generalizes: workloads differ wildly across cloud products, but the pipeline is identical:

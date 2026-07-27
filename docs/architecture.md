@@ -69,9 +69,32 @@ never fabricating a fingerprint (unknown ones are the literal `unknown`), and
 byte-identical on a repeat run. Each entry in `migration-manifest.json` records
 the original path and its SHA-256.
 
-Phase 1B does **not** ship run plans, repeats, statistics or comparability
-reports (Phase 1C), nor plugin API ranges, JSON Schema, a conformance kit or
-workload sandboxing (Phase 1D).
+## Run plans and statistics (Phase 1C)
+
+A single number is not a measurement. `csbench run --repeat N --warmup W`
+(`core/runplan.py`) runs the same `RunSpec` `warmup + repeat` times through the
+lifecycle above — every run is still its own digested `0.2` record — then:
+
+- discards the `warmup` runs (cold-start / JIT / cache effects are not the
+  steady state you publish), tagging each record's role under
+  `extensions["core"]["run_plan"]` so the choice is auditable, never a fingerprint;
+- reduces the measured runs to one distribution per measurement
+  (`core/statistics.py`): numeric → `n / mean / stdev / min / max / p50 / p95 /
+  cv`, label → distribution / `mode` / `agreement`;
+- writes a `run_plan_aggregate` (with its own SHA-256 digest) under
+  `results/aggregates/…`, which the report loader skips as a summary-of-records.
+
+**Comparability is checked, not assumed.** Two runs are pooled only when their
+`benchmark` *and* `environment` fingerprints match. A plan whose benchmark or
+environment changes mid-flight aggregates only the largest self-consistent
+group and says so; `csbench report` flags a cell that mixes benchmarks (not
+comparable at all) or implementation fingerprints (comparable only with the
+caveat that the code changed). Only `completed` / `unsupported` runs contribute
+numbers — a `failed` run is counted, but it has no verdict to pool.
+
+Phase 1C does **not** ship plugin API ranges, JSON Schema, a conformance kit or
+workload sandboxing (Phase 1D), and it aggregates only scalar `measurements`,
+not time series.
 
 ## Layers
 

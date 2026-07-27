@@ -85,6 +85,28 @@ jobs:
           print("migration is deterministic and idempotent")
           PY
 
+      - name: Run plan aggregates repeats and drops warmups
+        run: |
+          rm -rf /tmp/plan-results
+          csbench run --domain agent-runtime --task T1.3 --platform local-sim \
+            --results /tmp/plan-results --repeat 3 --warmup 1
+          python - <<'PY'
+          import json, pathlib
+          aggs = list(pathlib.Path("/tmp/plan-results/aggregates").rglob("*.json"))
+          assert len(aggs) == 1, aggs
+          data = json.loads(aggs[0].read_text(encoding="utf-8"))
+          assert data["kind"] == "run_plan_aggregate"
+          assert len(data["runs"]["measured"]) == 3, data["runs"]
+          assert len(data["runs"]["warmup"]) == 1, data["runs"]
+          assert data["measurements"]["total_attempts"]["n"] == 3
+          assert data["digest"].startswith("sha256:")
+          # Four run records + one aggregate; warmups are excluded from the stats.
+          recs = [p for p in pathlib.Path("/tmp/plan-results").rglob("*.json")
+                  if "aggregates" not in p.parts]
+          assert len(recs) == 4, recs
+          print("run plan: 4 records, 3 measured pooled, 1 warmup dropped")
+          PY
+
   wheel-smoke:
     runs-on: ubuntu-latest
     steps:
