@@ -7,19 +7,71 @@ but the pipeline is identical.
 ## Lifecycle (shared by every domain)
 
 ```
-RESOLVE -> PREFLIGHT -> SETUP -> EXECUTE -> TEARDOWN -> RECORD
+RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
+        -> SCORE -> ENRICH -> PERSIST -> optional PUBLISH
 ```
 
 - **RESOLVE** — look up the DomainPack, Task and Adapter for a `RunSpec`.
-- **PREFLIGHT** — `adapter.preflight()`: check credentials / permissions / connectivity **before provisioning**. A CRITICAL failure aborts here with an actionable checklist (no resource created), so prerequisites surface up front instead of mid-run. Bypass with `csbench run --skip-preflight`; run standalone with `csbench doctor`. Single source of truth: `core/preflight.py`.
+- **VALIDATE** — parse and check the RunSpec, target, params and task config
+  (`core/validation.py`). RESOLVE and VALIDATE failures are `UserInputError`s:
+  CLI exit code 2, **no record written**.
+- **PREFLIGHT** — `adapter.preflight(task)`: credentials, SDK, connectivity and
+  the minimal permissions this benchmark needs on this cloud, **before**
+  provisioning. A CRITICAL failure produces an `invalid` record and never
+  enters SETUP. Bypass with `--skip-preflight`; run standalone with
+  `csbench doctor`.
 - **SETUP** — `adapter.setup()`: provision (Terraform) or connect (SDK/HTTP).
-- **EXECUTE** — `task.run(adapter, params)`: the task drives the workload and scores it.
-- **TEARDOWN** — `adapter.teardown()`: always runs, even on failure.
-- **RECORD** — wrap into a `ResultRecord` (mandatory `config_hash` +
-  `runner_version` + `evidence_layer`) and persist.
+- **EXECUTE** — `task.execute(adapter, params)`: drive the workload, return an
+  `ObservationBundle` of raw evidence only.
+- **COLLECT** — `core/observation.py::collect()`: prove the bundle is well
+  formed and canonically encodable.
+- **SCORE** — `task.score(bundle)`: a pure function producing measurements and
+  findings. A scorer failure keeps the observations and records a SCORE error.
+- **ENRICH** — installed `ResultEnricher`s, each isolated: a failure becomes an
+  ENRICH stage error and never changes `status`.
+- **PERSIST** — `core/store.py`: temp file, flush, `fsync`, atomic rename, plus
+  an emergency dump into the system temp directory (path printed) when the
+  results directory cannot be written.
+- **PUBLISH** — off unless a `ResultPublisher` is injected. Runs after PERSIST
+  and writes an append-only receipt; it can never rewrite the core record.
 
-A failure is captured as an `ok=False` record, never a crash — "the platform
-failed" is itself a finding.
+**TEARDOWN is not a step in that line.** It is the mandatory `finally` boundary
+around SETUP → COLLECT: once SETUP is entered, `adapter.teardown()` always runs,
+including when `setup()` failed half-way, and a teardown failure is recorded as
+its own stage error without overwriting the execute or collect error that
+caused it.
+
+## Result contract (schema 0.2)
+
+Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
+`fingerprints`, `measurements`, `findings`, `observations`, `series`,
+`artifacts`, `extensions`, `errors`, `status`.
+
+- `status` ∈ `completed` · `failed` · `invalid` · `unsupported`. There is no
+  boolean `ok`, no top-level `metrics`, no top-level `evidence_layer` and no
+  `config_hash`.
+- Every measurement carries `value`, `unit` and `evidence`, optionally
+  `aggregation`, `sample_count` and `notes`.
+- Every finding carries a stable `code`, a `severity`, a `summary`, its
+  `evidence` and `details`.
+- Every stage error carries `stage`, `code`, `type`, `message` and `retryable`.
+  Tracebacks are never stored in a record; `csbench run --debug` writes them to
+  `<results>/debug/<run_id>.log`.
+- All digests are full SHA-256 over the canonical JSON encoding
+  (`core/canonical.py`): UTF-8, sorted keys, no insignificant whitespace,
+  NaN/Infinity rejected.
+- `extensions["core"]` is reserved for the core; a plugin writes under its own
+  name (for example `extensions["cb-pricing"]`).
+
+Old schema `1.0` files are converted with
+`csbench migrate-results SOURCE --output DEST [--dry-run]`: never in place,
+never fabricating a fingerprint (unknown ones are the literal `unknown`), and
+byte-identical on a repeat run. Each entry in `migration-manifest.json` records
+the original path and its SHA-256.
+
+Phase 1B does **not** ship run plans, repeats, statistics or comparability
+reports (Phase 1C), nor plugin API ranges, JSON Schema, a conformance kit or
+workload sandboxing (Phase 1D).
 
 ## Layers
 
@@ -30,7 +82,7 @@ CLI (csbench)
        ├─ DomainPack  → Task(s) + Adapter(s)         [per product category]
        │     └─ Adapter (setup/submit/teardown)      [per (domain, cloud)]
        │           └─ WorkloadEngine (JSONL, any language)  [per load generator]
-       ├─ Schema (RunSpec / ResultRecord / config_hash / evidence layer)
+       ├─ Schema (RunSpec / ResultRecord 0.2 / fingerprints / evidence layer)
        └─ Report (per-dimension matrix + red flags)
 ```
 
@@ -40,7 +92,7 @@ CLI (csbench)
 |---|---|---|
 | `DomainPack` | declare tasks + adapters for a product category | `clousight_bench.domains` entry point |
 | `ProviderAdapter` | provision / talk to / tear down one system under test | referenced by a DomainPack |
-| `Task` | one benchmark dimension: config (hashed), run, score, evidence layer | referenced by a DomainPack |
+| `Task` | one benchmark dimension: `config()`, `execute()` (raw observation), `score()` (pure), `task_revision` / `scorer_revision` | referenced by a DomainPack |
 | `WorkloadEngine` | run a manifest-described load generator as a subprocess | `src/clousight_bench/resources/workloads/<name>/manifest.yaml`, resolved via `core/resources.py::reference_workload_path()` |
 
 Built-in and third-party (including closed-source commercial) packs load
@@ -67,8 +119,8 @@ Reports never blend dimensions into one score.
   resolved with `core.resources.reference_workload_path()`, so wheel and
   editable installs use the same files.
 
-Phase 1A retains ResultRecord schema `1.0` and plugin API `1.0`. Their `0.2`
-replacement is designed but is not implemented until Phase 1B/1D.
+Phase 1B ships ResultRecord schema `0.2` (see "Result contract" above); plugin
+API `1.0` stays until its range-negotiation replacement in Phase 1D.
 
 This repository is public and Apache-2.0 licensed; it contains the whole open
 core. Commercial plugins (`cb-pricing`, `cb-samplers`, `cb-dataservice`,

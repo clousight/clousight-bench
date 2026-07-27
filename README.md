@@ -39,7 +39,33 @@ Every number this framework produces is classified before you trust it:
 - **Documentation reading (evidence layer A)** — vendor-stated limits we did not measure.
 - **Marketing material (evidence layer D)** — never used as load-bearing evidence.
 
-Every result record carries `config_hash` + `runner_version` + `evidence_layer`, so you can tell exactly which configuration produced a number and how trustworthy it is. We publish **per-dimension results, never a single blended score** — blended agent-benchmark rankings have near-zero cross-benchmark agreement.
+Every result record is schema `0.2` and is attributable on three independent
+axes, so you can tell whether two numbers are even comparable:
+
+| Field | Answers |
+|---|---|
+| `fingerprints.benchmark` | *what* was measured — task, scorer, workload, assets, controlled params |
+| `fingerprints.environment` | *where* — region, mode and the environment facts the task declares |
+| `fingerprints.implementation` | *which code* — core, domain pack, adapter and installed plugins |
+| `fingerprints.record_digest` | the content digest of the record itself |
+
+Each measurement carries its own `value`, `unit` and `evidence` layer, and each
+finding carries a stable `code`, a `severity` and its evidence. A run ends in
+exactly one `status`: `completed`, `failed`, `invalid` or `unsupported` — there
+is no boolean `ok`, because "the platform does not support this" and "the run
+crashed" are different results. We publish **per-dimension results, never a
+single blended score** — blended agent-benchmark rankings have near-zero
+cross-benchmark agreement.
+
+Results written by an older version use schema `1.0`. Convert them with:
+
+```bash
+csbench migrate-results old-results/ --output new-results/
+```
+
+The migrator never writes in place, never fabricates a fingerprint (unknown
+ones are the literal string `unknown`), and produces byte-identical output when
+run twice.
 
 ## Why another benchmark framework
 

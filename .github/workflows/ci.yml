@@ -41,6 +41,50 @@ jobs:
           csbench run --domain bigdata-emr --task J1.1 --platform local-process
           csbench report
 
+      - name: Assert every emitted record is schema 0.2
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          paths = [p for p in pathlib.Path("results").rglob("*.json")
+                   if p.name not in {"comparison.json", "migration-manifest.json"}]
+          assert paths, "the smoke wrote no records"
+          for path in paths:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              assert data["schema_version"] == "0.2", (path, data["schema_version"])
+              assert data["status"] in {"completed", "unsupported"}, (path, data["status"])
+              assert data["fingerprints"]["record_digest"].startswith("sha256:"), path
+              for gone in ("ok", "metrics", "evidence_layer", "config_hash"):
+                  assert gone not in data, (path, gone)
+          print(f"{len(paths)} records verified at schema 0.2")
+          PY
+
+      - name: Migration round-trip from schema 1.0
+        run: |
+          rm -rf /tmp/legacy /tmp/migrated /tmp/migrated-again
+          mkdir -p /tmp/legacy/agent-runtime/local-sim
+          cat > /tmp/legacy/agent-runtime/local-sim/T1.3-run-legacy.json <<'JSON'
+          {"domain":"agent-runtime","task_id":"T1.3","platform":"local-sim",
+           "run_id":"run-legacy","started_at":"2026-01-01T00:00:00Z",
+           "finished_at":"2026-01-01T00:00:05Z","config_hash":"sha256:dead",
+           "evidence_layer":"C","metrics":{"recovery_mode":"fail-fast"},
+           "ok":true,"runner_version":"1.0.0","raw":{},"notes":"legacy",
+           "schema_version":"1.0","series":{},"artifacts":[],"error":null}
+          JSON
+          csbench migrate-results /tmp/legacy --output /tmp/migrated
+          csbench migrate-results /tmp/legacy --output /tmp/migrated-again
+          diff -r /tmp/migrated /tmp/migrated-again
+          csbench report --results /tmp/migrated
+          python - <<'PY'
+          import json, pathlib
+          data = json.loads(pathlib.Path(
+              "/tmp/migrated/agent-runtime/local-sim/T1.3-run-legacy.json"
+          ).read_text(encoding="utf-8"))
+          assert data["schema_version"] == "0.2"
+          assert data["fingerprints"]["benchmark"] == "unknown"
+          assert data["extensions"]["legacy"]["config_hash"] == "sha256:dead"
+          print("migration is deterministic and idempotent")
+          PY
+
   wheel-smoke:
     runs-on: ubuntu-latest
     steps:
@@ -59,7 +103,7 @@ jobs:
       - name: Smoke installed wheel outside checkout
         working-directory: /tmp
         run: |
-          /tmp/csbench-wheel/bin/python -c "import importlib.metadata as m, importlib.resources as r, clousight_bench as cb; assert cb.__version__ == m.version('clousight-bench'), (cb.__version__, m.version('clousight-bench')); root = r.files('clousight_bench.resources.workloads'); reqs = [('wordcount-py', 'run.py'), ('gsm8k-stats', 'run.py'), ('ycsb-wrapper', 'run.sh')]; missing = [n for n, e in reqs if not (root.joinpath(n, 'manifest.yaml').is_file() and root.joinpath(n, e).is_file())]; assert not missing, missing; print('wheel version + packaged workloads verified')"
+          /tmp/csbench-wheel/bin/python -c "import importlib.metadata as m, importlib.resources as r, clousight_bench as cb; assert cb.__version__ == m.version('clousight-bench'), (cb.__version__, m.version('clousight-bench')); assert cb.RESULT_SCHEMA_VERSION == '0.2', cb.RESULT_SCHEMA_VERSION; root = r.files('clousight_bench.resources.workloads'); reqs = [('wordcount-py', 'run.py'), ('gsm8k-stats', 'run.py'), ('ycsb-wrapper', 'run.sh')]; missing = [n for n, e in reqs if not (root.joinpath(n, 'manifest.yaml').is_file() and root.joinpath(n, e).is_file())]; assert not missing, missing; print('wheel version + packaged workloads verified')"
           /tmp/csbench-wheel/bin/csbench list --verbose
           /tmp/csbench-wheel/bin/csbench run \
             --domain agent-runtime --task T1.3 --platform local-sim \
