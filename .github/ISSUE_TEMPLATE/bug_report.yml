@@ -1,0 +1,54 @@
+name: Bug report
+description: Report something that is broken or produces a wrong / non-reproducible result.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For **security** issues, do not use this form —
+        see [SECURITY.md](https://github.com/clousight/clousight-bench/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact `csbench` command(s) and any config. Redact secrets.
+      placeholder: |
+        csbench run --domain agent-runtime --task T1.3 --platform local-sim
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `csbench --version` (or the installed `clousight-bench` version).
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12"
+    validations:
+      required: true
+  - type: input
+    id: platform-adapter
+    attributes:
+      label: Adapter / platform
+      description: e.g. local-sim, local-process, aliyun-agentrun (mock)
+  - type: textarea
+    id: result-record
+    attributes:
+      label: Result record / logs
+      description: >
+        If a run produced a wrong number, paste the relevant `ResultRecord`
+        JSON — especially `config_hash`, `runner_version`, `evidence_layer`.
+        Redact any secrets.
+      render: json

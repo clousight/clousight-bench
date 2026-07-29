@@ -18,7 +18,7 @@ from typing import Any
 from clousight_bench.core.schema import ResultRecord
 
 # Metric keys that, at these values, are worth surfacing as a red flag.
-_RED_FLAGS = {
+_RED_FLAGS: dict[str, set[Any]] = {
     "recovery_mode": {"fail-fast", "no-fault-observed"},
     "final_state": {"aborted", "failed"},
     "job_succeeded": {False},

@@ -1,0 +1,16 @@
+# Code owners for Clousight Bench.
+# These owners are requested for review on every pull request that touches
+# matching paths. See https://docs.github.com/articles/about-code-owners
+
+# Default owner for everything in the repo.
+*                       @clousight-dev
+
+# Result schema, plugin API and lifecycle are the load-bearing contracts —
+# changes here ripple into every plugin and into clousight-bench-pro.
+/src/clousight_bench/core/schema.py     @clousight-dev
+/src/clousight_bench/core/plugin.py     @clousight-dev
+/src/clousight_bench/core/orchestrator.py   @clousight-dev
+
+# Packaging, CI and community health.
+/pyproject.toml         @clousight-dev
+/.github/               @clousight-dev

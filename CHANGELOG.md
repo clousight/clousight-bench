@@ -6,6 +6,18 @@ All notable changes to Clousight Bench are recorded here.
 
 Developer-preview reset before the first public release.
 
+### Added
+
+- Project is a typed package: ships a `py.typed` marker (PEP 561) so downstream
+  consumers get type information; CI enforces `mypy` on the source.
+- Community health files: `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1),
+  `GOVERNANCE.md`, `MAINTAINERS.md`, `ROADMAP.md`, `NOTICE`, GitHub issue forms,
+  a pull-request template, `.github/CODEOWNERS`, and Dependabot.
+- Tag-triggered PyPI release workflow using Trusted Publishing (OIDC); see
+  `docs/RELEASING.md`. Test coverage is measured (`pytest --cov`) and a
+  MkDocs + mkdocstrings site (`docs/`, built `--strict` in CI) is added.
+- `[project.urls]` metadata and per-version Python classifiers for PyPI.
+
 ### Changed
 
 - Restored installable reference workloads and wheel smoke coverage.
