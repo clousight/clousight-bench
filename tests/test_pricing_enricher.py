@@ -1,69 +1,83 @@
+"""The reference cost enricher prices 0.2 usage measurements into extensions."""
 import pytest
 
-from clousight_bench.core.schema import ResultRecord, utc_now
+from clousight_bench.core.record import (
+    Environment,
+    Fingerprints,
+    Identity,
+    ResultRecord,
+    RunInfo,
+)
 from clousight_bench.enrichers.pricing import PricingEnricher
 
 
-def _rec(platform, metrics):
+def _record(adapter="local-sim", region="", measurements=None, extensions=None):
     return ResultRecord(
-        domain="agent-runtime", task_id="T5.1", platform=platform, run_id="r",
-        started_at=utc_now(), finished_at=utc_now(),
-        config_hash="sha256:x", evidence_layer="B", metrics=metrics,
+        run=RunInfo(run_id="r", started_at="2026-07-25T00:00:00Z",
+                    finished_at="2026-07-25T00:00:01Z", stages={"EXECUTE": "ok"}),
+        identity=Identity(domain="agent-runtime", task_id="T5.1", task_revision="1",
+                          scorer_revision="1", adapter=adapter, adapter_status="reference",
+                          core_version="0.2.0"),
+        environment=Environment(region=region, mode="local", python_version="3.12.0",
+                                os_name="Linux"),
+        fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b",
+                                  implementation="sha256:c"),
+        status="completed",
+        measurements=measurements or {},
+        extensions=extensions or {},
     )
 
 
+def _usage(**units):
+    return {u: {"value": v, "unit": u, "evidence": "B"} for u, v in units.items()}
+
+
 def test_cost_computed_from_vcpu_hours():
-    rec = _rec("aws", {"vcpu_hours": 10, "service": "agent-runtime", "region": "us-east-1"})
+    rec = _record("aws", "us-east-1", _usage(vcpu_hours=10))
     out = PricingEnricher().enrich(rec)
-    assert out.metrics["cost_usd"] == round(10 * 0.0895, 6)
-    breakdown = out.raw["pricing_breakdown"]
-    assert breakdown[0]["unit"] == "vcpu_hours"
-    assert breakdown[0]["qty"] == 10
-    assert breakdown[0]["unit_price"] == 0.0895
+    pricing = out.extensions["pricing"]
+    assert pricing["cost_usd"] == round(10 * 0.0895, 6)
+    assert pricing["breakdown"][0]["unit"] == "vcpu_hours"
+    assert pricing["breakdown"][0]["unit_price"] == 0.0895
 
 
-def test_uncovered_usage_notes_but_does_not_crash():
-    rec = _rec("unknown-cloud", {"vcpu_hours": 5, "service": "agent-runtime"})
+def test_uncovered_usage_listed_but_does_not_crash():
+    rec = _record("unknown-cloud", "", _usage(vcpu_hours=5))
     out = PricingEnricher().enrich(rec)
-    assert out.metrics["cost_usd"] == 0.0
-    assert "uncovered" in out.notes.lower()
+    assert out.extensions["pricing"]["cost_usd"] == 0.0
+    assert "vcpu_hours" in out.extensions["pricing"]["uncovered"]
 
 
 def test_no_usage_leaves_record_untouched():
-    # A wordcount smoke has no usage metrics -> the enricher must not annotate it.
-    rec = _rec("local-sim", {"rows_processed": 100_000, "throughput_rows_per_s": 12345.6})
+    rec = _record("local-sim", "", {"recovery_mode": {"value": "auto-retry", "evidence": "C"}})
     out = PricingEnricher().enrich(rec)
-    assert "cost_usd" not in out.metrics
-    assert "pricing_breakdown" not in out.raw
+    assert "pricing" not in out.extensions
 
 
-def test_existing_cost_is_not_overwritten():
-    # Transition guard: if another enricher already priced this, leave it alone.
-    rec = _rec("aws", {"vcpu_hours": 10, "service": "agent-runtime",
-                       "region": "us-east-1", "cost_usd": 999.0})
+def test_existing_pricing_is_not_overwritten():
+    rec = _record("aws", "us-east-1", _usage(vcpu_hours=10),
+                  extensions={"pricing": {"cost_usd": 999.0}})
     out = PricingEnricher().enrich(rec)
-    assert out.metrics["cost_usd"] == 999.0
+    assert out.extensions["pricing"]["cost_usd"] == 999.0
 
 
 def test_non_numeric_qty_raises_clear_error():
-    rec = _rec("aws", {"vcpu_hours": "ten", "service": "agent-runtime", "region": "us-east-1"})
+    rec = _record("aws", "us-east-1", _usage(vcpu_hours="ten"))
     with pytest.raises(TypeError, match="must be a number"):
         PricingEnricher().enrich(rec)
 
 
 def test_bool_qty_rejected():
-    rec = _rec("aws", {"vcpu_hours": True, "service": "agent-runtime", "region": "us-east-1"})
+    rec = _record("aws", "us-east-1", _usage(vcpu_hours=True))
     with pytest.raises(TypeError, match="must be a number"):
         PricingEnricher().enrich(rec)
 
 
 def test_cost_includes_invocations():
-    rec = _rec("aliyun", {"invocations": 1_000_000, "service": "agent-runtime",
-                          "region": "cn-hangzhou"})
+    rec = _record("aliyun", "cn-hangzhou", _usage(invocations=1_000_000))
     out = PricingEnricher().enrich(rec)
-    assert out.metrics["cost_usd"] == round(1_000_000 * 0.0000003, 6)
-    units = {b["unit"] for b in out.raw["pricing_breakdown"]}
-    assert "invocations" in units
+    assert out.extensions["pricing"]["cost_usd"] == round(1_000_000 * 0.0000003, 6)
+    assert "invocations" in {b["unit"] for b in out.extensions["pricing"]["breakdown"]}
 
 
 def test_data_override_via_env(tmp_path, monkeypatch):
@@ -74,9 +88,9 @@ def test_data_override_via_env(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setenv("CLOUSIGHT_PRICING_DATA", str(feed))
-    rec = _rec("aws", {"vcpu_hours": 3, "service": "agent-runtime", "region": "us-east-1"})
+    rec = _record("aws", "us-east-1", _usage(vcpu_hours=3))
     out = PricingEnricher().enrich(rec)
-    assert out.metrics["cost_usd"] == 3.0
+    assert out.extensions["pricing"]["cost_usd"] == 3.0
 
 
 def test_enricher_name():
