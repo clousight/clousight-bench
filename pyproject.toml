@@ -54,6 +54,9 @@ csbench = "clousight_bench.cli:main"
 agent-runtime = "clousight_bench.domains.agent_runtime:AgentRuntimeDomain"
 bigdata-emr = "clousight_bench.domains.bigdata_emr:BigDataEmrDomain"
 
+[project.entry-points."clousight_bench.enrichers"]
+pricing = "clousight_bench.enrichers.pricing:PricingEnricher"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/clousight_bench"]
 

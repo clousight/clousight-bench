@@ -1,0 +1,18 @@
+{
+  "schema": "clousight-bench/pricing-seed-1.0",
+  "currency": "USD",
+  "note": "Small seed of public list prices (dated) so cost attribution is reproducible out of the box. Point CLOUSIGHT_PRICING_DATA at a fuller/fresher feed to override; the mechanism stays open, only the data changes.",
+  "units": {
+    "invocations": {"metric_key": "invocations"},
+    "vcpu_hours": {"metric_key": "vcpu_hours"},
+    "tokens_1k": {"metric_key": "tokens_1k"},
+    "gb_month": {"metric_key": "gb_month"}
+  },
+  "prices": [
+    {"provider": "aws", "service": "agent-runtime", "unit": "vcpu_hours", "region": "us-east-1", "price": 0.0895, "source": "aws public list price 2026-07"},
+    {"provider": "aws", "service": "agent-runtime", "unit": "invocations", "region": "us-east-1", "price": 0.0000004, "source": "aws public list price 2026-07"},
+    {"provider": "aliyun", "service": "agent-runtime", "unit": "vcpu_hours", "region": "cn-hangzhou", "price": 0.062, "source": "aliyun public list price 2026-07"},
+    {"provider": "aliyun", "service": "agent-runtime", "unit": "invocations", "region": "cn-hangzhou", "price": 0.0000003, "source": "aliyun public list price 2026-07"},
+    {"provider": "azure", "service": "agent-runtime", "unit": "tokens_1k", "region": "eastus", "price": 0.002, "source": "azure public list price 2026-07"}
+  ]
+}

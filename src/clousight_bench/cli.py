@@ -126,6 +126,14 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_rollup(args: argparse.Namespace) -> int:
+    from clousight_bench.core.rollup import rollup
+
+    out = rollup(Path(args.run_dir), bucket_s=args.bucket_s)
+    print(out)
+    return 0
+
+
 def _ensure_gitignore(root: Path, patterns: list[str]) -> None:
     gi = root / ".gitignore"
     existing = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
@@ -265,6 +273,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "list": _cmd_list,
         "run": _cmd_run,
         "report": _cmd_report,
+        "rollup": _cmd_rollup,
         "init": _cmd_init,
         "doctor": _cmd_doctor,
     }
@@ -294,6 +303,10 @@ def main(argv: list[str] | None = None) -> int:
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     rep_p.add_argument("--out", help="write markdown here (default: <results>/comparison.md)")
+
+    roll_p = sub.add_parser("rollup", help="downsample a run's series.parquet (needs the [store] extra)")
+    roll_p.add_argument("run_dir", help="directory containing series.parquet")
+    roll_p.add_argument("--bucket-s", type=int, default=1, help="bucket width in seconds (default: 1)")
 
     init_p = sub.add_parser("init", help="scaffold a private config + .env.example for a provider")
     init_p.add_argument("provider", help="cloud provider (aws, aliyun, huawei, volcengine)")

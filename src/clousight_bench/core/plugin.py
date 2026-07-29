@@ -146,9 +146,11 @@ class DomainPack(ABC):
 class ResultEnricher(ABC):
     """Post-run enrichment hook: annotate a ResultRecord (e.g. cost estimate).
 
-    Open-core ships NO enricher implementations; commercial plugins register
-    theirs via the ``clousight_bench.enrichers`` entry point. Enrichers must be
-    deterministic and side-effect-free beyond the returned record.
+    The core ships one reference enricher -- cost attribution in
+    ``clousight_bench.enrichers.pricing`` -- registered via the
+    ``clousight_bench.enrichers`` entry point; commercial packs register
+    additional enrichers the same way. Enrichers must be deterministic and
+    side-effect-free beyond the returned record.
     """
 
     name: str = "abstract"
