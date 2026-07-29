@@ -32,6 +32,54 @@ _STATUS_MARK = {
     "invalid": "⚠️",
 }
 
+# Capability measurement -> matrix row label. Drives the platform x capability
+# matrix ("who supports what at a glance"). Absent = never probed (shown "·").
+_CAPABILITY_MEASUREMENTS: dict[str, str] = {
+    "state_capability": "state-persistence",
+    "trace_capability": "trace",
+    "otel_export_supported": "otel-export",
+    "scaling_capability": "elasticity",
+    "mcp": "tool:mcp",
+    "openapi": "tool:openapi",
+    "native": "tool:native",
+}
+
+
+def _capability_mark(value: Any) -> str:
+    if value in (True, "supported"):
+        return "✅"
+    if value in (False, "unsupported"):
+        return "✗"
+    return "?"
+
+
+def _capability_matrix(records: dict[tuple[str, str, str], ResultRecord]) -> list[str]:
+    """A capability x platform grid from the latest records. Presence/absence only,
+    deliberately NOT a score."""
+    grid: dict[str, dict[str, str]] = defaultdict(dict)
+    platforms: set[str] = set()
+    for (_domain, _task, platform), rec in records.items():
+        if rec.status not in ("completed", "unsupported"):
+            continue
+        for key, label in _CAPABILITY_MEASUREMENTS.items():
+            m = rec.measurements.get(key)
+            if isinstance(m, dict) and "value" in m:
+                platforms.add(platform)
+                grid[label][platform] = _capability_mark(m["value"])
+    if not grid:
+        return []
+    cols = sorted(platforms)
+    lines = ["## Capability matrix", "",
+             "Presence/absence only (✅ supported · ✗ absent · · not probed). Not a score.",
+             ""]
+    lines.append("| capability | " + " | ".join(cols) + " |")
+    lines.append("|---" * (len(cols) + 1) + "|")
+    for label in sorted(grid):
+        cells = " | ".join(grid[label].get(p, "·") for p in cols)
+        lines.append(f"| {label} | {cells} |")
+    lines.append("")
+    return lines
+
 
 def _load_results(results_dir: Path) -> list[ResultRecord]:
     """Read every record we can, and say out loud which ones we could not.
@@ -311,6 +359,8 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
                 f"{rec.identity.core_version} |"
             )
         lines.append("")
+
+    lines.extend(_capability_matrix(latest))
 
     lines.extend(_stats_section(measured))
 

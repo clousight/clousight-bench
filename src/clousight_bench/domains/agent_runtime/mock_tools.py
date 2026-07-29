@@ -11,9 +11,11 @@ Endpoints:
     GET  /inventory                        tool: read resource inventory
     POST /reports                          tool: write report back (webhook)
     GET  /reports                          inspect written reports
-    POST /reset                            clear reports + fault config + call counters
+    POST /reset                            clear reports + fault/latency config + counters
     POST /fault/config                     configure deterministic fault injection
     GET  /fault/state                      inspect call counters / active fault
+    POST /latency/config                   configure deterministic latency injection
+    GET  /latency/state                    inspect call counters / active latency
 
 Fault config body (POST /fault/config):
     {"target": "prices", "fail_on_calls": [3], "status": 500}
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, Thread
@@ -41,19 +44,21 @@ def load_json(name: str) -> Any:
 
 
 class ToolState:
-    """Server-side state: written reports, per-target call counters, fault config."""
+    """Server-side state: reports, per-target call counters, fault + latency config."""
 
     def __init__(self) -> None:
         self.lock = Lock()
         self.reports: list[dict[str, Any]] = []
         self.call_counts: dict[str, int] = {}
         self.fault: dict[str, Any] | None = None
+        self.latency: dict[str, Any] | None = None
 
     def reset(self) -> None:
         with self.lock:
             self.reports.clear()
             self.call_counts.clear()
             self.fault = None
+            self.latency = None
 
     def next_call_index(self, target: str) -> int:
         with self.lock:
@@ -75,6 +80,27 @@ class ToolState:
             return status if start <= call_index < start + count else None
         return None
 
+    def latency_for(self, target: str, call_index: int) -> int:
+        """Return extra milliseconds to inject before serving, or 0. Deterministic.
+
+        Config mirrors fault injection:
+            {"target": "prices", "add_ms": 200}                 -> every call
+            {"target": "prices", "add_ms": 200, "on_calls": [1]} -> only 1st call
+            {"target": "prices", "add_ms": 200, "from_call": 3, "count": 2}
+        """
+        with self.lock:
+            lat = self.latency
+        if not lat or lat.get("target") != target:
+            return 0
+        add = int(lat.get("add_ms", 0))
+        if "on_calls" in lat:
+            return add if call_index in set(lat["on_calls"]) else 0
+        if "from_call" in lat:
+            start = int(lat["from_call"])
+            count = int(lat.get("count", 1))
+            return add if start <= call_index < start + count else 0
+        return add
+
 
 def make_handler(state: ToolState) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
@@ -92,8 +118,14 @@ def make_handler(state: ToolState) -> type[BaseHTTPRequestHandler]:
             return
 
         def _maybe_fault(self, target: str) -> bool:
-            """Apply fault injection for a tool endpoint. Returns True if a fault was served."""
+            """Gate a tool call: bump the call counter once, inject configured
+            latency (sleep), then apply fault injection. Both selectors key off
+            the SAME call_index so latency and fault stay aligned per call.
+            Returns True if a fault was served (caller should stop)."""
             call_index = state.next_call_index(target)
+            delay_ms = state.latency_for(target, call_index)
+            if delay_ms:
+                time.sleep(delay_ms / 1000)
             forced = state.fault_status_for(target, call_index)
             if forced is not None:
                 self._send(
@@ -110,6 +142,9 @@ def make_handler(state: ToolState) -> type[BaseHTTPRequestHandler]:
                 return
             if parsed.path == "/fault/state":
                 self._send({"call_counts": dict(state.call_counts), "fault": state.fault})
+                return
+            if parsed.path == "/latency/state":
+                self._send({"call_counts": dict(state.call_counts), "latency": state.latency})
                 return
             if parsed.path == "/prices":
                 if self._maybe_fault("prices"):
@@ -155,6 +190,11 @@ def make_handler(state: ToolState) -> type[BaseHTTPRequestHandler]:
                 with state.lock:
                     state.fault = payload
                 self._send({"ok": True, "fault": payload})
+                return
+            if parsed.path == "/latency/config":
+                with state.lock:
+                    state.latency = payload
+                self._send({"ok": True, "latency": payload})
                 return
             if parsed.path == "/reset":
                 state.reset()

@@ -128,7 +128,7 @@ Reports never blend dimensions into one score.
 
 ## Current domains
 
-- `agent-runtime` — sessions, tool calling, fault recovery, observability. Five dimensions implemented (all runnable on `local-sim`): T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace span completeness (OpenInference) · T4.2 OTel export compat. Capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
+- `agent-runtime` — sessions, tool calling, fault recovery, observability, cost. Eight dimensions implemented (all runnable on `local-sim`): T1.1 cold/warm start latency · T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace span completeness (OpenInference) · T4.2 OTel export compat · T5.1 cost attribution (usage → pricing enricher) · T5.2 elasticity under concurrency. Adapters use a `managed`/`transport`/`mode` split so the same code drives the local simulated runtime or, once wired, a real cloud; capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
 - `bigdata-emr` — minimal domain pack proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol. (This is a small task/adapter surface, not the `skeleton` `AdapterStatus` value — its `local-process` adapter is `reference`; only its `aws-emr` adapter is `skeleton`.)
 
 ## 0.2 Developer Preview readiness
