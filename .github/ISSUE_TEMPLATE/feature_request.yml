@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a new platform, dimension, domain pack, or capability.
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of addition is this?
+      options:
+        - New platform (ProviderAdapter)
+        - New dimension (Task)
+        - New domain pack
+        - New workload / load generator
+        - Core capability
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does it solve?
+      description: What can't you measure or reproduce today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: >
+        If it is a dimension, what does it measure and what evidence layer
+        (A/B/C/D) would it carry? If a platform, which cloud/service and what is
+        its own runtime behavior you want surfaced?
+  - type: checkboxes
+    id: principles
+    attributes:
+      label: Fits the project principles
+      options:
+        - label: Reports per-dimension (no blended score) and carries an evidence layer
+        - label: Does not require secrets in configs/results
+        - label: I'm willing to help implement / test it

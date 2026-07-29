@@ -1,0 +1,44 @@
+# Releasing
+
+Clousight Bench publishes to [PyPI](https://pypi.org/project/clousight-bench/)
+via a tag-triggered GitHub Actions workflow
+(`.github/workflows/release.yml`) using
+**PyPI Trusted Publishing (OIDC)** — no long-lived API token is stored.
+
+## One-time setup (per project, done once by a maintainer)
+
+1. On PyPI, create the `clousight-bench` project (or claim it) and add a
+   **Trusted Publisher**:
+   - Owner: `clousight`
+   - Repository: `clousight-bench`
+   - Workflow: `release.yml`
+   - Environment: `pypi`
+2. In the GitHub repo settings, create an **Environment** named `pypi`
+   (optionally with required reviewers for a manual approval gate before publish).
+
+## Cutting a release
+
+1. Update `CHANGELOG.md`: move the `Unreleased` section under the new version
+   with today's date.
+2. Bump `version` in `pyproject.toml` (single source of truth; the release
+   workflow verifies the tag matches it).
+3. Land those on `main` through a pull request.
+4. Tag and push:
+
+   ```bash
+   git switch main && git pull
+   git tag -s v0.2.0 -m "clousight-bench 0.2.0"   # tag must equal the pyproject version
+   git push origin v0.2.0
+   ```
+
+5. The `release` workflow builds the sdist + wheel, runs `twine check`, and
+   publishes to PyPI. Watch the Actions tab.
+6. Create a GitHub Release from the tag and paste the changelog section.
+
+## Versioning
+
+Pre-1.0, minor versions may include breaking changes, but the result schema and
+plugin API carry their own version fields (`schema_version`,
+`PLUGIN_API_VERSION`) and are migrated deliberately — see `CHANGELOG.md` and
+`docs/architecture.md`. Changing the scoring of a shipped dimension always
+requires a version bump and a changelog entry.

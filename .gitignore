@@ -8,7 +8,12 @@ build/
 venv/
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 results/
+.coverage
+coverage.xml
+htmlcov/
+site/
 *.local.yaml
 .env
 .DS_Store

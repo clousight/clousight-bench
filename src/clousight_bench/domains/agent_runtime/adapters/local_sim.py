@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib import request
+
+if TYPE_CHECKING:
+    from http.server import ThreadingHTTPServer
 
 from clousight_bench.domains.agent_runtime import openinference
 from clousight_bench.domains.agent_runtime.adapters.base import (
@@ -46,7 +49,7 @@ class LocalSimAdapter(AgentRuntimeAdapter):
         self.trace_completeness: str = trace_cfg.get("completeness", "full")  # "full" | "partial"
         self.otel_export_enabled: bool = bool(trace_cfg.get("otel_export", True))
         self._session_seq = 0
-        self._mock_server = None
+        self._mock_server: ThreadingHTTPServer | None = None
         self._state: dict[str, dict[str, Any]] = {}
         self._last_calls: dict[str, int] = {}
 

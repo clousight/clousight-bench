@@ -16,18 +16,36 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: System :: Benchmark",
+    "Typing :: Typed",
 ]
 dependencies = [
     "pyyaml>=6.0",
 ]
 
+[project.urls]
+Homepage = "https://clousight.com"
+Repository = "https://github.com/clousight/clousight-bench"
+Issues = "https://github.com/clousight/clousight-bench/issues"
+Changelog = "https://github.com/clousight/clousight-bench/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-cov>=5.0",
     "ruff>=0.4",
+    "mypy>=1.10",
+    "types-PyYAML",
 ]
 store = ["duckdb>=1.0", "pyarrow>=16"]
+docs = [
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
+]
 
 [project.scripts]
 csbench = "clousight_bench.cli:main"
@@ -48,3 +66,25 @@ select = ["E", "F", "I", "W", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/clousight_bench"]
+# Workload scripts are standalone executables, not importable modules
+# (two are both named `run.py`), so they are checked by ruff, not mypy.
+exclude = "src/clousight_bench/resources/workloads/"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.coverage.run]
+source = ["clousight_bench"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]

@@ -22,13 +22,23 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,store]"
 
       - name: Lint (ruff)
         run: ruff check src tests
 
+      - name: Type-check (mypy)
+        run: mypy
+
       - name: Test (pytest)
-        run: pytest -q
+        run: pytest -q --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
 
       - name: Local baseline smoke (no cloud account)
         run: |
@@ -59,7 +69,7 @@ jobs:
       - name: Smoke installed wheel outside checkout
         working-directory: /tmp
         run: |
-          /tmp/csbench-wheel/bin/python -c "import importlib.metadata as m, importlib.resources as r, clousight_bench as cb; assert cb.__version__ == m.version('clousight-bench'), (cb.__version__, m.version('clousight-bench')); root = r.files('clousight_bench.resources.workloads'); reqs = [('wordcount-py', 'run.py'), ('gsm8k-stats', 'run.py'), ('ycsb-wrapper', 'run.sh')]; missing = [n for n, e in reqs if not (root.joinpath(n, 'manifest.yaml').is_file() and root.joinpath(n, e).is_file())]; assert not missing, missing; print('wheel version + packaged workloads verified')"
+          /tmp/csbench-wheel/bin/python -c "import importlib.metadata as m, importlib.resources as r, clousight_bench as cb; assert cb.__version__ == m.version('clousight-bench'), (cb.__version__, m.version('clousight-bench')); root = r.files('clousight_bench.resources.workloads'); reqs = [('wordcount-py', 'run.py'), ('gsm8k-stats', 'run.py'), ('ycsb-wrapper', 'run.sh')]; missing = [n for n, e in reqs if not (root.joinpath(n, 'manifest.yaml').is_file() and root.joinpath(n, e).is_file())]; assert not missing, missing; assert r.files('clousight_bench').joinpath('py.typed').is_file(), 'py.typed marker missing from wheel'; print('wheel version + packaged workloads + py.typed verified')"
           /tmp/csbench-wheel/bin/csbench list --verbose
           /tmp/csbench-wheel/bin/csbench run \
             --domain agent-runtime --task T1.3 --platform local-sim \
@@ -69,3 +79,17 @@ jobs:
             --results /tmp/csbench-wheel-results
           /tmp/csbench-wheel/bin/csbench report \
             --results /tmp/csbench-wheel-results
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install docs dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[docs]"
+      - name: Build docs
+        run: mkdocs build --strict

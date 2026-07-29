@@ -1,5 +1,10 @@
 # Clousight Bench · 指北测评
 
+[![CI](https://github.com/clousight/clousight-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/clousight/clousight-bench/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/clousight-bench.svg)](https://pypi.org/project/clousight-bench/)
+[![Python](https://img.shields.io/pypi/pyversions/clousight-bench.svg)](https://pypi.org/project/clousight-bench/)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 **云计算指北 / [Clousight](https://clousight.com) 出品的云产品可复现测评框架** — agent runtimes today; big data clusters, databases, compute and messaging via the same abstraction.
 
 > Clousight Bench is the measuring stick of Clousight: open methods anyone can reproduce; evidence-graded results, never a blended vanity score.
