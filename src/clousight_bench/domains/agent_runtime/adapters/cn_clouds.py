@@ -1,47 +1,45 @@
-"""Phase-1 real-platform adapters: Aliyun AgentRun / Huawei AgentArts / Volcengine AgentKit.
+"""Real-platform adapters: Aliyun AgentRun / Huawei AgentArts / Volcengine AgentKit.
 
-These are honest skeletons: each documents its target contract and fails with a
-clear message until wired to a real account. Filling one in must NOT touch
-tasks/ or scoring -- the runtime's own retry / session / trace behavior is
-what gets measured, so it must be surfaced as observed, never reimplemented.
+Each is a thin declaration on top of ``ManagedAgentRuntimeAdapter``: it states
+only what is cloud-specific -- the provider, the service used to template the
+endpoint, the platform docs, and the minimal RAM/IAM action map per benchmark.
+The shared body owns credential resolution, endpoint resolution, the mock<->real
+transport switch, preflight, and the runtime-op delegation.
+
+Status stays ``skeleton`` because the *real* transport is not wired to a live
+account yet: ``csbench run`` refuses these platforms in real mode up front. But
+``mode: mock`` runs them end-to-end via the shared simulated runtime, so the
+whole harness (identity + endpoint + permission plumbing included) is
+exercisable without an account. Wiring the real path means implementing
+``NotWiredCloudTransport``'s ops against the platform SDK; it must NOT touch
+tasks/ or scoring -- the runtime's own retry / session / trace behaviour is what
+gets measured, so it is surfaced as observed, never re-implemented.
 
 Common target keys (configs/agent-runtime.*.example.yaml):
-    endpoint       platform invoke endpoint or region endpoint
-    region         cloud region id
+    mode           "real" (default) | "mock"
+    region         cloud region id (templated into the endpoint host)
+    endpoint       explicit endpoint override (private / dedicated regions)
     agent_id       pre-deployed benchmark agent on the platform
-    auth_env       name(s) of env vars holding credentials -- never the secret itself
+    auth_env       name(s) of env vars holding credentials -- never the secret
     mock_base_url  public address of the pinned tool universe the platform agent
-                   can reach (the mock server must be exposed, e.g. via a tunnel
-                   or a tiny cloud function; localhost is NOT reachable from a
-                   cloud runtime)
+                   can reach (real mode only; localhost is NOT reachable from a
+                   cloud runtime -- use a tunnel or a tiny cloud function)
 """
 from __future__ import annotations
 
 from typing import Any
 
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    InvocationTrace,
-    ToolCall,
-)
+from clousight_bench.domains.agent_runtime.adapters.managed import ManagedAgentRuntimeAdapter
 
 
-class _NotWiredError(NotImplementedError):
-    def __init__(self, adapter: str, doc: str) -> None:
-        super().__init__(
-            f"{adapter} is a skeleton: wire it to your own account first. "
-            f"You need credentials in env vars, a deployed benchmark agent, and a "
-            f"publicly reachable mock_base_url. Platform docs: {doc}"
-        )
-
-
-class AliyunAgentRunAdapter(AgentRuntimeAdapter):
+class AliyunAgentRunAdapter(ManagedAgentRuntimeAdapter):
     """Aliyun AgentRun (GA). Sessions map to AgentRun runtime sessions."""
 
     name = "aliyun-agentrun"
     status = "skeleton"
     provider = "aliyun"
+    endpoint_service = "agentrun"
     DOCS = "https://help.aliyun.com/ (AgentRun)"
     # Abstract capability token -> Aliyun RAM action(s) (minimal per benchmark).
     PERMISSION_MAP = {
@@ -53,22 +51,14 @@ class AliyunAgentRunAdapter(AgentRuntimeAdapter):
         perm.TRACE_EXPORT: ["agentrun:ExportTrace"],
     }
 
-    def create_session(self, spec: dict[str, Any] | None = None) -> str:
-        raise _NotWiredError(self.name, self.DOCS)
 
-    def run_tool_plan(self, session_id: str, plan: list[ToolCall]) -> InvocationTrace:
-        raise _NotWiredError(self.name, self.DOCS)
-
-    def destroy_session(self, session_id: str) -> None:
-        raise _NotWiredError(self.name, self.DOCS)
-
-
-class HuaweiAgentArtsAdapter(AgentRuntimeAdapter):
+class HuaweiAgentArtsAdapter(ManagedAgentRuntimeAdapter):
     """Huawei Cloud AgentArts (GA)."""
 
     name = "huawei-agentarts"
     status = "skeleton"
     provider = "huawei"
+    endpoint_service = "agentarts"
     DOCS = "https://support.huaweicloud.com/ (AgentArts)"
     # Abstract capability token -> Huawei IAM action(s) (minimal per benchmark).
     PERMISSION_MAP = {
@@ -80,24 +70,16 @@ class HuaweiAgentArtsAdapter(AgentRuntimeAdapter):
         perm.TRACE_EXPORT: ["agentarts:trace:export"],
     }
 
-    def create_session(self, spec: dict[str, Any] | None = None) -> str:
-        raise _NotWiredError(self.name, self.DOCS)
 
-    def run_tool_plan(self, session_id: str, plan: list[ToolCall]) -> InvocationTrace:
-        raise _NotWiredError(self.name, self.DOCS)
-
-    def destroy_session(self, session_id: str) -> None:
-        raise _NotWiredError(self.name, self.DOCS)
-
-
-class VolcengineAgentKitAdapter(AgentRuntimeAdapter):
+class VolcengineAgentKitAdapter(ManagedAgentRuntimeAdapter):
     """Volcengine AgentKit (GA). Two access modes exist (VeADK-native vs generic
     framework); results must state which mode produced them -- pass
-    ``target['mode'] = 'veadk' | 'generic'`` and fold it into describe()."""
+    ``target['access_mode'] = 'veadk' | 'generic'`` and fold it into describe()."""
 
     name = "volcengine-agentkit"
     status = "skeleton"
     provider = "volcengine"
+    endpoint_service = "agentkit"
     DOCS = "https://www.volcengine.com/docs/86681 (AgentKit)"
     # Abstract capability token -> Volcengine IAM action(s) (minimal per benchmark).
     PERMISSION_MAP = {
@@ -111,14 +93,5 @@ class VolcengineAgentKitAdapter(AgentRuntimeAdapter):
 
     def describe(self) -> dict[str, Any]:
         desc = super().describe()
-        desc["access_mode"] = self.target.get("mode", "generic")
+        desc["access_mode"] = self.target.get("access_mode", "generic")
         return desc
-
-    def create_session(self, spec: dict[str, Any] | None = None) -> str:
-        raise _NotWiredError(self.name, self.DOCS)
-
-    def run_tool_plan(self, session_id: str, plan: list[ToolCall]) -> InvocationTrace:
-        raise _NotWiredError(self.name, self.DOCS)
-
-    def destroy_session(self, session_id: str) -> None:
-        raise _NotWiredError(self.name, self.DOCS)

@@ -8,6 +8,12 @@ Developer-preview reset before the first public release.
 
 ### Added
 
+- `agent-runtime`: three more dimensions on the 0.2 contract, for eight total on
+  `local-sim` — T1.1 cold/warm start latency, T5.1 cost attribution (emits usage
+  measurements the pricing enricher prices), T5.2 elasticity under concurrency.
+  Adapters gain a `managed`/`transport`/`mode` split (`core.clients` /
+  `core.endpoints` helpers) so the same code drives the local simulated runtime
+  or, once wired, a real cloud; the report gains a platform × capability matrix.
 - Open cost attribution: the usage vocabulary (`core.usage`) and a reference
   cost enricher (`clousight_bench.enrichers.pricing`, registered via the
   `clousight_bench.enrichers` entry point) now ship in the core, with a small

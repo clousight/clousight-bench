@@ -42,6 +42,15 @@ class InvocationTrace:
     final_state: str  # "completed" | "failed" | "aborted"
 
 
+@dataclass
+class ScalePoint:
+    """One point on an elasticity curve: behaviour at a given concurrency level."""
+
+    concurrency: int
+    success_rate: float  # 0.0..1.0 of invocations that succeeded at this level
+    p95_ms: float        # 95th-percentile latency observed at this level
+
+
 class CapabilityNotSupported(NotImplementedError):
     """A runtime does not offer a capability a task probes for.
 
@@ -189,3 +198,9 @@ class AgentRuntimeAdapter(ProviderAdapter):
     def export_otel(self, session_id: str) -> dict[str, Any]:
         """Return the last invocation's trace as an OTLP-compatible dict (T4.2)."""
         raise CapabilityNotSupported("export_otel")
+
+    def probe_scaling(self, levels: list[int]) -> list[ScalePoint]:
+        """Report elasticity: success rate + p95 latency at each concurrency level
+        (T5.2). A real adapter actually drives concurrent load and measures; it
+        must surface the platform's OWN behaviour under load, never model it."""
+        raise CapabilityNotSupported("probe_scaling")

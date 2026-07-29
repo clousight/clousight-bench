@@ -166,7 +166,7 @@ for your own account, network and region. That is the point.
 
 - [x] Core: lifecycle orchestrator, unified `RunSpec`/`ResultRecord` schema, entry-point plugin registry, cross-language workload protocol, markdown comparison report
 - [x] Onboarding: `csbench init` (scaffold private config + `.env.example`, auto-gitignored) and `csbench doctor` (preflight credentials + connectivity); credentials reuse the cloud's default chain (env / profile / role), never stored in configs
-- [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, **five dimensions** end-to-end on `local-sim` — T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace completeness (OpenInference) · T4.2 OTel export
+- [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, **eight dimensions** end-to-end on `local-sim` — T1.1 cold/warm start latency · T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace completeness (OpenInference) · T4.2 OTel export · T5.1 cost attribution (usage → pricing enricher) · T5.2 elasticity under concurrency
 - [ ] `agent-runtime`: wire aliyun-agentrun / huawei-agentarts / volcengine-agentkit adapters (skeletons in-tree)
 - [x] `bigdata-emr`: J1.1 wordcount smoke via the cross-language workload protocol and `local-process` reference adapter
 - [ ] `bigdata-emr`: wire the `aws-emr` Terraform-backed adapter (skeleton in-tree)
