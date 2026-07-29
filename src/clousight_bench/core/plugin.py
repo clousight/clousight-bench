@@ -3,7 +3,8 @@
 The framework's abstraction cut: workloads differ wildly across cloud products,
 but the *pipeline* is identical --
 
-    provision -> setup -> execute -> collect -> teardown -> score -> report
+    resolve -> validate -> preflight -> setup -> execute -> collect
+            -> score -> enrich -> persist -> publish
 
 So the core only orchestrates that lifecycle; everything product-specific lives
 in plugins:
@@ -24,24 +25,11 @@ and built-in packs are loaded identically.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from clousight_bench.core.observation import ObservationBundle, TaskResult
+from clousight_bench.core.redaction import redact
 from clousight_bench.core.schema import ResultRecord
-
-
-@dataclass
-class TaskOutput:
-    """What a Task.run returns; the orchestrator wraps it into a ResultRecord."""
-
-    metrics: dict[str, Any]
-    evidence_layer: str
-    ok: bool = True
-    raw: dict[str, Any] = field(default_factory=dict)
-    notes: str = ""
-    series: dict[str, Any] = field(default_factory=dict)
-    artifacts: list[dict[str, Any]] = field(default_factory=list)
-
 
 AdapterStatus = Literal["reference", "experimental", "wired", "skeleton"]
 
@@ -73,8 +61,8 @@ class ProviderAdapter(ABC):
         """Release everything setup() created. Default no-op."""
 
     def describe(self) -> dict[str, Any]:
-        """Non-secret target description, folded into config_hash."""
-        return {"adapter": self.name, "target": _redact(self.target)}
+        """Non-secret target description, folded into the implementation fingerprint."""
+        return {"adapter": self.name, "target": redact(self.target)}
 
     def resolve_credentials(self) -> Any:
         """Report where this adapter's credentials come from (never the secret).
@@ -109,11 +97,21 @@ class ProviderAdapter(ABC):
 
 
 class Task(ABC):
-    """One benchmark dimension. Deterministic where the evidence layer says so."""
+    """One benchmark dimension, split into observation and scoring.
+
+    ``execute`` may talk to the cloud; it returns only raw, replayable evidence.
+    ``score`` is a pure function of that evidence: it must not read credentials,
+    create resources or mutate the bundle it is given, which is exactly what
+    makes a stored observation re-scorable after a scorer fix.
+    """
 
     task_id: str = "abstract"
     title: str = ""
     evidence_layer: str = "C"
+    # Bumped whenever the observation procedure or the scoring rules change, so
+    # a published number stays attributable to the code that produced it.
+    task_revision: str = "0"
+    scorer_revision: str = "0"
     # Abstract capability tokens this benchmark exercises (cloud-independent).
     # The adapter maps these to each cloud's concrete minimal permissions and
     # verifies them at preflight. Empty = no special permissions declared.
@@ -121,11 +119,36 @@ class Task(ABC):
 
     @abstractmethod
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Everything that determines the result -> hashed for reproducibility."""
+        """The controlled inputs that determine the result -> benchmark fingerprint."""
 
     @abstractmethod
-    def run(self, adapter: ProviderAdapter, params: dict[str, Any]) -> TaskOutput:
-        """Execute against the adapter and score the observation."""
+    def execute(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> ObservationBundle:
+        """Drive the system under test and return raw observations only."""
+
+    @abstractmethod
+    def score(self, observations: ObservationBundle) -> TaskResult:
+        """Turn observations into measurements and findings. Pure function."""
+
+    def environment_facts(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Non-sensitive environment facts this benchmark depends on.
+
+        Folded into the environment fingerprint. Never return a credential,
+        hostname, username or raw environment variable.
+        """
+        return {}
+
+    def workload_identity(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Workload and asset identity folded into the benchmark fingerprint.
+
+        Tasks that drive a WorkloadEngine override this; the default declares no
+        workload. Keys are exactly ``workload``, ``workload_version`` and
+        ``assets``.
+        """
+        return {"workload": "", "workload_version": "", "assets": []}
 
 
 class DomainPack(ABC):
@@ -174,19 +197,3 @@ class PrivateAssetResolver(ABC):
     @abstractmethod
     def resolve(self, spec: Any, cache_dir: Any | None = None) -> Any:
         """Return a local path (str | Path) to the private asset's contents."""
-
-
-_SECRET_HINTS = ("key", "secret", "token", "password", "credential")
-
-
-def _redact(target: dict[str, Any]) -> dict[str, Any]:
-    """Best-effort scrub so secrets never reach config_hash / result files."""
-    clean: dict[str, Any] = {}
-    for k, v in target.items():
-        if any(hint in k.lower() for hint in _SECRET_HINTS):
-            clean[k] = "<redacted>"
-        elif isinstance(v, dict):
-            clean[k] = _redact(v)
-        else:
-            clean[k] = v
-    return clean

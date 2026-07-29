@@ -11,30 +11,33 @@ def test_local_sim_auto_retry_recovers(tmp_path):
     spec = RunSpec(domain="agent-runtime", task_id="T1.3", platform="local-sim",
                    target={"recovery": {"mode": "auto-retry"}})
     rec = execute(spec, results_dir=tmp_path)
-    assert rec.ok
-    assert rec.evidence_layer == "C"
-    assert rec.metrics["recovery_mode"] == "auto-retry"
-    assert rec.metrics["final_state"] == "completed"
-    assert rec.metrics["budgeted_success"] is True
-    assert rec.config_hash.startswith("sha256:")
+    assert rec.status == "completed"
+    assert rec.measurements["recovery_mode"] == {
+        "value": "auto-retry", "unit": "", "evidence": "C"}
+    assert rec.measurements["final_state"]["value"] == "completed"
+    assert rec.measurements["budgeted_success"]["value"] is True
+    assert rec.fingerprints.benchmark.startswith("sha256:")
 
 
 def test_local_sim_fail_fast_aborts(tmp_path):
     spec = RunSpec(domain="agent-runtime", task_id="T1.3", platform="local-sim",
                    target={"recovery": {"mode": "fail-fast"}})
     rec = execute(spec, results_dir=tmp_path)
-    assert rec.ok  # the test itself succeeded: it observed a fault and classified it
-    assert rec.metrics["recovery_mode"] == "fail-fast"
-    assert rec.metrics["final_state"] == "aborted"
-    assert rec.metrics["budgeted_success"] is False
+    # the benchmark itself succeeded: it observed a fault and classified it
+    assert rec.status == "completed"
+    assert rec.measurements["recovery_mode"]["value"] == "fail-fast"
+    assert rec.measurements["final_state"]["value"] == "aborted"
+    assert rec.measurements["budgeted_success"]["value"] is False
+    assert [f["code"] for f in rec.findings] == ["agent_runtime.recovery_fail_fast"]
 
 
-def test_recovery_policy_changes_config_hash(tmp_path):
+def test_recovery_policy_changes_the_environment_fingerprint(tmp_path):
     retry = execute(RunSpec("agent-runtime", "T1.3", "local-sim",
                             target={"recovery": {"mode": "auto-retry"}}), results_dir=tmp_path)
     fail = execute(RunSpec("agent-runtime", "T1.3", "local-sim",
                            target={"recovery": {"mode": "fail-fast"}}), results_dir=tmp_path)
-    assert retry.config_hash != fail.config_hash
+    assert retry.fingerprints.environment != fail.fingerprints.environment
+    assert retry.fingerprints.benchmark == fail.fingerprints.benchmark
 
 
 def test_result_file_persisted(tmp_path):

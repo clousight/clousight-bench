@@ -1,38 +1,5 @@
-"""Reproducibility-contract tests: config_hash determinism + evidence-layer guard."""
-import pytest
-
-from clousight_bench.core.schema import ResultRecord, RunSpec, config_hash, utc_now
-
-
-def test_config_hash_is_deterministic_and_order_independent():
-    a = {"x": 1, "y": [1, 2], "z": {"b": 2, "a": 1}}
-    b = {"z": {"a": 1, "b": 2}, "y": [1, 2], "x": 1}
-    assert config_hash(a) == config_hash(b)
-    assert config_hash(a).startswith("sha256:")
-
-
-def test_config_hash_changes_with_content():
-    assert config_hash({"x": 1}) != config_hash({"x": 2})
-
-
-def test_result_record_rejects_bad_evidence_layer():
-    with pytest.raises(ValueError):
-        ResultRecord(
-            domain="d", task_id="t", platform="p", run_id="r",
-            started_at=utc_now(), finished_at=utc_now(),
-            config_hash="sha256:x", evidence_layer="Z", metrics={},
-        )
-
-
-def test_result_record_roundtrip():
-    rec = ResultRecord(
-        domain="agent-runtime", task_id="T1.3", platform="local-sim", run_id="r1",
-        started_at=utc_now(), finished_at=utc_now(),
-        config_hash="sha256:abc", evidence_layer="C", metrics={"a": 1},
-    )
-    again = ResultRecord.from_dict(rec.to_dict())
-    assert again.to_dict() == rec.to_dict()
-    assert again.runner_version == rec.runner_version
+"""The request side of a run, plus the version contract."""
+from clousight_bench.core.schema import RunSpec
 
 
 def test_runspec_to_dict():
@@ -40,39 +7,22 @@ def test_runspec_to_dict():
     assert spec.to_dict()["target"] == {"k": "v"}
 
 
-def test_result_record_has_data_contract_defaults():
-    from clousight_bench.core.schema import ResultRecord
-    rec = ResultRecord(
-        domain="d", task_id="t", platform="p", run_id="r",
-        started_at=utc_now(), finished_at=utc_now(),
-        config_hash="sha256:x", evidence_layer="C", metrics={},
-    )
-    assert rec.schema_version == "1.0"
-    assert rec.series == {}
-    assert rec.artifacts == []
-
-
-def test_from_dict_tolerates_unknown_keys():
-    from clousight_bench.core.schema import ResultRecord
-    payload = {
-        "domain": "d", "task_id": "t", "platform": "p", "run_id": "r",
-        "started_at": utc_now(), "finished_at": utc_now(),
-        "config_hash": "sha256:x", "evidence_layer": "C", "metrics": {},
-        "future_field_from_newer_schema": 123,
-    }
-    rec = ResultRecord.from_dict(payload)
-    assert rec.domain == "d"
-    assert rec.schema_version == "1.0"
-
-
 def test_plugin_api_version_exposed():
     import clousight_bench
+
     assert clousight_bench.PLUGIN_API_VERSION == "1.0"
 
 
-def test_package_version_is_0_2_preview():
+def test_package_and_schema_versions():
     import clousight_bench
 
     assert clousight_bench.__version__ == "0.2.0"
     assert clousight_bench.RUNNER_VERSION == "0.2.0"
-    assert clousight_bench.PLUGIN_API_VERSION == "1.0"
+    assert clousight_bench.RESULT_SCHEMA_VERSION == "0.2"
+
+
+def test_result_record_is_reexported_from_schema():
+    from clousight_bench.core.record import ResultRecord as Defined
+    from clousight_bench.core.schema import ResultRecord as Reexported
+
+    assert Reexported is Defined

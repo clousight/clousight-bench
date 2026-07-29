@@ -12,7 +12,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
+from clousight_bench.core.observation import (
+    Finding,
+    Measurement,
+    ObservationBundle,
+    TaskResult,
+)
+from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
@@ -28,12 +34,22 @@ class ToolRegistrationTask(Task):
     title = "Tool registration paths"
     evidence_layer = "B"
     required_permissions = (perm.TOOL_REGISTER,)
+    task_revision = "2"
+    scorer_revision = "2"
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id, "paths": list(_PATHS), "tool_spec": _TOOL_SPEC}
 
-    def run(self, adapter: ProviderAdapter, params: dict[str, Any]) -> TaskOutput:
-        assert isinstance(adapter, AgentRuntimeAdapter), "T2.1 needs an AgentRuntimeAdapter"
+    def environment_facts(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        return {"probed_paths": list(_PATHS)}
+
+    def execute(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> ObservationBundle:
+        if not isinstance(adapter, AgentRuntimeAdapter):
+            raise TypeError("T2.1 needs an AgentRuntimeAdapter")
         session = adapter.create_session()
         support: dict[str, bool] = {}
         try:
@@ -44,19 +60,41 @@ class ToolRegistrationTask(Task):
                     support[path] = False
         finally:
             adapter.destroy_session(session)
+        return ObservationBundle(
+            observations={"support": support, "tool_spec": dict(_TOOL_SPEC)}
+        )
 
-        supported = sorted(p for p, ok in support.items() if ok)
-        metrics = {
-            "supported_paths": supported,
-            "supported_count": len(supported),
-            "mcp": support["mcp"],
-            "openapi": support["openapi"],
-            "native": support["native"],
-        }
-        return TaskOutput(
-            metrics=metrics,
-            evidence_layer=self.evidence_layer,
-            ok=True,
-            raw={"support": support},
+    def score(self, observations: ObservationBundle) -> TaskResult:
+        support = dict(observations.observations.get("support", {}))
+        supported = sorted(path for path, ok in support.items() if ok)
+        findings: list[Finding] = []
+        if not supported:
+            findings.append(
+                Finding(
+                    code="agent_runtime.no_tool_registration_path",
+                    severity="warning",
+                    summary="runtime accepts none of the MCP, OpenAPI or native paths",
+                    evidence="B",
+                    details={"support": support},
+                )
+            )
+        return TaskResult(
+            measurements={
+                "supported_paths": Measurement(value=supported, unit="", evidence="B"),
+                "supported_count": Measurement(
+                    value=len(supported), unit="count", evidence="B"
+                ),
+                "mcp": Measurement(value=bool(support.get("mcp")), unit="", evidence="B"),
+                "openapi": Measurement(
+                    value=bool(support.get("openapi")), unit="", evidence="B"
+                ),
+                "native": Measurement(
+                    value=bool(support.get("native")), unit="", evidence="B"
+                ),
+            },
+            findings=findings,
             notes=f"registration paths supported: {', '.join(supported) or 'none'}",
+            task_revision=self.task_revision,
+            scorer_revision=self.scorer_revision,
+            unsupported=not supported,
         )

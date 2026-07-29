@@ -13,7 +13,13 @@ import json
 from typing import Any
 from urllib import request
 
-from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
+from clousight_bench.core.observation import (
+    Finding,
+    Measurement,
+    ObservationBundle,
+    TaskResult,
+)
+from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import openinference
 from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import (
@@ -38,6 +44,8 @@ class TraceCompletenessTask(Task):
     title = "Trace span completeness (OpenInference)"
     evidence_layer = "C"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE, perm.TRACE_READ)
+    task_revision = "2"
+    scorer_revision = "2"
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -46,8 +54,17 @@ class TraceCompletenessTask(Task):
             "expected_kinds": list(openinference.SPAN_KINDS),
         }
 
-    def run(self, adapter: ProviderAdapter, params: dict[str, Any]) -> TaskOutput:
-        assert isinstance(adapter, AgentRuntimeAdapter), "T4.1 needs an AgentRuntimeAdapter"
+    def environment_facts(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        trace = adapter.target.get("trace", {})
+        return {"trace_completeness_policy": str(trace.get("completeness", "full"))}
+
+    def execute(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> ObservationBundle:
+        if not isinstance(adapter, AgentRuntimeAdapter):
+            raise TypeError("T4.1 needs an AgentRuntimeAdapter")
         _post(adapter.mock_base_url.rstrip("/"), "/reset", {})
         session = adapter.create_session()
         try:
@@ -55,30 +72,86 @@ class TraceCompletenessTask(Task):
             try:
                 spans = adapter.get_trace(session)
             except CapabilityNotSupported as exc:
-                return TaskOutput(
-                    metrics={"trace_capability": "unsupported", "span_completeness": 0.0},
-                    evidence_layer=self.evidence_layer,
-                    ok=True,
-                    notes=f"runtime exposes no trace API: {exc}",
+                return ObservationBundle(
+                    observations={
+                        "capability": "unsupported",
+                        "tool_calls": len(PLAN),
+                        "reason": str(exc),
+                    }
                 )
         finally:
             adapter.destroy_session(session)
+        return ObservationBundle(
+            observations={
+                "capability": "supported",
+                "tool_calls": len(PLAN),
+                "spans": spans,
+            }
+        )
 
-        tool_calls = len(PLAN)
+    def score(self, observations: ObservationBundle) -> TaskResult:
+        raw = observations.observations
+        if raw.get("capability") != "supported":
+            return TaskResult(
+                measurements={
+                    "trace_capability": Measurement(
+                        value="unsupported", unit="", evidence="C"
+                    ),
+                    "span_completeness": Measurement(
+                        value=0.0, unit="ratio", evidence="C"
+                    ),
+                },
+                findings=[
+                    Finding(
+                        code="agent_runtime.trace_api_absent",
+                        severity="info",
+                        summary="runtime exposes no trace API",
+                        evidence="C",
+                        details={"reason": str(raw.get("reason", ""))},
+                    )
+                ],
+                notes="runtime exposes no trace API",
+                task_revision=self.task_revision,
+                scorer_revision=self.scorer_revision,
+                unsupported=True,
+            )
+        spans = list(raw.get("spans", []))
+        tool_calls = int(raw.get("tool_calls", 0))
         completeness = openinference.span_completeness(spans, tool_calls)
         present = openinference.kinds_present(spans)
-        metrics = {
-            "trace_capability": "supported",
-            "span_completeness": completeness,
-            "spans_present": len(spans),
-            "spans_expected": openinference.expected_span_count(tool_calls),
-            "kinds_present": sorted(present),
-            "kinds_missing": sorted(set(openinference.SPAN_KINDS) - present),
-        }
-        return TaskOutput(
-            metrics=metrics,
-            evidence_layer=self.evidence_layer,
-            ok=True,
-            raw={"spans": spans},
-            notes=f"span completeness {completeness:.0%}; missing kinds {metrics['kinds_missing'] or 'none'}",
+        missing = sorted(set(openinference.SPAN_KINDS) - present)
+        findings: list[Finding] = []
+        if completeness < 1.0:
+            findings.append(
+                Finding(
+                    code="agent_runtime.trace_spans_missing",
+                    severity="warning",
+                    summary="runtime trace is missing spans the OpenInference shape requires",
+                    evidence="C",
+                    details={"kinds_missing": missing, "completeness": completeness},
+                )
+            )
+        return TaskResult(
+            measurements={
+                "trace_capability": Measurement(value="supported", unit="", evidence="C"),
+                "span_completeness": Measurement(
+                    value=completeness, unit="ratio", evidence="C"
+                ),
+                "spans_present": Measurement(
+                    value=len(spans), unit="count", evidence="C"
+                ),
+                "spans_expected": Measurement(
+                    value=openinference.expected_span_count(tool_calls),
+                    unit="count",
+                    evidence="C",
+                ),
+                "kinds_present": Measurement(
+                    value=sorted(present), unit="", evidence="C"
+                ),
+                "kinds_missing": Measurement(value=missing, unit="", evidence="C"),
+            },
+            findings=findings,
+            notes=f"span completeness {completeness:.0%}; missing kinds {missing or 'none'}",
+            task_revision=self.task_revision,
+            scorer_revision=self.scorer_revision,
         )

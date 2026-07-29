@@ -11,10 +11,17 @@ fail-fast abort means it surfaced the fault to the caller. Both are findings.
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from typing import Any
 from urllib import request
 
-from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
+from clousight_bench.core.observation import (
+    Finding,
+    Measurement,
+    ObservationBundle,
+    TaskResult,
+)
+from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter, ToolCall
 
@@ -38,6 +45,8 @@ class FaultRecoveryTask(Task):
     title = "Tool-failure recovery"
     evidence_layer = "C"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
+    task_revision = "2"
+    scorer_revision = "2"
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -46,8 +55,20 @@ class FaultRecoveryTask(Task):
             "fault": FAULT,
         }
 
-    def run(self, adapter: ProviderAdapter, params: dict[str, Any]) -> TaskOutput:
-        assert isinstance(adapter, AgentRuntimeAdapter), "T1.3 needs an AgentRuntimeAdapter"
+    def environment_facts(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        recovery = adapter.target.get("recovery", {})
+        return {
+            "recovery_policy": str(recovery.get("mode", "auto-retry")),
+            "max_retries": int(recovery.get("max_retries", 3)),
+        }
+
+    def execute(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> ObservationBundle:
+        if not isinstance(adapter, AgentRuntimeAdapter):
+            raise TypeError("T1.3 needs an AgentRuntimeAdapter")
         mock = adapter.mock_base_url.rstrip("/")
 
         # 1. reset + arm the deterministic fault
@@ -61,37 +82,89 @@ class FaultRecoveryTask(Task):
         finally:
             adapter.destroy_session(session)
 
-        # 3. classify recovery from the observed attempts
-        attempts = trace.attempts
-        failures = [a for a in attempts if not a.ok]
-        retried = any(a.attempt > 1 for a in attempts)
-        recovered = trace.completed and bool(failures)  # hit a fault AND still finished
+        return ObservationBundle(
+            observations={
+                "fault": dict(FAULT),
+                "plan_calls": len(PLAN),
+                "completed": trace.completed,
+                "final_state": trace.final_state,
+                "attempts": [asdict(a) for a in trace.attempts],
+            }
+        )
+
+    def score(self, observations: ObservationBundle) -> TaskResult:
+        raw = observations.observations
+        attempts = list(raw.get("attempts", []))
+        failures = [a for a in attempts if not a["ok"]]
+        retried = any(a["attempt"] > 1 for a in attempts)
+        completed = bool(raw.get("completed"))
+        final_state = str(raw.get("final_state", ""))
 
         if not failures:
             recovery_mode = "no-fault-observed"  # fault never triggered -> test invalid
-        elif recovered and retried:
+        elif completed and retried:
             recovery_mode = "auto-retry"
-        elif not trace.completed and trace.final_state == "aborted":
+        elif not completed and final_state == "aborted":
             recovery_mode = "fail-fast"
         else:
             recovery_mode = "manual-resume"
 
-        # time_to_recovery = latency spent on failed attempts before the first success after a fault
-        ttr_ms = round(sum(a.latency_ms for a in attempts if not a.ok), 2)
+        # Latency spent on failed attempts before the run either recovered or gave up.
+        ttr_ms = round(sum(a["latency_ms"] for a in failures), 2)
 
-        metrics = {
-            "recovery_mode": recovery_mode,
-            "final_state": trace.final_state,
-            "budgeted_success": trace.completed,  # completed within the retry budget
-            "time_to_recovery_ms": ttr_ms,
-            "total_attempts": len(attempts),
-            "fault_hits": len(failures),
-            "retried": retried,
-        }
-        return TaskOutput(
-            metrics=metrics,
-            evidence_layer=self.evidence_layer,
-            ok=recovery_mode != "no-fault-observed",
-            raw={"attempts": [a.__dict__ for a in attempts]},
+        findings: list[Finding] = []
+        if recovery_mode == "no-fault-observed":
+            findings.append(
+                Finding(
+                    code="agent_runtime.fault_not_observed",
+                    severity="critical",
+                    summary="the injected fault never fired, so this run measures nothing",
+                    evidence="C",
+                    details={
+                        "fault": raw.get("fault", {}),
+                        "attempts": len(attempts),
+                    },
+                )
+            )
+        elif recovery_mode == "fail-fast":
+            findings.append(
+                Finding(
+                    code="agent_runtime.recovery_fail_fast",
+                    severity="warning",
+                    summary="runtime aborted on the first tool fault instead of retrying",
+                    evidence="C",
+                    details={"final_state": final_state},
+                )
+            )
+
+        return TaskResult(
+            measurements={
+                "recovery_mode": Measurement(
+                    value=recovery_mode, unit="", evidence="C"
+                ),
+                "final_state": Measurement(
+                    value=final_state, unit="", evidence="C"
+                ),
+                "budgeted_success": Measurement(
+                    value=completed, unit="", evidence="C"
+                ),
+                "time_to_recovery_ms": Measurement(
+                    value=ttr_ms,
+                    unit="ms",
+                    evidence="C",
+                    aggregation="sum",
+                    sample_count=len(failures),
+                ),
+                "total_attempts": Measurement(
+                    value=len(attempts), unit="count", evidence="C"
+                ),
+                "fault_hits": Measurement(
+                    value=len(failures), unit="count", evidence="C"
+                ),
+                "retried": Measurement(value=retried, unit="", evidence="C"),
+            },
+            findings=findings,
             notes=f"fault on call #{FAULT['fail_on_calls']}; runtime recovery_mode={recovery_mode}",
+            task_revision=self.task_revision,
+            scorer_revision=self.scorer_revision,
         )

@@ -67,7 +67,50 @@ Developer-preview reset before the first public release.
   `configs/bigdata-emr.local.yaml`, which was never created; the command runs
   with the packaged default workload and no `--config`.
 
+### Added
+
+- Schema `0.2` result contract with `identity`, `environment`, `fingerprints`,
+  `measurements`, `findings`, `observations`, `errors` and a four-value
+  `status`.
+- Deterministic `benchmark`, `environment` and `implementation` fingerprints
+  plus a `record_digest`, all full SHA-256 over a canonical JSON encoding.
+- `Task.execute()` / `Task.score()`, so a stored observation can be re-scored
+  without re-running the benchmark.
+- Atomic result persistence with an emergency dump into the system temp
+  directory when the results directory cannot be written.
+- `csbench migrate-results SOURCE --output DEST [--dry-run]` and
+  `csbench run --debug`.
+- A minimal `ResultPublisher` boundary with append-only publish receipts. Core
+  ships no publisher.
+- Run plans: `csbench run --repeat N --warmup W` executes the benchmark
+  `warmup + repeat` times (each still its own auditable `0.2` record), discards
+  the warmups, and writes a `run_plan_aggregate` under `results/aggregates/`.
+- Statistical aggregation over repeats (`core/statistics.py`): numeric
+  measurements get `n`, `mean`, `stdev`, `min`, `max`, `p50`, `p95` and `cv`;
+  label measurements get their distribution, `mode` and `agreement`.
+- Comparability-aware reporting: `csbench report` pools only records that share
+  a `benchmark` **and** `environment` fingerprint, and flags a cell that mixes
+  benchmarks (not comparable) or implementation fingerprints (comparable only
+  with the caveat that the code changed).
+
+### Changed (breaking)
+
+- `ResultRecord` moved from schema `1.0` to `0.2`. `ok`, top-level `metrics`,
+  top-level `evidence_layer` and `config_hash` are gone; migrate old files with
+  `csbench migrate-results`.
+- `Task.run()` and `TaskOutput` are removed. Implement `execute()` and
+  `score()`.
+- `clousight_bench.core.schema.config_hash` and
+  `clousight_bench.core.schema.EVIDENCE_LAYERS` are removed; fingerprints and
+  `core.observation.EVIDENCE_LAYERS` replace them.
+- `csbench run` exit codes: `0` for `completed` and `unsupported`, `1` for
+  `failed` and `invalid`, `2` for a user input error. A failed run used to exit
+  `2`.
+- An enricher failure is now isolated: it records an ENRICH stage error and
+  leaves `status` alone instead of aborting the run.
+
 ### Compatibility
 
 - Package version is pre-1.0.
-- Result schema and plugin API are migrated in later Phase 1 plans.
+- Result schema is now `0.2` (migrate `1.0` files with `csbench migrate-results`);
+  the plugin API stays `1.0` until Phase 1D.
