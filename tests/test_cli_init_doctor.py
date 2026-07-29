@@ -24,14 +24,11 @@ def test_init_scaffolds_config_env_and_gitignore(tmp_path, monkeypatch, capsys):
     assert "*.local.yaml" in gi and ".env" in gi
 
 
-def test_init_unknown_provider_errors(tmp_path, monkeypatch):
+def test_init_unknown_provider_errors(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
-    try:
-        main(["init", "nope", "--out", "."])
-    except SystemExit as exc:
-        assert "unknown provider" in str(exc)
-    else:
-        raise AssertionError("expected SystemExit for unknown provider")
+    rc = main(["init", "nope", "--out", "."])
+    assert rc == 2  # a bad invocation, like every other user-input error
+    assert "unknown provider" in capsys.readouterr().err
 
 
 def test_doctor_flags_missing_credentials(tmp_path, monkeypatch, capsys):

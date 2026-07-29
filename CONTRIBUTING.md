@@ -36,18 +36,30 @@ teardown → score → report`); everything product-specific is a plugin.
 | You want to add... | Do this |
 |---|---|
 | A **platform** | one `ProviderAdapter` subclass + one `configs/*.example.yaml`. Surface the platform's own retry/session/trace behavior; never reimplement task or scoring logic. |
-| A **dimension** | one `Task` subclass with its own `config()` (hashed inputs), `run()` + scoring, and a declared `evidence_layer`. |
+| A **dimension** | one `Task` subclass with `config()` (the controlled inputs), `execute()` (raw observation only), `score()` (a pure function of the bundle), `task_revision` / `scorer_revision`, and optionally `environment_facts()` and `workload_identity()`. |
 | A **product category** | one `DomainPack` registered via the `clousight_bench.domains` entry point. |
 | A **load generator** | one `src/clousight_bench/resources/workloads/<name>/` dir: `manifest.yaml` + an executable speaking the JSONL protocol. Resolve it with `clousight_bench.core.resources.reference_workload_path(name)` — never build the path by concatenating it onto the repository root, since that breaks under a wheel install. Wrap a mature tool (YCSB / TPC-DS / sysbench) rather than reinventing it. |
 
 ## Reproducibility rules (non-negotiable)
 
-- Every result must carry `config_hash` + `runner_version` + `evidence_layer`.
-- Put everything that determines a number into `Task.config()` so the hash is honest.
-- Never put secrets in a `RunSpec`/config; reference them by env-var name.
+- `execute()` may talk to the cloud and must return raw, replayable evidence
+  only. Never put a verdict in an `ObservationBundle`.
+- `score()` is a pure function of the bundle: no credentials, no network, no
+  resource creation, no mutation of the bundle. A stored observation must be
+  re-scorable years later.
+- Bump `scorer_revision` when scoring changes and `task_revision` when the
+  observation procedure changes. Both feed `fingerprints.benchmark`, which is
+  what keeps a published number attributable.
+- Put everything that determines a number into `Task.config()`.
+- Never put a secret, hostname, username or raw environment variable into a
+  `RunSpec`, an observation, an environment fact or a finding. Reference
+  credentials by env-var name; `ResultStore` refuses to persist a record that
+  contains this machine's identity.
+- Every `Measurement` needs a `value`, a `unit` and an `evidence` layer; every
+  `Finding` needs a stable `code`, a `severity` and its evidence.
 - Report per-dimension; never emit a blended cross-dimension score.
-- Changing task/scoring logic for a **shipped** dimension requires a version bump
-  and a changelog entry — published numbers must stay attributable.
+- An adapter's `teardown()` must be idempotent: the lifecycle calls it whenever
+  `setup()` was entered, including when `setup()` itself failed half-way.
 
 Before opening a PR that touches packaging, build the wheel and run the smoke
 outside the checkout. Editable installs are not sufficient evidence because

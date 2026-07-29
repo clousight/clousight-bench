@@ -3,7 +3,7 @@ import pytest
 
 from clousight_bench.core.errors import AdapterNotRunnableError
 from clousight_bench.core.orchestrator import execute
-from clousight_bench.core.plugin import _redact
+from clousight_bench.core.redaction import redact
 from clousight_bench.core.registry import get_domain, load_domains
 from clousight_bench.core.schema import RunSpec
 
@@ -30,7 +30,7 @@ def test_bigdata_surface():
 
 def test_redact_scrubs_secrets():
     dirty = {"endpoint": "https://x", "access_key_secret": "SHHH", "nested": {"token": "T"}}
-    clean = _redact(dirty)
+    clean = redact(dirty)
     assert clean["endpoint"] == "https://x"
     assert clean["access_key_secret"] == "<redacted>"
     assert clean["nested"]["token"] == "<redacted>"

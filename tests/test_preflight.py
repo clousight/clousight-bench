@@ -74,12 +74,14 @@ def test_run_aborts_at_preflight_not_midrun(monkeypatch, tmp_path):
     spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun",
                    target={"region": "cn-hangzhou"})
     rec = execute(spec, results_dir=tmp_path)
-    assert rec.ok is False
-    assert rec.metrics["preflight_ok"] is False
-    assert rec.error.startswith("preflight failed")
+    assert rec.status == "invalid"
+    assert rec.run.stages["PREFLIGHT"] == "failed"
+    assert "SETUP" not in rec.run.stages
+    assert [e["stage"] for e in rec.errors] == ["PREFLIGHT"]
+    assert "credentials" in rec.errors[0]["message"]
     # proves we stopped at the gate, not inside run_tool_plan (which raises NotWired)
-    assert "NotImplemented" not in (rec.error or "")
-    assert "credentials" in rec.error
+    assert "NotImplemented" not in rec.errors[0]["message"]
+    assert [f["code"] for f in rec.findings] == ["core.preflight_failed"]
 
 
 def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
@@ -90,15 +92,16 @@ def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
     rec = execute(spec, results_dir=tmp_path, preflight=False)
     # gate off -> we fail LATER, mid-run (mock unreachable / skeleton NotWired),
     # exactly the late error the preflight gate exists to prevent.
-    assert rec.ok is False
-    assert "preflight_ok" not in rec.metrics
-    assert rec.error
+    assert rec.status == "failed"
+    assert rec.run.stages["PREFLIGHT"] == "skipped"
+    assert rec.run.stages["TEARDOWN"] == "ok"
+    assert [e["stage"] for e in rec.errors] == ["EXECUTE"]
 
 
 def test_local_sim_run_still_works_with_preflight(tmp_path):
     rec = execute(RunSpec("agent-runtime", "T1.3", "local-sim"), results_dir=tmp_path)
-    assert rec.ok is True
-    assert "preflight_ok" not in rec.metrics  # normal run, not a preflight abort
+    assert rec.status == "completed"
+    assert rec.run.stages["PREFLIGHT"] == "ok"
 
 
 # --- per-benchmark x cloud minimal permission mapping ------------------------

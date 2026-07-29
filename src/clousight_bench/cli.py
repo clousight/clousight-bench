@@ -2,8 +2,11 @@
 
     csbench list                                        # installed domains / tasks / platforms
     csbench run --domain agent-runtime --task T1.3 \
-            --platform local-sim [--config cfg.yaml] [--param k=v ...]
+            --platform local-sim [--config cfg.yaml] [--param k=v ...] [--debug]
+    #   --repeat N --warmup W  -> run a plan and print a statistical aggregate
     csbench report [--results results/] [--out results/comparison.md]
+    #   results/publish-receipts.jsonl records publish attempts (append-only)
+    csbench migrate-results old-results/ --output new-results/ [--dry-run]
     csbench init aws [--domain agent-runtime] [--out .]  # scaffold private config + .env.example
     csbench doctor --config x.local.yaml                 # preflight: creds + connectivity
 """
@@ -83,13 +86,29 @@ def _parse_params(pairs: list[str]) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for pair in pairs:
         if "=" not in pair:
-            raise SystemExit(f"--param expects key=value, got {pair!r}")
+            raise UserInputError(f"--param expects key=value, got {pair!r}")
         key, value = pair.split("=", 1)
         try:
             params[key] = json.loads(value)
         except json.JSONDecodeError:
             params[key] = value
     return params
+
+
+_EXIT_BY_STATUS = {"completed": 0, "unsupported": 0, "failed": 1, "invalid": 1}
+
+
+def _exit_code(record: Any) -> int:
+    """Exit on the benchmark's verdict -- unless the record never reached disk.
+
+    A run that measured perfectly but could not be written where the caller
+    asked for it is not a success from a script's point of view: the file it
+    is about to read is not there.
+    """
+    code = _EXIT_BY_STATUS[record.status]
+    if record.run.stages.get("PERSIST") != "ok":
+        code = max(code, 1)
+    return code
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
@@ -108,14 +127,35 @@ def _cmd_run(args: argparse.Namespace) -> int:
         target=target,
         params=params,
     )
+
+    if args.repeat != 1 or args.warmup != 0:
+        from clousight_bench.core.runplan import RunPlan, execute_plan
+
+        plan = RunPlan(spec, repeat=args.repeat, warmup=args.warmup)
+        aggregate = execute_plan(
+            plan,
+            results_dir=Path(args.results),
+            enrich=not args.no_enrich,
+            preflight=not args.skip_preflight,
+            debug=args.debug,
+        )
+        print(aggregate.to_json())
+        bad = sum(
+            count
+            for status, count in aggregate.status_counts.items()
+            if status not in ("completed", "unsupported")
+        )
+        return 1 if bad else 0
+
     record = execute(
         spec,
         results_dir=Path(args.results),
         enrich=not args.no_enrich,
         preflight=not args.skip_preflight,
+        debug=args.debug,
     )
     print(record.to_json())
-    return 0 if record.ok else 2
+    return _exit_code(record)
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
@@ -134,6 +174,24 @@ def _cmd_rollup(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_migrate(args: argparse.Namespace) -> int:
+    from clousight_bench.core.migrate import MANIFEST_FILE, migrate_tree
+
+    dest = Path(args.output)
+    manifest = migrate_tree(Path(args.source), dest, dry_run=args.dry_run)
+    prefix = "dry-run: " if args.dry_run else ""
+    print(
+        f"{prefix}migrated={manifest.migrated} "
+        f"skipped={manifest.skipped} failed={manifest.failed}"
+    )
+    for entry in manifest.entries:
+        if entry.status != "migrated":
+            print(f"  {entry.status}: {entry.source} — {entry.reason}")
+    if not args.dry_run:
+        print(f"manifest: {dest.resolve() / MANIFEST_FILE}")
+    return 1 if manifest.failed else 0
+
+
 def _ensure_gitignore(root: Path, patterns: list[str]) -> None:
     gi = root / ".gitignore"
     existing = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
@@ -149,7 +207,10 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     provider = args.provider
     if provider not in PROVIDER_CREDENTIALS:
-        raise SystemExit(f"unknown provider {provider!r}; choose from: {', '.join(PROVIDER_CREDENTIALS)}")
+        raise UserInputError(
+            f"unknown provider {provider!r}; "
+            f"choose from: {', '.join(PROVIDER_CREDENTIALS)}"
+        )
     spec = PROVIDER_CREDENTIALS[provider]
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -274,6 +335,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "run": _cmd_run,
         "report": _cmd_report,
         "rollup": _cmd_rollup,
+        "migrate-results": _cmd_migrate,
         "init": _cmd_init,
         "doctor": _cmd_doctor,
     }
@@ -299,6 +361,13 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--no-enrich", action="store_true", help="skip result enrichers")
     run_p.add_argument("--skip-preflight", action="store_true",
                        help="skip the preflight prerequisite checks (not recommended)")
+    run_p.add_argument("--debug", action="store_true",
+                       help="write stage tracebacks to <results>/debug/<run_id>.log "
+                            "(never into the record)")
+    run_p.add_argument("--repeat", type=int, default=1,
+                       help="measured repeats to run and aggregate (default: 1)")
+    run_p.add_argument("--warmup", type=int, default=0,
+                       help="warmup runs to execute first and exclude from statistics")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
@@ -307,6 +376,22 @@ def main(argv: list[str] | None = None) -> int:
     roll_p = sub.add_parser("rollup", help="downsample a run's series.parquet (needs the [store] extra)")
     roll_p.add_argument("run_dir", help="directory containing series.parquet")
     roll_p.add_argument("--bucket-s", type=int, default=1, help="bucket width in seconds (default: 1)")
+
+    mig_p = sub.add_parser(
+        "migrate-results",
+        help="convert schema 1.0 result files into schema 0.2 (never in place)",
+    )
+    mig_p.add_argument("source", help="directory containing schema 1.0 result JSON")
+    mig_p.add_argument(
+        "--output",
+        required=True,
+        help="fresh destination directory; must be outside SOURCE",
+    )
+    mig_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report what would be migrated without writing anything",
+    )
 
     init_p = sub.add_parser("init", help="scaffold a private config + .env.example for a provider")
     init_p.add_argument("provider", help="cloud provider (aws, aliyun, huawei, volcengine)")

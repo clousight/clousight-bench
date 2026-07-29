@@ -1,34 +1,19 @@
-"""Unified result schema + reproducibility helpers.
+"""The request side of a benchmark run, plus the public ResultRecord import path.
 
-Every benchmark run emits a ResultRecord carrying config_hash + runner_version +
-evidence_layer, so any reader can tell exactly which configuration produced a
-number and how trustworthy it is. This is the reproducibility contract shared by
-ALL domains (agent runtimes, big data clusters, databases, compute, messaging).
-
-Evidence layers:
-    A - authoritative documentation / vendor statements (read, not measured)
-    B - environment observation (method reproducible, numbers environment-dependent)
-    C - controlled-variable measurement (precisely reproducible; challenge us)
-    D - marketing material (never used as load-bearing evidence)
+``RunSpec`` says what to run. ``ResultRecord`` (defined in ``core/record.py``)
+says what happened; it is re-exported here so plugins keep one stable import
+path across the 1.0 -> 0.2 schema change.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from clousight_bench import RUNNER_VERSION
+from clousight_bench.core.record import ResultRecord
 
-EVIDENCE_LAYERS = {"A", "B", "C", "D"}
-
-
-def config_hash(config: dict[str, Any]) -> str:
-    """Deterministic hash of everything that determines a result."""
-    blob = json.dumps(config, ensure_ascii=False, sort_keys=True)
-    return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+__all__ = ["ResultRecord", "RunSpec", "new_run_id", "utc_now"]
 
 
 def utc_now() -> str:
@@ -41,8 +26,8 @@ class RunSpec:
 
     ``params`` are task-level overrides; ``target`` is the provider-specific
     config (endpoint / auth reference / region / cluster size ...). Everything
-    here is hashed into config_hash, so never put raw secrets in a RunSpec --
-    reference them by env var name instead.
+    here reaches the benchmark and environment fingerprints, so never put a raw
+    secret in a RunSpec -- reference it by env var name instead.
     """
 
     domain: str
@@ -53,47 +38,6 @@ class RunSpec:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-@dataclass
-class ResultRecord:
-    """One benchmark result. The only shape the report layer understands."""
-
-    domain: str
-    task_id: str
-    platform: str
-    run_id: str
-    started_at: str
-    finished_at: str
-    config_hash: str
-    evidence_layer: str
-    metrics: dict[str, Any]
-    ok: bool = True
-    runner_version: str = RUNNER_VERSION
-    raw: dict[str, Any] = field(default_factory=dict)
-    notes: str = ""
-    schema_version: str = "1.0"
-    series: dict[str, Any] = field(default_factory=dict)
-    artifacts: list[dict[str, Any]] = field(default_factory=list)
-    error: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.evidence_layer not in EVIDENCE_LAYERS:
-            raise ValueError(
-                f"evidence_layer must be one of {sorted(EVIDENCE_LAYERS)}, got {self.evidence_layer!r}"
-            )
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    def to_json(self) -> str:
-        return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ResultRecord:
-        import dataclasses
-        known = {f.name for f in dataclasses.fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 def new_run_id() -> str:

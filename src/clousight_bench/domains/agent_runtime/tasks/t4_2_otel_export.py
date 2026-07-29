@@ -14,7 +14,13 @@ import json
 from typing import Any
 from urllib import request
 
-from clousight_bench.core.plugin import ProviderAdapter, Task, TaskOutput
+from clousight_bench.core.observation import (
+    Finding,
+    Measurement,
+    ObservationBundle,
+    TaskResult,
+)
+from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import openinference
 from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import (
@@ -39,6 +45,8 @@ class OtelExportTask(Task):
     title = "OTel export compatibility"
     evidence_layer = "B"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE, perm.TRACE_EXPORT)
+    task_revision = "2"
+    scorer_revision = "2"
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -46,8 +54,17 @@ class OtelExportTask(Task):
             "plan": [{"target": c.target, "params": c.params} for c in PLAN],
         }
 
-    def run(self, adapter: ProviderAdapter, params: dict[str, Any]) -> TaskOutput:
-        assert isinstance(adapter, AgentRuntimeAdapter), "T4.2 needs an AgentRuntimeAdapter"
+    def environment_facts(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        trace = adapter.target.get("trace", {})
+        return {"otel_export_policy": bool(trace.get("otel_export", True))}
+
+    def execute(
+        self, adapter: ProviderAdapter, params: dict[str, Any]
+    ) -> ObservationBundle:
+        if not isinstance(adapter, AgentRuntimeAdapter):
+            raise TypeError("T4.2 needs an AgentRuntimeAdapter")
         _post(adapter.mock_base_url.rstrip("/"), "/reset", {})
         session = adapter.create_session()
         try:
@@ -55,31 +72,68 @@ class OtelExportTask(Task):
             try:
                 payload = adapter.export_otel(session)
             except CapabilityNotSupported as exc:
-                return TaskOutput(
-                    metrics={"otel_export_supported": False, "otel_valid": False},
-                    evidence_layer=self.evidence_layer,
-                    ok=True,
-                    notes=f"runtime cannot export OTel: {exc}",
+                return ObservationBundle(
+                    observations={"capability": "unsupported", "reason": str(exc)}
                 )
         finally:
             adapter.destroy_session(session)
+        return ObservationBundle(
+            observations={"capability": "supported", "otel": payload}
+        )
 
+    def score(self, observations: ObservationBundle) -> TaskResult:
+        raw = observations.observations
+        if raw.get("capability") != "supported":
+            return TaskResult(
+                measurements={
+                    "otel_export_supported": Measurement(
+                        value=False, unit="", evidence="B"
+                    ),
+                    "otel_valid": Measurement(value=False, unit="", evidence="B"),
+                },
+                findings=[
+                    Finding(
+                        code="agent_runtime.otel_export_absent",
+                        severity="info",
+                        summary="runtime cannot export OTel",
+                        evidence="B",
+                        details={"reason": str(raw.get("reason", ""))},
+                    )
+                ],
+                notes="runtime cannot export OTel",
+                task_revision=self.task_revision,
+                scorer_revision=self.scorer_revision,
+                unsupported=True,
+            )
+        payload = raw.get("otel", {})
         valid, problems = openinference.validate_otel(payload)
         span_count = sum(
             len(ss.get("spans", []))
             for rs in payload.get("resourceSpans", [])
             for ss in rs.get("scopeSpans", [])
         )
-        metrics = {
-            "otel_export_supported": True,
-            "otel_valid": valid,
-            "span_count": span_count,
-            "problems": problems,
-        }
-        return TaskOutput(
-            metrics=metrics,
-            evidence_layer=self.evidence_layer,
-            ok=True,
-            raw={"otel": payload},
+        findings: list[Finding] = []
+        if not valid:
+            findings.append(
+                Finding(
+                    code="agent_runtime.otel_payload_invalid",
+                    severity="warning",
+                    summary="exported OTel payload does not match the minimal OTLP shape",
+                    evidence="B",
+                    details={"problems": problems},
+                )
+            )
+        return TaskResult(
+            measurements={
+                "otel_export_supported": Measurement(
+                    value=True, unit="", evidence="B"
+                ),
+                "otel_valid": Measurement(value=valid, unit="", evidence="B"),
+                "span_count": Measurement(value=span_count, unit="count", evidence="B"),
+                "problems": Measurement(value=problems, unit="", evidence="B"),
+            },
+            findings=findings,
             notes=f"OTel export valid={valid}; spans={span_count}; problems={problems or 'none'}",
+            task_revision=self.task_revision,
+            scorer_revision=self.scorer_revision,
         )
