@@ -44,5 +44,6 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Architecture: architecture.md
+  - Dataset tiers: dataset-tiers.md
   - API reference: reference.md
   - Releasing: RELEASING.md

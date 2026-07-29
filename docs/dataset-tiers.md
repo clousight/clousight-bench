@@ -1,0 +1,99 @@
+# Dataset tiers: open seed vs. private held-out
+
+This document defines how benchmark datasets are split between the open-source
+core and any licensed/managed distribution, and how a dataset declares which
+tier it belongs to. It is the data-side counterpart of the
+[reproducibility contract](architecture.md): a published number must be
+independently reproducible, while some content must stay held-out to keep the
+benchmark from being gamed.
+
+## The governing line
+
+> **Anything required to reproduce a published number ships open. The moat is
+> freshness, scale, curation, and holding a test set back — never the mechanism,
+> and never the seed content that a published number was measured on.**
+
+Concretely, a dataset is split into (at most) two tiers:
+
+| Tier | Where | Purpose | Example |
+|---|---|---|---|
+| **Open seed / reference** | in the core (bundled) or a public URL (remote, checksummed) | reproduce published numbers; be a usable public benchmark on its own | a few hundred representative rows; a public corpus with a pinned SHA-256 |
+| **Private held-out / licensed** | fetched via a licensed resolver (private) | anti-gaming test set; premium scale/coverage; licensed corpora we may not redistribute | held-out scoring keys; a large or negotiated dataset |
+
+A dataset may be **open-only** (fully public), **split** (open seed + private
+held-out), or **private-only** (licensed corpus we cannot redistribute). It must
+never be **open-scored-but-secret-method**: if a published score was computed on
+data, enough of that data (or a faithful public sample) must be open to
+reproduce the method.
+
+## How the tiers map to the asset system
+
+Tiers ride on the existing three-source `AssetSpec` (see
+`clousight_bench.core.assets`), declared in a workload/task `manifest.yaml`:
+
+```yaml
+assets:
+  # open seed — bundled in the package, reproducible offline
+  - name: toolcalls-seed
+    source: bundled
+    uri: ./data/toolcalls-seed.jsonl
+    sha256: "<hex>"          # optional for bundled, required in spirit
+    version: "1.0"
+
+  # open reference — public download, mandatory checksum + license
+  - name: gsm8k-test
+    source: remote
+    uri: https://example.org/gsm8k/test.jsonl
+    sha256: "<hex>"
+    license: "MIT"
+    version: "1.0"
+
+  # private held-out — resolved only when a licensed resolver is installed
+  - name: toolcalls-heldout
+    source: private
+    uri: toolcalls-heldout        # opaque ref the resolver understands
+    sha256: "<hex>"               # still verified after download
+    version: "1.0"
+```
+
+- `bundled` / `remote` resolve with the open core alone. `remote` **must** carry
+  a `license` and a `sha256` (auditability + integrity).
+- `private` delegates to an installed `PrivateAssetResolver`. With none
+  installed, resolution raises `NeedLicense` — a clear error, never a crash — so
+  the open benchmark still runs on its open tier.
+
+## Naming & versioning conventions
+
+- Suffix the tier in the asset name: `*-seed` / `*-test` (open), `*-heldout`
+  (private). Keep the same base name across tiers so they are obviously related.
+- Every asset carries a `version`; bump it when the contents change. The
+  reproducibility identity of a run records `{name, version, source, sha256}` —
+  never the contents — so a result stays attributable without leaking held-out
+  data.
+- A published dimension's default config must point at an **open** asset. A
+  private asset may only *raise the ceiling* (harder split, larger scale), never
+  be required to reproduce the published number.
+
+## Anti-gaming: why hold a set back
+
+If the entire scored dataset is public, implementations can overfit to it and
+the score stops measuring the runtime. The held-out tier exists so the same
+methodology can be run against unseen data:
+
+- the **method** (task, scoring, evidence layer) is open and reviewable;
+- the **open seed** lets anyone reproduce the reference numbers and challenge us;
+- the **held-out split** is fetched under license for the authoritative /
+  anti-gaming run, and is checksum-verified but not redistributed.
+
+This mirrors the standard train-open / test-held-out practice, adapted to a
+runtime benchmark.
+
+## Governance
+
+- Publishing a dataset (or promoting a split from private → open) is a
+  maintainer decision recorded in `CHANGELOG.md`; it may change published
+  numbers and therefore requires a version bump of the affected dimension.
+- Never commit licensed or held-out contents to this repository. Reference them
+  by `private` asset + resolver only.
+- Redistribution of a `remote` asset must respect its declared `license`; if we
+  cannot redistribute, it is `private`, not `remote`.
