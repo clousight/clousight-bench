@@ -8,6 +8,18 @@ Developer-preview reset before the first public release.
 
 ### Added
 
+- Open cost attribution: the usage vocabulary (`core.usage`) and a reference
+  cost enricher (`clousight_bench.enrichers.pricing`, registered via the
+  `clousight_bench.enrichers` entry point) now ship in the core, with a small
+  bundled seed of public list prices. It only prices records that report usage
+  and never overwrites a cost another enricher already computed; point
+  `CLOUSIGHT_PRICING_DATA` at a fuller/fresher feed to override the data without
+  forking the mechanism.
+- Reproducible sampling: `core.sampling.HighFreqSampler` (the `sample`-event
+  protocol helper) and a `synthetic-sampler` reference workload.
+- `csbench rollup <run_dir> [--bucket-s N]` downsamples a run's `series.parquet`
+  into `series_rollup.parquet` (avg/p99/max/count per bucket); needs `[store]`.
+- `docs/dataset-tiers.md`: the open-seed vs. private-held-out dataset policy.
 - Project is a typed package: ships a `py.typed` marker (PEP 561) so downstream
   consumers get type information; CI enforces `mypy` on the source.
 - Community health files: `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1),

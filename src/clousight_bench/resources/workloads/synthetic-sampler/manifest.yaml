@@ -1,0 +1,6 @@
+name: synthetic-sampler
+version: 0.1.0
+entrypoint: ./run.py
+params:
+  count: {type: integer, default: 20}
+metrics: []
