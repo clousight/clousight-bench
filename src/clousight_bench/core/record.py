@@ -18,7 +18,7 @@ from typing import Any
 
 SCHEMA_VERSION = "0.2"
 
-STATUSES: tuple[str, ...] = ("completed", "failed", "invalid", "unsupported")
+STATUSES: tuple[str, ...] = ("completed", "failed", "invalid", "unsupported", "interrupted")
 STAGES: tuple[str, ...] = (
     "RESOLVE",
     "VALIDATE",
