@@ -176,6 +176,8 @@ for your own account, network and region. That is the point.
 
 Sign your commits (`git commit -s`, [DCO](https://developercertificate.org/)). Adding a platform = one adapter file + one example config; adding a dimension = one task file with its scoring and declared evidence layer; adding a product category = one DomainPack. PRs that change task or scoring logic for a shipped dimension require a version bump and a changelog entry — published numbers must stay attributable.
 
+This checkout has no `origin` remote — commit/push/PR/merge go through `scripts/gitsync.sh` (uses your machine's `gh`; run `cp .gitsync.env.example .gitsync.env` once to set the target repo).
+
 ## License
 
 [Apache-2.0](LICENSE)
