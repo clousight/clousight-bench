@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Clousight Bench ResultRecord 0.2",
+  "type": "object",
+  "required": ["schema_version", "run", "identity", "environment",
+    "fingerprints", "measurements", "findings", "observations", "series",
+    "artifacts", "extensions", "errors", "status"],
+  "properties": {
+    "schema_version": {"const": "0.2"},
+    "status": {"enum": ["completed", "failed", "invalid", "unsupported"]},
+    "run": {"type": "object"},
+    "identity": {"type": "object"},
+    "environment": {"type": "object"},
+    "fingerprints": {"type": "object"},
+    "measurements": {"type": "object"},
+    "findings": {"type": "array"},
+    "observations": {"type": "object"},
+    "series": {"type": ["object", "array"]},
+    "artifacts": {"type": "array"},
+    "extensions": {"type": "object"},
+    "errors": {"type": "array"}
+  }
+}

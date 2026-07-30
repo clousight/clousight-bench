@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Clousight Bench RunSpec",
+  "type": "object",
+  "required": ["domain", "task_id", "platform", "target", "params"],
+  "properties": {
+    "domain": {"type": "string", "minLength": 1},
+    "task_id": {"type": "string", "minLength": 1},
+    "platform": {"type": "string", "minLength": 1},
+    "target": {"type": "object"},
+    "params": {"type": "object"}
+  }
+}
