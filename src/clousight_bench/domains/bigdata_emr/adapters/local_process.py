@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.sandbox import ResourceLimits
 from clousight_bench.core.workload import WorkloadEngine, WorkloadResult
 from clousight_bench.domains.bigdata_emr.adapters.base import BigDataClusterAdapter
 
@@ -23,4 +24,5 @@ class LocalProcessAdapter(BigDataClusterAdapter):
     def submit(self, workload_dir: str, params: dict[str, Any]) -> WorkloadResult:
         engine = WorkloadEngine(Path(workload_dir))
         timeout = int(self.target.get("timeout_s", 600))
-        return engine.run(params, timeout_s=timeout)
+        limits = ResourceLimits.from_target(self.target)
+        return engine.run(params, timeout_s=timeout, limits=limits)

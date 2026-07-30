@@ -34,9 +34,12 @@ Status legend: ✅ done · 🚧 in progress · 📋 planned · 💤 deferred
   version ranges + conflict detection, JSON Schema for `RunSpec` / `ResultRecord`
   / workload manifest (validated at VALIDATE / manifest-load / PERSIST), and a
   `csbench conformance` kit for third-party plugins.
-- 📋 **Supply-chain hardening (security-relevant)**: workload sandboxing with
-  stricter path/URI validation and artifact-path-traversal protection. Until
-  this lands, do not run untrusted third-party workload packages (see
+- ✅ **Workload sandbox, layers 1+2 (security-relevant)**: path-traversal
+  protection (artifact + bundled asset + symlink escape), POSIX resource limits
+  on the workload subprocess, and https-only + SSRF-guarded asset URIs.
+- 📋 **Workload sandbox, layers 3-5**: filesystem / network / process isolation
+  for hostile code. Until this lands there is no strong isolation against a
+  determined adversary — review workloads you do not trust (see
   [SECURITY.md](SECURITY.md)).
 - 💤 Real-cloud adapters (`aliyun-agentrun`, `huawei-agentarts`,
   `volcengine-agentkit`, `aws-emr`) — skeletons are in-tree; wiring is gated on
