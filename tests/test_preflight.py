@@ -117,10 +117,11 @@ def test_required_actions_differ_per_task():
     reg_actions, _ = a.required_actions(ToolRegistrationTask())
     otel_actions, _ = a.required_actions(OtelExportTask())
 
-    assert reg_actions == ["agentrun:RegisterTool"]
-    # T4.2 needs session + invoke + export -> a different, larger set
-    assert "agentrun:ExportTrace" in otel_actions
-    assert "agentrun:RegisterTool" not in otel_actions
+    assert reg_actions == ["agentrun:ActivateTemplateMCP"]
+    # T4.2 needs session + invoke (trace export is ARMS-side -> no agentrun
+    # action) -> a different set that omits tool registration
+    assert "agentrun:InvokeRuntime" in otel_actions
+    assert "agentrun:ActivateTemplateMCP" not in otel_actions
     assert reg_actions != otel_actions
 
 
@@ -136,7 +137,7 @@ def test_required_actions_differ_per_cloud():
     task = TraceCompletenessTask()
     aliyun, _ = AliyunAgentRunAdapter({}).required_actions(task)
     huawei, _ = HuaweiAgentArtsAdapter({}).required_actions(task)
-    assert "agentrun:GetTrace" in aliyun
+    assert "agentrun:InvokeRuntime" in aliyun
     assert "agentarts:trace:get" in huawei
     assert aliyun != huawei  # same benchmark, different cloud -> different actions
 
@@ -164,7 +165,7 @@ def test_permission_check_surfaces_minimal_actions(monkeypatch, tmp_path):
     perm_check = [c for c in checks if c.name.startswith("permissions[")][0]
     # skeleton can't verify -> warning that lists the minimal actions it WOULD need
     assert perm_check.severity == pf.WARNING
-    assert "agentrun:PutSessionState" in perm_check.detail
+    assert "agentrun:CreateMemory" in perm_check.detail
 
 
 def test_wired_probe_makes_permissions_critical(monkeypatch, tmp_path):

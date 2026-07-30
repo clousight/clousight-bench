@@ -10,11 +10,17 @@ from __future__ import annotations
 from importlib.metadata import entry_points
 
 from clousight_bench.core.errors import UnknownDomainError, UserInputError
-from clousight_bench.core.plugin import DomainPack, PrivateAssetResolver, ResultEnricher
+from clousight_bench.core.plugin import (
+    DomainPack,
+    PrivateAssetResolver,
+    ResultEnricher,
+    RuntimeProviderPlugin,
+)
 
 ENTRY_POINT_GROUP = "clousight_bench.domains"
 ENRICHER_ENTRY_POINT_GROUP = "clousight_bench.enrichers"
 ASSET_RESOLVER_ENTRY_POINT_GROUP = "clousight_bench.asset_resolvers"
+RUNTIME_PROVIDER_ENTRY_POINT_GROUP = "clousight_bench.runtime_providers"
 
 
 class RegistryError(UserInputError):
@@ -53,6 +59,30 @@ def load_enrichers() -> list[ResultEnricher]:
             raise RegistryError(f"entry point {ep.name!r} is not a ResultEnricher")
         enrichers.append(inst)
     return sorted(enrichers, key=lambda e: e.name)
+
+
+def load_runtime_providers() -> dict[str, RuntimeProviderPlugin]:
+    """Instantiate every installed runtime-provider plugin, keyed by ``provider``.
+
+    Open-core installs none, so this is empty until a commercial pack is
+    installed -> skeleton clouds keep falling back to the not-wired transport
+    and stay un-runnable in real mode. Installing a pack registers a provider
+    here, which flips that cloud's real mode to runnable."""
+    providers: dict[str, RuntimeProviderPlugin] = {}
+    for ep in entry_points(group=RUNTIME_PROVIDER_ENTRY_POINT_GROUP):
+        cls = ep.load()
+        inst = cls()
+        if not isinstance(inst, RuntimeProviderPlugin):
+            raise RegistryError(f"entry point {ep.name!r} is not a RuntimeProviderPlugin")
+        providers[inst.provider] = inst
+    return providers
+
+
+def get_runtime_provider(provider: str | None) -> RuntimeProviderPlugin | None:
+    """The wired runtime provider for ``provider``, or None if not installed."""
+    if not provider:
+        return None
+    return load_runtime_providers().get(provider)
 
 
 def load_asset_resolvers() -> list[PrivateAssetResolver]:

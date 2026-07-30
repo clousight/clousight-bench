@@ -31,7 +31,9 @@ from clousight_bench.domains.agent_runtime import openinference
 from clousight_bench.domains.agent_runtime.adapters.base import (
     Attempt,
     CapabilityNotSupported,
+    DeprovisionResult,
     InvocationTrace,
+    ProvisionResult,
     ScalePoint,
     ToolCall,
 )
@@ -80,6 +82,16 @@ class RuntimeTransport(ABC):
     def probe_scaling(self, levels: list[int]) -> list[ScalePoint]:
         raise CapabilityNotSupported("probe_scaling")
 
+    # Provisioning lifecycle (T0.1 / T0.2). Optional -> default not supported.
+    def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
+        raise CapabilityNotSupported("provision")
+
+    def provision_status(self, runtime_id: str) -> str:
+        raise CapabilityNotSupported("provision_status")
+
+    def deprovision(self, runtime_id: str) -> DeprovisionResult:
+        raise CapabilityNotSupported("deprovision")
+
 
 class MockRuntimeTransport(RuntimeTransport):
     """Configurable simulated runtime over a pinned, fault-injectable tool universe.
@@ -118,7 +130,14 @@ class MockRuntimeTransport(RuntimeTransport):
         self.concurrency_limit: int = int(scaling.get("concurrency_limit", 10_000))
         self.scale_base_ms: float = float(scaling.get("base_ms", 10))
         self.overload_penalty_ms: float = float(scaling.get("overload_penalty_ms", 50))
+        # T0.1/T0.2 provisioning model: provision pays ready_ms (create->ready);
+        # deprovision reports clean_teardown and any residual_on_delete resources.
+        provision = cfg.get("provision", {})
+        self.provision_ready_ms: float = float(provision.get("ready_ms", 0))
+        self.provision_clean_teardown: bool = bool(provision.get("clean_teardown", True))
+        self.provision_residual: list[str] = list(provision.get("residual_on_delete", []))
         self._session_seq = 0
+        self._runtime_seq = 0
         self._mock_server: ThreadingHTTPServer | None = None
         self._state: dict[str, dict[str, Any]] = {}
         self._last_calls: dict[str, int] = {}
@@ -262,6 +281,36 @@ class MockRuntimeTransport(RuntimeTransport):
             points.append(ScalePoint(level, success, round(p95, 2)))
         return points
 
+    # --- Provisioning (configurable, deterministic) -------------------------
+
+    def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
+        """Stand up a simulated runtime instance, paying the ready_ms knob."""
+        self._runtime_seq += 1
+        runtime_id = f"sim-runtime-{self._runtime_seq}"
+        start = time.perf_counter()
+        if self.provision_ready_ms:
+            time.sleep(self.provision_ready_ms / 1000)
+        ready_ms = (time.perf_counter() - start) * 1000
+        artifact = str((spec or {}).get("artifact_ref") or (spec or {}).get("artifact") or "")
+        return ProvisionResult(
+            runtime_id=runtime_id,
+            ready_latency_ms=round(ready_ms, 2),
+            ready=True,
+            artifact_ref=artifact or "mock://artifact",
+        )
+
+    def provision_status(self, runtime_id: str) -> str:
+        return "ready"
+
+    def deprovision(self, runtime_id: str) -> DeprovisionResult:
+        start = time.perf_counter()
+        teardown_ms = (time.perf_counter() - start) * 1000
+        return DeprovisionResult(
+            teardown_ms=round(teardown_ms, 2),
+            clean=self.provision_clean_teardown,
+            residual=list(self.provision_residual),
+        )
+
 
 class NotWiredCloudTransport(RuntimeTransport):
     """Real-cloud back end seam: every op fails with a clear wiring message.
@@ -322,6 +371,15 @@ class NotWiredCloudTransport(RuntimeTransport):
 
     def probe_scaling(self, levels: list[int]) -> list[ScalePoint]:
         raise self._not_wired("probe_scaling")
+
+    def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
+        raise self._not_wired("provision")
+
+    def provision_status(self, runtime_id: str) -> str:
+        raise self._not_wired("provision_status")
+
+    def deprovision(self, runtime_id: str) -> DeprovisionResult:
+        raise self._not_wired("deprovision")
 
 
 class _NotWiredError(NotImplementedError):

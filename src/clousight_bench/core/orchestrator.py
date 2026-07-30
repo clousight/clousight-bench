@@ -305,12 +305,23 @@ def _resolve(spec: RunSpec) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
             f"{sorted(adapter_classes)}"
         )
     adapter_cls = adapter_classes[spec.platform]
-    if not adapter_cls.is_runnable():
+    task = task_classes[spec.task_id]()
+    # Instance-level gate: skeleton adapters may still be runnable in a simulated
+    # mode (e.g. a cloud in ``mode: mock``), which only the target reveals. Only
+    # a successfully constructed instance is gated; if construction itself fails
+    # that is not a runnability question -- defer it to _prepare, which records
+    # it as ``adapter_init_failed`` rather than crashing here.
+    try:
+        instance = adapter_cls(spec.target)
+    except Exception:  # noqa: BLE001 - construction failure is recorded downstream
+        return pack, task, adapter_cls
+    if not instance.is_runnable_instance():
         raise AdapterNotRunnableError(
-            f"platform {spec.platform!r} is a skeleton and cannot run; "
+            f"platform {spec.platform!r} is a skeleton and cannot run as configured; "
+            "if it supports a simulated runtime, set target.mode: mock; otherwise "
             "choose a reference/wired adapter or implement this adapter first"
         )
-    return pack, task_classes[spec.task_id](), adapter_cls
+    return pack, task, adapter_cls
 
 
 def _prepare(

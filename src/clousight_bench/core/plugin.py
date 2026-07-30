@@ -54,6 +54,16 @@ class ProviderAdapter(ABC):
     def is_runnable(cls) -> bool:
         return cls.status != "skeleton"
 
+    def is_runnable_instance(self) -> bool:
+        """Instance-level runnability gate, aware of this run's ``target``.
+
+        Class-level ``is_runnable()`` only sees ``status``; an adapter whose
+        runnability depends on config (e.g. a skeleton cloud that is still fully
+        exercisable in a simulated ``mode: mock``) overrides this to decide from
+        ``self.target``. Default keeps the class-level verdict, so adapters that
+        do not distinguish modes are unaffected."""
+        return type(self).is_runnable()
+
     def setup(self) -> None:  # noqa: B027 - optional hook
         """Provision / connect. Default no-op."""
 
@@ -197,3 +207,26 @@ class PrivateAssetResolver(ABC):
     @abstractmethod
     def resolve(self, spec: Any, cache_dir: Any | None = None) -> Any:
         """Return a local path (str | Path) to the private asset's contents."""
+
+
+class RuntimeProviderPlugin(ABC):
+    """The wired (real) runtime implementation for one cloud in a domain.
+
+    Open-core ships NONE: a skeleton cloud adapter falls back to a not-wired
+    transport and stays un-runnable in real mode. A commercial pack registers a
+    plugin via the ``clousight_bench.runtime_providers`` entry point, which both
+    flips that provider's real mode to runnable and supplies the live,
+    SDK-backed transport -- so the open adapter class is never edited to "wire"
+    a cloud; installing the pack is the wiring.
+
+    ``build_transport`` returns a domain-specific transport object (e.g. the
+    agent-runtime ``RuntimeTransport``); it is typed ``Any`` here so the core
+    stays free of any domain import. The consuming adapter knows the concrete
+    type.
+    """
+
+    provider: str = "abstract"
+
+    @abstractmethod
+    def build_transport(self, adapter: Any) -> Any:
+        """Build a live transport for ``adapter`` (called only in real mode)."""
