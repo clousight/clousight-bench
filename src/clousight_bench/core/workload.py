@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -41,6 +42,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from clousight_bench.core.sandbox import (
+    ResourceLimits,
+    posix_rlimit_preexec,
+    resolve_within,
+)
 
 
 class WorkloadError(RuntimeError):
@@ -120,7 +127,12 @@ class WorkloadEngine:
             resolved[spec.name] = str(path)
         return resolved
 
-    def run(self, params: dict[str, Any] | None = None, timeout_s: int = 3600) -> WorkloadResult:
+    def run(
+        self,
+        params: dict[str, Any] | None = None,
+        timeout_s: int = 3600,
+        limits: ResourceLimits | None = None,
+    ) -> WorkloadResult:
         entry = (self.workload_dir / str(self.manifest["entrypoint"])).resolve()
         if not entry.exists():
             raise WorkloadError(f"entrypoint {entry} does not exist")
@@ -136,55 +148,62 @@ class WorkloadEngine:
             json.dump(payload, f, ensure_ascii=False)
             params_file = f.name
 
-        proc = subprocess.run(
-            [str(entry), "--params", params_file],
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-            cwd=self.workload_dir,
-        )
+        try:
+            proc = subprocess.run(
+                [str(entry), "--params", params_file],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+                cwd=self.workload_dir,
+                preexec_fn=posix_rlimit_preexec(limits or ResourceLimits()),
+            )
 
-        metrics: dict[str, Any] = {}
-        logs: list[str] = []
-        series: dict[str, list] = {}
-        artifacts: list[dict[str, Any]] = []
-        saw_result = False
-        result_ok = False
-        for line in proc.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                continue
+            metrics: dict[str, Any] = {}
+            logs: list[str] = []
+            series: dict[str, list] = {}
+            artifacts: list[dict[str, Any]] = []
+            saw_result = False
+            result_ok = False
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    logs.append(line)  # tolerate non-protocol noise on stdout
+                    continue
+                etype = event.get("type")
+                if etype == "metric":
+                    metrics[str(event["name"])] = event["value"]
+                elif etype == "log":
+                    logs.append(str(event.get("message", "")))
+                elif etype == "sample":
+                    name = str(event["series"])
+                    series.setdefault(name, []).append([event["t"], event["value"]])
+                elif etype == "artifact":
+                    rel = str(event["path"])
+                    blob = resolve_within(self.workload_dir, rel).read_bytes()
+                    artifacts.append({
+                        "kind": str(event.get("kind", "artifact")),
+                        "path": rel,
+                        "media": str(event.get("media", "application/octet-stream")),
+                        "sha256": "sha256:" + hashlib.sha256(blob).hexdigest(),
+                    })
+                elif etype == "result":
+                    saw_result = True
+                    result_ok = bool(event.get("ok", False))
+
+            if proc.stderr:
+                logs.extend(proc.stderr.strip().splitlines()[-20:])
+
+            ok = proc.returncode == 0 and saw_result and result_ok
+            return WorkloadResult(
+                ok=ok, metrics=metrics, logs=logs, exit_code=proc.returncode,
+                series=series, artifacts=artifacts,
+            )
+        finally:
             try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                logs.append(line)  # tolerate non-protocol noise on stdout
-                continue
-            etype = event.get("type")
-            if etype == "metric":
-                metrics[str(event["name"])] = event["value"]
-            elif etype == "log":
-                logs.append(str(event.get("message", "")))
-            elif etype == "sample":
-                name = str(event["series"])
-                series.setdefault(name, []).append([event["t"], event["value"]])
-            elif etype == "artifact":
-                rel = str(event["path"])
-                blob = (self.workload_dir / rel).read_bytes()
-                artifacts.append({
-                    "kind": str(event.get("kind", "artifact")),
-                    "path": rel,
-                    "media": str(event.get("media", "application/octet-stream")),
-                    "sha256": "sha256:" + hashlib.sha256(blob).hexdigest(),
-                })
-            elif etype == "result":
-                saw_result = True
-                result_ok = bool(event.get("ok", False))
-
-        if proc.stderr:
-            logs.extend(proc.stderr.strip().splitlines()[-20:])
-
-        ok = proc.returncode == 0 and saw_result and result_ok
-        return WorkloadResult(
-            ok=ok, metrics=metrics, logs=logs, exit_code=proc.returncode,
-            series=series, artifacts=artifacts,
-        )
+                os.unlink(params_file)
+            except OSError:
+                pass
