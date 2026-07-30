@@ -40,6 +40,11 @@ jobs:
           files: coverage.xml
           fail_ci_if_error: false
 
+      - name: Conformance smoke (built-in domains)
+        run: |
+          csbench conformance --domain agent-runtime --platform local-sim
+          csbench conformance --domain bigdata-emr --platform local-process
+
       - name: Local baseline smoke (no cloud account)
         run: |
           csbench list --verbose
