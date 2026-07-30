@@ -16,6 +16,7 @@ htmlcov/
 site/
 *.local.yaml
 .env
+.gitsync.env
 .DS_Store
 .terraform/
 *.tfstate
