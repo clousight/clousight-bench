@@ -12,11 +12,29 @@ from __future__ import annotations
 from typing import Any
 
 # Recognised usage units. A pricing enricher multiplies each by a unit price.
+# Two tiers, priced the same way (qty x unit price):
+#
+# Coarse (convenient, order-of-magnitude):
 #   invocations  -- count of platform/tool invocations (dimensionless)
 #   vcpu_hours   -- compute time
 #   tokens_1k    -- model tokens in thousands
 #   gb_month     -- stored/retained data
-USAGE_METRIC_KEYS = ("invocations", "vcpu_hours", "tokens_1k", "gb_month")
+#
+# Billing-grade (match how serverless actually bills; see core.billing):
+#   requests     -- billed request count
+#   vcpu_seconds -- billed vCPU-seconds (per-invocation minimum + rounding applied)
+#   gb_seconds   -- billed memory GB-seconds (same rules)
+#   egress_gb    -- outbound network transferred
+USAGE_METRIC_KEYS = (
+    "invocations",
+    "vcpu_hours",
+    "tokens_1k",
+    "gb_month",
+    "requests",
+    "vcpu_seconds",
+    "gb_seconds",
+    "egress_gb",
+)
 
 
 def attach_usage(metrics: dict[str, Any], **usage: float) -> dict[str, Any]:
