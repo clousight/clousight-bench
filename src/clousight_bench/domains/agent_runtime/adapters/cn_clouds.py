@@ -39,16 +39,34 @@ class AliyunAgentRunAdapter(ManagedAgentRuntimeAdapter):
     name = "aliyun-agentrun"
     status = "skeleton"
     provider = "aliyun"
-    endpoint_service = "agentrun"
-    DOCS = "https://help.aliyun.com/ (AgentRun)"
-    # Abstract capability token -> Aliyun RAM action(s) (minimal per benchmark).
+    endpoint_service = "agentrun"            # control plane: agentrun.<region>.aliyuncs.com
+    data_endpoint_service = "agentrun-data"  # data plane (invoke): agentrun-data.<region>...
+    DOCS = "https://help.aliyun.com/zh/functioncompute/fc/what-is-agentrun"
+    # Abstract capability token -> real AgentRun RAM action(s), API 2025-09-10.
+    # Verified against the RAM authorization doc; see docs/agentrun-integration-research.md.
     PERMISSION_MAP = {
-        perm.SESSION_CREATE: ["agentrun:CreateSession", "agentrun:DeleteSession"],
-        perm.SESSION_STATE: ["agentrun:PutSessionState", "agentrun:GetSessionState"],
-        perm.TOOL_INVOKE: ["agentrun:InvokeAgent"],
-        perm.TOOL_REGISTER: ["agentrun:RegisterTool"],
-        perm.TRACE_READ: ["agentrun:GetTrace"],
-        perm.TRACE_EXPORT: ["agentrun:ExportTrace"],
+        # Sessions are implicit: a session is an X-AgentRun-Session-ID header on
+        # InvokeRuntime (there is no CreateSession API), so it maps to invoke.
+        perm.SESSION_CREATE: ["agentrun:InvokeRuntime"],
+        perm.SESSION_STATE: [
+            "agentrun:CreateMemory",
+            "agentrun:RetrieveMemory",
+            "agentrun:UpdateMemory",
+        ],
+        perm.TOOL_INVOKE: ["agentrun:InvokeRuntime"],
+        perm.TOOL_REGISTER: ["agentrun:ActivateTemplateMCP"],
+        # Traces export to ARMS, not read back via an AgentRun API -> no agentrun
+        # action (reading via the ARMS/OTel backend is out of scope for now).
+        perm.TRACE_READ: [],
+        perm.TRACE_EXPORT: [],
+        perm.PROVISION: [
+            "agentrun:CreateAgentRuntime",
+            "agentrun:CreateAgentRuntimeEndpoint",
+        ],
+        perm.DEPROVISION: [
+            "agentrun:DeleteAgentRuntime",
+            "agentrun:DeleteAgentRuntimeEndpoint",
+        ],
     }
 
 

@@ -21,6 +21,8 @@ TOOL_INVOKE = "tool:invoke"
 TOOL_REGISTER = "tool:register"
 TRACE_READ = "trace:read"
 TRACE_EXPORT = "trace:export"
+PROVISION = "provision:create"
+DEPROVISION = "provision:delete"
 
 # Human-readable purpose of each token (surfaced by doctor / docs).
 TOKENS: dict[str, str] = {
@@ -30,4 +32,6 @@ TOKENS: dict[str, str] = {
     TOOL_REGISTER: "register a tool (MCP / OpenAPI / native connector)",
     TRACE_READ: "read the runtime's own trace of an invocation",
     TRACE_EXPORT: "export a trace in OTLP form",
+    PROVISION: "stand up (deploy) a runtime instance from an artifact",
+    DEPROVISION: "tear down (delete) a runtime instance and its resources",
 }
