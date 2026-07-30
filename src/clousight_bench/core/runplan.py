@@ -18,6 +18,8 @@ any other run and is counted honestly in ``status_counts``.
 """
 from __future__ import annotations
 
+import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -33,6 +35,8 @@ from clousight_bench.core.publish import ResultPublisher
 from clousight_bench.core.record import SCHEMA_VERSION, ResultRecord
 from clousight_bench.core.schema import RunSpec
 from clousight_bench.core.statistics import aggregate_measurements
+
+logger = logging.getLogger(__name__)
 
 # Aggregates live in their own subtree so the report's record loader can skip
 # them wholesale: they are summaries of records, not records themselves.
@@ -219,6 +223,40 @@ def persist_aggregate(results_dir: Path, aggregate: RunPlanAggregate) -> Path:
     return path
 
 
+def _completed_slots(
+    results_dir: Path, plan_id: str
+) -> dict[tuple[str, int], ResultRecord]:
+    """Already-finished runs of this plan, keyed by ``(role, index)``.
+
+    The persisted records ARE the resume state: each carries its plan membership
+    under ``extensions["core"]["run_plan"]``. A slot counts as done if it landed a
+    terminal record; an ``interrupted`` record does not count, so an interrupted
+    (or missing) slot is re-run."""
+    done: dict[tuple[str, int], ResultRecord] = {}
+    for path in Path(results_dir).rglob("*.json"):
+        if AGGREGATES_DIRNAME in path.parts:
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict) or data.get("schema_version") != SCHEMA_VERSION:
+            continue
+        if data.get("status") == "interrupted":
+            continue
+        core = data.get("extensions", {}).get("core", {})
+        ctx = core.get("run_plan", {}) if isinstance(core, dict) else {}
+        if not isinstance(ctx, dict) or ctx.get("plan_id") != plan_id:
+            continue
+        try:
+            slot = (str(ctx["role"]), int(ctx["index"]))
+            record = ResultRecord.from_dict(data)
+        except (KeyError, ValueError, TypeError):
+            continue
+        done[slot] = record
+    return done
+
+
 def execute_plan(
     plan: RunPlan,
     results_dir: Path | None = None,
@@ -227,10 +265,19 @@ def execute_plan(
     publisher: ResultPublisher | None = None,
     debug: bool = False,
     plan_id: str | None = None,
+    resume: bool = False,
 ) -> RunPlanAggregate:
-    """Run a plan end to end: warmups, repeats, aggregate, and persist it."""
+    """Run a plan end to end: warmups, repeats, aggregate, and persist it.
+
+    With ``resume=True`` (and the interrupted plan's ``plan_id``), slots that
+    already produced a terminal record are reused instead of re-run, so an
+    interrupted campaign continues where it stopped instead of paying for every
+    repeat again."""
     results_dir = Path(results_dir or DEFAULT_RESULTS_DIR)
+    if resume and not plan_id:
+        raise RunPlanError("resume needs the plan_id of the interrupted plan to resume")
     plan_id = plan_id or new_plan_id()
+    existing = _completed_slots(results_dir, plan_id) if resume else {}
 
     def _run(role: str, index: int) -> ResultRecord:
         context = {
@@ -250,8 +297,24 @@ def execute_plan(
             run_context=context,
         )
 
-    warmup_records = [_run("warmup", i) for i in range(plan.warmup)]
-    measured_records = [_run("measured", i) for i in range(plan.repeat)]
+    resumed = 0
+
+    def _slot(role: str, index: int) -> ResultRecord:
+        nonlocal resumed
+        prior = existing.get((role, index))
+        if prior is not None:
+            resumed += 1
+            return prior
+        return _run(role, index)
+
+    warmup_records = [_slot("warmup", i) for i in range(plan.warmup)]
+    measured_records = [_slot("measured", i) for i in range(plan.repeat)]
+    if resume:
+        total = plan.warmup + plan.repeat
+        logger.info(
+            "plan %s: resumed %d already-completed run(s), ran %d new",
+            plan_id, resumed, total - resumed,
+        )
 
     aggregate = build_aggregate(plan_id, plan, warmup_records, measured_records)
     persist_aggregate(results_dir, aggregate)

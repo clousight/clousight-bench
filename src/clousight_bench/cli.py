@@ -128,7 +128,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         params=params,
     )
 
-    if args.repeat != 1 or args.warmup != 0:
+    if args.repeat != 1 or args.warmup != 0 or args.plan_id or args.resume:
         from clousight_bench.core.runplan import RunPlan, execute_plan
 
         plan = RunPlan(spec, repeat=args.repeat, warmup=args.warmup)
@@ -138,6 +138,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
             enrich=not args.no_enrich,
             preflight=not args.skip_preflight,
             debug=args.debug,
+            plan_id=args.plan_id,
+            resume=args.resume,
         )
         print(aggregate.to_json())
         bad = sum(
@@ -368,6 +370,9 @@ def main(argv: list[str] | None = None) -> int:
                        help="measured repeats to run and aggregate (default: 1)")
     run_p.add_argument("--warmup", type=int, default=0,
                        help="warmup runs to execute first and exclude from statistics")
+    run_p.add_argument("--plan-id", help="reuse a plan id (printed in the aggregate) to resume it")
+    run_p.add_argument("--resume", action="store_true",
+                       help="skip repeats already completed under --plan-id; re-run interrupted/missing ones")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
