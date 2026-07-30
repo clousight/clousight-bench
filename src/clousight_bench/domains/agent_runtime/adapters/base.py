@@ -51,6 +51,25 @@ class ScalePoint:
     p95_ms: float        # 95th-percentile latency observed at this level
 
 
+@dataclass
+class ProvisionResult:
+    """Outcome of standing up a runtime instance (the deploy dimension, T0.1)."""
+
+    runtime_id: str
+    ready_latency_ms: float  # create -> ready (the cold provisioning cost)
+    ready: bool
+    artifact_ref: str = ""   # what was deployed (code package / image ref), for reproducibility
+
+
+@dataclass
+class DeprovisionResult:
+    """Outcome of tearing a runtime instance down (the teardown dimension, T0.2)."""
+
+    teardown_ms: float
+    clean: bool  # True iff nothing was left behind
+    residual: list[str] = field(default_factory=list)  # ids of any leaked/residual resources
+
+
 class CapabilityNotSupported(NotImplementedError):
     """A runtime does not offer a capability a task probes for.
 
@@ -204,3 +223,21 @@ class AgentRuntimeAdapter(ProviderAdapter):
         (T5.2). A real adapter actually drives concurrent load and measures; it
         must surface the platform's OWN behaviour under load, never model it."""
         raise CapabilityNotSupported("probe_scaling")
+
+    # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
+    # An always-on runtime instance is stood up before it can host sessions and
+    # torn down after. Default = CapabilityNotSupported so an adapter opts in; a
+    # real adapter surfaces the platform's OWN CreateRuntime->ready and
+    # Delete->clean behaviour (timed / verified), never fabricates it.
+
+    def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
+        """Stand up a runtime instance from an artifact; time create->ready (T0.1)."""
+        raise CapabilityNotSupported("provision")
+
+    def provision_status(self, runtime_id: str) -> str:
+        """Current lifecycle state of a runtime instance (e.g. 'ready')."""
+        raise CapabilityNotSupported("provision_status")
+
+    def deprovision(self, runtime_id: str) -> DeprovisionResult:
+        """Tear a runtime instance down; report whether teardown was clean (T0.2)."""
+        raise CapabilityNotSupported("deprovision")

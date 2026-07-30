@@ -38,8 +38,13 @@ from clousight_bench.domains.agent_runtime.adapters.transport import (
 class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     """Shared body for managed agent-runtime platforms. Subclasses set metadata."""
 
-    #: Service name used to template the endpoint host (e.g. "agentrun").
+    #: Service used to template the CONTROL-plane host (create/delete runtime),
+    #: e.g. "agentrun" -> agentrun.<region>.aliyuncs.com.
     endpoint_service: str = ""
+    #: Service used to template the DATA-plane host (invoke/session), when it
+    #: differs from the control plane (e.g. "agentrun-data", or AWS's separate
+    #: data-plane service). Empty -> data plane reuses ``endpoint_service``.
+    data_endpoint_service: str = ""
     #: Platform docs surfaced in the not-wired error / remediation.
     DOCS: str = ""
 
@@ -58,7 +63,8 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
         return str(self.target.get("mode", "real")).lower()
 
     def endpoint(self) -> Endpoint | None:
-        """Resolved service endpoint, or None for a provider-less adapter."""
+        """Resolved CONTROL-plane endpoint (create/delete runtime), or None for a
+        provider-less adapter. ``target['endpoint']`` overrides it."""
         if self.provider is None:
             return None
         return resolve_endpoint(
@@ -66,6 +72,19 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             self.target.get("region"),
             self.endpoint_service,
             self.target.get("endpoint"),
+        )
+
+    def data_endpoint(self) -> Endpoint | None:
+        """Resolved DATA-plane endpoint (invoke/session), or None for a
+        provider-less adapter. Falls back to the control-plane service when a
+        cloud does not split the planes; ``target['data_endpoint']`` overrides."""
+        if self.provider is None:
+            return None
+        return resolve_endpoint(
+            self.provider,
+            self.target.get("region"),
+            self.data_endpoint_service or self.endpoint_service,
+            self.target.get("data_endpoint"),
         )
 
     def client_factory(self) -> ClientFactory:
@@ -82,6 +101,14 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def _build_transport(self) -> RuntimeTransport:
         if self.mode == "mock":
             return MockRuntimeTransport.from_target(self.target)
+        # real mode: a wired runtime provider (commercial pack) supplies the live
+        # SDK-backed transport; without one installed, fall back to the honest
+        # not-wired seam that names exactly what is missing.
+        from clousight_bench.core.registry import get_runtime_provider
+
+        plugin = get_runtime_provider(self.provider)
+        if plugin is not None:
+            return plugin.build_transport(self)
         ep = self.endpoint()
         return NotWiredCloudTransport(
             self.name, self.provider, ep.url if ep else None,
@@ -96,11 +123,17 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     # --- lifecycle ----------------------------------------------------------
 
     def is_runnable_instance(self) -> bool:
-        """Mock mode runs the shared simulator regardless of class status; real
-        mode stays gated by ``status`` (skeleton until the SDK calls are wired)."""
+        """Mock mode runs the shared simulator regardless of class status. Real
+        mode is runnable if the class is already wired OR a commercial pack has
+        registered a wired runtime provider for this cloud -- installing the
+        pack, not editing the adapter, is what wires a skeleton cloud."""
         if self.mode == "mock":
             return True
-        return type(self).is_runnable()
+        if type(self).is_runnable():
+            return True
+        from clousight_bench.core.registry import get_runtime_provider
+
+        return get_runtime_provider(self.provider) is not None
 
     def setup(self) -> None:
         transport = self._transport_()
@@ -121,6 +154,9 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             if ep and ep.url:
                 desc["endpoint"] = ep.url
                 desc["endpoint_source"] = ep.source
+            dep = self.data_endpoint()
+            if dep and dep.url and dep.url != (ep.url if ep else None):
+                desc["data_endpoint"] = dep.url
         return desc
 
     def preflight(self, task: Any | None = None) -> Any:
@@ -166,3 +202,12 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
 
     def probe_scaling(self, levels: list[int]) -> Any:
         return self._transport_().probe_scaling(levels)
+
+    def provision(self, spec: dict[str, Any] | None = None) -> Any:
+        return self._transport_().provision(spec)
+
+    def provision_status(self, runtime_id: str) -> str:
+        return self._transport_().provision_status(runtime_id)
+
+    def deprovision(self, runtime_id: str) -> Any:
+        return self._transport_().deprovision(runtime_id)

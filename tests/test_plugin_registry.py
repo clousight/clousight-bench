@@ -3,6 +3,7 @@ import pytest
 
 from clousight_bench.core.errors import AdapterNotRunnableError
 from clousight_bench.core.orchestrator import execute
+from clousight_bench.core.plugin import RuntimeProviderPlugin
 from clousight_bench.core.redaction import redact
 from clousight_bench.core.registry import get_domain, load_domains
 from clousight_bench.core.schema import RunSpec
@@ -57,9 +58,76 @@ def test_adapter_status_distinguishes_reference_from_skeleton():
 
 
 def test_orchestrator_rejects_skeleton_before_preflight(tmp_path):
+    # Default (real) mode: a skeleton cloud is refused up front.
     with pytest.raises(AdapterNotRunnableError, match="aliyun-agentrun.*skeleton"):
         execute(
             RunSpec("agent-runtime", "T1.3", "aliyun-agentrun"),
             results_dir=tmp_path,
             preflight=False,
         )
+
+
+def test_orchestrator_allows_skeleton_cloud_in_mock_mode(tmp_path):
+    # The instance-level gate lets a skeleton cloud run end-to-end against the
+    # simulated runtime (mode: mock) even though its class status is skeleton --
+    # this exercises the full identity/endpoint/permission plumbing without an
+    # account. Real mode stays gated (see the test above).
+    rec = execute(
+        RunSpec("agent-runtime", "T1.3", "aliyun-agentrun", target={"mode": "mock"}),
+        results_dir=tmp_path,
+        preflight=False,
+    )
+    assert rec.status == "completed"
+
+
+def test_runtime_providers_empty_in_open_core():
+    # Open-core ships no wired runtime provider -> the seam is empty, so skeleton
+    # clouds fall back to not-wired in real mode (previous test asserts the gate).
+    from clousight_bench.core.registry import load_runtime_providers
+
+    assert load_runtime_providers() == {}
+
+
+class _FakeTransport:
+    """Minimal live transport a wired provider would return in real mode."""
+
+    mock_base_url = None
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
+    def create_session(self, spec=None):
+        return "wired-session"
+
+    def destroy_session(self, session_id):
+        pass
+
+
+class _FakeAliyunProvider(RuntimeProviderPlugin):
+    provider = "aliyun"
+
+    def build_transport(self, adapter):
+        return _FakeTransport()
+
+
+def test_wired_provider_flips_real_mode_runnable(tmp_path, monkeypatch):
+    # Registering a wired provider (what installing the commercial pack does)
+    # makes a skeleton cloud runnable in real mode WITHOUT editing its adapter,
+    # and its transport is what drives the run.
+    import clousight_bench.core.registry as reg
+
+    monkeypatch.setattr(
+        reg, "get_runtime_provider",
+        lambda provider: _FakeAliyunProvider() if provider == "aliyun" else None,
+    )
+    # Default (real) mode, previously refused as skeleton, now runs on the wired
+    # transport -- completing proves it did NOT fall back to not-wired.
+    rec = execute(
+        RunSpec("agent-runtime", "T1.1", "aliyun-agentrun"),
+        results_dir=tmp_path,
+        preflight=False,
+    )
+    assert rec.status == "completed"

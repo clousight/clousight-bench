@@ -5,7 +5,9 @@ hosting, tool calling, fault recovery, observability, cost attribution) --
 NOT model intelligence. The tool universe is pinned by a fault-injectable
 mock server so the runtime is the only variable.
 
-v1 dimensions (8 hard, precisely reproducible tests):
+v1 dimensions (precisely reproducible tests):
+    T0.1 provisioning (deploy) latency (implemented)
+    T0.2 teardown cleanliness          (implemented)
     T1.1 cold/warm start latency  (implemented)
     T1.2 state persistence        (implemented)
     T1.3 tool-failure recovery    (implemented)
@@ -18,12 +20,17 @@ v1 dimensions (8 hard, precisely reproducible tests):
 from __future__ import annotations
 
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.domains.agent_runtime.adapters.aws_clouds import AwsAgentCoreAdapter
 from clousight_bench.domains.agent_runtime.adapters.cn_clouds import (
     AliyunAgentRunAdapter,
     HuaweiAgentArtsAdapter,
     VolcengineAgentKitAdapter,
 )
 from clousight_bench.domains.agent_runtime.adapters.local_sim import LocalSimAdapter
+from clousight_bench.domains.agent_runtime.tasks.t0_1_provision_latency import ProvisionLatencyTask
+from clousight_bench.domains.agent_runtime.tasks.t0_2_teardown_cleanliness import (
+    TeardownCleanlinessTask,
+)
 from clousight_bench.domains.agent_runtime.tasks.t1_1_startup_latency import StartupLatencyTask
 from clousight_bench.domains.agent_runtime.tasks.t1_2_state_persistence import StatePersistenceTask
 from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
@@ -40,6 +47,8 @@ class AgentRuntimeDomain(DomainPack):
 
     def tasks(self) -> dict[str, type[Task]]:
         return {
+            ProvisionLatencyTask.task_id: ProvisionLatencyTask,
+            TeardownCleanlinessTask.task_id: TeardownCleanlinessTask,
             StartupLatencyTask.task_id: StartupLatencyTask,
             StatePersistenceTask.task_id: StatePersistenceTask,
             FaultRecoveryTask.task_id: FaultRecoveryTask,
@@ -56,4 +65,5 @@ class AgentRuntimeDomain(DomainPack):
             AliyunAgentRunAdapter.name: AliyunAgentRunAdapter,
             HuaweiAgentArtsAdapter.name: HuaweiAgentArtsAdapter,
             VolcengineAgentKitAdapter.name: VolcengineAgentKitAdapter,
+            AwsAgentCoreAdapter.name: AwsAgentCoreAdapter,
         }
