@@ -70,6 +70,9 @@ class RunInfo:
     started_at: str
     finished_at: str
     stages: dict[str, str] = field(default_factory=dict)
+    # Per-stage wall-clock durations in ms, for spotting a slow/hung stage. Only
+    # the stages that were timed appear; a key must be a known stage.
+    stage_timings: dict[str, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name, state in self.stages.items():
@@ -77,6 +80,9 @@ class RunInfo:
                 raise RecordError(f"unknown stage {name!r}")
             if state not in STAGE_STATES:
                 raise RecordError(f"stage {name!r} state must be one of {STAGE_STATES}")
+        for name in self.stage_timings:
+            if name not in STAGES:
+                raise RecordError(f"unknown stage {name!r} in stage_timings")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +90,7 @@ class RunInfo:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "stages": dict(self.stages),
+            "stage_timings": dict(self.stage_timings),
         }
 
     @classmethod
@@ -93,6 +100,7 @@ class RunInfo:
             started_at=str(data["started_at"]),
             finished_at=str(data["finished_at"]),
             stages=dict(data.get("stages", {})),
+            stage_timings=dict(data.get("stage_timings", {})),
         )
 
 
