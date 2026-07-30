@@ -30,11 +30,14 @@ Status legend: ✅ done · 🚧 in progress · 📋 planned · 💤 deferred
 
 ## Later
 
-- 📋 **Plugin & supply-chain hardening (security-relevant)**: plugin API version
-  ranges + conflict detection, JSON Schema for `RunSpec` / `ResultRecord` /
-  workload manifest, a conformance kit for third-party plugins, and workload
-  sandboxing with stricter path/URI validation. Until this lands, do not run
-  untrusted third-party workload packages (see [SECURITY.md](SECURITY.md)).
+- ✅ **Plugin contract hardening (Phase 1D, stability slice)**: plugin API
+  version ranges + conflict detection, JSON Schema for `RunSpec` / `ResultRecord`
+  / workload manifest (validated at VALIDATE / manifest-load / PERSIST), and a
+  `csbench conformance` kit for third-party plugins.
+- 📋 **Supply-chain hardening (security-relevant)**: workload sandboxing with
+  stricter path/URI validation and artifact-path-traversal protection. Until
+  this lands, do not run untrusted third-party workload packages (see
+  [SECURITY.md](SECURITY.md)).
 - 💤 Real-cloud adapters (`aliyun-agentrun`, `huawei-agentarts`,
   `volcengine-agentkit`, `aws-emr`) — skeletons are in-tree; wiring is gated on
   cloud accounts and deployed benchmark targets.
