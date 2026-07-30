@@ -143,6 +143,33 @@ def _terminate_as_interrupt() -> Iterator[None]:
         signal.signal(signal.SIGTERM, previous)
 
 
+@contextmanager
+def _stage_deadline(timeout_s: float | None) -> Iterator[None]:
+    """Raise TimeoutError if the wrapped stages exceed ``timeout_s``, so a hung
+    provision/setup/execute cannot block a pipeline forever. Uses SIGALRM, so it
+    is a no-op off the main thread or where SIGALRM is unavailable (Windows);
+    always covers only the measured stages, never teardown."""
+    if (
+        not timeout_s
+        or timeout_s <= 0
+        or not hasattr(signal, "SIGALRM")
+        or threading.current_thread() is not threading.main_thread()
+    ):
+        yield
+        return
+
+    def _timeout(signum: int, _frame: Any) -> None:
+        raise TimeoutError(f"stage exceeded the {timeout_s:g}s deadline")
+
+    previous = signal.signal(signal.SIGALRM, _timeout)
+    signal.setitimer(signal.ITIMER_REAL, timeout_s)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)  # cancel before teardown runs
+        signal.signal(signal.SIGALRM, previous)
+
+
 def execute(
     spec: RunSpec,
     results_dir: Path | None = None,
@@ -151,6 +178,7 @@ def execute(
     publisher: ResultPublisher | None = None,
     debug: bool = False,
     run_context: Mapping[str, Any] | None = None,
+    timeout_s: float | None = None,
 ) -> ResultRecord:
     """Run one RunSpec through the full lifecycle and persist the result.
 
@@ -264,18 +292,19 @@ def execute(
     interrupted: BaseException | None = None
     with _terminate_as_interrupt():
         try:
-            _st = time.perf_counter()
-            adapter.setup()
-            stages["SETUP"] = "ok"
-            timings["SETUP"] = _ms(_st)
-            _st = time.perf_counter()
-            bundle = task.execute(adapter, spec.params)
-            stages["EXECUTE"] = "ok"
-            timings["EXECUTE"] = _ms(_st)
-            _st = time.perf_counter()
-            bundle = collect(bundle)
-            stages["COLLECT"] = "ok"
-            timings["COLLECT"] = _ms(_st)
+            with _stage_deadline(timeout_s):
+                _st = time.perf_counter()
+                adapter.setup()
+                stages["SETUP"] = "ok"
+                timings["SETUP"] = _ms(_st)
+                _st = time.perf_counter()
+                bundle = task.execute(adapter, spec.params)
+                stages["EXECUTE"] = "ok"
+                timings["EXECUTE"] = _ms(_st)
+                _st = time.perf_counter()
+                bundle = collect(bundle)
+                stages["COLLECT"] = "ok"
+                timings["COLLECT"] = _ms(_st)
         except TaskExecutionError as exc:
             # The task kept its partial evidence; attribute it to whichever stage
             # was running, since setup and collect can raise this too.
