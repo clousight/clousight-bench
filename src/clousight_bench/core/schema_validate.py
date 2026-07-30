@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from functools import lru_cache
+from functools import cache
 from importlib import resources
 from typing import Any
 
@@ -19,13 +19,14 @@ class SchemaValidationError(ValueError):
     """An instance did not match its published JSON Schema."""
 
 
-@lru_cache(maxsize=None)
+@cache
 def load_schema(name: str) -> dict[str, Any]:
     fname = f"{name}.schema.json"
     try:
         text = (
             resources.files("clousight_bench.resources")
-            .joinpath("schemas", fname)
+            .joinpath("schemas")
+            .joinpath(fname)
             .read_text(encoding="utf-8")
         )
     except (FileNotFoundError, ModuleNotFoundError) as exc:
@@ -47,7 +48,7 @@ def validate_against_schema(
     input is still rejected; if no fallback is given, the call is a no-op.
     """
     try:
-        import jsonschema  # type: ignore[import-untyped]
+        import jsonschema
     except ImportError:
         if fallback is not None:
             fallback(instance)
