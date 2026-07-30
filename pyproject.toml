@@ -57,6 +57,9 @@ bigdata-emr = "clousight_bench.domains.bigdata_emr:BigDataEmrDomain"
 [project.entry-points."clousight_bench.enrichers"]
 pricing = "clousight_bench.enrichers.pricing:PricingEnricher"
 
+[project.entry-points."clousight_bench.span_exporters"]
+local = "clousight_bench.core.tracing:LocalFileSpanExporter"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/clousight_bench"]
 

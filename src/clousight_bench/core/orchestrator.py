@@ -84,6 +84,7 @@ from clousight_bench.core.redaction import redact, scrub_identity_text
 from clousight_bench.core.registry import get_domain, load_enrichers
 from clousight_bench.core.schema import RunSpec, new_run_id, utc_now
 from clousight_bench.core.store import ResultStore
+from clousight_bench.core.tracing import build_run_trace, export_trace, new_trace_id
 from clousight_bench.core.validation import validate_run_spec
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,8 @@ def execute(
     """
     results_dir = Path(results_dir or DEFAULT_RESULTS_DIR)
     run_id = new_run_id()
+    trace_id = new_trace_id()
+    root_start_ns = time.time_ns()
     started_at = utc_now()
     stages: dict[str, str] = {}
     timings: dict[str, float] = {}
@@ -222,6 +225,8 @@ def execute(
             enrich=False,
             publisher=publisher,
             debug=debug,
+            trace_id=trace_id,
+            root_start_ns=root_start_ns,
         )
 
     adapter = prepared.adapter
@@ -254,6 +259,8 @@ def execute(
                 enrich=False,
                 publisher=publisher,
                 debug=debug,
+                trace_id=trace_id,
+                root_start_ns=root_start_ns,
             )
         stages["PREFLIGHT"] = "ok"
     else:
@@ -284,6 +291,8 @@ def execute(
             enrich=False,
             publisher=publisher,
             debug=debug,
+            trace_id=trace_id,
+            root_start_ns=root_start_ns,
         )
 
     # SETUP -> EXECUTE -> COLLECT, with TEARDOWN as the mandatory finally boundary.
@@ -365,7 +374,8 @@ def execute(
             run_id, started_at, stages, prepared, "interrupted", None,
             findings, bundle, errors, run_context, timings,
         )
-        _finish(record, results_dir, enrich=False, publisher=publisher, debug=debug)
+        _finish(record, results_dir, enrich=False, publisher=publisher, debug=debug,
+                       trace_id=trace_id, root_start_ns=root_start_ns)
         raise interrupted
 
     # SCORE -- pure; observations already collected survive a scorer failure.
@@ -394,6 +404,8 @@ def execute(
         enrich=enrich,
         publisher=publisher,
         debug=debug,
+        trace_id=trace_id,
+        root_start_ns=root_start_ns,
     )
 
 
@@ -722,7 +734,13 @@ def _finish(
     enrich: bool,
     publisher: ResultPublisher | None,
     debug: bool,
+    trace_id: str | None = None,
+    root_start_ns: int | None = None,
 ) -> ResultRecord:
+    if trace_id is not None:
+        # Link this result to its execution trace before persisting, so a record
+        # points at its spans under <results>/traces/<trace_id>.jsonl.
+        record.extensions.setdefault("core", {})["trace_id"] = trace_id
     if enrich:
         record = _enrich(record, results_dir, debug)
     else:
@@ -738,7 +756,22 @@ def _finish(
     else:
         logger.error("result NOT written to %s; degraded record -> %s", results_dir, path)
     _publish(path, results_dir, publisher, debug)
+    _emit_trace(record, results_dir, trace_id, root_start_ns)
     return record
+
+
+def _emit_trace(
+    record: ResultRecord, results_dir: Path, trace_id: str | None, root_start_ns: int | None
+) -> None:
+    """Build the run's OTel spans and hand them to the registered exporters.
+    Telemetry never breaks a run -- any failure is logged and swallowed."""
+    if trace_id is None or root_start_ns is None:
+        return
+    try:
+        spans = build_run_trace(record, trace_id, root_start_ns, time.time_ns())
+        export_trace(results_dir, spans)
+    except Exception as exc:  # noqa: BLE001 - a trace must never fail a run
+        logger.warning("run %s: trace export failed: %s", record.run.run_id, exc)
 
 
 def _enrich(record: ResultRecord, results_dir: Path, debug: bool) -> ResultRecord:
