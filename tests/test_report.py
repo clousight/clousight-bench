@@ -28,6 +28,28 @@ def test_warning_findings_become_red_flags(tmp_path):
     assert "warning" in report
 
 
+def test_report_surfaces_cost_column_and_partial_flag(tmp_path):
+    # T5.1 emits usage measurements the pricing enricher prices; with only the
+    # open-core seed prices, local's units are uncovered -> a $0 (partial) cell
+    # plus a red flag naming what went unpriced.
+    execute(RunSpec("agent-runtime", "T5.1", "local-sim"), results_dir=tmp_path)
+    report = generate_report(tmp_path)
+    assert "| adapter | status | measurements | cost | benchmark fingerprint | core |" in report
+    assert "(partial)" in report
+    assert "cost is partial" in report
+
+
+def test_report_shows_dash_cost_for_non_usage_task(tmp_path):
+    # T1.3 carries no usage measurements, so the enricher never prices it: the
+    # cost cell stays a dash and no pricing red flag appears.
+    execute(RunSpec("agent-runtime", "T1.3", "local-sim",
+                    target={"recovery": {"mode": "auto-retry"}}), results_dir=tmp_path)
+    report = generate_report(tmp_path)
+    assert "| cost |" in report
+    assert "USD" not in report
+    assert "cost is partial" not in report
+
+
 def test_unreadable_and_non_record_files_are_skipped(tmp_path):
     (tmp_path / "migration-manifest.json").write_text("{}", encoding="utf-8")
     (tmp_path / "junk.json").write_text("not json", encoding="utf-8")
