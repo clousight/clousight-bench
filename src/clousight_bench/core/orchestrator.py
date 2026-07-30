@@ -162,6 +162,10 @@ def execute(
         )
 
     adapter = prepared.adapter
+    # Hand the adapter this run's id (after fingerprints are fixed, so it never
+    # perturbs them) so it can tag the cloud resources it creates for later
+    # cost/billing reconciliation.
+    adapter.run_id = run_id
     bundle = ObservationBundle()
     result: TaskResult | None = None
 

@@ -46,6 +46,10 @@ class ProviderAdapter(ABC):
     name: str = "abstract"
     status: AdapterStatus = "experimental"
     provider: str | None = None
+    # Set by the orchestrator before setup() to this run's run_id, so an adapter
+    # can tag the resources it creates (for cost/billing reconciliation). None
+    # outside a run (construction, mock/tests). Not part of any fingerprint.
+    run_id: str | None = None
 
     def __init__(self, target: dict[str, Any] | None = None) -> None:
         self.target = target or {}
