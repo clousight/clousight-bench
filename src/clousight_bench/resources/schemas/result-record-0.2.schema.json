@@ -7,7 +7,7 @@
     "artifacts", "extensions", "errors", "status"],
   "properties": {
     "schema_version": {"const": "0.2"},
-    "status": {"enum": ["completed", "failed", "invalid", "unsupported"]},
+    "status": {"enum": ["completed", "failed", "invalid", "unsupported", "interrupted"]},
     "run": {"type": "object"},
     "identity": {"type": "object"},
     "environment": {"type": "object"},

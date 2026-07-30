@@ -37,3 +37,18 @@ def test_manifest_good_passes():
         {"name": "w", "version": "0.1.0", "entrypoint": "./run.sh"},
         "workload-manifest",
     )
+
+
+def test_result_schema_status_enum_matches_writer():
+    # The published schema must never drift from the record writer's STATUSES.
+    from clousight_bench.core.record import STATUSES
+
+    schema = load_schema("result-record-0.2")
+    assert set(schema["properties"]["status"]["enum"]) == set(STATUSES)
+
+
+def test_result_schema_version_matches_writer():
+    from clousight_bench.core.record import SCHEMA_VERSION
+
+    schema = load_schema("result-record-0.2")
+    assert schema["properties"]["schema_version"]["const"] == SCHEMA_VERSION

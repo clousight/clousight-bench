@@ -49,6 +49,10 @@ from clousight_bench.core.redaction import (
     scrub_identities,
     scrub_identity_text,
 )
+from clousight_bench.core.schema_validate import (
+    SchemaValidationError,
+    validate_against_schema,
+)
 
 try:  # optional [store] extra
     import duckdb  # noqa: F401
@@ -174,6 +178,10 @@ class ResultStore:
                     sidecar = None
                     payload = self._payload(record, None, "ok")
             path = atomic_write_text(self._record_path(record), _dump(payload))
+        except SchemaValidationError:
+            # A malformed record must fail loudly, not be silently downgraded to
+            # a degraded write. The raw record was already emergency-dumped.
+            raise
         except Exception as exc:  # noqa: BLE001 - losing a result is the worst outcome
             return self._persist_degraded(record, inline_series, written_sidecar, exc)
 
@@ -208,7 +216,31 @@ class ResultStore:
                     f"operator-identifying values at {leaks}"
                 )
         payload["fingerprints"]["record_digest"] = record_digest(payload)
+        self._assert_schema(record, payload)
         return payload
+
+    def _assert_schema(self, record: ResultRecord, payload: dict[str, Any]) -> None:
+        """Refuse to persist a record that fails the published 0.2 schema.
+
+        Hard fail -- but never lose the produced record: dump it raw first so no
+        measurement vanishes because the shape was wrong."""
+        try:
+            validate_against_schema(payload, "result-record-0.2")
+        except SchemaValidationError:
+            name = (
+                f"INVALID-{record.identity.domain}-{record.identity.task_id}"
+                f"-{record.run.run_id}.json"
+            )
+            try:
+                dump_path = _emergency_write_unique(name, _dump(payload))
+                print(
+                    f"clousight-bench: run {record.run.run_id} produced a record that "
+                    f"fails the 0.2 schema; raw record dumped to {dump_path}",
+                    file=sys.stderr,
+                )
+            except Exception:  # noqa: BLE001 - the dump is best-effort
+                pass
+            raise
 
     def _persist_degraded(
         self,
