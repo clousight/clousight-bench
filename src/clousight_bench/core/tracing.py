@@ -81,6 +81,9 @@ class SpanExporter(ABC):
     ships the local file exporter, a commercial pack can add a remote OTLP one."""
 
     name: str = "abstract"
+    # Plugin-API version range this exporter was built against; the registry
+    # refuses to load one whose range excludes the core's PLUGIN_API_VERSION.
+    requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
     def export(self, spans: list[Span], results_dir: Path) -> None: ...
