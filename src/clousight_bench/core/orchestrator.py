@@ -27,9 +27,12 @@ from __future__ import annotations
 
 import logging
 import platform as platform_mod
+import signal
+import threading
 import time
 import traceback
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -113,6 +116,31 @@ class _Prepared:
 def _ms(start: float) -> float:
     """Milliseconds elapsed since a ``time.perf_counter()`` mark, for stage timing."""
     return round((time.perf_counter() - start) * 1000, 3)
+
+
+@contextmanager
+def _terminate_as_interrupt() -> Iterator[None]:
+    """Make SIGTERM raise KeyboardInterrupt, so a ``kill`` is handled exactly like
+    Ctrl-C: teardown runs and an interrupted record is persisted instead of
+    orphaning resources. No-op off the main thread (signal handlers can only be
+    installed there) or where SIGTERM is unavailable, so it is safe to wrap any
+    call site (a worker thread, a run-plan loop, a platform without SIGTERM)."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    def _raise(signum: int, _frame: Any) -> None:
+        raise KeyboardInterrupt(f"terminated by signal {signum}")
+
+    try:
+        previous = signal.signal(signal.SIGTERM, _raise)
+    except (ValueError, OSError, AttributeError):  # not main thread / unsupported
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 def execute(
@@ -231,60 +259,85 @@ def execute(
         )
 
     # SETUP -> EXECUTE -> COLLECT, with TEARDOWN as the mandatory finally boundary.
-    try:
-        _st = time.perf_counter()
-        adapter.setup()
-        stages["SETUP"] = "ok"
-        timings["SETUP"] = _ms(_st)
-        _st = time.perf_counter()
-        bundle = task.execute(adapter, spec.params)
-        stages["EXECUTE"] = "ok"
-        timings["EXECUTE"] = _ms(_st)
-        _st = time.perf_counter()
-        bundle = collect(bundle)
-        stages["COLLECT"] = "ok"
-        timings["COLLECT"] = _ms(_st)
-    except TaskExecutionError as exc:
-        # The task kept its partial evidence; attribute it to whichever stage
-        # was running, since setup and collect can raise this too.
-        stage = _failed_stage(stages)
-        if isinstance(exc.observations, ObservationBundle):
-            bundle = exc.observations
-            if stage == "COLLECT":
-                try:
-                    validate_observation_bundle(bundle)
-                except Exception:  # noqa: BLE001 - invalid partial evidence is unsafe
-                    bundle = ObservationBundle()
-        stages[stage] = "failed"
-        errors.append(
-            _scrubbed(
-                StageError(
-                    stage=stage,
-                    code=exc.code,
-                    type=type(exc).__name__,
-                    message=str(exc),
-                    retryable=exc.retryable,
+    # A SIGINT/SIGTERM in this window must still run teardown and persist an
+    # interrupted record -- never orphan a provisioned resource or lose progress.
+    interrupted: BaseException | None = None
+    with _terminate_as_interrupt():
+        try:
+            _st = time.perf_counter()
+            adapter.setup()
+            stages["SETUP"] = "ok"
+            timings["SETUP"] = _ms(_st)
+            _st = time.perf_counter()
+            bundle = task.execute(adapter, spec.params)
+            stages["EXECUTE"] = "ok"
+            timings["EXECUTE"] = _ms(_st)
+            _st = time.perf_counter()
+            bundle = collect(bundle)
+            stages["COLLECT"] = "ok"
+            timings["COLLECT"] = _ms(_st)
+        except TaskExecutionError as exc:
+            # The task kept its partial evidence; attribute it to whichever stage
+            # was running, since setup and collect can raise this too.
+            stage = _failed_stage(stages)
+            if isinstance(exc.observations, ObservationBundle):
+                bundle = exc.observations
+                if stage == "COLLECT":
+                    try:
+                        validate_observation_bundle(bundle)
+                    except Exception:  # noqa: BLE001 - invalid partial evidence is unsafe
+                        bundle = ObservationBundle()
+            stages[stage] = "failed"
+            errors.append(
+                _scrubbed(
+                    StageError(
+                        stage=stage,
+                        code=exc.code,
+                        type=type(exc).__name__,
+                        message=str(exc),
+                        retryable=exc.retryable,
+                    )
                 )
             )
-        )
-        _log_traceback(results_dir, run_id, debug, exc)
-    except Exception as exc:  # noqa: BLE001 - every failure is a recorded outcome
-        stage = _failed_stage(stages)
-        stages[stage] = "failed"
-        errors.append(_stage_error(stage, exc))
-        _log_traceback(results_dir, run_id, debug, exc)
-        if stage == "COLLECT":
-            bundle = ObservationBundle()
-    finally:
-        _td = time.perf_counter()
-        try:
-            adapter.teardown()
-            stages["TEARDOWN"] = "ok"
-        except Exception as exc:  # noqa: BLE001 - never mask the primary error
-            stages["TEARDOWN"] = "failed"
-            errors.append(_stage_error("TEARDOWN", exc))
             _log_traceback(results_dir, run_id, debug, exc)
-        timings["TEARDOWN"] = _ms(_td)
+        except (KeyboardInterrupt, SystemExit) as exc:
+            # Interrupted mid-flight: record it, keep going to teardown (finally),
+            # then persist the interrupted record below and re-raise so the caller
+            # sees the interruption -- but with resources released and progress saved.
+            stage = _failed_stage(stages)
+            stages[stage] = "failed"
+            errors.append(_stage_error(stage, exc, code="interrupted"))
+            _log_traceback(results_dir, run_id, debug, exc)
+            bundle = ObservationBundle()
+            interrupted = exc
+        except Exception as exc:  # noqa: BLE001 - every failure is a recorded outcome
+            stage = _failed_stage(stages)
+            stages[stage] = "failed"
+            errors.append(_stage_error(stage, exc))
+            _log_traceback(results_dir, run_id, debug, exc)
+            if stage == "COLLECT":
+                bundle = ObservationBundle()
+        finally:
+            _td = time.perf_counter()
+            try:
+                adapter.teardown()
+                stages["TEARDOWN"] = "ok"
+            except Exception as exc:  # noqa: BLE001 - never mask the primary error
+                stages["TEARDOWN"] = "failed"
+                errors.append(_stage_error("TEARDOWN", exc))
+                _log_traceback(results_dir, run_id, debug, exc)
+            timings["TEARDOWN"] = _ms(_td)
+
+    if interrupted is not None:
+        # Teardown has run; persist an interrupted record (no enrich/publish) so
+        # progress and stage state survive, then propagate the interruption.
+        stages.setdefault("SCORE", "skipped")
+        record = _build_record(
+            run_id, started_at, stages, prepared, "interrupted", None,
+            findings, bundle, errors, run_context, timings,
+        )
+        _finish(record, results_dir, enrich=False, publisher=publisher, debug=debug)
+        raise interrupted
 
     # SCORE -- pure; observations already collected survive a scorer failure.
     if stages.get("COLLECT") == "ok":

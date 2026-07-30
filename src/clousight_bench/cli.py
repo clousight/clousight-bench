@@ -413,6 +413,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         print("hint: run `csbench list --verbose` to inspect valid choices", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        # The orchestrator already ran teardown and persisted an interrupted
+        # record; report cleanly instead of dumping a traceback.
+        print("\ninterrupted: teardown ran and progress was saved", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":
