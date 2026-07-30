@@ -137,6 +137,7 @@ def migrate_record(
             "started_at": str(safe.get("started_at", "")),
             "finished_at": str(safe.get("finished_at", "")),
             "stages": {},
+            "stage_timings": {},
         },
         "identity": {
             "domain": str(safe.get("domain", "")),

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import platform as platform_mod
+import time
 import traceback
 from collections.abc import Mapping
 from copy import deepcopy
@@ -109,6 +110,11 @@ class _Prepared:
     errors: list[StageError] = field(default_factory=list)
 
 
+def _ms(start: float) -> float:
+    """Milliseconds elapsed since a ``time.perf_counter()`` mark, for stage timing."""
+    return round((time.perf_counter() - start) * 1000, 3)
+
+
 def execute(
     spec: RunSpec,
     results_dir: Path | None = None,
@@ -130,6 +136,7 @@ def execute(
     run_id = new_run_id()
     started_at = utc_now()
     stages: dict[str, str] = {}
+    timings: dict[str, float] = {}
     errors: list[StageError] = []
 
     # RESOLVE -- raises UserInputError; no record is written.
@@ -151,7 +158,7 @@ def execute(
         errors.extend(prepared.errors)
         record = _build_record(
             run_id, started_at, stages, prepared, "invalid", None, findings,
-            ObservationBundle(), errors, run_context,
+            ObservationBundle(), errors, run_context, timings,
         )
         return _finish(
             record,
@@ -173,7 +180,9 @@ def execute(
     # request could not be measured here, so the record is `invalid` and nothing
     # is ever provisioned.
     if preflight:
+        _pf = time.perf_counter()
         gate_error, gate_finding = _preflight(adapter, task, run_id, results_dir, debug)
+        timings["PREFLIGHT"] = _ms(_pf)
         if gate_error is not None:
             stages["PREFLIGHT"] = "failed"
             errors.append(gate_error)
@@ -211,6 +220,7 @@ def execute(
             ObservationBundle(),
             errors,
             run_context,
+            timings,
         )
         return _finish(
             record,
@@ -222,12 +232,18 @@ def execute(
 
     # SETUP -> EXECUTE -> COLLECT, with TEARDOWN as the mandatory finally boundary.
     try:
+        _st = time.perf_counter()
         adapter.setup()
         stages["SETUP"] = "ok"
+        timings["SETUP"] = _ms(_st)
+        _st = time.perf_counter()
         bundle = task.execute(adapter, spec.params)
         stages["EXECUTE"] = "ok"
+        timings["EXECUTE"] = _ms(_st)
+        _st = time.perf_counter()
         bundle = collect(bundle)
         stages["COLLECT"] = "ok"
+        timings["COLLECT"] = _ms(_st)
     except TaskExecutionError as exc:
         # The task kept its partial evidence; attribute it to whichever stage
         # was running, since setup and collect can raise this too.
@@ -260,6 +276,7 @@ def execute(
         if stage == "COLLECT":
             bundle = ObservationBundle()
     finally:
+        _td = time.perf_counter()
         try:
             adapter.teardown()
             stages["TEARDOWN"] = "ok"
@@ -267,9 +284,11 @@ def execute(
             stages["TEARDOWN"] = "failed"
             errors.append(_stage_error("TEARDOWN", exc))
             _log_traceback(results_dir, run_id, debug, exc)
+        timings["TEARDOWN"] = _ms(_td)
 
     # SCORE -- pure; observations already collected survive a scorer failure.
     if stages.get("COLLECT") == "ok":
+        _sc = time.perf_counter()
         try:
             candidate = task.score(bundle)
             _validate_task_result(candidate)
@@ -279,12 +298,13 @@ def execute(
             stages["SCORE"] = "failed"
             errors.append(_stage_error("SCORE", exc))
             _log_traceback(results_dir, run_id, debug, exc)
+        timings["SCORE"] = _ms(_sc)
     else:
         stages["SCORE"] = "skipped"  # nothing was collected to score
 
     record = _build_record(
         run_id, started_at, stages, prepared, _status_for(errors, result), result,
-        findings, bundle, errors, run_context,
+        findings, bundle, errors, run_context, timings,
     )
     return _finish(
         record,
@@ -575,6 +595,7 @@ def _build_record(
     bundle: ObservationBundle,
     errors: list[StageError],
     run_context: Mapping[str, Any] | None = None,
+    timings: Mapping[str, float] | None = None,
 ) -> ResultRecord:
     all_findings = list(findings) + list(result.findings if result else [])
     core_extension: dict[str, Any] = {}
@@ -592,6 +613,7 @@ def _build_record(
             started_at=started_at,
             finished_at=utc_now(),
             stages=dict(stages),
+            stage_timings=dict(timings or {}),
         ),
         identity=prepared.identity,
         environment=prepared.environment,
