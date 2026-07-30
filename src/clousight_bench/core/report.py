@@ -294,6 +294,75 @@ def _comparability_flags(measured: list[ResultRecord]) -> list[str]:
     return flags
 
 
+def _usd(amount: float) -> str:
+    return f"${amount:.6g} USD"
+
+
+def _cost_summary(records: list[ResultRecord]) -> list[str]:
+    """Total modeled cost across every priced run, with itemized detail.
+
+    Summing money across runs is meaningful (unlike blending performance
+    dimensions): this answers "what did this campaign cost". It counts EVERY
+    execution that carried a pricing extension -- including warmups and every
+    repeat, since each one actually spent -- so it reflects real spend, not the
+    representative per-cell figure in the matrix. It is a modeled reference cost,
+    never a vendor bill."""
+    priced = [
+        r for r in records
+        if isinstance(r.extensions.get("pricing"), dict)
+        and "cost_usd" in r.extensions["pricing"]
+    ]
+    if not priced:
+        return []
+
+    total = 0.0
+    adapter_runs: dict[str, int] = defaultdict(int)
+    adapter_cost: dict[str, float] = defaultdict(float)
+    unit_qty: dict[str, float] = defaultdict(float)
+    unit_cost: dict[str, float] = defaultdict(float)
+    uncovered: set[str] = set()
+    partial_runs = 0
+    for r in priced:
+        pricing = r.extensions["pricing"]
+        total += float(pricing.get("cost_usd") or 0.0)
+        adapter_runs[r.identity.adapter] += 1
+        adapter_cost[r.identity.adapter] += float(pricing.get("cost_usd") or 0.0)
+        for item in pricing.get("breakdown", []):
+            if isinstance(item, dict):
+                unit = str(item.get("unit"))
+                unit_qty[unit] += float(item.get("qty") or 0.0)
+                unit_cost[unit] += float(item.get("subtotal") or 0.0)
+        if pricing.get("uncovered"):
+            partial_runs += 1
+            uncovered.update(str(u) for u in pricing["uncovered"])
+
+    note = f" ({partial_runs} had unpriced usage)" if partial_runs else ""
+    lines = ["## Cost summary", ""]
+    lines.append(
+        f"Modeled reference cost across **{len(priced)}** run(s), including warmups "
+        f"and repeats — total spend, not the per-cell latest above. Not a vendor "
+        f"bill.{note}"
+    )
+    lines.append("")
+    lines.append(f"- **Total: {_usd(round(total, 6))}**")
+    lines.append("")
+    lines.append("| adapter | runs | cost |")
+    lines.append("|---|---|---|")
+    for adapter in sorted(adapter_cost):
+        lines.append(f"| {adapter} | {adapter_runs[adapter]} | {_usd(round(adapter_cost[adapter], 6))} |")
+    lines.append("")
+    if unit_cost:
+        lines.append("| usage unit | qty | cost |")
+        lines.append("|---|---|---|")
+        for unit in sorted(unit_cost):
+            lines.append(f"| {unit} | {_fmt_number(unit_qty[unit])} | {_usd(round(unit_cost[unit], 6))} |")
+        lines.append("")
+    if uncovered:
+        lines.append(f"Unpriced usage seen (excluded from cost): {', '.join(sorted(uncovered))}")
+        lines.append("")
+    return lines
+
+
 def _red_flags(records: dict[tuple[str, str, str], ResultRecord]) -> list[str]:
     flags: list[str] = []
     for (domain, task, adapter), rec in sorted(records.items()):
@@ -384,6 +453,10 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
         lines.append("")
 
     lines.extend(_capability_matrix(latest))
+
+    # Cost summary reads ALL records (every execution spent), not just the latest
+    # per cell -- this is total campaign spend with itemized detail.
+    lines.extend(_cost_summary(records))
 
     lines.extend(_stats_section(measured))
 
