@@ -8,6 +8,7 @@ core never imports a domain by path. Installing a plugin package is enough for
 from __future__ import annotations
 
 from importlib.metadata import entry_points
+from typing import TYPE_CHECKING
 
 from clousight_bench.core.errors import UnknownDomainError, UserInputError
 from clousight_bench.core.plugin import (
@@ -17,10 +18,14 @@ from clousight_bench.core.plugin import (
     RuntimeProviderPlugin,
 )
 
+if TYPE_CHECKING:
+    from clousight_bench.core.tracing import SpanExporter
+
 ENTRY_POINT_GROUP = "clousight_bench.domains"
 ENRICHER_ENTRY_POINT_GROUP = "clousight_bench.enrichers"
 ASSET_RESOLVER_ENTRY_POINT_GROUP = "clousight_bench.asset_resolvers"
 RUNTIME_PROVIDER_ENTRY_POINT_GROUP = "clousight_bench.runtime_providers"
+SPAN_EXPORTER_ENTRY_POINT_GROUP = "clousight_bench.span_exporters"
 
 
 class RegistryError(UserInputError):
@@ -83,6 +88,24 @@ def get_runtime_provider(provider: str | None) -> RuntimeProviderPlugin | None:
     if not provider:
         return None
     return load_runtime_providers().get(provider)
+
+
+def load_span_exporters() -> list[SpanExporter]:
+    """Instantiate every installed execution-trace span exporter, ordered by name.
+
+    Open-core ships the local file exporter (spans land as JSONL under
+    ``<results>/traces/``); a commercial pack can register a remote OTLP exporter
+    through the same entry point without any core change."""
+    from clousight_bench.core.tracing import SpanExporter
+
+    exporters: list[SpanExporter] = []
+    for ep in entry_points(group=SPAN_EXPORTER_ENTRY_POINT_GROUP):
+        cls = ep.load()
+        inst = cls()
+        if not isinstance(inst, SpanExporter):
+            raise RegistryError(f"entry point {ep.name!r} is not a SpanExporter")
+        exporters.append(inst)
+    return sorted(exporters, key=lambda e: e.name)
 
 
 def load_asset_resolvers() -> list[PrivateAssetResolver]:
