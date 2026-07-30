@@ -59,6 +59,25 @@ def validate_run_spec(spec: RunSpec, task: Task) -> dict[str, Any]:
             )
         _require_encodable(field, value)
 
+    # Full JSON-Schema pass on top of the hand-written checks above (which are
+    # the no-jsonschema floor, so no explicit fallback is needed here).
+    from clousight_bench.core.schema_validate import (
+        SchemaValidationError,
+        validate_against_schema,
+    )
+
+    spec_view = {
+        "domain": spec.domain,
+        "task_id": spec.task_id,
+        "platform": spec.platform,
+        "target": dict(spec.target),
+        "params": dict(spec.params),
+    }
+    try:
+        validate_against_schema(spec_view, "runspec")
+    except SchemaValidationError as exc:
+        raise InvalidRunSpecError(f"run spec invalid: {exc}") from exc
+
     try:
         config = task.config(spec.params)
     except Exception as exc:  # noqa: BLE001 - a task rejecting params is user input

@@ -69,9 +69,23 @@ class WorkloadEngine:
         if not manifest_path.exists():
             raise WorkloadError(f"no manifest.yaml in {self.workload_dir}")
         self.manifest: dict[str, Any] = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-        for key in ("name", "version", "entrypoint"):
-            if key not in self.manifest:
-                raise WorkloadError(f"manifest.yaml missing required key {key!r}")
+
+        from clousight_bench.core.schema_validate import (
+            SchemaValidationError,
+            validate_against_schema,
+        )
+
+        def _fallback(m: Any) -> None:
+            for key in ("name", "version", "entrypoint"):
+                if key not in m:
+                    raise WorkloadError(f"manifest.yaml missing required key {key!r}")
+
+        if not isinstance(self.manifest, dict):
+            raise WorkloadError("manifest.yaml must be a mapping")
+        try:
+            validate_against_schema(self.manifest, "workload-manifest", fallback=_fallback)
+        except SchemaValidationError as exc:
+            raise WorkloadError(f"manifest.yaml invalid: {exc}") from exc
 
     @property
     def name(self) -> str:
