@@ -357,6 +357,23 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def _cmd_conformance(args: argparse.Namespace) -> int:
+    from clousight_bench.core.conformance import run_conformance
+
+    results = run_conformance(args.domain, getattr(args, "platform", None))
+    failed = 0
+    for r in results:
+        mark = "✓" if r.ok else "✗"
+        line = f"  {mark} {r.name}"
+        if r.detail and not r.ok:
+            line += f" -- {r.detail}"
+        print(line)
+        failed += 0 if r.ok else 1
+    total = len(results)
+    print(f"\nconformance: {total - failed}/{total} checks passed for {args.domain!r}")
+    return 0 if failed == 0 else 1
+
+
 def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "list": _cmd_list,
@@ -367,6 +384,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "migrate-results": _cmd_migrate,
         "init": _cmd_init,
         "doctor": _cmd_doctor,
+        "conformance": _cmd_conformance,
     }
     return handlers[args.command](args)
 
@@ -451,6 +469,12 @@ def main(argv: list[str] | None = None) -> int:
     doc_p.add_argument("--platform", help="platform name, used to infer provider")
     doc_p.add_argument("--domain", help="domain; with --platform runs the adapter's full preflight")
     doc_p.add_argument("--task", help="task id; check the minimal permissions THIS benchmark needs")
+
+    conf_p = sub.add_parser("conformance",
+                            help="check an installed domain plugin against the contract")
+    conf_p.add_argument("--domain", required=True)
+    conf_p.add_argument("--platform", default=None,
+                        help="also assert this platform's adapter is declared")
 
     args = parser.parse_args(argv)
     try:

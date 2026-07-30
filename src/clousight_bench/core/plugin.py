@@ -170,6 +170,10 @@ class DomainPack(ABC):
 
     domain: str = "abstract"
     description: str = ""
+    # Plugin-API version range this plugin was built against. The registry
+    # refuses to load a plugin whose range does not contain the core's
+    # PLUGIN_API_VERSION. Default = compatible with the current major.
+    requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
     def tasks(self) -> dict[str, type[Task]]:
@@ -191,6 +195,7 @@ class ResultEnricher(ABC):
     """
 
     name: str = "abstract"
+    requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
     def enrich(self, record: ResultRecord) -> ResultRecord:
@@ -207,6 +212,7 @@ class PrivateAssetResolver(ABC):
     """
 
     name: str = "abstract"
+    requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
     def resolve(self, spec: Any, cache_dir: Any | None = None) -> Any:
@@ -230,6 +236,7 @@ class RuntimeProviderPlugin(ABC):
     """
 
     provider: str = "abstract"
+    requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
     def build_transport(self, adapter: Any) -> Any:
