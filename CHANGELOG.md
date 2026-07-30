@@ -8,6 +8,19 @@ Developer-preview reset before the first public release.
 
 ### Added
 
+- Phase 1D plugin & contract hardening (stability slice): plugins declare a
+  `requires_plugin_api` range (`core.versioning`, zero-dependency) and the
+  registry hard-rejects one that excludes this core (`IncompatiblePluginError`)
+  or two plugins that claim the same domain / enricher / provider / exporter /
+  resolver name or the same task_id / platform within a domain
+  (`DuplicatePluginError`) — no more silent last-wins. Authoritative JSON
+  Schemas for RunSpec / workload manifest / ResultRecord ship in the wheel and
+  are validated with the optional `[validate]` extra (`jsonschema`), falling
+  back to the hand-written checks when it is absent; a record that fails the
+  0.2 schema is refused at PERSIST and emergency-dumped raw rather than lost.
+  `csbench conformance --domain <d> [--platform]` checks an installed domain
+  against the contract (both built-in domains pass in CI). Workload sandboxing
+  and path/URI allow-listing remain out of scope for this slice.
 - `agent-runtime`: three more dimensions on the 0.2 contract, for eight total on
   `local-sim` — T1.1 cold/warm start latency, T5.1 cost attribution (emits usage
   measurements the pricing enricher prices), T5.2 elasticity under concurrency.
