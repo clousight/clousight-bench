@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Any
 from urllib import request
 
+from clousight_bench.core.sandbox import resolve_within, validate_asset_uri
+
 BUNDLED = "bundled"
 REMOTE = "remote"
 PRIVATE = "private"
@@ -109,6 +111,7 @@ def resolve_asset(
     base_dir: Path | None = None,
     cache_dir: Path | None = None,
     private_resolver: Any | None = None,
+    allow_hosts: tuple[str, ...] = (),
 ) -> Path:
     """Return a local path to the asset's contents, fetching/verifying as needed.
 
@@ -120,13 +123,14 @@ def resolve_asset(
     if spec.source == BUNDLED:
         if base_dir is None:
             raise AssetError(f"asset {spec.name!r}: bundled source needs base_dir")
-        path = (Path(base_dir) / spec.uri).resolve()
+        path = resolve_within(Path(base_dir), spec.uri)
         if not path.exists():
             raise AssetError(f"asset {spec.name!r}: bundled path not found: {path}")
         _verify(path, spec.sha256, spec.name)
         return path
 
     if spec.source == REMOTE:
+        validate_asset_uri(spec.uri, allow_hosts=allow_hosts)
         cache = Path(cache_dir or DEFAULT_CACHE_DIR)
         cache.mkdir(parents=True, exist_ok=True)
         suffix = Path(spec.uri).suffix

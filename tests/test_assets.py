@@ -65,30 +65,44 @@ def test_bundled_sha_mismatch_raises(tmp_path):
         resolve_asset(spec, base_dir=tmp_path)
 
 
-# --- remote (via file:// so no network) -------------------------------------
+# --- remote (https URI; urlopen monkeypatched so no network) ----------------
 
-def test_remote_downloads_verifies_and_caches(tmp_path):
+def _serve(monkeypatch, payload: dict[str, bytes]):
+    """Make assets.request.urlopen serve bytes for known https URIs, no network."""
+    import io
+
+    from clousight_bench.core import assets as assets_mod
+
+    def _fake_urlopen(url, timeout=60):
+        if url not in payload:
+            raise AssetError(f"unexpected url {url!r}")
+        return io.BytesIO(payload[url])
+
+    monkeypatch.setattr(assets_mod.request, "urlopen", _fake_urlopen)
+
+
+def test_remote_downloads_verifies_and_caches(tmp_path, monkeypatch):
     blob = b"remote-payload-123"
-    src = tmp_path / "src.bin"
-    src.write_bytes(blob)
+    uri = "https://datasets.example.com/src.bin"
+    _serve(monkeypatch, {uri: blob})
     cache = tmp_path / "cache"
-    spec = AssetSpec("r", "remote", uri=src.as_uri(), sha256=_sha(blob),
+    spec = AssetSpec("r", "remote", uri=uri, sha256=_sha(blob),
                      license="CC-BY", version="1")
 
     p1 = resolve_asset(spec, cache_dir=cache)
     assert p1.read_bytes() == blob
     assert p1.parent == cache
 
-    # second call: checksum cache hit -> same path, even if source is gone
-    src.unlink()
+    # second call: checksum cache hit -> same path, even if the source is gone
+    _serve(monkeypatch, {})  # source now unavailable
     p2 = resolve_asset(spec, cache_dir=cache)
     assert p2 == p1
 
 
-def test_remote_sha_mismatch_raises(tmp_path):
-    src = tmp_path / "src.bin"
-    src.write_bytes(b"data")
-    spec = AssetSpec("r", "remote", uri=src.as_uri(), sha256=_sha(b"other"),
+def test_remote_sha_mismatch_raises(tmp_path, monkeypatch):
+    uri = "https://datasets.example.com/src.bin"
+    _serve(monkeypatch, {uri: b"data"})
+    spec = AssetSpec("r", "remote", uri=uri, sha256=_sha(b"other"),
                      license="CC-BY")
     with pytest.raises(AssetError, match="sha256 mismatch"):
         resolve_asset(spec, cache_dir=tmp_path / "c")
