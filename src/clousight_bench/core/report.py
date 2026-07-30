@@ -177,6 +177,22 @@ def _fmt_measurements(measurements: dict[str, Any]) -> str:
     return "<br>".join(parts)
 
 
+def _fmt_cost(rec: ResultRecord) -> str:
+    """Cost from the pricing enricher's ``extensions["pricing"]``, or ``—``.
+
+    Shows the reference cost only for records the enricher actually priced (those
+    with usage measurements); everything else stays ``—``. A ``(partial)`` marker
+    flags a cost computed while some usage went unpriced — the uncovered units are
+    named in the red-flags section. This is a per-cell figure, never summed across
+    dimensions (see the no-blended-score contract)."""
+    pricing = rec.extensions.get("pricing")
+    if not isinstance(pricing, dict) or "cost_usd" not in pricing:
+        return "—"
+    currency = pricing.get("currency", "USD")
+    partial = " (partial)" if pricing.get("uncovered") else ""
+    return f"${pricing['cost_usd']:.6g} {currency}{partial}"
+
+
 def _is_warmup(rec: ResultRecord) -> bool:
     """A warmup repeat is thrown-away evidence: never a representative or a stat."""
     core = rec.extensions.get("core", {})
@@ -311,6 +327,13 @@ def _red_flags(records: dict[tuple[str, str, str], ResultRecord]) -> list[str]:
                     f"{where}: `{finding.get('code', 'unknown')}` "
                     f"({finding['severity']}) — {finding.get('summary', '')}"
                 )
+        pricing = rec.extensions.get("pricing")
+        if isinstance(pricing, dict) and pricing.get("uncovered"):
+            uncovered = ", ".join(str(u) for u in pricing["uncovered"])
+            flags.append(
+                f"{where}: cost is partial — no price for {uncovered}; "
+                "the reported cost excludes these units"
+            )
     return flags
 
 
@@ -347,15 +370,15 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
         lines.append(f"## {domain} · {task}")
         lines.append("")
         lines.append(
-            "| adapter | status | measurements | benchmark fingerprint | core |"
+            "| adapter | status | measurements | cost | benchmark fingerprint | core |"
         )
-        lines.append("|---|---|---|---|---|")
+        lines.append("|---|---|---|---|---|---|")
         for adapter, rec in sorted(adapters.items()):
             mark = _STATUS_MARK.get(rec.status, rec.status)
             short = rec.fingerprints.benchmark.removeprefix("sha256:")[:12]
             lines.append(
                 f"| {adapter} | {mark} {rec.status} | "
-                f"{_fmt_measurements(rec.measurements)} | `{short}` | "
+                f"{_fmt_measurements(rec.measurements)} | {_fmt_cost(rec)} | `{short}` | "
                 f"{rec.identity.core_version} |"
             )
         lines.append("")
