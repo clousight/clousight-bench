@@ -162,6 +162,30 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return _exit_code(record)
 
 
+def _cmd_trace(args: argparse.Namespace) -> int:
+    from clousight_bench.core.traceview import (
+        find_trace,
+        render_list,
+        render_show,
+        trace_summaries,
+    )
+
+    results = Path(args.results)
+    if args.trace_cmd == "list":
+        summaries = trace_summaries(results)
+        if args.status:
+            summaries = [s for s in summaries if s["status"] == args.status]
+        print(render_list(summaries, sort=args.sort))
+        return 0
+
+    spans = find_trace(results, args.id)
+    if spans is None:
+        print(f"error: no trace for {args.id!r} under {results}/traces", file=sys.stderr)
+        return 2
+    print(render_show(spans))
+    return 0
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     from clousight_bench.core.report import generate_report
 
@@ -338,6 +362,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "list": _cmd_list,
         "run": _cmd_run,
         "report": _cmd_report,
+        "trace": _cmd_trace,
         "rollup": _cmd_rollup,
         "migrate-results": _cmd_migrate,
         "init": _cmd_init,
@@ -382,6 +407,17 @@ def main(argv: list[str] | None = None) -> int:
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     rep_p.add_argument("--out", help="write markdown here (default: <results>/comparison.md)")
+
+    trace_p = sub.add_parser("trace", help="inspect the execution traces of runs")
+    trace_sub = trace_p.add_subparsers(dest="trace_cmd", required=True)
+    tl = trace_sub.add_parser("list", help="list traces (one row per run)")
+    tl.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
+    tl.add_argument("--sort", choices=["started", "duration"], default="started",
+                    help="order by start (default) or total duration")
+    tl.add_argument("--status", help="only traces with this run status")
+    ts = trace_sub.add_parser("show", help="render one run's trace as a stage tree")
+    ts.add_argument("id", help="a run_id or trace_id")
+    ts.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
 
     roll_p = sub.add_parser("rollup", help="downsample a run's series.parquet (needs the [store] extra)")
     roll_p.add_argument("run_dir", help="directory containing series.parquet")
