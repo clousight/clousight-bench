@@ -140,6 +140,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             debug=args.debug,
             plan_id=args.plan_id,
             resume=args.resume,
+            timeout_s=args.timeout,
         )
         print(aggregate.to_json())
         bad = sum(
@@ -155,6 +156,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         enrich=not args.no_enrich,
         preflight=not args.skip_preflight,
         debug=args.debug,
+        timeout_s=args.timeout,
     )
     print(record.to_json())
     return _exit_code(record)
@@ -373,6 +375,9 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--plan-id", help="reuse a plan id (printed in the aggregate) to resume it")
     run_p.add_argument("--resume", action="store_true",
                        help="skip repeats already completed under --plan-id; re-run interrupted/missing ones")
+    run_p.add_argument("--timeout", type=float, default=None,
+                       help="per-run deadline in seconds for setup+execute+collect "
+                            "(guards against a hung stage; teardown still runs)")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
