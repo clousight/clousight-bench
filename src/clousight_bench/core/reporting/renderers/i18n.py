@@ -16,6 +16,8 @@ UI_STRINGS = {
     "Timeout & cancellation": "超时与取消",
     "Metrics & logs": "指标与日志", "Span propagation": "跨度传播",
     "Export latency": "导出延迟",
+    "Idle / scale-to-zero": "空闲 / 缩容到零", "Concurrency ceiling": "并发上限",
+    "Tenant isolation": "租户隔离",
     "Cost (list / discount / net)": "成本(原价 / 折扣 / 净价)", "Elasticity": "弹性伸缩",
     "Fault recovery": "故障恢复", "State persistence": "状态持久化",
     # chrome
@@ -61,6 +63,10 @@ METRIC_LABELS = {
     "orphan_spans": "孤儿 Span", "root_count": "根 Span 数",
     "export_latency_ms": "导出延迟(ms)", "dropped_ratio": "丢弃率",
     "mcp": "MCP", "openapi": "OpenAPI", "native": "原生", "supported_count": "支持数",
+    "scales_to_zero": "缩容到零", "idle_cost_per_hour": "空闲成本(USD/时)",
+    "max_in_flight": "最大在途", "hard_limit": "硬限制",
+    "isolation_score": "隔离评分", "tenant_isolated": "租户隔离",
+    "network_egress_controlled": "出网管控", "filesystem_isolated": "文件系统隔离",
 }
 
 

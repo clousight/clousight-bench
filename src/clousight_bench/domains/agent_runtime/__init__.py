@@ -24,6 +24,9 @@ v1 dimensions (precisely reproducible tests):
     T4.5 export latency           (implemented: emit->visible + drop ratio)
     T5.1 cost attribution         (implemented: usage -> pricing enricher)
     T5.2 elasticity               (implemented: scaling knee under concurrency)
+    T5.3 idle / scale-to-zero cost(implemented)
+    T5.4 concurrency ceiling      (implemented: admitted max in-flight)
+    T6.1 tenant isolation         (implemented: tenant / egress / filesystem sandbox)
 """
 from __future__ import annotations
 
@@ -55,6 +58,11 @@ from clousight_bench.domains.agent_runtime.tasks.t4_4_span_propagation import Sp
 from clousight_bench.domains.agent_runtime.tasks.t4_5_export_latency import ExportLatencyTask
 from clousight_bench.domains.agent_runtime.tasks.t5_1_cost_attribution import CostAttributionTask
 from clousight_bench.domains.agent_runtime.tasks.t5_2_elasticity import ElasticityTask
+from clousight_bench.domains.agent_runtime.tasks.t5_3_idle_cost import IdleCostTask
+from clousight_bench.domains.agent_runtime.tasks.t5_4_concurrency_ceiling import (
+    ConcurrencyCeilingTask,
+)
+from clousight_bench.domains.agent_runtime.tasks.t6_1_isolation import IsolationTask
 
 
 class AgentRuntimeDomain(DomainPack):
@@ -81,6 +89,9 @@ class AgentRuntimeDomain(DomainPack):
             ExportLatencyTask.task_id: ExportLatencyTask,
             CostAttributionTask.task_id: CostAttributionTask,
             ElasticityTask.task_id: ElasticityTask,
+            IdleCostTask.task_id: IdleCostTask,
+            ConcurrencyCeilingTask.task_id: ConcurrencyCeilingTask,
+            IsolationTask.task_id: IsolationTask,
         }
 
     def adapters(self) -> dict[str, type[ProviderAdapter]]:

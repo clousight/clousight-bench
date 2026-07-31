@@ -32,9 +32,12 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     Attempt,
     CancellationResult,
     CapabilityNotSupported,
+    CeilingResult,
     DeprovisionResult,
     ExportLatencyResult,
+    IdleCostResult,
     InvocationTrace,
+    IsolationResult,
     LoadResult,
     PropagationResult,
     ProvisionResult,
@@ -113,6 +116,15 @@ class RuntimeTransport(ABC):
 
     def probe_export_latency(self) -> ExportLatencyResult:
         raise CapabilityNotSupported("probe_export_latency")
+
+    def probe_idle_cost(self) -> IdleCostResult:
+        raise CapabilityNotSupported("probe_idle_cost")
+
+    def probe_isolation(self) -> IsolationResult:
+        raise CapabilityNotSupported("probe_isolation")
+
+    def probe_concurrency_ceiling(self) -> CeilingResult:
+        raise CapabilityNotSupported("probe_concurrency_ceiling")
 
     # Provisioning lifecycle (T0.1 / T0.2). Optional -> default not supported.
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -218,6 +230,20 @@ class MockRuntimeTransport(RuntimeTransport):
         export = cfg.get("export", {})
         self.export_latency_ms: float = float(export.get("latency_ms", 0))
         self.export_dropped_ratio: float = float(export.get("dropped_ratio", 0.0))
+        # T5.3 idle cost: scales to zero -> no idle bill. Default: scales to zero.
+        idle = cfg.get("idle", {})
+        self.idle_cost_per_hour: float = float(idle.get("cost_per_hour", 0.0))
+        self.idle_scales_to_zero: bool = bool(
+            idle.get("scales_to_zero", self.idle_cost_per_hour <= 0))
+        # T6.1 isolation: tenant / network-egress / filesystem. Default: all on.
+        isolation = cfg.get("isolation", {})
+        self.iso_tenant: bool = bool(isolation.get("tenant_isolated", True))
+        self.iso_egress: bool = bool(isolation.get("network_egress_controlled", True))
+        self.iso_fs: bool = bool(isolation.get("filesystem_isolated", True))
+        # T5.4 concurrency ceiling. Default: mirror the scaling limit as a hard cap.
+        ceiling = cfg.get("ceiling", {})
+        self.ceiling_max: int = int(ceiling.get("max_in_flight", self.concurrency_limit))
+        self.ceiling_hard: bool = bool(ceiling.get("hard_limit", True))
         self._session_seq = 0
         self._runtime_seq = 0
         self._mock_server: ThreadingHTTPServer | None = None
@@ -446,6 +472,28 @@ class MockRuntimeTransport(RuntimeTransport):
             dropped_ratio=round(self.export_dropped_ratio, 4),
         )
 
+    def probe_idle_cost(self) -> IdleCostResult:
+        """Report the configured idle / scale-to-zero cost (deterministic)."""
+        return IdleCostResult(
+            scales_to_zero=self.idle_scales_to_zero,
+            idle_cost_per_hour=round(self.idle_cost_per_hour, 9),
+        )
+
+    def probe_isolation(self) -> IsolationResult:
+        """Report the configured tenant / network / filesystem isolation."""
+        return IsolationResult(
+            tenant_isolated=self.iso_tenant,
+            network_egress_controlled=self.iso_egress,
+            filesystem_isolated=self.iso_fs,
+        )
+
+    def probe_concurrency_ceiling(self) -> CeilingResult:
+        """Report the configured concurrency ceiling (deterministic)."""
+        return CeilingResult(
+            max_in_flight=self.ceiling_max,
+            hard_limit=self.ceiling_hard,
+        )
+
     # --- Provisioning (configurable, deterministic) -------------------------
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -560,6 +608,15 @@ class NotWiredCloudTransport(RuntimeTransport):
 
     def probe_export_latency(self) -> ExportLatencyResult:
         raise self._not_wired("probe_export_latency")
+
+    def probe_idle_cost(self) -> IdleCostResult:
+        raise self._not_wired("probe_idle_cost")
+
+    def probe_isolation(self) -> IsolationResult:
+        raise self._not_wired("probe_isolation")
+
+    def probe_concurrency_ceiling(self) -> CeilingResult:
+        raise self._not_wired("probe_concurrency_ceiling")
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
         raise self._not_wired("provision")

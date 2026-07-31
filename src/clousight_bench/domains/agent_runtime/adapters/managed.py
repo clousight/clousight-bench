@@ -231,6 +231,15 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_export_latency(self) -> Any:
         return self._transport_().probe_export_latency()
 
+    def probe_idle_cost(self) -> Any:
+        return self._transport_().probe_idle_cost()
+
+    def probe_isolation(self) -> Any:
+        return self._transport_().probe_isolation()
+
+    def probe_concurrency_ceiling(self) -> Any:
+        return self._transport_().probe_concurrency_ceiling()
+
     def provision(self, spec: dict[str, Any] | None = None) -> Any:
         return self._transport_().provision(spec)
 

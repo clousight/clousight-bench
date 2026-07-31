@@ -43,11 +43,18 @@ _AGENT_RUNTIME: list[_PanelSpec] = [
     ("Cost", "cost", "Cost (list / discount / net)", ["T5.1"],
      ["invocations", "vcpu_hours", "list_cost_usd", "discount_usd", "cost_usd"],
      "grouped_bar"),
+    ("Cost", "idle_cost", "Idle / scale-to-zero", ["T5.3"],
+     ["scales_to_zero", "idle_cost_per_hour"], ""),
     ("Capability", "elasticity", "Elasticity", ["T5.2"],
      ["scales_cleanly", "concurrency_knee", "success_rate_at_peak", "p95_ms_at_peak"],
      "bar"),
     ("Capability", "tools", "Tool registration", ["T2.1"],
      ["mcp", "openapi", "native", "supported_count"], ""),
+    ("Capability", "ceiling", "Concurrency ceiling", ["T5.4"],
+     ["max_in_flight", "hard_limit"], ""),
+    ("Capability", "isolation", "Tenant isolation", ["T6.1"],
+     ["isolation_score", "tenant_isolated", "network_egress_controlled",
+      "filesystem_isolated"], ""),
 ]
 
 _COST_KEYS = ("list_cost_usd", "discount_usd", "cost_usd")

@@ -129,6 +129,31 @@ class ExportLatencyResult:
 
 
 @dataclass
+class IdleCostResult:
+    """Cost while warm-but-idle and whether the runtime scales to zero (T5.3)."""
+
+    scales_to_zero: bool       # whether an idle runtime bills nothing
+    idle_cost_per_hour: float  # cost per hour of a warm-but-idle instance
+
+
+@dataclass
+class IsolationResult:
+    """Tenant isolation / sandbox strength (the security dimension, T6.1)."""
+
+    tenant_isolated: bool             # workloads of different tenants are isolated
+    network_egress_controlled: bool   # outbound network is restricted by default
+    filesystem_isolated: bool         # the workload filesystem is private/ephemeral
+
+
+@dataclass
+class CeilingResult:
+    """The concurrency ceiling: max in-flight the runtime admits (T5.4)."""
+
+    max_in_flight: int  # highest concurrent invocations admitted
+    hard_limit: bool    # whether the ceiling is a hard cap (vs soft/burstable)
+
+
+@dataclass
 class ProvisionResult:
     """Outcome of standing up a runtime instance (the deploy dimension, T0.1)."""
 
@@ -342,6 +367,21 @@ class AgentRuntimeAdapter(ProviderAdapter):
         """Report telemetry export latency and drop ratio (T4.5): how fast spans
         land in the backend and whether any are lost."""
         raise CapabilityNotSupported("probe_export_latency")
+
+    def probe_idle_cost(self) -> IdleCostResult:
+        """Report idle / scale-to-zero cost (T5.3): whether a warm-but-idle
+        instance bills, and how much per hour."""
+        raise CapabilityNotSupported("probe_idle_cost")
+
+    def probe_isolation(self) -> IsolationResult:
+        """Report tenant isolation / sandbox strength (T6.1): tenant, network
+        egress, and filesystem isolation."""
+        raise CapabilityNotSupported("probe_isolation")
+
+    def probe_concurrency_ceiling(self) -> CeilingResult:
+        """Report the concurrency ceiling (T5.4): max in-flight admitted and
+        whether it is a hard cap."""
+        raise CapabilityNotSupported("probe_concurrency_ceiling")
 
     # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
     # An always-on runtime instance is stood up before it can host sessions and
