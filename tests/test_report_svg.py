@@ -31,3 +31,7 @@ def test_line_svg_has_points_and_hooks():
 def test_charts_js_is_a_small_inline_script():
     assert "addEventListener" in CHART_JS and "tip" in CHART_JS
     assert "http" not in CHART_JS
+
+
+def test_charts_js_has_tab_switch():
+    assert "data-tab" in CHART_JS and "tabpanel" in CHART_JS
