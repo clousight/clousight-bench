@@ -33,12 +33,15 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     CancellationResult,
     CapabilityNotSupported,
     DeprovisionResult,
+    ExportLatencyResult,
     InvocationTrace,
     LoadResult,
+    PropagationResult,
     ProvisionResult,
     RateLimitResult,
     RetentionResult,
     ScalePoint,
+    SignalsResult,
     SoakResult,
     ToolCall,
 )
@@ -101,6 +104,15 @@ class RuntimeTransport(ABC):
 
     def probe_cancellation(self) -> CancellationResult:
         raise CapabilityNotSupported("probe_cancellation")
+
+    def probe_signals(self) -> SignalsResult:
+        raise CapabilityNotSupported("probe_signals")
+
+    def probe_span_propagation(self) -> PropagationResult:
+        raise CapabilityNotSupported("probe_span_propagation")
+
+    def probe_export_latency(self) -> ExportLatencyResult:
+        raise CapabilityNotSupported("probe_export_latency")
 
     # Provisioning lifecycle (T0.1 / T0.2). Optional -> default not supported.
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -188,6 +200,24 @@ class MockRuntimeTransport(RuntimeTransport):
         self.cancel_honored: bool = bool(cancellation.get("honors_cancel", True))
         self.cancel_teardown: bool = bool(cancellation.get("teardown_on_cancel", True))
         self.cancel_residual: list[str] = list(cancellation.get("residual_on_cancel", []))
+        # T4.3 signals: metrics & log completeness beyond traces. Default: complete.
+        signals = cfg.get("signals", {})
+        self.sig_metrics_expected: int = int(signals.get("metrics_expected", 6))
+        self.sig_metrics_present: int = int(
+            signals.get("metrics_present", self.sig_metrics_expected))
+        self.sig_logs_expected: int = int(signals.get("logs_expected", 4))
+        self.sig_logs_present: int = int(
+            signals.get("logs_present", self.sig_logs_expected))
+        self.sig_structured: bool = bool(signals.get("structured_logs", True))
+        # T4.4 span propagation: orphaned spans + root count (clean = 0 / 1).
+        propagation = cfg.get("span_propagation", {})
+        self.prop_spans: int = int(propagation.get("spans", 8))
+        self.prop_orphans: int = int(propagation.get("orphan_spans", 0))
+        self.prop_roots: int = int(propagation.get("root_count", 1))
+        # T4.5 export: emit->visible latency and drop ratio. Default: fast, lossless.
+        export = cfg.get("export", {})
+        self.export_latency_ms: float = float(export.get("latency_ms", 0))
+        self.export_dropped_ratio: float = float(export.get("dropped_ratio", 0.0))
         self._session_seq = 0
         self._runtime_seq = 0
         self._mock_server: ThreadingHTTPServer | None = None
@@ -391,6 +421,31 @@ class MockRuntimeTransport(RuntimeTransport):
             residual=list(self.cancel_residual),
         )
 
+    def probe_signals(self) -> SignalsResult:
+        """Report the configured metrics & log completeness (deterministic)."""
+        return SignalsResult(
+            metrics_present=self.sig_metrics_present,
+            metrics_expected=self.sig_metrics_expected,
+            logs_present=self.sig_logs_present,
+            logs_expected=self.sig_logs_expected,
+            structured_logs=self.sig_structured,
+        )
+
+    def probe_span_propagation(self) -> PropagationResult:
+        """Report the configured trace parent/child correctness (deterministic)."""
+        return PropagationResult(
+            spans=self.prop_spans,
+            orphan_spans=self.prop_orphans,
+            root_count=self.prop_roots,
+        )
+
+    def probe_export_latency(self) -> ExportLatencyResult:
+        """Report the configured telemetry export latency + drop ratio."""
+        return ExportLatencyResult(
+            export_latency_ms=round(self.export_latency_ms, 3),
+            dropped_ratio=round(self.export_dropped_ratio, 4),
+        )
+
     # --- Provisioning (configurable, deterministic) -------------------------
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -496,6 +551,15 @@ class NotWiredCloudTransport(RuntimeTransport):
 
     def probe_cancellation(self) -> CancellationResult:
         raise self._not_wired("probe_cancellation")
+
+    def probe_signals(self) -> SignalsResult:
+        raise self._not_wired("probe_signals")
+
+    def probe_span_propagation(self) -> PropagationResult:
+        raise self._not_wired("probe_span_propagation")
+
+    def probe_export_latency(self) -> ExportLatencyResult:
+        raise self._not_wired("probe_export_latency")
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
         raise self._not_wired("provision")

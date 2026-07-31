@@ -222,6 +222,15 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_cancellation(self) -> Any:
         return self._transport_().probe_cancellation()
 
+    def probe_signals(self) -> Any:
+        return self._transport_().probe_signals()
+
+    def probe_span_propagation(self) -> Any:
+        return self._transport_().probe_span_propagation()
+
+    def probe_export_latency(self) -> Any:
+        return self._transport_().probe_export_latency()
+
     def provision(self, spec: dict[str, Any] | None = None) -> Any:
         return self._transport_().provision(spec)
 

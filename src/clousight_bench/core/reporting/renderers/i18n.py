@@ -14,6 +14,8 @@ UI_STRINGS = {
     "Tool registration": "工具注册",
     "Soak availability": "长稳可用性", "Rate limiting": "限流",
     "Timeout & cancellation": "超时与取消",
+    "Metrics & logs": "指标与日志", "Span propagation": "跨度传播",
+    "Export latency": "导出延迟",
     "Cost (list / discount / net)": "成本(原价 / 折扣 / 净价)", "Elasticity": "弹性伸缩",
     "Fault recovery": "故障恢复", "State persistence": "状态持久化",
     # chrome
@@ -54,6 +56,10 @@ METRIC_LABELS = {
     "teardown_on_cancel": "取消时清理", "residual_on_cancel": "取消残留数",
     "span_completeness": "Span 完整度", "spans_present": "实到 Span",
     "spans_expected": "应到 Span", "otel_valid": "OTel 合法", "span_count": "Span 数",
+    "metrics_completeness": "指标完整度", "logs_completeness": "日志完整度",
+    "structured_logs": "结构化日志", "parent_correctness": "父子正确率",
+    "orphan_spans": "孤儿 Span", "root_count": "根 Span 数",
+    "export_latency_ms": "导出延迟(ms)", "dropped_ratio": "丢弃率",
     "mcp": "MCP", "openapi": "OpenAPI", "native": "原生", "supported_count": "支持数",
 }
 

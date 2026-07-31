@@ -101,6 +101,34 @@ class CancellationResult:
 
 
 @dataclass
+class SignalsResult:
+    """Metrics & log completeness beyond traces (the observability dimension, T4.3)."""
+
+    metrics_present: int   # distinct metric signals actually exported
+    metrics_expected: int  # metric signals a complete runtime should export
+    logs_present: int      # log records actually exported
+    logs_expected: int     # log records a complete runtime should export
+    structured_logs: bool  # whether logs are structured (queryable), not free text
+
+
+@dataclass
+class PropagationResult:
+    """Trace parent/child correctness across tool calls (T4.4)."""
+
+    spans: int              # total spans in the trace
+    orphan_spans: int       # spans whose parent id points nowhere (broken context)
+    root_count: int         # number of root spans (a clean trace has exactly one)
+
+
+@dataclass
+class ExportLatencyResult:
+    """How fast telemetry lands and whether any is dropped (T4.5)."""
+
+    export_latency_ms: float  # emit -> visible-in-backend latency
+    dropped_ratio: float      # 0.0..1.0 of spans/metrics lost on export
+
+
+@dataclass
 class ProvisionResult:
     """Outcome of standing up a runtime instance (the deploy dimension, T0.1)."""
 
@@ -299,6 +327,21 @@ class AgentRuntimeAdapter(ProviderAdapter):
         """Report whether a timed-out / cancelled request is honored and still
         torn down cleanly, leaving nothing orphaned (T1.8)."""
         raise CapabilityNotSupported("probe_cancellation")
+
+    def probe_signals(self) -> SignalsResult:
+        """Report metrics & log completeness beyond traces (T4.3): how many of
+        the expected metric/log signals the runtime actually exports."""
+        raise CapabilityNotSupported("probe_signals")
+
+    def probe_span_propagation(self) -> PropagationResult:
+        """Report trace parent/child correctness (T4.4): orphaned spans and the
+        root-span count, i.e. whether context propagates across tool calls."""
+        raise CapabilityNotSupported("probe_span_propagation")
+
+    def probe_export_latency(self) -> ExportLatencyResult:
+        """Report telemetry export latency and drop ratio (T4.5): how fast spans
+        land in the backend and whether any are lost."""
+        raise CapabilityNotSupported("probe_export_latency")
 
     # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
     # An always-on runtime instance is stood up before it can host sessions and
