@@ -126,6 +126,13 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 可选时序存储（Parquet + DuckDB）：`pip install clousight-bench[store]`
 
+查询与分析（跨云/跨产品统一）——把结果展平成 `records` / `measurements` / `findings` / `series` 四张视图跑 SQL，或导出给 notebook/BI（详见 [docs/querying.md](docs/querying.md)）：
+
+```bash
+csbench query "SELECT platform, avg(value_num) FROM measurements WHERE name='cold_start_ms' GROUP BY platform"
+csbench export measurements --out m.parquet
+```
+
 测评集分发（内置 / 公开远程下载校验 / 私有授权）见 `examples/asset-manifests/`（`assets:` 三层模板 + 公开数据集样例）。
 
 Expected: the default (auto-retry) run ends `recovery_mode=auto-retry, final_state=completed`; the fail-fast run ends `recovery_mode=fail-fast, final_state=aborted`. The mock tool universe is pinned and fault injection is counter-based (the Nth call fails, no randomness), so the run is replayable by construction.
