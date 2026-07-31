@@ -450,8 +450,11 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
         for adapter, rec in sorted(adapters.items()):
             mark = _STATUS_MARK.get(rec.status, rec.status)
             short = rec.fingerprints.benchmark.removeprefix("sha256:")[:12]
+            exec_mark = ""
+            if rec.environment.execution != "unknown":
+                exec_mark = f" ({rec.environment.execution})"
             lines.append(
-                f"| {adapter} | {mark} {rec.status} | "
+                f"| {adapter}{exec_mark} | {mark} {rec.status} | "
                 f"{_fmt_measurements(rec.measurements)} | {_fmt_cost(rec)} | `{short}` | "
                 f"{rec.identity.core_version} |"
             )

@@ -82,3 +82,22 @@ def test_records_expose_list_and_discount(tmp_path):
     (p / "T5.1-rc.json").write_text(json.dumps(payload), encoding="utf-8")
     row = Analytics(tmp_path).flatten("records")[0]
     assert row["cost_usd"] == 0.7 and row["list_cost_usd"] == 1.0 and row["discount_usd"] == 0.3
+
+
+def test_records_expose_execution(tmp_path):
+    payload = {
+        "schema_version": "0.2",
+        "run": {"run_id": "re", "stages": {}},
+        "identity": {"domain": "agent-runtime", "task_id": "T1.1", "adapter": "aliyun-agentrun",
+                     "task_revision": "1", "scorer_revision": "1"},
+        "environment": {"region": "cn-hangzhou", "mode": "cloud", "execution": "simulated"},
+        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b",
+                         "implementation": "sha256:c"},
+        "measurements": {}, "findings": [], "observations": {}, "series": {},
+        "artifacts": [], "extensions": {}, "errors": [], "status": "completed",
+    }
+    payload["fingerprints"]["record_digest"] = record_digest(payload)
+    p = tmp_path / "agent-runtime" / "aliyun-agentrun"
+    p.mkdir(parents=True)
+    (p / "T1.1-re.json").write_text(json.dumps(payload), encoding="utf-8")
+    assert Analytics(tmp_path).flatten("records")[0]["execution"] == "simulated"
