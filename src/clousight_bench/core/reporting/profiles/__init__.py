@@ -6,22 +6,31 @@ from typing import Any
 
 from clousight_bench.core.reporting.bundle import Cell, ChartSpec, Panel, _metric
 
-# A panel spec: key, title, task_ids, metric keys, chart kind ("" = table only).
-_PanelSpec = tuple[str, str, list[str], list[str], str]
+# A panel spec: tab, key, title, task_ids, metric keys, chart kind ("" = table only).
+_PanelSpec = tuple[str, str, str, list[str], list[str], str]
 
 _AGENT_RUNTIME: list[_PanelSpec] = [
-    ("latency", "Startup latency", ["T0.1", "T1.1"],
-     ["provision_ready_ms", "cold_start_ms", "warm_start_p50_ms", "warm_start_p95_ms"],
+    ("Performance", "provisioning", "Provisioning lifecycle", ["T0.1", "T0.2"],
+     ["provision_ready_ms", "teardown_ms", "residual_count"], "grouped_bar"),
+    ("Performance", "latency", "Startup latency", ["T1.1"],
+     ["cold_start_ms", "warm_start_p50_ms", "warm_start_p95_ms", "cold_warm_ratio"],
      "grouped_bar"),
-    ("cost", "Cost (list / discount / net)", ["T5.1"],
-     ["list_cost_usd", "discount_usd", "cost_usd"], "grouped_bar"),
-    ("elasticity", "Elasticity", ["T5.2"],
-     ["concurrency_knee", "success_rate_at_peak", "p95_ms_at_peak"], "bar"),
-    ("recovery", "Fault recovery", ["T1.3"],
-     ["recovery_mode", "total_attempts", "time_to_recovery_ms"], ""),
-    ("state", "State persistence", ["T1.2"], ["persistence_mode", "state_persisted"], ""),
-    ("observability", "Observability", ["T4.1", "T4.2"],
-     ["span_completeness", "otel_valid"], "bar"),
+    ("Reliability", "state", "State persistence", ["T1.2"],
+     ["state_persisted", "persistence_mode"], ""),
+    ("Reliability", "recovery", "Fault recovery", ["T1.3"],
+     ["recovery_mode", "total_attempts", "time_to_recovery_ms", "fault_hits",
+      "budgeted_success"], ""),
+    ("Observability", "trace", "Tracing", ["T4.1", "T4.2"],
+     ["span_completeness", "spans_present", "spans_expected", "otel_valid",
+      "span_count"], "bar"),
+    ("Cost", "cost", "Cost (list / discount / net)", ["T5.1"],
+     ["invocations", "vcpu_hours", "list_cost_usd", "discount_usd", "cost_usd"],
+     "grouped_bar"),
+    ("Capability", "elasticity", "Elasticity", ["T5.2"],
+     ["scales_cleanly", "concurrency_knee", "success_rate_at_peak", "p95_ms_at_peak"],
+     "bar"),
+    ("Capability", "tools", "Tool registration", ["T2.1"],
+     ["mcp", "openapi", "native", "supported_count"], ""),
 ]
 
 _COST_KEYS = ("list_cost_usd", "discount_usd", "cost_usd")
@@ -50,7 +59,7 @@ class Profile:
 
     def build_panels(self, latest: dict) -> list[Panel]:
         panels: list[Panel] = []
-        for key, title, task_ids, metric_keys, chart_kind in self.specs:
+        for tab, key, title, task_ids, metric_keys, chart_kind in self.specs:
             by_exec: dict[str, list[Cell]] = {}
             for (task, platform, execu), rec in latest.items():
                 if task not in task_ids:
@@ -62,7 +71,7 @@ class Profile:
             for _execu, cells in by_exec.items():
                 chart = _chart(chart_kind, metric_keys, cells)
                 panels.append(Panel(key, title, "B", task_ids, cells, chart,
-                                    comparison=len(cells) > 1))
+                                    comparison=len(cells) > 1, tab=tab))
         return panels
 
     def _metrics(self, rec, metric_keys) -> list[dict[str, Any]]:
