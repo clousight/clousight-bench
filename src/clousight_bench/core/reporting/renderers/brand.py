@@ -6,7 +6,7 @@ under clousight_bench.resources.brand and inlined so the report is self-containe
 from __future__ import annotations
 
 import base64
-from functools import lru_cache
+from functools import cache
 from importlib import resources
 
 BRAND_HSL = {
@@ -29,14 +29,14 @@ _ADAPTER_PROVIDER = [
 ]
 
 
-@lru_cache(maxsize=None)
+@cache
 def logo_data_uri() -> str:
     raw = (resources.files("clousight_bench.resources")
-           .joinpath("brand", "logo.png").read_bytes())
+           .joinpath("brand").joinpath("logo.png").read_bytes())
     return "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
 
 
-@lru_cache(maxsize=None)
+@cache
 def provider_logo(adapter: str) -> str | None:
     name = None
     for prefix, provider in _ADAPTER_PROVIDER:
@@ -46,7 +46,7 @@ def provider_logo(adapter: str) -> str | None:
     if name is None:
         return None
     try:
-        return (resources.files("clousight_bench.resources")
-                .joinpath("brand", "providers", f"{name}.svg").read_text(encoding="utf-8"))
+        return (resources.files("clousight_bench.resources").joinpath("brand")
+                .joinpath("providers").joinpath(f"{name}.svg").read_text(encoding="utf-8"))
     except (FileNotFoundError, ModuleNotFoundError):
         return None

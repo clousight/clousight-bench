@@ -55,12 +55,24 @@ without touching the engine:
 The engine, default HTML renderer, inline-SVG charts, `--css`, and
 `--dump-bundle` are all pure stdlib; only `--template` needs the extra.
 
-## Brand & language
+## Brand, language & charts
 
-The default HTML report carries the Clousight / 云计算指北 brand: the deep-blue
-+ green palette, the official cloud-and-north-arrow logo (inlined), and Space
-Grotesk / DM Sans fonts *by preference* (with a system fallback, so the file
-stays self-contained and offline). A 中 / EN toggle in the header switches the UI
-language in place (default Chinese, "云计算指北"); the toggle is a one-line inline
-script, data (platform names, metric keys, values) is never translated. Dark
-mode follows the OS via `prefers-color-scheme`. `--css` still overrides the theme.
+The default HTML report carries the Clousight / 云计算指北 brand: the official
+3-layer stacked-arrows logo (vendored + base64-inlined), the brand blue scale
+(`hsl(217 71% 51%)`), and Inter / Noto Sans SC fonts *by preference* (system
+fallback, so the file stays self-contained and offline).
+
+- **Cross-vendor cards**: each platform shows its cloud provider logo (Alibaba /
+  AWS / Huawei / Tencent / GCP / Azure …, vendored under
+  `resources/brand/providers/`) with its execution badge; ≥2 same-execution
+  platforms compare side by side.
+- **Full 中 / EN toggle**: the header button switches *all* UI text in place
+  (panel titles, capability labels, badges, metric names, chrome) — default
+  Chinese. Data (platform ids, numeric values) is never translated.
+- **Premium interactive charts**: self-authored inline SVG (gridlines, y-axis
+  ticks, rounded brand-gradient bars, legend) with a compact ~1KB inline script
+  for hover tooltips and legend series toggling — no third-party chart library.
+- Dark mode follows the OS via `prefers-color-scheme`. `--css` still overrides.
+
+Everything is inlined (logo, provider SVGs, CSS, JS); the report is a single
+offline file with no external resources.
