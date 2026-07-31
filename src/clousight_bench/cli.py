@@ -186,7 +186,29 @@ def _cmd_trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def _report_bundle(results_dir: str):
+    import datetime as _dt
+
+    from clousight_bench.core.report import _load_results
+    from clousight_bench.core.reporting.bundle import build_bundle
+    from clousight_bench.core.reporting.profiles import PROFILES
+
+    records = _load_results(Path(results_dir))
+    return build_bundle(
+        records, results_dir=str(results_dir),
+        generated_at=_dt.datetime.now().isoformat(timespec="seconds"), profiles=PROFILES)
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
+    import json as _json
+
+    if getattr(args, "dump_bundle", None):
+        bundle = _report_bundle(args.results)
+        Path(args.dump_bundle).write_text(
+            _json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"wrote bundle {args.dump_bundle}")
+        return 0
+
     from clousight_bench.core.report import generate_report
 
     out = generate_report(Path(args.results), Path(args.out) if args.out else None)
@@ -484,6 +506,7 @@ def main(argv: list[str] | None = None) -> int:
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     rep_p.add_argument("--out", help="write markdown here (default: <results>/comparison.md)")
+    rep_p.add_argument("--dump-bundle", help="write the ReportBundle as JSON to this path")
 
     trace_p = sub.add_parser("trace", help="inspect the execution traces of runs")
     trace_sub = trace_p.add_subparsers(dest="trace_cmd", required=True)

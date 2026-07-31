@@ -92,11 +92,12 @@ def _metric(rec: ResultRecord, name: str) -> dict[str, Any] | None:
     if not isinstance(m, dict):
         return None
     value = m.get("value")
-    numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
-    return {"name": name,
-            "value_num": float(value) if numeric else None,
-            "value_str": None if numeric else str(value),
-            "unit": m.get("unit", ""), "aggregation": m.get("aggregation", "")}
+    unit, agg = m.get("unit", ""), m.get("aggregation", "")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return {"name": name, "value_num": float(value), "value_str": None,
+                "unit": unit, "aggregation": agg}
+    return {"name": name, "value_num": None, "value_str": str(value),
+            "unit": unit, "aggregation": agg}
 
 
 def _capability_matrix(latest: dict) -> dict[str, dict[str, str]]:
