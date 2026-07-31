@@ -4,7 +4,7 @@ from __future__ import annotations
 from clousight_bench.core.reporting.bundle import ChartSpec
 
 _W, _H, _PAD = 520, 240, 30
-_COLORS = ["#3b6fb0", "#c0603a", "#4c9a6a", "#8a6bb0", "#b0a13a"]
+_COLORS = ["#1E3A8A", "#10B981", "#F59E0B", "#3B82F6", "#EF4444"]
 
 
 def _esc(s: str) -> str:

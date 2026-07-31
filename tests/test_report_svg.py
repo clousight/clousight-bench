@@ -9,6 +9,7 @@ def test_grouped_bar_svg_is_wellformed_and_contains_values():
     out = svg.grouped_bar_svg(chart, ["cold", "warm"])
     assert out.startswith("<svg") and out.rstrip().endswith("</svg>")
     assert "aliyun" in out and "900" in out
+    assert "#1E3A8A" in out or "#10B981" in out  # brand palette
     assert "src=" not in out and 'href="http' not in out  # no external resources
 
 
