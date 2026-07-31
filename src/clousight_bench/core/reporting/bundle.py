@@ -49,12 +49,13 @@ class Panel:
     cells: list[Cell]
     chart: ChartSpec | None = None
     comparison: bool = False
+    tab: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {"key": self.key, "title": self.title, "evidence": self.evidence,
                 "task_ids": list(self.task_ids), "cells": [c.to_dict() for c in self.cells],
                 "chart": self.chart.to_dict() if self.chart else None,
-                "comparison": self.comparison}
+                "comparison": self.comparison, "tab": self.tab}
 
 
 @dataclass

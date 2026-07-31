@@ -31,10 +31,14 @@ _DATA_ENV = "CLOUSIGHT_PRICING_DATA"
 _DISCOUNT_ENV = "CLOUSIGHT_PRICING_DISCOUNTS"
 
 
-def _load_prices() -> list[dict[str, Any]]:
+def _load_feed() -> dict[str, Any]:
     override = os.environ.get(_DATA_ENV)
     path = Path(override) if override else _SEED_DATA
-    return json.loads(path.read_text(encoding="utf-8"))["prices"]
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_prices() -> list[dict[str, Any]]:
+    return _load_feed()["prices"]
 
 
 def _load_discounts() -> dict[str, Any]:
@@ -52,7 +56,11 @@ class PricingEnricher(ResultEnricher):
     name = "pricing"
 
     def __init__(self) -> None:
-        self._prices: list[dict[str, Any]] = _load_prices()
+        feed = _load_feed()
+        self._prices: list[dict[str, Any]] = feed["prices"]
+        # Currency is whatever the price feed declares (the bundled seed is USD
+        # public list price); a CNY/EUR feed flows through without code changes.
+        self._currency: str = str(feed.get("currency", "USD"))
         self._discounts: dict[str, Any] = _load_discounts()
 
     def _resolve_discount(self, provider: str, service: str) -> float:
@@ -133,7 +141,7 @@ class PricingEnricher(ResultEnricher):
             "cost_usd": net_cost,
             "list_cost_usd": list_cost,
             "discount_usd": round(list_cost - net_cost, 9),
-            "currency": "USD",
+            "currency": self._currency,
             "breakdown": breakdown,
             "uncovered": uncovered,
         }

@@ -1,9 +1,18 @@
 """Compact self-authored inline chart interaction (no third-party library).
-Hover tooltip on any [data-value] element; legend items toggle their series."""
+Tab switching; hover tooltip on any [data-value] element; legend series toggle."""
 from __future__ import annotations
 
 CHART_JS = """
 (function(){
+  document.querySelectorAll('.tab').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var id=btn.getAttribute('data-tab');
+      document.querySelectorAll('.tab').forEach(function(b){
+        b.classList.toggle('active',b===btn);});
+      document.querySelectorAll('.tabpanel').forEach(function(p){
+        p.classList.toggle('active',p.getAttribute('data-tab')===id);});
+    });
+  });
   var tip=document.createElement('div');tip.className='chart-tip';
   tip.style.cssText='position:fixed;pointer-events:none;background:#111;color:#fff;'+
   'padding:.2rem .5rem;border-radius:.3rem;font-size:.75rem;opacity:0;transition:opacity .1s;z-index:9';

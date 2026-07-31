@@ -55,10 +55,32 @@ without touching the engine:
 The engine, default HTML renderer, inline-SVG charts, `--css`, and
 `--dump-bundle` are all pure stdlib; only `--template` needs the extra.
 
+## Layout (v3, shadcn)
+
+The default HTML report uses a shadcn-style design system (CSS token vars, cards,
+badges, brand-tinted shadows, tabular numerals) and is organized for scanning
+many dimensions at once:
+
+- **Sticky branded header** with the logo, bilingual name, generation timestamp,
+  and the 中 / EN toggle.
+- **Platform overview cards**: a responsive grid — one card per platform with its
+  provider logo, execution badge, and its headline metrics (cold start / net cost
+  / elasticity knee).
+- **Tabbed grouped comparison matrix**: the agent-runtime profile surfaces *all*
+  benchmark measurements as 8 capability groups spread over five tabs —
+  **性能 Performance / 可靠性 Reliability / 可观测 Observability / 成本 Cost /
+  能力 Capability** (each tab shows a per-panel count). Each group is a `.card`
+  holding a grouped comparison table (metrics as rows × platforms as columns, each
+  platform column carrying a brand-color top border) plus its interactive chart.
+  The capability matrix renders under the Capability tab.
+- **Summary cards** per platform, and a dark mode via `prefers-color-scheme`.
+- Tab switching, chart hover tooltips, and legend series toggling run from one
+  compact (~2KB) inline script — no third-party chart library.
+
 ## Brand, language & charts
 
-The default HTML report carries the Clousight / 云计算指北 brand: the official
-3-layer stacked-arrows logo (vendored + base64-inlined), the brand blue scale
+The report carries the Clousight / 云计算指北 brand: the official 3-layer
+stacked-arrows logo (vendored + base64-inlined), the brand blue scale
 (`hsl(217 71% 51%)`), and Inter / Noto Sans SC fonts *by preference* (system
 fallback, so the file stays self-contained and offline).
 
@@ -70,8 +92,9 @@ fallback, so the file stays self-contained and offline).
   (panel titles, capability labels, badges, metric names, chrome) — default
   Chinese. Data (platform ids, numeric values) is never translated.
 - **Premium interactive charts**: self-authored inline SVG (gridlines, y-axis
-  ticks, rounded brand-gradient bars, legend) with a compact ~1KB inline script
-  for hover tooltips and legend series toggling — no third-party chart library.
+  ticks, rounded brand-gradient bars, legend) with a compact inline script for
+  tab switching, hover tooltips, and legend series toggling — no third-party
+  chart library.
 - Dark mode follows the OS via `prefers-color-scheme`. `--css` still overrides.
 
 Everything is inlined (logo, provider SVGs, CSS, JS); the report is a single

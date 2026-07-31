@@ -4,13 +4,19 @@ label. ``t()`` / ``tm()`` emit both languages; CSS + the lang toggle pick one.""
 from __future__ import annotations
 
 UI_STRINGS = {
+    # tabs
+    "Performance": "性能", "Reliability": "可靠性", "Observability": "可观测",
+    "Cost": "成本", "Capability": "能力",
     # panels
     "Capability matrix": "能力矩阵", "Startup latency": "启动延迟",
+    "Provisioning lifecycle": "部署生命周期", "Tracing": "链路追踪",
+    "Tool registration": "工具注册",
     "Cost (list / discount / net)": "成本(原价 / 折扣 / 净价)", "Elasticity": "弹性伸缩",
     "Fault recovery": "故障恢复", "State persistence": "状态持久化",
-    "Observability": "可观测性",
     # chrome
     "platform": "平台", "capability": "能力", "profile": "画像",
+    "Overview": "平台总览", "Summary": "评测小结", "Red flags": "风险提示",
+    "Generated": "生成时间", "Source": "数据源", "no data": "暂无数据",
     "Data: locally collected": "数据:本地采集", "Clousight Bench report": "指北测评报告",
     # domains
     "agent-runtime": "智能体运行时", "bigdata-emr": "大数据",
@@ -23,17 +29,22 @@ UI_STRINGS = {
 }
 
 METRIC_LABELS = {
-    "provision_ready_ms": "部署就绪(ms)", "cold_start_ms": "冷启动(ms)",
+    "provision_ready_ms": "部署就绪(ms)", "teardown_ms": "销毁(ms)",
+    "residual_count": "残留资源数", "cold_start_ms": "冷启动(ms)",
     "warm_start_p50_ms": "热启动 p50(ms)", "warm_start_p95_ms": "热启动 p95(ms)",
     "cold_warm_ratio": "冷热比",
-    "list_cost_usd": "原价(USD)", "discount_usd": "折扣(USD)", "cost_usd": "净价(USD)",
+    "list_cost_usd": "原价", "discount_usd": "折扣", "cost_usd": "净价",
     "invocations": "调用次数", "vcpu_hours": "vCPU 小时", "duration_ms": "时长(ms)",
-    "concurrency_knee": "并发拐点", "success_rate_at_peak": "峰值成功率",
+    "scales_cleanly": "平滑扩缩", "concurrency_knee": "并发拐点",
+    "success_rate_at_peak": "峰值成功率",
     "p95_ms_at_peak": "峰值 p95(ms)", "max_concurrency_tested": "最大测试并发",
     "recovery_mode": "恢复策略", "total_attempts": "总尝试数",
     "time_to_recovery_ms": "恢复耗时(ms)", "fault_hits": "故障命中",
+    "budgeted_success": "预算内成功",
     "persistence_mode": "持久化模式", "state_persisted": "状态存活",
-    "span_completeness": "Span 完整度", "otel_valid": "OTel 合法", "span_count": "Span 数",
+    "span_completeness": "Span 完整度", "spans_present": "实到 Span",
+    "spans_expected": "应到 Span", "otel_valid": "OTel 合法", "span_count": "Span 数",
+    "mcp": "MCP", "openapi": "OpenAPI", "native": "原生", "supported_count": "支持数",
 }
 
 

@@ -6,6 +6,8 @@ Gridlines + y-axis ticks + rounded brand-gradient bars + a legend, with
 """
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
+
 from clousight_bench.core.reporting.bundle import ChartSpec
 
 _W, _H = 560, 260
@@ -22,7 +24,20 @@ def _esc(s: str) -> str:
 
 
 def _fmt(v: float) -> str:
-    return f"{v:.6g}"
+    """Compact but never scientific — a tiny cost tick reads 0.0000025, not 2.5e-06."""
+    if v != v or v in (float("inf"), float("-inf")):
+        return str(v)
+    if v == int(v) and abs(v) < 1e15:
+        return str(int(v))
+    try:
+        s = format(Decimal(repr(float(v))).normalize(), "f")
+    except (InvalidOperation, ValueError):
+        return str(v)
+    if "." in s:
+        intp, frac = s.split(".")
+        frac = frac[:8].rstrip("0")
+        s = intp + (f".{frac}" if frac else "")
+    return s
 
 
 def _open() -> list[str]:
