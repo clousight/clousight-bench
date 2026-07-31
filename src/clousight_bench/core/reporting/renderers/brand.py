@@ -1,29 +1,52 @@
-"""Clousight / 云计算指北 brand tokens for the default report theme.
+"""Clousight brand tokens + vendored assets for the default report theme.
 
-Colors + fonts from the cloudNorth design system; the logo is the official
-cloud-and-north-arrow mark, inlined so the report stays self-contained. The
-gradient id is namespaced so it can never collide with a chart's SVG.
+Colors + fonts + the official 3-layer logo from the clousight web app, vendored
+under clousight_bench.resources.brand and inlined so the report is self-contained.
 """
 from __future__ import annotations
 
-BRAND = {"deep_blue": "#1E3A8A", "blue": "#3B82F6", "green": "#10B981",
-         "amber": "#F59E0B", "red": "#EF4444", "blue_50": "#EFF6FF"}
-FONT_DISPLAY = '"Space Grotesk", system-ui, sans-serif'
-FONT_BODY = '"DM Sans", -apple-system, "Segoe UI", Roboto, sans-serif'
+import base64
+from functools import lru_cache
+from importlib import resources
+
+BRAND_HSL = {
+    "50": "213 100% 97%", "100": "214 87% 94%", "200": "211 80% 85%",
+    "400": "210 75% 68%", "500": "213 73% 59%", "600": "217 71% 51%",
+    "700": "219 52% 35%", "800": "220 43% 26%", "900": "221 45% 18%",
+    "950": "222 47% 11%",
+}
+BG_HSL, FG_HSL = "210 40% 98%", "222 28% 15%"
+AMBER_HSL, RED_HSL = "38 92% 50%", "0 72% 51%"
+FONT_STACK = 'var(--font-inter), "Inter", "Noto Sans SC", system-ui, sans-serif'
 BRAND_NAME_ZH = "云计算指北 · 指北测评"
 BRAND_NAME_EN = "Clousight Bench"
 
-LOGO_SVG = (
-    "<svg width='40' height='40' viewBox='0 0 128 128' "
-    "xmlns='http://www.w3.org/2000/svg'>"
-    "<defs><linearGradient id='clousightCloudGradient' x1='0%' y1='0%' x2='100%' y2='100%'>"
-    "<stop offset='0%' stop-color='#1E3A8A'/><stop offset='100%' stop-color='#3B82F6'/>"
-    "</linearGradient></defs>"
-    "<path d='M98,60 C98,45.088 85.912,33 71,33 C59.062,33 48.892,40.332 44.718,50.743 "
-    "C42.584,49.642 40.126,49 37.5,49 C29.492,49 23,55.492 23,63.5 C23,64.642 23.141,65.748 "
-    "23.398,66.806 C18.109,69.362 14.5,74.792 14.5,81 C14.5,90.665 22.335,98.5 32,98.5 "
-    "L96.5,98.5 C107.27,98.5 116,89.77 116,79 C116,69.634 108.333,61.781 98,60 Z' "
-    "fill='url(#clousightCloudGradient)'/>"
-    "<path d='M64,24 L74,44 L64,39 L54,44 Z' fill='#10B981'/>"
-    "</svg>"
-)
+_ADAPTER_PROVIDER = [
+    ("aliyun", "alibaba"), ("alibaba", "alibaba"), ("aws", "aws"),
+    ("huawei", "huawei"), ("tencent", "tencent"), ("gcp", "gcp"),
+    ("google", "gcp"), ("azure", "azure"), ("oracle", "oracle"),
+    ("ibm", "ibm"), ("ovh", "ovh"),
+]
+
+
+@lru_cache(maxsize=None)
+def logo_data_uri() -> str:
+    raw = (resources.files("clousight_bench.resources")
+           .joinpath("brand", "logo.png").read_bytes())
+    return "data:image/png;base64," + base64.b64encode(raw).decode("ascii")
+
+
+@lru_cache(maxsize=None)
+def provider_logo(adapter: str) -> str | None:
+    name = None
+    for prefix, provider in _ADAPTER_PROVIDER:
+        if adapter.lower().startswith(prefix):
+            name = provider
+            break
+    if name is None:
+        return None
+    try:
+        return (resources.files("clousight_bench.resources")
+                .joinpath("brand", "providers", f"{name}.svg").read_text(encoding="utf-8"))
+    except (FileNotFoundError, ModuleNotFoundError):
+        return None
