@@ -60,14 +60,26 @@ class Profile:
     def build_panels(self, latest: dict) -> list[Panel]:
         panels: list[Panel] = []
         for tab, key, title, task_ids, metric_keys, chart_kind in self.specs:
-            by_exec: dict[str, list[Cell]] = {}
+            # One cell per (execution, platform): a group may span several tasks,
+            # so merge each platform's metrics into a single comparison column
+            # (metrics keep the spec order; first non-empty value per name wins).
+            merged: dict[tuple[str, str], Cell] = {}
             for (task, platform, execu), rec in latest.items():
                 if task not in task_ids:
                     continue
                 metrics = self._metrics(rec, metric_keys)
                 if not metrics:
                     continue
-                by_exec.setdefault(execu, []).append(Cell(platform, rec.status, execu, metrics))
+                cell = merged.get((execu, platform))
+                if cell is None:
+                    merged[(execu, platform)] = Cell(platform, rec.status, execu, list(metrics))
+                    continue
+                have = {m["name"] for m in cell.metrics}
+                cell.metrics.extend(m for m in metrics if m["name"] not in have)
+            by_exec: dict[str, list[Cell]] = {}
+            for (execu, _platform), cell in merged.items():
+                cell.metrics.sort(key=lambda m: metric_keys.index(m["name"]))
+                by_exec.setdefault(execu, []).append(cell)
             for _execu, cells in by_exec.items():
                 chart = _chart(chart_kind, metric_keys, cells)
                 panels.append(Panel(key, title, "B", task_ids, cells, chart,
@@ -77,10 +89,11 @@ class Profile:
     def _metrics(self, rec, metric_keys) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         pricing = rec.extensions.get("pricing", {}) if self.cost_from_pricing else {}
+        currency = pricing.get("currency", "USD") if isinstance(pricing, dict) else "USD"
         for name in metric_keys:
             if name in _COST_KEYS and isinstance(pricing, dict) and name in pricing:
                 out.append({"name": name, "value_num": pricing[name], "value_str": None,
-                            "unit": "USD", "aggregation": ""})
+                            "unit": currency, "aggregation": ""})
                 continue
             m = _metric(rec, name)
             if m is not None:

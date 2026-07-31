@@ -27,6 +27,21 @@ def test_agent_runtime_groups_and_tabs(report_record):
     assert latency.to_dict()["tab"] == "Performance"
 
 
+def test_group_spanning_tasks_merges_platform_into_one_column(report_record):
+    # Provisioning spans T0.1 + T0.2 — one platform must be a single column.
+    recs = [
+        report_record("aliyun-agentrun", "T0.1", execution="simulated",
+                      measurements={"provision_ready_ms": 1500.0}),
+        report_record("aliyun-agentrun", "T0.2", execution="simulated",
+                      measurements={"teardown_ms": 200.0, "residual_count": 0.0}),
+    ]
+    b = build_bundle(recs, results_dir="r", generated_at="t", profiles=PROFILES)
+    prov = [p for p in b.domains[0].panels if p.key == "provisioning"][0]
+    assert [c.platform for c in prov.cells] == ["aliyun-agentrun"]
+    names = [m["name"] for m in prov.cells[0].metrics]
+    assert names == ["provision_ready_ms", "teardown_ms", "residual_count"]
+
+
 def test_generic_profile_for_other_domain(report_record):
     rec = report_record("local-process", "J1.1", domain="bigdata-emr",
                         measurements={"throughput_ops": 1234.0})
