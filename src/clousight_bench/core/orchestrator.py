@@ -494,6 +494,7 @@ def _prepare(
         python_version=platform_mod.python_version(),
         os_name=platform_mod.system(),
         facts={},
+        execution=adapter.execution_mode() if adapter is not None else "unknown",
     )
 
     try:
@@ -508,7 +509,8 @@ def _prepare(
                 params=config,
             ),
             environment=environment_fingerprint(
-                region=environment.region, mode=environment.mode, facts=environment.facts
+                region=environment.region, mode=environment.mode,
+                facts=environment.facts, execution=environment.execution
             ),
             implementation=implementation_fingerprint(
                 core_version=RUNNER_VERSION,
@@ -555,6 +557,7 @@ def _complete_environment(
             region=prepared.environment.region,
             mode=prepared.environment.mode,
             facts=prepared.environment.facts,
+            execution=prepared.environment.execution,
         )
     except Exception as exc:  # noqa: BLE001 - broken plugin metadata is recordable
         _log_traceback(results_dir, run_id, debug, exc)

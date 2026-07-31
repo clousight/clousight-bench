@@ -157,6 +157,7 @@ def migrate_record(
             "python_version": UNKNOWN,
             "os_name": UNKNOWN,
             "facts": {},
+            "execution": "unknown",
         },
         "fingerprints": {
             "benchmark": UNKNOWN,
