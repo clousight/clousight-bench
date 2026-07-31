@@ -15,3 +15,11 @@ def test_t_falls_back_to_english_when_untranslated():
 def test_brand_logo_is_inline_svg_with_namespaced_gradient():
     assert brand.LOGO_SVG.startswith("<svg") and "clousightCloudGradient" in brand.LOGO_SVG
     assert "#1E3A8A" in brand.LOGO_SVG and "#10B981" in brand.LOGO_SVG
+
+
+def test_full_ui_and_metric_translation():
+    from clousight_bench.core.reporting.renderers import i18n
+    for en in ("simulated", "state-persistence", "agent-runtime"):
+        assert i18n.UI_STRINGS.get(en)
+    m = i18n.tm("cold_start_ms")
+    assert "冷启动" in m and "cold_start_ms" in m
