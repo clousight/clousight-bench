@@ -21,6 +21,9 @@ class LocalProcessAdapter(BigDataClusterAdapter):
     status = "reference"
     provider = None
 
+    def execution_mode(self) -> str:
+        return "simulated"  # a local reference simulator, never a real cloud
+
     def submit(self, workload_dir: str, params: dict[str, Any]) -> WorkloadResult:
         engine = WorkloadEngine(Path(workload_dir))
         timeout = int(self.target.get("timeout_s", 600))
