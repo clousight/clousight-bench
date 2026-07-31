@@ -32,13 +32,19 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     Attempt,
     CancellationResult,
     CapabilityNotSupported,
+    CeilingResult,
     DeprovisionResult,
+    ExportLatencyResult,
+    IdleCostResult,
     InvocationTrace,
+    IsolationResult,
     LoadResult,
+    PropagationResult,
     ProvisionResult,
     RateLimitResult,
     RetentionResult,
     ScalePoint,
+    SignalsResult,
     SoakResult,
     ToolCall,
 )
@@ -101,6 +107,24 @@ class RuntimeTransport(ABC):
 
     def probe_cancellation(self) -> CancellationResult:
         raise CapabilityNotSupported("probe_cancellation")
+
+    def probe_signals(self) -> SignalsResult:
+        raise CapabilityNotSupported("probe_signals")
+
+    def probe_span_propagation(self) -> PropagationResult:
+        raise CapabilityNotSupported("probe_span_propagation")
+
+    def probe_export_latency(self) -> ExportLatencyResult:
+        raise CapabilityNotSupported("probe_export_latency")
+
+    def probe_idle_cost(self) -> IdleCostResult:
+        raise CapabilityNotSupported("probe_idle_cost")
+
+    def probe_isolation(self) -> IsolationResult:
+        raise CapabilityNotSupported("probe_isolation")
+
+    def probe_concurrency_ceiling(self) -> CeilingResult:
+        raise CapabilityNotSupported("probe_concurrency_ceiling")
 
     # Provisioning lifecycle (T0.1 / T0.2). Optional -> default not supported.
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -188,6 +212,38 @@ class MockRuntimeTransport(RuntimeTransport):
         self.cancel_honored: bool = bool(cancellation.get("honors_cancel", True))
         self.cancel_teardown: bool = bool(cancellation.get("teardown_on_cancel", True))
         self.cancel_residual: list[str] = list(cancellation.get("residual_on_cancel", []))
+        # T4.3 signals: metrics & log completeness beyond traces. Default: complete.
+        signals = cfg.get("signals", {})
+        self.sig_metrics_expected: int = int(signals.get("metrics_expected", 6))
+        self.sig_metrics_present: int = int(
+            signals.get("metrics_present", self.sig_metrics_expected))
+        self.sig_logs_expected: int = int(signals.get("logs_expected", 4))
+        self.sig_logs_present: int = int(
+            signals.get("logs_present", self.sig_logs_expected))
+        self.sig_structured: bool = bool(signals.get("structured_logs", True))
+        # T4.4 span propagation: orphaned spans + root count (clean = 0 / 1).
+        propagation = cfg.get("span_propagation", {})
+        self.prop_spans: int = int(propagation.get("spans", 8))
+        self.prop_orphans: int = int(propagation.get("orphan_spans", 0))
+        self.prop_roots: int = int(propagation.get("root_count", 1))
+        # T4.5 export: emit->visible latency and drop ratio. Default: fast, lossless.
+        export = cfg.get("export", {})
+        self.export_latency_ms: float = float(export.get("latency_ms", 0))
+        self.export_dropped_ratio: float = float(export.get("dropped_ratio", 0.0))
+        # T5.3 idle cost: scales to zero -> no idle bill. Default: scales to zero.
+        idle = cfg.get("idle", {})
+        self.idle_cost_per_hour: float = float(idle.get("cost_per_hour", 0.0))
+        self.idle_scales_to_zero: bool = bool(
+            idle.get("scales_to_zero", self.idle_cost_per_hour <= 0))
+        # T6.1 isolation: tenant / network-egress / filesystem. Default: all on.
+        isolation = cfg.get("isolation", {})
+        self.iso_tenant: bool = bool(isolation.get("tenant_isolated", True))
+        self.iso_egress: bool = bool(isolation.get("network_egress_controlled", True))
+        self.iso_fs: bool = bool(isolation.get("filesystem_isolated", True))
+        # T5.4 concurrency ceiling. Default: mirror the scaling limit as a hard cap.
+        ceiling = cfg.get("ceiling", {})
+        self.ceiling_max: int = int(ceiling.get("max_in_flight", self.concurrency_limit))
+        self.ceiling_hard: bool = bool(ceiling.get("hard_limit", True))
         self._session_seq = 0
         self._runtime_seq = 0
         self._mock_server: ThreadingHTTPServer | None = None
@@ -391,6 +447,53 @@ class MockRuntimeTransport(RuntimeTransport):
             residual=list(self.cancel_residual),
         )
 
+    def probe_signals(self) -> SignalsResult:
+        """Report the configured metrics & log completeness (deterministic)."""
+        return SignalsResult(
+            metrics_present=self.sig_metrics_present,
+            metrics_expected=self.sig_metrics_expected,
+            logs_present=self.sig_logs_present,
+            logs_expected=self.sig_logs_expected,
+            structured_logs=self.sig_structured,
+        )
+
+    def probe_span_propagation(self) -> PropagationResult:
+        """Report the configured trace parent/child correctness (deterministic)."""
+        return PropagationResult(
+            spans=self.prop_spans,
+            orphan_spans=self.prop_orphans,
+            root_count=self.prop_roots,
+        )
+
+    def probe_export_latency(self) -> ExportLatencyResult:
+        """Report the configured telemetry export latency + drop ratio."""
+        return ExportLatencyResult(
+            export_latency_ms=round(self.export_latency_ms, 3),
+            dropped_ratio=round(self.export_dropped_ratio, 4),
+        )
+
+    def probe_idle_cost(self) -> IdleCostResult:
+        """Report the configured idle / scale-to-zero cost (deterministic)."""
+        return IdleCostResult(
+            scales_to_zero=self.idle_scales_to_zero,
+            idle_cost_per_hour=round(self.idle_cost_per_hour, 9),
+        )
+
+    def probe_isolation(self) -> IsolationResult:
+        """Report the configured tenant / network / filesystem isolation."""
+        return IsolationResult(
+            tenant_isolated=self.iso_tenant,
+            network_egress_controlled=self.iso_egress,
+            filesystem_isolated=self.iso_fs,
+        )
+
+    def probe_concurrency_ceiling(self) -> CeilingResult:
+        """Report the configured concurrency ceiling (deterministic)."""
+        return CeilingResult(
+            max_in_flight=self.ceiling_max,
+            hard_limit=self.ceiling_hard,
+        )
+
     # --- Provisioning (configurable, deterministic) -------------------------
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -496,6 +599,24 @@ class NotWiredCloudTransport(RuntimeTransport):
 
     def probe_cancellation(self) -> CancellationResult:
         raise self._not_wired("probe_cancellation")
+
+    def probe_signals(self) -> SignalsResult:
+        raise self._not_wired("probe_signals")
+
+    def probe_span_propagation(self) -> PropagationResult:
+        raise self._not_wired("probe_span_propagation")
+
+    def probe_export_latency(self) -> ExportLatencyResult:
+        raise self._not_wired("probe_export_latency")
+
+    def probe_idle_cost(self) -> IdleCostResult:
+        raise self._not_wired("probe_idle_cost")
+
+    def probe_isolation(self) -> IsolationResult:
+        raise self._not_wired("probe_isolation")
+
+    def probe_concurrency_ceiling(self) -> CeilingResult:
+        raise self._not_wired("probe_concurrency_ceiling")
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
         raise self._not_wired("provision")

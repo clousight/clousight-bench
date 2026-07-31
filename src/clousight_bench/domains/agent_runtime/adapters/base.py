@@ -101,6 +101,59 @@ class CancellationResult:
 
 
 @dataclass
+class SignalsResult:
+    """Metrics & log completeness beyond traces (the observability dimension, T4.3)."""
+
+    metrics_present: int   # distinct metric signals actually exported
+    metrics_expected: int  # metric signals a complete runtime should export
+    logs_present: int      # log records actually exported
+    logs_expected: int     # log records a complete runtime should export
+    structured_logs: bool  # whether logs are structured (queryable), not free text
+
+
+@dataclass
+class PropagationResult:
+    """Trace parent/child correctness across tool calls (T4.4)."""
+
+    spans: int              # total spans in the trace
+    orphan_spans: int       # spans whose parent id points nowhere (broken context)
+    root_count: int         # number of root spans (a clean trace has exactly one)
+
+
+@dataclass
+class ExportLatencyResult:
+    """How fast telemetry lands and whether any is dropped (T4.5)."""
+
+    export_latency_ms: float  # emit -> visible-in-backend latency
+    dropped_ratio: float      # 0.0..1.0 of spans/metrics lost on export
+
+
+@dataclass
+class IdleCostResult:
+    """Cost while warm-but-idle and whether the runtime scales to zero (T5.3)."""
+
+    scales_to_zero: bool       # whether an idle runtime bills nothing
+    idle_cost_per_hour: float  # cost per hour of a warm-but-idle instance
+
+
+@dataclass
+class IsolationResult:
+    """Tenant isolation / sandbox strength (the security dimension, T6.1)."""
+
+    tenant_isolated: bool             # workloads of different tenants are isolated
+    network_egress_controlled: bool   # outbound network is restricted by default
+    filesystem_isolated: bool         # the workload filesystem is private/ephemeral
+
+
+@dataclass
+class CeilingResult:
+    """The concurrency ceiling: max in-flight the runtime admits (T5.4)."""
+
+    max_in_flight: int  # highest concurrent invocations admitted
+    hard_limit: bool    # whether the ceiling is a hard cap (vs soft/burstable)
+
+
+@dataclass
 class ProvisionResult:
     """Outcome of standing up a runtime instance (the deploy dimension, T0.1)."""
 
@@ -299,6 +352,36 @@ class AgentRuntimeAdapter(ProviderAdapter):
         """Report whether a timed-out / cancelled request is honored and still
         torn down cleanly, leaving nothing orphaned (T1.8)."""
         raise CapabilityNotSupported("probe_cancellation")
+
+    def probe_signals(self) -> SignalsResult:
+        """Report metrics & log completeness beyond traces (T4.3): how many of
+        the expected metric/log signals the runtime actually exports."""
+        raise CapabilityNotSupported("probe_signals")
+
+    def probe_span_propagation(self) -> PropagationResult:
+        """Report trace parent/child correctness (T4.4): orphaned spans and the
+        root-span count, i.e. whether context propagates across tool calls."""
+        raise CapabilityNotSupported("probe_span_propagation")
+
+    def probe_export_latency(self) -> ExportLatencyResult:
+        """Report telemetry export latency and drop ratio (T4.5): how fast spans
+        land in the backend and whether any are lost."""
+        raise CapabilityNotSupported("probe_export_latency")
+
+    def probe_idle_cost(self) -> IdleCostResult:
+        """Report idle / scale-to-zero cost (T5.3): whether a warm-but-idle
+        instance bills, and how much per hour."""
+        raise CapabilityNotSupported("probe_idle_cost")
+
+    def probe_isolation(self) -> IsolationResult:
+        """Report tenant isolation / sandbox strength (T6.1): tenant, network
+        egress, and filesystem isolation."""
+        raise CapabilityNotSupported("probe_isolation")
+
+    def probe_concurrency_ceiling(self) -> CeilingResult:
+        """Report the concurrency ceiling (T5.4): max in-flight admitted and
+        whether it is a hard cap."""
+        raise CapabilityNotSupported("probe_concurrency_ceiling")
 
     # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
     # An always-on runtime instance is stood up before it can host sessions and

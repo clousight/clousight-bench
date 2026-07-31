@@ -19,8 +19,14 @@ v1 dimensions (precisely reproducible tests):
     T2.1 tool registration paths  (implemented: MCP / OpenAPI / native connector)
     T4.1 trace span completeness  (implemented, OpenInference schema)
     T4.2 OTel export compat       (implemented)
+    T4.3 metrics & log signals    (implemented: completeness beyond traces)
+    T4.4 span propagation         (implemented: orphans + root count)
+    T4.5 export latency           (implemented: emit->visible + drop ratio)
     T5.1 cost attribution         (implemented: usage -> pricing enricher)
     T5.2 elasticity               (implemented: scaling knee under concurrency)
+    T5.3 idle / scale-to-zero cost(implemented)
+    T5.4 concurrency ceiling      (implemented: admitted max in-flight)
+    T6.1 tenant isolation         (implemented: tenant / egress / filesystem sandbox)
 """
 from __future__ import annotations
 
@@ -47,8 +53,16 @@ from clousight_bench.domains.agent_runtime.tasks.t1_8_cancellation import Cancel
 from clousight_bench.domains.agent_runtime.tasks.t2_1_tool_registration import ToolRegistrationTask
 from clousight_bench.domains.agent_runtime.tasks.t4_1_trace_completeness import TraceCompletenessTask
 from clousight_bench.domains.agent_runtime.tasks.t4_2_otel_export import OtelExportTask
+from clousight_bench.domains.agent_runtime.tasks.t4_3_signals import SignalCompletenessTask
+from clousight_bench.domains.agent_runtime.tasks.t4_4_span_propagation import SpanPropagationTask
+from clousight_bench.domains.agent_runtime.tasks.t4_5_export_latency import ExportLatencyTask
 from clousight_bench.domains.agent_runtime.tasks.t5_1_cost_attribution import CostAttributionTask
 from clousight_bench.domains.agent_runtime.tasks.t5_2_elasticity import ElasticityTask
+from clousight_bench.domains.agent_runtime.tasks.t5_3_idle_cost import IdleCostTask
+from clousight_bench.domains.agent_runtime.tasks.t5_4_concurrency_ceiling import (
+    ConcurrencyCeilingTask,
+)
+from clousight_bench.domains.agent_runtime.tasks.t6_1_isolation import IsolationTask
 
 
 class AgentRuntimeDomain(DomainPack):
@@ -70,8 +84,14 @@ class AgentRuntimeDomain(DomainPack):
             ToolRegistrationTask.task_id: ToolRegistrationTask,
             TraceCompletenessTask.task_id: TraceCompletenessTask,
             OtelExportTask.task_id: OtelExportTask,
+            SignalCompletenessTask.task_id: SignalCompletenessTask,
+            SpanPropagationTask.task_id: SpanPropagationTask,
+            ExportLatencyTask.task_id: ExportLatencyTask,
             CostAttributionTask.task_id: CostAttributionTask,
             ElasticityTask.task_id: ElasticityTask,
+            IdleCostTask.task_id: IdleCostTask,
+            ConcurrencyCeilingTask.task_id: ConcurrencyCeilingTask,
+            IsolationTask.task_id: IsolationTask,
         }
 
     def adapters(self) -> dict[str, type[ProviderAdapter]]:
