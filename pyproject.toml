@@ -64,7 +64,9 @@ local = "clousight_bench.core.tracing:LocalFileSpanExporter"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/clousight_bench"]
-artifacts = ["src/clousight_bench/resources/schemas/*.json"]
+artifacts = ["src/clousight_bench/resources/schemas/*.json",
+             "src/clousight_bench/resources/brand/*.png",
+             "src/clousight_bench/resources/brand/providers/*.svg"]
 
 [tool.ruff]
 line-length = 110
