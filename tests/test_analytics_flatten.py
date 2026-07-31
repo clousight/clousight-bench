@@ -60,3 +60,25 @@ def test_flatten_findings(tmp_path):
     assert rows[0]["code"] == "agent_runtime.scaling_knee"
     assert rows[0]["severity"] == "warning"
     assert rows[0]["platform"] == "local-sim"
+
+
+def test_records_expose_list_and_discount(tmp_path):
+    payload = {
+        "schema_version": "0.2",
+        "run": {"run_id": "rc", "stages": {}},
+        "identity": {"domain": "agent-runtime", "task_id": "T5.1", "adapter": "aliyun-agentrun",
+                     "task_revision": "1", "scorer_revision": "2"},
+        "environment": {"region": "cn-hangzhou", "mode": "cloud"},
+        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b",
+                         "implementation": "sha256:c"},
+        "measurements": {}, "findings": [], "observations": {}, "series": {},
+        "artifacts": [],
+        "extensions": {"pricing": {"cost_usd": 0.7, "list_cost_usd": 1.0, "discount_usd": 0.3}},
+        "errors": [], "status": "completed",
+    }
+    payload["fingerprints"]["record_digest"] = record_digest(payload)
+    p = tmp_path / "agent-runtime" / "aliyun-agentrun"
+    p.mkdir(parents=True)
+    (p / "T5.1-rc.json").write_text(json.dumps(payload), encoding="utf-8")
+    row = Analytics(tmp_path).flatten("records")[0]
+    assert row["cost_usd"] == 0.7 and row["list_cost_usd"] == 1.0 and row["discount_usd"] == 0.3

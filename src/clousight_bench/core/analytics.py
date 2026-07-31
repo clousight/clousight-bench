@@ -18,7 +18,8 @@ _COLUMNS: dict[str, list[str]] = {
     "records": ["run_id", "domain", "task_id", "platform", "task_revision",
                 "scorer_revision", "status", "started_at", "finished_at",
                 "benchmark_fp", "environment_fp", "implementation_fp",
-                "record_digest", "region", "mode", "cost_usd"],
+                "record_digest", "region", "mode", "cost_usd",
+                "list_cost_usd", "discount_usd"],
     "measurements": ["run_id", "domain", "task_id", "platform", "benchmark_fp",
                      "environment_fp", "name", "value_num", "value_str", "unit",
                      "evidence", "aggregation", "sample_count"],
@@ -114,6 +115,8 @@ class Analytics:
                 "region": env.get("region"),
                 "mode": env.get("mode"),
                 "cost_usd": pricing.get("cost_usd") if isinstance(pricing, dict) else None,
+                "list_cost_usd": pricing.get("list_cost_usd") if isinstance(pricing, dict) else None,
+                "discount_usd": pricing.get("discount_usd") if isinstance(pricing, dict) else None,
             }
 
     def _measurements(self) -> Iterator[dict[str, Any]]:

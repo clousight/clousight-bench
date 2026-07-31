@@ -32,11 +32,16 @@ def test_t5_1_reports_usage_measurements(tmp_path):
     assert set(pricing["uncovered"]) == {"invocations", "vcpu_hours"}
 
 
-def test_t5_1_inline_price_yields_cost(tmp_path):
-    spec = RunSpec("agent-runtime", "T5.1", "local-sim",
-                   target={"pricing": {"per_invocation_usd": 0.01, "per_vcpu_hour_usd": 0}})
+def test_t5_1_reports_usage_only_cost_from_enricher(tmp_path):
+    # T5.1 is usage-only now (single cost authority = the pricing enricher).
+    spec = RunSpec("agent-runtime", "T5.1", "local-sim")
     rec = execute(spec, results_dir=tmp_path)
-    assert rec.measurements["cost_usd"]["value"] == round(8 * 0.01, 6)
+    assert "cost_usd" not in rec.measurements
+    assert rec.measurements["invocations"]["value"] == 8
+    # local-sim has no list price -> enricher covers nothing, cost 0, units uncovered.
+    pricing = rec.extensions["pricing"]
+    assert pricing["cost_usd"] == 0.0
+    assert "invocations" in pricing["uncovered"]
 
 
 def test_t5_2_scales_cleanly_under_high_limit(tmp_path):
