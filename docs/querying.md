@@ -26,8 +26,14 @@ platform`, so any join works.
 run_id, domain, task_id, platform, task_revision, scorer_revision,
 status, started_at, finished_at,
 benchmark_fp, environment_fp, implementation_fp, record_digest,
-region, mode, cost_usd, list_cost_usd, discount_usd
+region, mode, execution, cost_usd, list_cost_usd, discount_usd
 ```
+
+`execution` is `simulated` (a simulated runtime — mock cloud / local-sim /
+local-process) or `live` (real cloud), or `unknown` (migrated records).
+Simulated and live records are **fingerprint-isolated** — they get different
+environment fingerprints and are never pooled/compared. Filter real-cloud data
+with `WHERE execution = 'live'`.
 
 Cost comes from the pricing enricher (`extensions["pricing"]`, NULL when the run
 was not priced). It is reported across three dimensions: `list_cost_usd` (vendor

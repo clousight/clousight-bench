@@ -34,6 +34,7 @@ STAGES: tuple[str, ...] = (
 )
 STAGE_STATES: tuple[str, ...] = ("ok", "failed", "skipped")
 MODES: tuple[str, ...] = ("local", "cloud", "unknown")
+EXECUTIONS: tuple[str, ...] = ("simulated", "live", "unknown")
 
 
 class RecordError(ValueError):
@@ -154,10 +155,14 @@ class Environment:
     python_version: str
     os_name: str
     facts: dict[str, Any] = field(default_factory=dict)
+    execution: str = "unknown"
 
     def __post_init__(self) -> None:
         if self.mode not in MODES:
             raise RecordError(f"mode must be one of {MODES}, got {self.mode!r}")
+        if self.execution not in EXECUTIONS:
+            raise RecordError(
+                f"execution must be one of {EXECUTIONS}, got {self.execution!r}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -166,6 +171,7 @@ class Environment:
             "python_version": self.python_version,
             "os_name": self.os_name,
             "facts": dict(self.facts),
+            "execution": self.execution,
         }
 
     @classmethod
@@ -176,6 +182,7 @@ class Environment:
             python_version=str(data["python_version"]),
             os_name=str(data["os_name"]),
             facts=dict(data.get("facts", {})),
+            execution=str(data.get("execution", "unknown")),
         )
 
 

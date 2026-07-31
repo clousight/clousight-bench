@@ -122,6 +122,10 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
 
     # --- lifecycle ----------------------------------------------------------
 
+    def execution_mode(self) -> str:
+        """Mock (incl. provider-less local-sim) is simulated; real is live."""
+        return "simulated" if self.mode == "mock" else "live"
+
     def is_runnable_instance(self) -> bool:
         """Mock mode runs the shared simulator regardless of class status. Real
         mode is runnable if the class is already wired OR a commercial pack has

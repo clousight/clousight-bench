@@ -119,6 +119,10 @@ def test_environment_fingerprint_covers_region_mode_and_facts_only():
     assert base != environment_fingerprint(
         region="cn-hangzhou", mode="cloud", facts={"runtime": "other"}
     )
+    assert base != environment_fingerprint(
+        region="cn-hangzhou", mode="cloud", facts={"runtime": "agentrun"},
+        execution="live"
+    )
 
 
 def test_implementation_fingerprint_covers_core_domain_adapter_and_plugins():

@@ -50,6 +50,9 @@ Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
 - `status` ∈ `completed` · `failed` · `invalid` · `unsupported`. There is no
   boolean `ok`, no top-level `metrics`, no top-level `evidence_layer` and no
   `config_hash`.
+- `environment.execution` ∈ `simulated` · `live` · `unknown` marks whether the
+  numbers came from a simulated runtime or a real cloud. It is folded into the
+  environment fingerprint, so simulated and live results never pool together.
 - Every measurement carries `value`, `unit` and `evidence`, optionally
   `aggregation`, `sample_count` and `notes`.
 - Every finding carries a stable `code`, a `severity`, a `summary`, its

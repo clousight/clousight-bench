@@ -58,6 +58,13 @@ class ProviderAdapter(ABC):
     def is_runnable(cls) -> bool:
         return cls.status != "skeleton"
 
+    def execution_mode(self) -> str:
+        """'simulated' | 'live' -- whether this run's numbers come from a simulated
+        runtime or a real cloud. Default 'live'; simulators / mock adapters
+        override. Folded into the environment fingerprint so simulated and live
+        data never pool."""
+        return "live"
+
     def is_runnable_instance(self) -> bool:
         """Instance-level runnability gate, aware of this run's ``target``.
 
