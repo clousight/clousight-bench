@@ -26,11 +26,31 @@ platform`, so any join works.
 run_id, domain, task_id, platform, task_revision, scorer_revision,
 status, started_at, finished_at,
 benchmark_fp, environment_fp, implementation_fp, record_digest,
-region, mode, cost_usd
+region, mode, cost_usd, list_cost_usd, discount_usd
 ```
 
-`cost_usd` comes from `extensions["pricing"].cost_usd` (NULL when the pricing
-enricher did not cover the run).
+Cost comes from the pricing enricher (`extensions["pricing"]`, NULL when the run
+was not priced). It is reported across three dimensions: `list_cost_usd` (vendor
+list price), `discount_usd` (what your discount layer saved), and `cost_usd` —
+the **net**, what finance actually pays.
+
+### Pricing: list / discount / net
+
+The pricing enricher is the single cost authority. It multiplies a run's usage
+by two independent, pluggable layers:
+
+- `CLOUSIGHT_PRICING_DATA` → the public **list-price** feed (vendor list prices;
+  a small seed ships in the core).
+- `CLOUSIGHT_PRICING_DISCOUNTS` → your private **discount layer** (per-provider,
+  optionally per-provider+service, `pct`, plus a `default_pct`). `net = list ×
+  (1 − discount)`; absent → `net == list`.
+
+See all three at once:
+
+```bash
+csbench query "SELECT platform, list_cost_usd, discount_usd, cost_usd AS net
+               FROM records WHERE cost_usd IS NOT NULL"
+```
 
 **`measurements`** — one row per scored measurement:
 

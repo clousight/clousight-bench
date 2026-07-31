@@ -133,6 +133,8 @@ csbench query "SELECT platform, avg(value_num) FROM measurements WHERE name='col
 csbench export measurements --out m.parquet
 ```
 
+成本按 **list（厂商原始价）→ discount（折扣）→ net（真实应付）** 三维呈现：公开价 feed 走 `CLOUSIGHT_PRICING_DATA`，私有折扣走 `CLOUSIGHT_PRICING_DISCOUNTS`（详见 [docs/querying.md](docs/querying.md)）。
+
 测评集分发（内置 / 公开远程下载校验 / 私有授权）见 `examples/asset-manifests/`（`assets:` 三层模板 + 公开数据集样例）。
 
 Expected: the default (auto-retry) run ends `recovery_mode=auto-retry, final_state=completed`; the fail-fast run ends `recovery_mode=fail-fast, final_state=aborted`. The mock tool universe is pinned and fault injection is counter-based (the Nth call fails, no randomness), so the run is replayable by construction.

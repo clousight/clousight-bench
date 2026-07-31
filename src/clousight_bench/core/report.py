@@ -190,7 +190,12 @@ def _fmt_cost(rec: ResultRecord) -> str:
         return "—"
     currency = pricing.get("currency", "USD")
     partial = " (partial)" if pricing.get("uncovered") else ""
-    return f"${pricing['cost_usd']:.6g} {currency}{partial}"
+    net = pricing["cost_usd"]
+    list_cost = pricing.get("list_cost_usd")
+    discount = pricing.get("discount_usd") or 0
+    if list_cost is not None and discount:
+        return f"${net:.6g} {currency} (list ${list_cost:.6g}, −${discount:.6g}){partial}"
+    return f"${net:.6g} {currency}{partial}"
 
 
 def _is_warmup(rec: ResultRecord) -> bool:
