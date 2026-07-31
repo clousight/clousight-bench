@@ -357,6 +357,63 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def _cmd_query(args: argparse.Namespace) -> int:
+    from clousight_bench.core.analytics import Analytics
+    from clousight_bench.core.errors import UserInputError
+
+    a = Analytics(Path(args.results))
+    if args.table:
+        where = f" WHERE {args.where}" if args.where else ""
+        sql = f"SELECT * FROM {args.table}{where}"
+    elif args.sql:
+        sql = args.sql
+    else:
+        raise UserInputError("provide a SQL string or --table")
+    try:
+        rows = a.query(sql)
+    except Exception as exc:  # noqa: BLE001 - a bad query is user input
+        raise UserInputError(f"query failed: {exc}") from exc
+    _print_rows(rows, args.format)
+    return 0
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    from clousight_bench.core.analytics import Analytics
+    from clousight_bench.core.errors import UserInputError
+
+    try:
+        out = Analytics(Path(args.results)).export(args.table, Path(args.out), fmt=args.format)
+    except (ValueError, ImportError) as exc:
+        raise UserInputError(str(exc)) from exc
+    print(f"wrote {out}")
+    return 0
+
+
+def _print_rows(rows: list[dict], fmt: str) -> None:
+    import json as _json
+
+    if not rows:
+        print("(no rows)")
+        return
+    if fmt == "json":
+        print(_json.dumps(rows, ensure_ascii=False, default=str))
+        return
+    cols = list(rows[0].keys())
+    if fmt == "csv":
+        import csv
+        import sys as _sys
+
+        writer = csv.DictWriter(_sys.stdout, fieldnames=cols)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+        return
+    widths = {c: max(len(c), *(len(str(r.get(c, ""))) for r in rows)) for c in cols}
+    print("  ".join(c.ljust(widths[c]) for c in cols))
+    for row in rows:
+        print("  ".join(str(row.get(c, "")).ljust(widths[c]) for c in cols))
+
+
 def _cmd_conformance(args: argparse.Namespace) -> int:
     from clousight_bench.core.conformance import run_conformance
 
@@ -385,6 +442,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         "init": _cmd_init,
         "doctor": _cmd_doctor,
         "conformance": _cmd_conformance,
+        "query": _cmd_query,
+        "export": _cmd_export,
     }
     return handlers[args.command](args)
 
@@ -475,6 +534,21 @@ def main(argv: list[str] | None = None) -> int:
     conf_p.add_argument("--domain", required=True)
     conf_p.add_argument("--platform", default=None,
                         help="also assert this platform's adapter is declared")
+
+    q_p = sub.add_parser("query",
+                         help="SQL over records/measurements/findings/series (needs [store])")
+    q_p.add_argument("sql", nargs="?", help="a SQL query over the four views")
+    q_p.add_argument("--table", choices=["records", "measurements", "findings", "series"],
+                     help="shortcut for SELECT * FROM <table>")
+    q_p.add_argument("--where", help="WHERE clause used with --table")
+    q_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
+    q_p.add_argument("--format", choices=["table", "csv", "json"], default="table")
+
+    x_p = sub.add_parser("export", help="export a long table to parquet/csv/jsonl")
+    x_p.add_argument("table", choices=["records", "measurements", "findings", "series"])
+    x_p.add_argument("--out", required=True)
+    x_p.add_argument("--format", choices=["parquet", "csv", "jsonl"], default="parquet")
+    x_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
 
     args = parser.parse_args(argv)
     try:

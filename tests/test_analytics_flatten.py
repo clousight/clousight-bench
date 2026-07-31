@@ -1,0 +1,62 @@
+import json
+from pathlib import Path
+
+from clousight_bench.core.analytics import Analytics
+from clousight_bench.core.fingerprints import record_digest
+
+
+def _write(root: Path, run_id="r1"):
+    payload = {
+        "schema_version": "0.2",
+        "run": {"run_id": run_id, "started_at": "2026-01-01T00:00:00Z",
+                "finished_at": "2026-01-01T00:00:01Z", "stages": {}},
+        "identity": {"domain": "agent-runtime", "task_id": "T1.3", "adapter": "local-sim",
+                     "task_revision": "2", "scorer_revision": "2"},
+        "environment": {"region": "cn-hangzhou", "mode": "mock"},
+        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b",
+                         "implementation": "sha256:c"},
+        "measurements": {
+            "cold_start_ms": {"value": 42.0, "unit": "ms", "evidence": "B",
+                              "aggregation": "p50", "sample_count": 5},
+            "recovery_mode": {"value": "auto-retry", "unit": "", "evidence": "C"},
+        },
+        "findings": [{"code": "agent_runtime.scaling_knee", "severity": "warning",
+                      "summary": "knee at 8", "evidence": "B"}],
+        "observations": {}, "series": {}, "artifacts": [],
+        "extensions": {"pricing": {"cost_usd": 0.0123}},
+        "errors": [], "status": "completed",
+    }
+    payload["fingerprints"]["record_digest"] = record_digest(payload)
+    p = root / "agent-runtime" / "local-sim"
+    p.mkdir(parents=True, exist_ok=True)
+    (p / f"T1.3-{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_flatten_records(tmp_path):
+    _write(tmp_path)
+    rows = Analytics(tmp_path).flatten("records")
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["platform"] == "local-sim" and r["mode"] == "mock"
+    assert r["region"] == "cn-hangzhou" and r["status"] == "completed"
+    assert r["cost_usd"] == 0.0123
+    assert r["benchmark_fp"] == "sha256:a"
+
+
+def test_flatten_measurements_num_vs_label(tmp_path):
+    _write(tmp_path)
+    rows = {m["name"]: m for m in Analytics(tmp_path).flatten("measurements")}
+    assert rows["cold_start_ms"]["value_num"] == 42.0
+    assert rows["cold_start_ms"]["value_str"] is None
+    assert rows["cold_start_ms"]["aggregation"] == "p50"
+    assert rows["cold_start_ms"]["sample_count"] == 5
+    assert rows["recovery_mode"]["value_num"] is None
+    assert rows["recovery_mode"]["value_str"] == "auto-retry"
+
+
+def test_flatten_findings(tmp_path):
+    _write(tmp_path)
+    rows = Analytics(tmp_path).flatten("findings")
+    assert rows[0]["code"] == "agent_runtime.scaling_knee"
+    assert rows[0]["severity"] == "warning"
+    assert rows[0]["platform"] == "local-sim"
