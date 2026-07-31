@@ -199,8 +199,22 @@ def _report_bundle(results_dir: str):
         generated_at=_dt.datetime.now().isoformat(timespec="seconds"), profiles=PROFILES)
 
 
+def _render_with_template(bundle: object, template_path: str) -> str:
+    from clousight_bench.core.errors import UserInputError
+
+    try:
+        import jinja2
+    except ImportError as exc:
+        raise UserInputError("--template needs the [report] extra: "
+                             "pip install clousight-bench[report]") from exc
+    tmpl = jinja2.Template(Path(template_path).read_text(encoding="utf-8"))
+    return tmpl.render(bundle=bundle.to_dict())  # type: ignore[attr-defined]
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     import json as _json
+
+    from clousight_bench.core.errors import UserInputError
 
     if getattr(args, "dump_bundle", None):
         bundle = _report_bundle(args.results)
@@ -209,10 +223,31 @@ def _cmd_report(args: argparse.Namespace) -> int:
         print(f"wrote bundle {args.dump_bundle}")
         return 0
 
+    if getattr(args, "format", "markdown") == "html":
+        from clousight_bench.core.registry import load_report_renderers
+
+        renderers = load_report_renderers()
+        renderer = renderers.get(args.renderer)
+        if renderer is None:
+            raise UserInputError(
+                f"unknown renderer {args.renderer!r}; installed: {sorted(renderers)}")
+        bundle = _report_bundle(args.results)
+        if args.template:
+            html = _render_with_template(bundle, args.template)
+        elif args.renderer == "html":
+            css = Path(args.css).read_text(encoding="utf-8") if args.css else ""
+            html = renderer.render(bundle, css=css)  # type: ignore[call-arg]
+        else:
+            html = renderer.render(bundle)
+        out = Path(args.out) if args.out else Path(args.results) / f"report{renderer.output_suffix}"
+        out.write_text(html, encoding="utf-8")
+        print(f"wrote {out}")
+        return 0
+
     from clousight_bench.core.report import generate_report
 
-    out = generate_report(Path(args.results), Path(args.out) if args.out else None)
-    print(out)
+    out_md = generate_report(Path(args.results), Path(args.out) if args.out else None)
+    print(out_md)
     return 0
 
 
@@ -507,6 +542,10 @@ def main(argv: list[str] | None = None) -> int:
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     rep_p.add_argument("--out", help="write markdown here (default: <results>/comparison.md)")
     rep_p.add_argument("--dump-bundle", help="write the ReportBundle as JSON to this path")
+    rep_p.add_argument("--format", choices=["markdown", "html"], default="markdown")
+    rep_p.add_argument("--renderer", default="html", help="report renderer name (default: html)")
+    rep_p.add_argument("--css", help="CSS file injected into the HTML (overrides the default theme)")
+    rep_p.add_argument("--template", help="jinja2 HTML template file (needs the [report] extra)")
 
     trace_p = sub.add_parser("trace", help="inspect the execution traces of runs")
     trace_sub = trace_p.add_subparsers(dest="trace_cmd", required=True)
