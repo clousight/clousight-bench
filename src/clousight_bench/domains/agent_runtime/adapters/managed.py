@@ -213,6 +213,15 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_warm_retention(self) -> Any:
         return self._transport_().probe_warm_retention()
 
+    def probe_soak(self, duration_s: float) -> Any:
+        return self._transport_().probe_soak(duration_s)
+
+    def probe_rate_limit(self) -> Any:
+        return self._transport_().probe_rate_limit()
+
+    def probe_cancellation(self) -> Any:
+        return self._transport_().probe_cancellation()
+
     def provision(self, spec: dict[str, Any] | None = None) -> Any:
         return self._transport_().provision(spec)
 
