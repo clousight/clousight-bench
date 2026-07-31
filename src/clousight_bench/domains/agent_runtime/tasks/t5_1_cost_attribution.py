@@ -42,7 +42,7 @@ class CostAttributionTask(Task):
     title = "Cost attribution"
     evidence_layer = "B"
     task_revision = "1"
-    scorer_revision = "1"
+    scorer_revision = "2"  # dropped the inline cost_usd measurement (usage-only)
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -70,7 +70,6 @@ class CostAttributionTask(Task):
                 "vcpu_hours": round(duration_s / 3600 * vcpus, 8),
                 "duration_ms": round(duration_s * 1000, 2),
                 "completed": trace.completed,
-                "pricing": dict((adapter.target or {}).get("pricing") or {}),
             }
         )
 
@@ -84,20 +83,13 @@ class CostAttributionTask(Task):
             "duration_ms": Measurement(
                 value=raw.get("duration_ms", 0.0), unit="ms", evidence="B"),
         }
-        # Optional inline pricing -> a self-contained cost (else deferred to the
-        # pricing enricher, which reads the usage measurements above).
-        pricing = raw.get("pricing") or {}
-        cost_note = "usage only; cost deferred to the pricing enricher"
-        if pricing:
-            cost = (invocations * float(pricing.get("per_invocation_usd", 0))
-                    + vcpu_hours * float(pricing.get("per_vcpu_hour_usd", 0)))
-            measurements["cost_usd"] = Measurement(
-                value=round(cost, 6), unit="USD", evidence="A")
-            cost_note = f"cost=${round(cost, 6)} (inline price)"
+        # Cost is the pricing enricher's job (single cost authority): this task
+        # reports usage only, in the shared USAGE_METRIC_KEYS vocabulary.
         assert set(measurements) & set(USAGE_METRIC_KEYS)  # usage is present for pricing
         return TaskResult(
             measurements=measurements,
-            notes=f"{invocations} invocations, {vcpu_hours} vcpu_hours; {cost_note}",
+            notes=f"{invocations} invocations, {vcpu_hours} vcpu_hours; "
+                  f"usage only; cost from the pricing enricher",
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )
