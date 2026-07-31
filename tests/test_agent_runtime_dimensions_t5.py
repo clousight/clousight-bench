@@ -19,6 +19,47 @@ def test_t1_1_startup_latency_reports_cold_and_warm(tmp_path):
     assert m["cold_warm_ratio"]["value"] is None or m["cold_warm_ratio"]["value"] >= 1.0
 
 
+def test_t1_4_sustained_load_reports_throughput_and_tail(tmp_path):
+    spec = RunSpec("agent-runtime", "T1.4", "local-sim",
+                   target={"load": {"sustained_rps": 40, "base_ms": 35, "tail_ms": 120}})
+    rec = execute(spec, results_dir=tmp_path)
+    assert rec.status == "completed"
+    m = rec.measurements
+    assert m["load_capability"]["value"] == "supported"
+    # target is 50 rps (task constant) but the runtime only sustains 40 -> throttled
+    assert m["throughput_rps"]["value"] == 40
+    assert m["p50_ms"]["value"] == 35 and m["p99_ms"]["value"] == 155
+    assert m["jitter_ms"]["value"] == 120
+    # 50 target vs 40 sustained -> ~20% overflow becomes errors
+    assert m["error_rate_under_load"]["value"] > 0
+    assert any(f["code"] == "agent_runtime.load_errors" for f in rec.findings)
+
+
+def test_t1_4_no_errors_when_runtime_outpaces_demand(tmp_path):
+    spec = RunSpec("agent-runtime", "T1.4", "local-sim",
+                   target={"load": {"sustained_rps": 500, "base_ms": 10, "tail_ms": 5}})
+    rec = execute(spec, results_dir=tmp_path)
+    assert rec.measurements["throughput_rps"]["value"] == 50  # capped at target
+    assert rec.measurements["error_rate_under_load"]["value"] == 0
+
+
+def test_t1_5_warm_retention_reports_keepalive_window(tmp_path):
+    spec = RunSpec("agent-runtime", "T1.5", "local-sim",
+                   target={"warm": {"retention_ms": 300000, "keeps_warm": True}})
+    rec = execute(spec, results_dir=tmp_path)
+    assert rec.status == "completed"
+    assert rec.measurements["warm_retention_ms"]["value"] == 300000
+    assert rec.measurements["keeps_warm"]["value"] is True
+
+
+def test_t1_5_no_warm_pool_is_flagged(tmp_path):
+    spec = RunSpec("agent-runtime", "T1.5", "local-sim",
+                   target={"warm": {"retention_ms": 0, "keeps_warm": False}})
+    rec = execute(spec, results_dir=tmp_path)
+    assert rec.measurements["keeps_warm"]["value"] is False
+    assert any(f["code"] == "agent_runtime.no_warm_pool" for f in rec.findings)
+
+
 def test_t5_1_reports_usage_measurements(tmp_path):
     rec = execute(RunSpec("agent-runtime", "T5.1", "local-sim"), results_dir=tmp_path)
     assert rec.status == "completed"

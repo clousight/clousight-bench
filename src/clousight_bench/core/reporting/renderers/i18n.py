@@ -9,6 +9,7 @@ UI_STRINGS = {
     "Cost": "成本", "Capability": "能力",
     # panels
     "Capability matrix": "能力矩阵", "Startup latency": "启动延迟",
+    "Sustained load & tail latency": "持续负载与尾延迟", "Warm-pool retention": "热池保活",
     "Provisioning lifecycle": "部署生命周期", "Tracing": "链路追踪",
     "Tool registration": "工具注册",
     "Cost (list / discount / net)": "成本(原价 / 折扣 / 净价)", "Elasticity": "弹性伸缩",
@@ -33,6 +34,9 @@ METRIC_LABELS = {
     "residual_count": "残留资源数", "cold_start_ms": "冷启动(ms)",
     "warm_start_p50_ms": "热启动 p50(ms)", "warm_start_p95_ms": "热启动 p95(ms)",
     "cold_warm_ratio": "冷热比",
+    "throughput_rps": "吞吐(rps)", "p50_ms": "p50(ms)", "p99_ms": "p99(ms)",
+    "jitter_ms": "抖动(ms)", "error_rate_under_load": "负载错误率",
+    "warm_retention_ms": "保活时长(ms)", "keeps_warm": "保持热实例",
     "list_cost_usd": "原价", "discount_usd": "折扣", "cost_usd": "净价",
     "invocations": "调用次数", "vcpu_hours": "vCPU 小时", "duration_ms": "时长(ms)",
     "scales_cleanly": "平滑扩缩", "concurrency_knee": "并发拐点",
