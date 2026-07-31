@@ -377,23 +377,16 @@ class ResultStore:
             )
         import duckdb
 
+        from clousight_bench.core.analytics import iter_verified_records
+
         paths: list[str] = []
-        for record_path in sorted(self.results_dir.rglob("*.json")):
-            try:
-                payload = json.loads(record_path.read_text(encoding="utf-8"))
-                if not isinstance(payload, dict):
-                    continue
-                expected = payload.get("fingerprints", {}).get("record_digest")
-                if not isinstance(expected, str) or record_digest(payload) != expected:
-                    continue
-                sidecar, error = validate_sidecar(self.results_dir, payload)
-                if error is not None or sidecar is None:
-                    continue
-                relative = sidecar.relative_to(self.results_dir.resolve()).as_posix()
-                if fnmatch(relative, glob):
-                    paths.append(str(sidecar))
-            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+        for _record_path, payload in iter_verified_records(self.results_dir):
+            sidecar, error = validate_sidecar(self.results_dir, payload)
+            if error is not None or sidecar is None:
                 continue
+            relative = sidecar.relative_to(self.results_dir.resolve()).as_posix()
+            if fnmatch(relative, glob):
+                paths.append(str(sidecar))
         if not paths:
             return []
         con = duckdb.connect()
