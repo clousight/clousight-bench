@@ -28,12 +28,22 @@ from clousight_bench.core.usage import USAGE_METRIC_KEYS
 
 _SEED_DATA = Path(__file__).parent / "data" / "pricing.seed.json"
 _DATA_ENV = "CLOUSIGHT_PRICING_DATA"
+_DISCOUNT_ENV = "CLOUSIGHT_PRICING_DISCOUNTS"
 
 
 def _load_prices() -> list[dict[str, Any]]:
     override = os.environ.get(_DATA_ENV)
     path = Path(override) if override else _SEED_DATA
     return json.loads(path.read_text(encoding="utf-8"))["prices"]
+
+
+def _load_discounts() -> dict[str, Any]:
+    """The private discount layer (separate from the public list feed). Default:
+    no discount, so net == list and behaviour is backwards-compatible."""
+    path = os.environ.get(_DISCOUNT_ENV)
+    if not path:
+        return {"default_pct": 0.0, "discounts": []}
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 class PricingEnricher(ResultEnricher):
@@ -43,6 +53,22 @@ class PricingEnricher(ResultEnricher):
 
     def __init__(self) -> None:
         self._prices: list[dict[str, Any]] = _load_prices()
+        self._discounts: dict[str, Any] = _load_discounts()
+
+    def _resolve_discount(self, provider: str, service: str) -> float:
+        """Most-specific discount wins: provider+service > provider > default > 0."""
+        best_specificity = -1
+        pct = float(self._discounts.get("default_pct", 0) or 0)
+        for d in self._discounts.get("discounts", []):
+            if d.get("provider") != provider:
+                continue
+            if d.get("service") and d.get("service") != service:
+                continue
+            specificity = 1 if d.get("service") else 0
+            if specificity > best_specificity:
+                best_specificity = specificity
+                pct = float(d.get("pct", 0) or 0)
+        return pct
 
     def _lookup(self, provider: str, service: str, unit: str, region: str | None) -> dict | None:
         matches = [
@@ -71,9 +97,11 @@ class PricingEnricher(ResultEnricher):
         provider = record.identity.adapter.split("-")[0]
         service = str(self._measurement_value(record, "service") or record.identity.domain)
         region = record.environment.region
+        pct = self._resolve_discount(provider, service)
         breakdown: list[dict[str, Any]] = []
         uncovered: list[str] = []
-        total = 0.0
+        list_total = 0.0
+        net_total = 0.0
         for unit in present:
             qty = self._measurement_value(record, unit)
             if isinstance(qty, bool) or not isinstance(qty, (int, float)):
@@ -85,14 +113,26 @@ class PricingEnricher(ResultEnricher):
             if price is None:
                 uncovered.append(unit)
                 continue
-            subtotal = round(qty * price["price"], 6)
-            total += subtotal
+            # Subtotals accumulate at full precision; only the stored numbers round
+            # (to 9 decimals -- nano-dollar -- so small serverless costs survive).
+            list_subtotal = qty * price["price"]
+            net_subtotal = list_subtotal * (1 - pct / 100.0)
+            list_total += list_subtotal
+            net_total += net_subtotal
             breakdown.append({
-                "unit": unit, "qty": qty, "unit_price": price["price"],
-                "subtotal": subtotal, "region": price["region"], "price_source": price["source"],
+                "unit": unit, "qty": qty, "list_unit_price": price["price"],
+                "discount_pct": pct,
+                "list_subtotal": round(list_subtotal, 9),
+                "net_subtotal": round(net_subtotal, 9),
+                "region": price["region"], "price_source": price["source"],
+                "discount_source": f"{provider}/{service}" if pct else "",
             })
+        list_cost = round(list_total, 9)
+        net_cost = round(net_total, 9)
         record.extensions["pricing"] = {
-            "cost_usd": round(total, 6),
+            "cost_usd": net_cost,
+            "list_cost_usd": list_cost,
+            "discount_usd": round(list_cost - net_cost, 9),
             "currency": "USD",
             "breakdown": breakdown,
             "uncovered": uncovered,
