@@ -1,0 +1,17 @@
+from clousight_bench.core.reporting.renderers import brand, i18n
+
+
+def test_t_emits_both_languages():
+    out = i18n.t("Startup latency")
+    assert "启动延迟" in out and "Startup latency" in out
+    assert "class='zh'" in out and "class='en'" in out
+
+
+def test_t_falls_back_to_english_when_untranslated():
+    out = i18n.t("Totally Unknown Label")
+    assert out.count("Totally Unknown Label") == 2
+
+
+def test_brand_logo_is_inline_svg_with_namespaced_gradient():
+    assert brand.LOGO_SVG.startswith("<svg") and "clousightCloudGradient" in brand.LOGO_SVG
+    assert "#1E3A8A" in brand.LOGO_SVG and "#10B981" in brand.LOGO_SVG
