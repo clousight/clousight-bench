@@ -13,6 +13,9 @@ v1 dimensions (precisely reproducible tests):
     T1.5 warm-pool retention      (implemented: keep-alive window)
     T1.2 state persistence        (implemented)
     T1.3 tool-failure recovery    (implemented)
+    T1.6 soak availability        (implemented: steady-state availability/error rate)
+    T1.7 rate limiting            (implemented: throttle onset + 429 contract)
+    T1.8 timeout & cancellation   (implemented: honored + teardown-on-cancel)
     T2.1 tool registration paths  (implemented: MCP / OpenAPI / native connector)
     T4.1 trace span completeness  (implemented, OpenInference schema)
     T4.2 OTel export compat       (implemented)
@@ -38,6 +41,9 @@ from clousight_bench.domains.agent_runtime.tasks.t1_2_state_persistence import S
 from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
 from clousight_bench.domains.agent_runtime.tasks.t1_4_sustained_load import SustainedLoadTask
 from clousight_bench.domains.agent_runtime.tasks.t1_5_warm_retention import WarmRetentionTask
+from clousight_bench.domains.agent_runtime.tasks.t1_6_soak import SoakTask
+from clousight_bench.domains.agent_runtime.tasks.t1_7_rate_limit import RateLimitTask
+from clousight_bench.domains.agent_runtime.tasks.t1_8_cancellation import CancellationTask
 from clousight_bench.domains.agent_runtime.tasks.t2_1_tool_registration import ToolRegistrationTask
 from clousight_bench.domains.agent_runtime.tasks.t4_1_trace_completeness import TraceCompletenessTask
 from clousight_bench.domains.agent_runtime.tasks.t4_2_otel_export import OtelExportTask
@@ -58,6 +64,9 @@ class AgentRuntimeDomain(DomainPack):
             WarmRetentionTask.task_id: WarmRetentionTask,
             StatePersistenceTask.task_id: StatePersistenceTask,
             FaultRecoveryTask.task_id: FaultRecoveryTask,
+            SoakTask.task_id: SoakTask,
+            RateLimitTask.task_id: RateLimitTask,
+            CancellationTask.task_id: CancellationTask,
             ToolRegistrationTask.task_id: ToolRegistrationTask,
             TraceCompletenessTask.task_id: TraceCompletenessTask,
             OtelExportTask.task_id: OtelExportTask,

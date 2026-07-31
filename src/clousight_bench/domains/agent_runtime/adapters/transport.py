@@ -30,13 +30,16 @@ from clousight_bench.core.stats import percentiles
 from clousight_bench.domains.agent_runtime import openinference
 from clousight_bench.domains.agent_runtime.adapters.base import (
     Attempt,
+    CancellationResult,
     CapabilityNotSupported,
     DeprovisionResult,
     InvocationTrace,
     LoadResult,
     ProvisionResult,
+    RateLimitResult,
     RetentionResult,
     ScalePoint,
+    SoakResult,
     ToolCall,
 )
 
@@ -89,6 +92,15 @@ class RuntimeTransport(ABC):
 
     def probe_warm_retention(self) -> RetentionResult:
         raise CapabilityNotSupported("probe_warm_retention")
+
+    def probe_soak(self, duration_s: float) -> SoakResult:
+        raise CapabilityNotSupported("probe_soak")
+
+    def probe_rate_limit(self) -> RateLimitResult:
+        raise CapabilityNotSupported("probe_rate_limit")
+
+    def probe_cancellation(self) -> CancellationResult:
+        raise CapabilityNotSupported("probe_cancellation")
 
     # Provisioning lifecycle (T0.1 / T0.2). Optional -> default not supported.
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -157,6 +169,25 @@ class MockRuntimeTransport(RuntimeTransport):
         warm = cfg.get("warm", {})
         self.warm_retention_ms: float = float(warm.get("retention_ms", 0))
         self.warm_keeps_warm: bool = bool(warm.get("keeps_warm", self.warm_retention_ms > 0))
+        # T1.6 soak: steady-state availability over a window. availability defaults
+        # to 1 - error_rate unless set explicitly. Default: perfectly available.
+        soak = cfg.get("soak", {})
+        self.soak_error_rate: float = float(soak.get("error_rate", 0.0))
+        self.soak_availability: float = float(
+            soak.get("availability", 1.0 - self.soak_error_rate))
+        self.soak_rps: float = float(soak.get("rps", 20))
+        # T1.7 rate limiting: onset_rps=0 -> no throttle observed. honors_429 =
+        # returns a proper 429 + Retry-After rather than silently dropping.
+        rate_limit = cfg.get("rate_limit", {})
+        self.rl_onset_rps: float = float(rate_limit.get("onset_rps", 0))
+        self.rl_retry_after_ms: float = float(rate_limit.get("retry_after_ms", 0))
+        self.rl_honors_429: bool = bool(rate_limit.get("honors_429", True))
+        # T1.8 cancellation: whether a timeout/cancel is honored and still tears
+        # down cleanly. Default: well-behaved (honored, teardown ran, no residual).
+        cancellation = cfg.get("cancellation", {})
+        self.cancel_honored: bool = bool(cancellation.get("honors_cancel", True))
+        self.cancel_teardown: bool = bool(cancellation.get("teardown_on_cancel", True))
+        self.cancel_residual: list[str] = list(cancellation.get("residual_on_cancel", []))
         self._session_seq = 0
         self._runtime_seq = 0
         self._mock_server: ThreadingHTTPServer | None = None
@@ -334,6 +365,32 @@ class MockRuntimeTransport(RuntimeTransport):
             keeps_warm=self.warm_keeps_warm,
         )
 
+    def probe_soak(self, duration_s: float) -> SoakResult:
+        """Report steady-state availability over a soak window (deterministic)."""
+        requests = int(round(self.soak_rps * duration_s))
+        return SoakResult(
+            availability=round(self.soak_availability, 4),
+            error_rate=round(self.soak_error_rate, 4),
+            requests=requests,
+            window_s=round(duration_s, 3),
+        )
+
+    def probe_rate_limit(self) -> RateLimitResult:
+        """Report the configured throttling behaviour (deterministic)."""
+        return RateLimitResult(
+            throttle_onset_rps=round(self.rl_onset_rps, 3),
+            retry_after_ms=round(self.rl_retry_after_ms, 3),
+            honors_429=self.rl_honors_429,
+        )
+
+    def probe_cancellation(self) -> CancellationResult:
+        """Report the configured timeout/cancel behaviour (deterministic)."""
+        return CancellationResult(
+            honored=self.cancel_honored,
+            teardown_ran=self.cancel_teardown,
+            residual=list(self.cancel_residual),
+        )
+
     # --- Provisioning (configurable, deterministic) -------------------------
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -430,6 +487,15 @@ class NotWiredCloudTransport(RuntimeTransport):
 
     def probe_warm_retention(self) -> RetentionResult:
         raise self._not_wired("probe_warm_retention")
+
+    def probe_soak(self, duration_s: float) -> SoakResult:
+        raise self._not_wired("probe_soak")
+
+    def probe_rate_limit(self) -> RateLimitResult:
+        raise self._not_wired("probe_rate_limit")
+
+    def probe_cancellation(self) -> CancellationResult:
+        raise self._not_wired("probe_cancellation")
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
         raise self._not_wired("provision")

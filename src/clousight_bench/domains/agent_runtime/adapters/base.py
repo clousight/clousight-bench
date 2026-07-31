@@ -73,6 +73,34 @@ class RetentionResult:
 
 
 @dataclass
+class SoakResult:
+    """Steady-state availability over a soak window (the reliability dimension, T1.6)."""
+
+    availability: float  # 0.0..1.0 of the window the runtime served successfully
+    error_rate: float    # 0.0..1.0 of requests that failed during the window
+    requests: int        # total requests issued during the soak
+    window_s: float      # soak window length
+
+
+@dataclass
+class RateLimitResult:
+    """How the runtime throttles once demand exceeds quota (T1.7)."""
+
+    throttle_onset_rps: float  # rps at which throttling begins (0 = none observed)
+    retry_after_ms: float      # advertised Retry-After when throttled (0 = none)
+    honors_429: bool           # returns a proper 429 + Retry-After rather than dropping
+
+
+@dataclass
+class CancellationResult:
+    """Whether a timed-out / cancelled request is cleanly torn down (T1.8)."""
+
+    honored: bool         # the cancel/timeout actually stopped the work
+    teardown_ran: bool    # cleanup still ran after the cancel (no orphaned work)
+    residual: list[str] = field(default_factory=list)  # resources leaked by the cancel
+
+
+@dataclass
 class ProvisionResult:
     """Outcome of standing up a runtime instance (the deploy dimension, T0.1)."""
 
@@ -255,6 +283,22 @@ class AgentRuntimeAdapter(ProviderAdapter):
         """Report the keep-alive window: how long an idle instance stays warm
         before the next start pays a cold penalty again (T1.5)."""
         raise CapabilityNotSupported("probe_warm_retention")
+
+    def probe_soak(self, duration_s: float) -> SoakResult:
+        """Report steady-state availability + error rate over a soak window (T1.6).
+        A real adapter runs continuous traffic for ``duration_s`` and measures the
+        platform's OWN availability, never models it."""
+        raise CapabilityNotSupported("probe_soak")
+
+    def probe_rate_limit(self) -> RateLimitResult:
+        """Report throttling behaviour once demand exceeds quota (T1.7): the onset
+        rps, advertised Retry-After, and whether a proper 429 is returned."""
+        raise CapabilityNotSupported("probe_rate_limit")
+
+    def probe_cancellation(self) -> CancellationResult:
+        """Report whether a timed-out / cancelled request is honored and still
+        torn down cleanly, leaving nothing orphaned (T1.8)."""
+        raise CapabilityNotSupported("probe_cancellation")
 
     # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
     # An always-on runtime instance is stood up before it can host sessions and
