@@ -207,6 +207,12 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_scaling(self, levels: list[int]) -> Any:
         return self._transport_().probe_scaling(levels)
 
+    def probe_sustained_load(self, duration_s: float, target_rps: float) -> Any:
+        return self._transport_().probe_sustained_load(duration_s, target_rps)
+
+    def probe_warm_retention(self) -> Any:
+        return self._transport_().probe_warm_retention()
+
     def provision(self, spec: dict[str, Any] | None = None) -> Any:
         return self._transport_().provision(spec)
 

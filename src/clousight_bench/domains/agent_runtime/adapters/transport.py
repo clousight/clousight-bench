@@ -33,7 +33,9 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     CapabilityNotSupported,
     DeprovisionResult,
     InvocationTrace,
+    LoadResult,
     ProvisionResult,
+    RetentionResult,
     ScalePoint,
     ToolCall,
 )
@@ -81,6 +83,12 @@ class RuntimeTransport(ABC):
 
     def probe_scaling(self, levels: list[int]) -> list[ScalePoint]:
         raise CapabilityNotSupported("probe_scaling")
+
+    def probe_sustained_load(self, duration_s: float, target_rps: float) -> LoadResult:
+        raise CapabilityNotSupported("probe_sustained_load")
+
+    def probe_warm_retention(self) -> RetentionResult:
+        raise CapabilityNotSupported("probe_warm_retention")
 
     # Provisioning lifecycle (T0.1 / T0.2). Optional -> default not supported.
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -136,6 +144,19 @@ class MockRuntimeTransport(RuntimeTransport):
         self.provision_ready_ms: float = float(provision.get("ready_ms", 0))
         self.provision_clean_teardown: bool = bool(provision.get("clean_teardown", True))
         self.provision_residual: list[str] = list(provision.get("residual_on_delete", []))
+        # T1.4 sustained-load model: the runtime sustains up to sustained_rps at
+        # p50=base_ms, tail p99=base_ms+tail_ms; asking for more than it can
+        # sustain spills into errors. Defaults model a modest healthy runtime.
+        load = cfg.get("load", {})
+        self.load_sustained_rps: float = float(load.get("sustained_rps", 50))
+        self.load_base_ms: float = float(load.get("base_ms", 20))
+        self.load_tail_ms: float = float(load.get("tail_ms", 60))
+        self.load_error_rate: float = float(load.get("error_rate", 0.0))
+        # T1.5 warm-pool retention: keep-alive window before an idle instance goes
+        # cold again. Default: no warm pool (goes cold immediately).
+        warm = cfg.get("warm", {})
+        self.warm_retention_ms: float = float(warm.get("retention_ms", 0))
+        self.warm_keeps_warm: bool = bool(warm.get("keeps_warm", self.warm_retention_ms > 0))
         self._session_seq = 0
         self._runtime_seq = 0
         self._mock_server: ThreadingHTTPServer | None = None
@@ -281,6 +302,38 @@ class MockRuntimeTransport(RuntimeTransport):
             points.append(ScalePoint(level, success, round(p95, 2)))
         return points
 
+    def probe_sustained_load(self, duration_s: float, target_rps: float) -> LoadResult:
+        """Deterministic sustained-load model (no randomness, replayable).
+
+        The runtime serves up to ``sustained_rps``; asking for more spills the
+        excess into errors (``overflow = (target-sustained)/target``). Served
+        requests sit at ``base_ms`` (p50) with a tail out to ``base_ms+tail_ms``
+        (p99); ``jitter`` is that p99-p50 spread — the predictability signal.
+        """
+        served_rps = min(target_rps, self.load_sustained_rps)
+        overflow = max(0.0, (target_rps - self.load_sustained_rps) / target_rps) \
+            if target_rps > 0 else 0.0
+        error_rate = min(1.0, self.load_error_rate + overflow)
+        p50 = self.load_base_ms
+        p99 = self.load_base_ms + self.load_tail_ms
+        requests = int(round(target_rps * duration_s))
+        return LoadResult(
+            throughput_rps=round(served_rps, 3),
+            p50_ms=round(p50, 3),
+            p99_ms=round(p99, 3),
+            jitter_ms=round(p99 - p50, 3),
+            error_rate=round(error_rate, 4),
+            requests=requests,
+            duration_s=round(duration_s, 3),
+        )
+
+    def probe_warm_retention(self) -> RetentionResult:
+        """Report the configured keep-alive window (deterministic)."""
+        return RetentionResult(
+            retention_ms=round(self.warm_retention_ms, 3),
+            keeps_warm=self.warm_keeps_warm,
+        )
+
     # --- Provisioning (configurable, deterministic) -------------------------
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -371,6 +424,12 @@ class NotWiredCloudTransport(RuntimeTransport):
 
     def probe_scaling(self, levels: list[int]) -> list[ScalePoint]:
         raise self._not_wired("probe_scaling")
+
+    def probe_sustained_load(self, duration_s: float, target_rps: float) -> LoadResult:
+        raise self._not_wired("probe_sustained_load")
+
+    def probe_warm_retention(self) -> RetentionResult:
+        raise self._not_wired("probe_warm_retention")
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
         raise self._not_wired("provision")

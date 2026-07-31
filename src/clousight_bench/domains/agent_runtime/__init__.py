@@ -9,6 +9,8 @@ v1 dimensions (precisely reproducible tests):
     T0.1 provisioning (deploy) latency (implemented)
     T0.2 teardown cleanliness          (implemented)
     T1.1 cold/warm start latency  (implemented)
+    T1.4 sustained load & tail    (implemented: throughput / p99 / jitter)
+    T1.5 warm-pool retention      (implemented: keep-alive window)
     T1.2 state persistence        (implemented)
     T1.3 tool-failure recovery    (implemented)
     T2.1 tool registration paths  (implemented: MCP / OpenAPI / native connector)
@@ -34,6 +36,8 @@ from clousight_bench.domains.agent_runtime.tasks.t0_2_teardown_cleanliness impor
 from clousight_bench.domains.agent_runtime.tasks.t1_1_startup_latency import StartupLatencyTask
 from clousight_bench.domains.agent_runtime.tasks.t1_2_state_persistence import StatePersistenceTask
 from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
+from clousight_bench.domains.agent_runtime.tasks.t1_4_sustained_load import SustainedLoadTask
+from clousight_bench.domains.agent_runtime.tasks.t1_5_warm_retention import WarmRetentionTask
 from clousight_bench.domains.agent_runtime.tasks.t2_1_tool_registration import ToolRegistrationTask
 from clousight_bench.domains.agent_runtime.tasks.t4_1_trace_completeness import TraceCompletenessTask
 from clousight_bench.domains.agent_runtime.tasks.t4_2_otel_export import OtelExportTask
@@ -50,6 +54,8 @@ class AgentRuntimeDomain(DomainPack):
             ProvisionLatencyTask.task_id: ProvisionLatencyTask,
             TeardownCleanlinessTask.task_id: TeardownCleanlinessTask,
             StartupLatencyTask.task_id: StartupLatencyTask,
+            SustainedLoadTask.task_id: SustainedLoadTask,
+            WarmRetentionTask.task_id: WarmRetentionTask,
             StatePersistenceTask.task_id: StatePersistenceTask,
             FaultRecoveryTask.task_id: FaultRecoveryTask,
             ToolRegistrationTask.task_id: ToolRegistrationTask,

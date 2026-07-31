@@ -52,6 +52,27 @@ class ScalePoint:
 
 
 @dataclass
+class LoadResult:
+    """Behaviour under sustained steady load (the throughput / tail dimension, T1.4)."""
+
+    throughput_rps: float  # sustained requests/sec actually served
+    p50_ms: float          # median request latency under load
+    p99_ms: float          # 99th-percentile (tail) latency under load
+    jitter_ms: float       # latency spread (p99 - p50), the predictability signal
+    error_rate: float      # 0.0..1.0 of requests that failed under load
+    requests: int          # total requests issued during the window
+    duration_s: float      # observation window length
+
+
+@dataclass
+class RetentionResult:
+    """How long an idle instance stays warm before going cold again (T1.5)."""
+
+    retention_ms: float  # keep-alive window: idle time before the next start is cold
+    keeps_warm: bool     # whether the runtime keeps any warm instance at all
+
+
+@dataclass
 class ProvisionResult:
     """Outcome of standing up a runtime instance (the deploy dimension, T0.1)."""
 
@@ -223,6 +244,17 @@ class AgentRuntimeAdapter(ProviderAdapter):
         (T5.2). A real adapter actually drives concurrent load and measures; it
         must surface the platform's OWN behaviour under load, never model it."""
         raise CapabilityNotSupported("probe_scaling")
+
+    def probe_sustained_load(self, duration_s: float, target_rps: float) -> LoadResult:
+        """Report sustained throughput + tail latency under steady load (T1.4). A
+        real adapter drives ``target_rps`` for ``duration_s`` and measures the
+        platform's OWN throughput / p50 / p99 / error rate, never models it."""
+        raise CapabilityNotSupported("probe_sustained_load")
+
+    def probe_warm_retention(self) -> RetentionResult:
+        """Report the keep-alive window: how long an idle instance stays warm
+        before the next start pays a cold penalty again (T1.5)."""
+        raise CapabilityNotSupported("probe_warm_retention")
 
     # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
     # An always-on runtime instance is stood up before it can host sessions and
