@@ -45,6 +45,7 @@ nav:
   - Home: index.md
   - Architecture: architecture.md
   - Querying results: querying.md
+  - Reporting: reporting.md
   - Dataset tiers: dataset-tiers.md
   - API reference: reference.md
   - Releasing: RELEASING.md

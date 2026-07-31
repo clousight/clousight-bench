@@ -207,6 +207,9 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
+report = [
+    { name = "jinja2" },
+]
 store = [
     { name = "duckdb" },
     { name = "pyarrow" },
@@ -218,6 +221,7 @@ validate = [
 [package.metadata]
 requires-dist = [
     { name = "duckdb", marker = "extra == 'store'", specifier = ">=1.0" },
+    { name = "jinja2", marker = "extra == 'report'", specifier = ">=3.1" },
     { name = "jsonschema", marker = "extra == 'validate'", specifier = ">=4.20" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'docs'", specifier = ">=0.25" },
@@ -229,7 +233,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "types-pyyaml", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev", "store", "validate", "docs"]
+provides-extras = ["dev", "store", "validate", "report", "docs"]
 
 [[package]]
 name = "colorama"
@@ -390,7 +394,7 @@ name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
