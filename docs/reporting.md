@@ -54,3 +54,13 @@ without touching the engine:
 
 The engine, default HTML renderer, inline-SVG charts, `--css`, and
 `--dump-bundle` are all pure stdlib; only `--template` needs the extra.
+
+## Brand & language
+
+The default HTML report carries the Clousight / 云计算指北 brand: the deep-blue
++ green palette, the official cloud-and-north-arrow logo (inlined), and Space
+Grotesk / DM Sans fonts *by preference* (with a system fallback, so the file
+stays self-contained and offline). A 中 / EN toggle in the header switches the UI
+language in place (default Chinese, "云计算指北"); the toggle is a one-line inline
+script, data (platform names, metric keys, values) is never translated. Dark
+mode follows the OS via `prefers-color-scheme`. `--css` still overrides the theme.
