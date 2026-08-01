@@ -190,6 +190,34 @@ def _cmd_trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_aggregates(results_dir: Path) -> list[dict]:
+    import json
+    from clousight_bench.core.runplan import AGGREGATES_DIRNAME
+
+    agg_dir = results_dir / AGGREGATES_DIRNAME
+    if not agg_dir.exists():
+        return []
+    best: dict[tuple[str, str, str], dict] = {}
+    for path in sorted(agg_dir.rglob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict) or data.get("kind") != "run_plan_aggregate":
+            continue
+        identity = data.get("identity", {})
+        key = (identity.get("domain", ""), identity.get("task_id", ""),
+               identity.get("adapter", ""))
+        existing = best.get(key)
+        this_n = data.get("plan", {}).get("repeat", 0)
+        ex_n = existing.get("plan", {}).get("repeat", 0) if existing else -1
+        if existing is None or this_n > ex_n or (
+            this_n == ex_n and data.get("plan_id", "") > existing.get("plan_id", "")
+        ):
+            best[key] = data
+    return list(best.values())
+
+
 def _report_bundle(results_dir: str):
     import datetime as _dt
 
@@ -197,10 +225,13 @@ def _report_bundle(results_dir: str):
     from clousight_bench.core.reporting.bundle import build_bundle
     from clousight_bench.core.reporting.profiles import PROFILES
 
-    records = _load_results(Path(results_dir))
+    results_path = Path(results_dir)
+    records = _load_results(results_path)
+    aggregates = _load_aggregates(results_path)
     return build_bundle(
         records, results_dir=str(results_dir),
-        generated_at=_dt.datetime.now().isoformat(timespec="seconds"), profiles=PROFILES)
+        generated_at=_dt.datetime.now().isoformat(timespec="seconds"),
+        profiles=PROFILES, aggregates=aggregates)
 
 
 def _render_with_template(bundle: object, template_path: str) -> str:

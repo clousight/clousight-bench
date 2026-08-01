@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from clousight_bench.core.reporting.bundle import Cell, _agg_cell, _build_agg_cells, build_bundle, Panel
 from clousight_bench.core.reporting.profiles import PROFILES
 
@@ -95,3 +97,57 @@ def test_build_bundle_multiple_aggregates_keeps_highest_n(report_record):
             platforms = [c.platform for c in panel.cells if c.agg_stats is not None]
             # At most one agg cell per platform per panel
             assert len(platforms) == len(set(platforms))
+
+
+# ---------------------------------------------------------------------------
+# _load_aggregates tests (Task 4)
+# ---------------------------------------------------------------------------
+import json
+from clousight_bench.cli import _load_aggregates
+
+
+def _write_agg(path: Path, agg: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(agg), encoding="utf-8")
+
+
+def test_load_aggregates_empty_dir(tmp_path):
+    assert _load_aggregates(tmp_path) == []
+
+
+def test_load_aggregates_reads_agg_files(tmp_path):
+    agg = {
+        "kind": "run_plan_aggregate",
+        "plan_id": "plan-20260801-120000-abc",
+        "identity": {"domain": "agent-runtime", "task_id": "T1.1", "adapter": "local-sim"},
+        "plan": {"repeat": 5, "warmup": 0},
+        "comparable": True, "notes": [], "measurements": {},
+        "runs": {}, "status_counts": {},
+    }
+    _write_agg(tmp_path / "aggregates" / "agent-runtime" / "local-sim" / "T1.1-plan-abc.json", agg)
+    result = _load_aggregates(tmp_path)
+    assert len(result) == 1
+    assert result[0]["plan_id"] == "plan-20260801-120000-abc"
+
+
+def test_load_aggregates_keeps_highest_n(tmp_path):
+    base = {"kind": "run_plan_aggregate",
+            "identity": {"domain": "agent-runtime", "task_id": "T1.1", "adapter": "local-sim"},
+            "comparable": True, "notes": [], "measurements": {},
+            "runs": {}, "status_counts": {}}
+    agg3 = {**base, "plan_id": "plan-20260801-120000-aaa", "plan": {"repeat": 3, "warmup": 0}}
+    agg5 = {**base, "plan_id": "plan-20260801-120001-bbb", "plan": {"repeat": 5, "warmup": 0}}
+    d = tmp_path / "aggregates" / "agent-runtime" / "local-sim"
+    _write_agg(d / "T1.1-plan-aaa.json", agg3)
+    _write_agg(d / "T1.1-plan-bbb.json", agg5)
+    result = _load_aggregates(tmp_path)
+    assert len(result) == 1
+    assert result[0]["plan"]["repeat"] == 5
+
+
+def test_load_aggregates_ignores_non_agg_files(tmp_path):
+    d = tmp_path / "aggregates" / "agent-runtime" / "local-sim"
+    d.mkdir(parents=True)
+    (d / "not_an_agg.json").write_text('{"kind": "result_record"}', encoding="utf-8")
+    (d / "garbage.json").write_text("not json", encoding="utf-8")
+    assert _load_aggregates(tmp_path) == []
