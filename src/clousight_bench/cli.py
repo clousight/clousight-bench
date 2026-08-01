@@ -527,6 +527,41 @@ def _cmd_conformance(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 1
 
 
+def _cmd_verify(args: argparse.Namespace) -> int:
+    import json
+    from clousight_bench.core.fingerprints import record_digest
+    from clousight_bench.core.runplan import AGGREGATES_DIRNAME
+
+    results_dir = Path(args.results)
+    ok = failed = skipped = 0
+    for path in sorted(results_dir.rglob("*.json")):
+        rel = path.relative_to(results_dir)
+        if AGGREGATES_DIRNAME in rel.parts:
+            skipped += 1
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("not a JSON object")
+            stored = data.get("fingerprints", {}).get("record_digest", "")
+            computed = record_digest(data)
+            if stored == computed:
+                print(f"✓  {rel}")
+                ok += 1
+            else:
+                print(f"✗  {rel}")
+                print(f"   stored:   {stored}")
+                print(f"   computed: {computed}")
+                failed += 1
+        except Exception as exc:
+            print(f"✗  {rel}  ({exc})")
+            failed += 1
+    total = ok + failed
+    suffix = f" ({skipped} aggregate file(s) skipped)" if skipped else ""
+    print(f"\nverified {total} file(s) — {ok} ok, {failed} failed{suffix}")
+    return 0 if failed == 0 else 1
+
+
 def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "list": _cmd_list,
@@ -541,6 +576,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "conformance": _cmd_conformance,
         "query": _cmd_query,
         "export": _cmd_export,
+        "verify": _cmd_verify,
     }
     return handlers[args.command](args)
 
@@ -655,6 +691,11 @@ def main(argv: list[str] | None = None) -> int:
     conf_p.add_argument("--domain", required=True)
     conf_p.add_argument("--platform", default=None,
                         help="also assert this platform's adapter is declared")
+
+    ver_p = sub.add_parser("verify",
+        help="verify record_digest integrity for all result files")
+    ver_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR),
+        help="results directory to scan (default: ./results)")
 
     q_p = sub.add_parser("query",
                          help="SQL over records/measurements/findings/series (needs [store])")
