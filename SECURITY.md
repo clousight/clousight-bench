@@ -41,3 +41,70 @@ Other boundary notes, unchanged:
 - cloud credentials remain in provider SDK / default credential chains and must
   not be embedded in RunSpec or result files;
 - `skeleton` adapters are not runnable.
+
+## Result Verification
+
+Every result file written by `csbench` carries a `fingerprints.record_digest`
+field that can be independently verified. This section documents how the hash
+is computed so third parties can reproduce it without the `csbench` tool.
+
+### Canonical JSON encoding
+
+All digests (the three fingerprints and `record_digest`) use the same
+canonical JSON encoding:
+
+- Object keys are sorted **lexicographically** (recursive).
+- No insignificant whitespace — `separators=(",", ":")`.
+- Strings are UTF-8 encoded.
+- Non-finite floats (`NaN`, `Infinity`, `-Infinity`) are **rejected** —
+  they never appear in result files.
+
+### `record_digest` computation
+
+1. Deep-copy the entire result payload (a Python `dict`).
+2. Remove `fingerprints.record_digest` from the copy.
+3. Serialise the copy with the canonical JSON encoding above.
+4. SHA-256 the resulting UTF-8 bytes.
+5. The digest is the string `"sha256:"` followed by the lower-case hex digest.
+
+### Self-contained verification example
+
+```python
+import copy, hashlib, json, sys
+from pathlib import Path
+
+def canonical_json(value):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True,
+                      separators=(",", ":"), allow_nan=False)
+
+def verify_record(path: str) -> bool:
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    body = copy.deepcopy(payload)
+    body.get("fingerprints", {}).pop("record_digest", None)
+    blob = canonical_json(body).encode("utf-8")
+    computed = "sha256:" + hashlib.sha256(blob).hexdigest()
+    stored = payload.get("fingerprints", {}).get("record_digest", "")
+    ok = stored == computed
+    print("ok" if ok else f"MISMATCH\n  stored:   {stored}\n  computed: {computed}")
+    return ok
+
+if __name__ == "__main__":
+    all_ok = all(verify_record(p) for p in sys.argv[1:])
+    sys.exit(0 if all_ok else 1)
+```
+
+Or use the built-in command: `csbench verify [results-dir]`.
+
+### Three fingerprints
+
+Each result also carries three coarser fingerprints:
+
+| Fingerprint | Covers |
+|-------------|--------|
+| `benchmark` | task_id, task_revision, scorer_revision, workload, assets, params |
+| `environment` | region, execution mode, os, python version, environment facts |
+| `implementation` | core_version, domain, adapter, plugin_versions |
+
+These use the same canonical encoding and enable comparability checks — two
+runs with identical `benchmark` and `environment` fingerprints measured the
+same thing in the same conditions and can be statistically aggregated.
