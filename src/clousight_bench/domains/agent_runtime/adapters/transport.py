@@ -510,6 +510,7 @@ class MockRuntimeTransport(RuntimeTransport):
             ready_latency_ms=round(ready_ms, 2),
             ready=True,
             artifact_ref=artifact or "mock://artifact",
+            tags=dict((spec or {}).get("tags") or {}),
         )
 
     def provision_status(self, runtime_id: str) -> str:

@@ -46,6 +46,7 @@ from clousight_bench.core.record import ResultRecord, StageError
 from clousight_bench.core.redaction import (
     SensitiveDataError,
     find_identity_leaks,
+    scrub_cloud_identifiers,
     scrub_identities,
     scrub_identity_text,
 )
@@ -408,10 +409,12 @@ def _dump(payload: dict[str, Any]) -> str:
 
 
 def _scrubbed_error(error: Any) -> Any:
-    """A stage message may quote a path or a host; neither identifies the run."""
+    """A stage message may quote a path, a host or a cloud account id / ARN;
+    none of them identifies the benchmark, so scrub all three."""
     if not isinstance(error, dict) or "message" not in error:
         return error
-    return {**error, "message": scrub_identity_text(str(error["message"]))}
+    message = scrub_cloud_identifiers(scrub_identity_text(str(error["message"])))
+    return {**error, "message": message}
 
 
 def _persist_error(exc: BaseException) -> dict[str, Any]:

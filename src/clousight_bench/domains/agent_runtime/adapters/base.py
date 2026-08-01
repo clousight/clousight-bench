@@ -161,6 +161,7 @@ class ProvisionResult:
     ready_latency_ms: float  # create -> ready (the cold provisioning cost)
     ready: bool
     artifact_ref: str = ""   # what was deployed (code package / image ref), for reproducibility
+    tags: dict[str, Any] = field(default_factory=dict)  # tags stamped on the resource
 
 
 @dataclass

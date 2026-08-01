@@ -40,6 +40,11 @@ from typing import Any
 
 from clousight_bench import RUNNER_VERSION
 from clousight_bench.core.canonical import canonical_json
+from clousight_bench.core.cost_budget import (
+    CostLedger,
+    budget_would_exceed,
+    run_cost_usd,
+)
 from clousight_bench.core.errors import (
     AdapterNotRunnableError,
     UnknownPlatformError,
@@ -51,6 +56,7 @@ from clousight_bench.core.fingerprints import (
     environment_fingerprint,
     implementation_fingerprint,
 )
+from clousight_bench.core.live_guard import ENV_ALLOW_LIVE, live_decision
 from clousight_bench.core.observation import (
     Finding,
     ObservationBundle,
@@ -80,8 +86,17 @@ from clousight_bench.core.record import (
     RunInfo,
     StageError,
 )
-from clousight_bench.core.redaction import redact, scrub_identity_text
-from clousight_bench.core.registry import get_domain, load_enrichers
+from clousight_bench.core.redaction import (
+    redact,
+    scrub_cloud_identifiers,
+    scrub_identity_text,
+)
+from clousight_bench.core.registry import (
+    get_domain,
+    get_resource_reaper,
+    load_enrichers,
+)
+from clousight_bench.core.resource_reconcile import reconcile_run_resources
 from clousight_bench.core.schema import RunSpec, new_run_id, utc_now
 from clousight_bench.core.store import ResultStore
 from clousight_bench.core.tracing import build_run_trace, export_trace, new_trace_id
@@ -149,7 +164,13 @@ def _stage_deadline(timeout_s: float | None) -> Iterator[None]:
     """Raise TimeoutError if the wrapped stages exceed ``timeout_s``, so a hung
     provision/setup/execute cannot block a pipeline forever. Uses SIGALRM, so it
     is a no-op off the main thread or where SIGALRM is unavailable (Windows);
-    always covers only the measured stages, never teardown."""
+    always covers only the measured stages, never teardown.
+
+    NOTE: because SIGALRM only fires on the main thread, this does NOT interrupt a
+    call made inside a worker thread -- which is exactly what a threaded load /
+    elasticity probe does. The real guard against a hung *live* call is the
+    per-request timeout in ``ClientPolicy`` (bounded by ``adapter.deadline_s``),
+    not this stage deadline. This wall-clock deadline is the coarse backstop."""
     if (
         not timeout_s
         or timeout_s <= 0
@@ -180,6 +201,8 @@ def execute(
     debug: bool = False,
     run_context: Mapping[str, Any] | None = None,
     timeout_s: float | None = None,
+    allow_live: bool = False,
+    cost_budget: float | None = None,
 ) -> ResultRecord:
     """Run one RunSpec through the full lifecycle and persist the result.
 
@@ -232,8 +255,11 @@ def execute(
     adapter = prepared.adapter
     # Hand the adapter this run's id (after fingerprints are fixed, so it never
     # perturbs them) so it can tag the cloud resources it creates for later
-    # cost/billing reconciliation.
+    # cost/billing reconciliation, and the run's deadline so a wired adapter can
+    # bound each SDK call by it.
     adapter.run_id = run_id
+    adapter.deadline_s = timeout_s
+    adapter.results_dir = results_dir
     bundle = ObservationBundle()
     result: TaskResult | None = None
 
@@ -294,6 +320,84 @@ def execute(
             trace_id=trace_id,
             root_start_ns=root_start_ns,
         )
+
+    # LIVE-RUN GATE -- a run whose numbers come from a REAL cloud spends real
+    # money and can trip quota / abuse controls. It must not provision unless the
+    # operator acknowledged the cost (--allow-live / CSBENCH_ALLOW_LIVE). Only a
+    # run that can actually bill a cloud is gated: live execution AND a real
+    # provider. Simulated runs and provider-less local adapters are never gated.
+    # Blocked -> `invalid`, SETUP never entered.
+    billable = adapter.execution_mode() == "live" and getattr(adapter, "provider", None)
+    decision = live_decision(
+        "live" if billable else "simulated", spec.target, allow_live)
+    live_run: dict[str, Any] | None = None
+    if decision.is_live:
+        live_run = {"acknowledged": decision.acknowledged, "limits": decision.limits}
+    if decision.blocked:
+        stages["SETUP"] = "skipped"
+        findings.append(
+            Finding(
+                code="live.unconfirmed",
+                severity="critical",
+                summary="live run not confirmed: real-cloud execution incurs cost",
+                evidence="B",
+                details={
+                    "execution": "live",
+                    "remediation": (
+                        "re-run with --allow-live (or export "
+                        f"{ENV_ALLOW_LIVE}=1) once you accept the cost; "
+                        "use mode: mock to exercise the harness for free"
+                    ),
+                    "limits": decision.limits,
+                },
+            )
+        )
+        record = _build_record(
+            run_id, started_at, stages, prepared, "invalid", None, findings,
+            ObservationBundle(), errors, run_context, timings, live_run,
+        )
+        return _finish(
+            record, results_dir, enrich=False, publisher=publisher, debug=debug,
+            trace_id=trace_id, root_start_ns=root_start_ns,
+        )
+
+    # COST BUDGET -- the live gate stops accidental spend; this stops runaway
+    # spend. For a billable run, if the spend-so-far (this results dir) plus this
+    # run's estimate would cross the budget, stop BEFORE provisioning.
+    budget = _resolve_cost_budget(cost_budget, spec.target)
+    if billable and budget is not None:
+        spent = CostLedger(results_dir).total()
+        estimate = float(spec.target.get("estimated_cost_usd", 0.0) or 0.0)
+        if budget_would_exceed(spent, estimate, budget):
+            stages["SETUP"] = "skipped"
+            findings.append(
+                Finding(
+                    code="cost.budget_exceeded",
+                    severity="critical",
+                    summary="cost budget would be exceeded: run stopped before provisioning",
+                    evidence="B",
+                    details={
+                        "spent_usd": round(spent, 9),
+                        "estimate_usd": round(estimate, 9),
+                        "budget_usd": budget,
+                        "remediation": (
+                            "raise --cost-budget / CSBENCH_COST_BUDGET, or start a "
+                            "fresh results dir; the ledger is <results>/.cost_ledger.json"
+                        ),
+                    },
+                )
+            )
+            if live_run is not None:
+                live_run["budget_usd"] = budget
+                live_run["spent_usd"] = round(spent, 9)
+            record = _build_record(
+                run_id, started_at, stages, prepared, "invalid", None, findings,
+                ObservationBundle(), errors, run_context, timings, live_run,
+            )
+            return _finish(
+                record, results_dir, enrich=False, publisher=publisher, debug=debug,
+                trace_id=trace_id, root_start_ns=root_start_ns,
+            )
 
     # SETUP -> EXECUTE -> COLLECT, with TEARDOWN as the mandatory finally boundary.
     # A SIGINT/SIGTERM in this window must still run teardown and persist an
@@ -356,6 +460,19 @@ def execute(
             if stage == "COLLECT":
                 bundle = ObservationBundle()
         finally:
+            # Reconcile BEFORE teardown stops the transport: destroy + confirm by
+            # tag anything this run created but left behind (a crash between
+            # provision and deprovision, a wired setup that provisioned a runtime).
+            try:
+                findings.extend(
+                    reconcile_run_resources(
+                        adapter, run_id, getattr(adapter, "provider", None), results_dir,
+                        reaper=get_resource_reaper(getattr(adapter, "provider", None)),
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - reconcile must never break teardown
+                errors.append(_stage_error("TEARDOWN", exc, code="reconcile_failed"))
+                _log_traceback(results_dir, run_id, debug, exc)
             _td = time.perf_counter()
             try:
                 adapter.teardown()
@@ -372,7 +489,7 @@ def execute(
         stages.setdefault("SCORE", "skipped")
         record = _build_record(
             run_id, started_at, stages, prepared, "interrupted", None,
-            findings, bundle, errors, run_context, timings,
+            findings, bundle, errors, run_context, timings, live_run,
         )
         _finish(record, results_dir, enrich=False, publisher=publisher, debug=debug,
                        trace_id=trace_id, root_start_ns=root_start_ns)
@@ -396,9 +513,9 @@ def execute(
 
     record = _build_record(
         run_id, started_at, stages, prepared, _status_for(errors, result), result,
-        findings, bundle, errors, run_context, timings,
+        findings, bundle, errors, run_context, timings, live_run,
     )
-    return _finish(
+    record = _finish(
         record,
         results_dir,
         enrich=enrich,
@@ -407,6 +524,26 @@ def execute(
         trace_id=trace_id,
         root_start_ns=root_start_ns,
     )
+    # A billable run that actually executed accrues cost against the budget ledger
+    # (realized price if the enricher ran, else the caller's estimate).
+    if billable:
+        CostLedger(results_dir).add(
+            run_id, getattr(adapter, "provider", None),
+            run_cost_usd(record, spec.target))
+    return record
+
+
+def _resolve_cost_budget(cost_budget: float | None, target: Mapping[str, Any]) -> float | None:
+    """Budget from (in order) the explicit arg, ``target.cost_budget``, or the
+    ``CSBENCH_COST_BUDGET`` env var. None -> no cap."""
+    import os
+
+    if cost_budget is not None:
+        return cost_budget
+    if target.get("cost_budget") is not None:
+        return float(target["cost_budget"])
+    env = os.environ.get("CSBENCH_COST_BUDGET")
+    return float(env) if env else None
 
 
 def _resolve(spec: RunSpec) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
@@ -634,8 +771,11 @@ def _failed_stage(stages: dict[str, str]) -> str:
 
 
 def _scrubbed(error: StageError) -> StageError:
-    """Stage messages quote paths and hosts; the record must not identify a machine."""
-    error.message = scrub_identity_text(error.message)
+    """Stage messages quote paths, hosts and (from a real cloud SDK) account ids.
+
+    The record must identify neither the operator's machine nor their cloud
+    account: scrub the machine identity, then any embedded ARN / account id."""
+    error.message = scrub_cloud_identifiers(scrub_identity_text(error.message))
     return error
 
 
@@ -693,6 +833,7 @@ def _build_record(
     errors: list[StageError],
     run_context: Mapping[str, Any] | None = None,
     timings: Mapping[str, float] | None = None,
+    live_run: Mapping[str, Any] | None = None,
 ) -> ResultRecord:
     all_findings = list(findings) + list(result.findings if result else [])
     core_extension: dict[str, Any] = {}
@@ -700,6 +841,8 @@ def _build_record(
         core_extension["notes"] = result.notes
     if run_context is not None:
         core_extension["run_plan"] = dict(run_context)
+    if live_run is not None:
+        core_extension["live_run"] = dict(live_run)
     extensions: dict[str, Any] = {}
     if core_extension:
         # "core" is the reserved extension namespace; plugins use their own name.

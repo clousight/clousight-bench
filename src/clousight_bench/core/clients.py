@@ -45,6 +45,50 @@ def register_builder(provider: str, builder: Callable[[ClientContext], Any]) -> 
 
 
 @dataclass
+class ClientPolicy:
+    """Timeout + retry bounds every real-cloud SDK call inherits.
+
+    Centralised so all four clouds share one policy instead of the first wired
+    adapter inventing its own. The per-request ``read_timeout_s`` is the real
+    guard against a hung live call: the orchestrator's SIGALRM stage deadline is
+    main-thread-only and does NOT interrupt a threaded load probe, so a wired
+    transport must bound each call itself -- and by the run's remaining deadline
+    (``bounded_read_timeout``) so it never runs past the stage's own budget.
+    """
+
+    connect_timeout_s: float = 10.0
+    read_timeout_s: float = 30.0
+    max_attempts: int = 3
+    backoff_base_s: float = 0.2
+    backoff_max_s: float = 5.0
+
+    @classmethod
+    def from_target(cls, target: dict[str, Any] | None) -> ClientPolicy:
+        target = target or {}
+        timeouts = target.get("timeouts") or {}
+        retries = target.get("retries") or {}
+        base = cls()
+        return cls(
+            connect_timeout_s=float(timeouts.get("connect_s", base.connect_timeout_s)),
+            read_timeout_s=float(timeouts.get("read_s", base.read_timeout_s)),
+            max_attempts=int(retries.get("max_attempts", base.max_attempts)),
+            backoff_base_s=float(retries.get("backoff_base_s", base.backoff_base_s)),
+            backoff_max_s=float(retries.get("backoff_max_s", base.backoff_max_s)),
+        )
+
+    def bounded_read_timeout(self, remaining_s: float | None) -> float:
+        """Read timeout for one call, never exceeding the run's remaining budget."""
+        if remaining_s is None:
+            return self.read_timeout_s
+        return min(self.read_timeout_s, max(0.0, remaining_s))
+
+    def backoff_for(self, attempt: int) -> float:
+        """Exponential backoff for retry ``attempt`` (1-based), capped."""
+        delay = self.backoff_base_s * (2 ** max(0, attempt - 1))
+        return min(delay, self.backoff_max_s)
+
+
+@dataclass
 class ClientContext:
     """Everything a builder needs, with the secret still behind the SDK's chain.
 
@@ -57,6 +101,10 @@ class ClientContext:
     endpoint: str | None
     credentials: CredentialResolution
     target: dict[str, Any] = field(default_factory=dict)
+    policy: ClientPolicy = field(default_factory=ClientPolicy)
+    #: The run's remaining stage deadline (seconds), so a builder can bound each
+    #: call by it. None when the run set no --timeout.
+    deadline_s: float | None = None
 
 
 class ClientFactory:
@@ -69,16 +117,22 @@ class ClientFactory:
         endpoint: str | None,
         target: dict[str, Any] | None = None,
         platform: str | None = None,
+        deadline_s: float | None = None,
     ) -> None:
         self.provider = provider
         self.region = region
         self.endpoint = endpoint
         self.target = target or {}
         self.platform = platform
+        self.deadline_s = deadline_s
 
     def credentials(self) -> CredentialResolution:
         """Where this client's credentials resolve from (never the secret)."""
         return resolve_credentials(self.target, platform=self.platform or self.provider)
+
+    def policy(self) -> ClientPolicy:
+        """The timeout + retry policy this client's calls inherit."""
+        return ClientPolicy.from_target(self.target)
 
     def sdk_module(self) -> str | None:
         """The provider's SDK package name, or None for an unknown provider."""
@@ -99,6 +153,8 @@ class ClientFactory:
             endpoint=self.endpoint,
             credentials=self.credentials(),
             target=self.target,
+            policy=self.policy(),
+            deadline_s=self.deadline_s,
         )
 
     def build(self) -> Any:

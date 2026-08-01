@@ -14,6 +14,7 @@ from clousight_bench.core.errors import UnknownDomainError, UserInputError
 from clousight_bench.core.plugin import (
     DomainPack,
     PrivateAssetResolver,
+    ResourceReaper,
     ResultEnricher,
     RuntimeProviderPlugin,
 )
@@ -27,6 +28,7 @@ ENTRY_POINT_GROUP = "clousight_bench.domains"
 ENRICHER_ENTRY_POINT_GROUP = "clousight_bench.enrichers"
 ASSET_RESOLVER_ENTRY_POINT_GROUP = "clousight_bench.asset_resolvers"
 RUNTIME_PROVIDER_ENTRY_POINT_GROUP = "clousight_bench.runtime_providers"
+RESOURCE_REAPER_ENTRY_POINT_GROUP = "clousight_bench.resource_reapers"
 SPAN_EXPORTER_ENTRY_POINT_GROUP = "clousight_bench.span_exporters"
 REPORT_RENDERER_ENTRY_POINT_GROUP = "clousight_bench.report_renderers"
 
@@ -162,6 +164,37 @@ def get_runtime_provider(provider: str | None) -> RuntimeProviderPlugin | None:
     if not provider:
         return None
     return load_runtime_providers().get(provider)
+
+
+def load_resource_reapers() -> dict[str, ResourceReaper]:
+    """Instantiate every installed resource-reaper plugin, keyed by ``provider``.
+
+    Open-core installs none (listing/deleting cloud resources needs the provider
+    SDK + credentials), so ``csbench sweep`` fails clearly until a pack registers
+    one via the ``clousight_bench.resource_reapers`` entry point."""
+    reapers: dict[str, ResourceReaper] = {}
+    seen: dict[str, str] = {}
+    for ep in entry_points(group=RESOURCE_REAPER_ENTRY_POINT_GROUP):
+        cls = ep.load()
+        inst = cls()
+        if not isinstance(inst, ResourceReaper):
+            raise RegistryError(f"entry point {ep.name!r} is not a ResourceReaper")
+        _check_api_version(ep, inst)
+        if inst.provider in seen:
+            raise DuplicatePluginError(
+                f"resource reaper {inst.provider!r} is provided by two plugins: "
+                f"{seen[inst.provider]!r} and {ep.name!r}"
+            )
+        seen[inst.provider] = ep.name
+        reapers[inst.provider] = inst
+    return reapers
+
+
+def get_resource_reaper(provider: str | None) -> ResourceReaper | None:
+    """The installed resource reaper for ``provider``, or None if not installed."""
+    if not provider:
+        return None
+    return load_resource_reapers().get(provider)
 
 
 def load_span_exporters() -> list[SpanExporter]:

@@ -86,6 +86,8 @@ class HuaweiAgentArtsAdapter(ManagedAgentRuntimeAdapter):
         perm.TOOL_REGISTER: ["agentarts:tool:register"],
         perm.TRACE_READ: ["agentarts:trace:get"],
         perm.TRACE_EXPORT: ["agentarts:trace:export"],
+        perm.PROVISION: ["agentarts:agent:create"],
+        perm.DEPROVISION: ["agentarts:agent:delete"],
     }
 
 
@@ -107,6 +109,8 @@ class VolcengineAgentKitAdapter(ManagedAgentRuntimeAdapter):
         perm.TOOL_REGISTER: ["agentkit:RegisterTool"],
         perm.TRACE_READ: ["agentkit:GetTrace"],
         perm.TRACE_EXPORT: ["agentkit:ExportTrace"],
+        perm.PROVISION: ["agentkit:CreateAgent"],
+        perm.DEPROVISION: ["agentkit:DeleteAgent"],
     }
 
     def describe(self) -> dict[str, Any]:
