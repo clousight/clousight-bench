@@ -22,11 +22,10 @@ Status legend: ✅ done · 🚧 in progress · 📋 planned · 💤 deferred
 
 - 🚧 Broaden the `agent-runtime` measurement layer (latency distributions, usage
   metrics, capability matrix) and add more dimensions on the mock runtime.
-- 📋 **Trusted result contract**: stronger, fully-hashed result fingerprints and a
-  deterministic results-migration path, so every published number stays
-  independently verifiable.
-- 📋 Run plans (warmup / repeats), summary statistics (median / p95 / p99), and
-  comparability-aware reporting.
+- ✅ **Trusted result contract**: `record_digest` verified via `csbench verify`;
+  canonical JSON spec documented in SECURITY.md.
+- ✅ Run plans (`--repeat N --warmup W`), summary statistics (mean/stdev/p95),
+  and comparability-aware aggregate columns in the HTML report.
 
 ## Later
 
