@@ -151,3 +151,47 @@ def test_load_aggregates_ignores_non_agg_files(tmp_path):
     (d / "not_an_agg.json").write_text('{"kind": "result_record"}', encoding="utf-8")
     (d / "garbage.json").write_text("not json", encoding="utf-8")
     assert _load_aggregates(tmp_path) == []
+
+
+# ---------------------------------------------------------------------------
+# HTML renderer tests (Task 5)
+# ---------------------------------------------------------------------------
+from clousight_bench.core.reporting.renderers.html import HtmlRenderer
+
+
+def test_html_aggregate_column_contains_sigma_and_n(report_record):
+    rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
+    agg = _make_agg(task_id="T1.1", platform="local-sim", n=5)
+    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
+                          profiles=PROFILES, aggregates=[agg])
+    html = HtmlRenderer().render(bundle)
+    assert "Σ" in html   # Σ
+    assert "n=5" in html
+
+
+def test_html_aggregate_column_contains_stdev_and_p95(report_record):
+    rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
+    agg = _make_agg(task_id="T1.1", platform="local-sim", n=5)
+    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
+                          profiles=PROFILES, aggregates=[agg])
+    html = HtmlRenderer().render(bundle)
+    assert "±" in html or "&plusmn;" in html
+    assert "p95" in html
+
+
+def test_html_aggregate_comparability_warning_badge(report_record):
+    rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
+    agg = _make_agg(task_id="T1.1", platform="local-sim", n=5,
+                    comparable=False, notes=["fingerprint mismatch: 1 run excluded"])
+    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
+                          profiles=PROFILES, aggregates=[agg])
+    html = HtmlRenderer().render(bundle)
+    assert "⚠" in html   # ⚠
+
+
+def test_html_no_aggregate_no_sigma(report_record):
+    rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
+    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
+                          profiles=PROFILES)
+    html = HtmlRenderer().render(bundle)
+    assert "Σ" not in html
