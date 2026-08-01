@@ -8,6 +8,44 @@ Developer-preview reset before the first public release.
 
 ### Added
 
+- Cost & cleanup closed loop (builds on the live gate): a **cumulative cost
+  budget** — `--cost-budget` / `CSBENCH_COST_BUDGET` / `target.cost_budget` caps
+  total realized spend across runs sharing a `--results` dir; a billable run that
+  would cross it stops before provisioning (`cost.budget_exceeded`), realized
+  cost (priced by the enricher, else `target.estimated_cost_usd`) accruing to
+  `<results>/.cost_ledger.json`. **Resource tagging applied end-to-end**: the
+  shared managed adapter now stamps `resource_tags()` on every resource it
+  provisions (all four clouds inherit it) and books it in a per-run
+  `ResourceLedger` (`<results>/.resource_ledger.jsonl`). **Post-run
+  reconcile-by-tag**: after every run the orchestrator reverse-looks-up the
+  run's residual (local ledger + a `ResourceReaper.verify(run_id)` cloud tag
+  query when installed), destroys what it can, and reports — `teardown.reclaimed`
+  (a leak the harness cleaned) or `teardown.residual` (critical, could not
+  reclaim → `csbench sweep`). Closes the "did the run leave anything billing?"
+  gap that self-reported teardown could not answer.
+- Pre-access hardening (safety belt before the first real-cloud wiring): a
+  **live-run cost gate** — a run whose numbers come from a real cloud
+  (`execution_mode == "live"` with a real provider) refuses to provision unless
+  the operator acknowledges cost via `--allow-live` / `CSBENCH_ALLOW_LIVE`,
+  producing an `invalid` record with a `live.unconfirmed` finding before SETUP;
+  simulated / provider-less runs are never gated, and an acknowledged live run
+  records `extensions.core.live_run` (with any `target.live_limits`). **Run-id
+  resource tagging** (`core.resource_tags`, `ProviderAdapter.resource_tags()`)
+  so a crashed run's orphaned cloud resources are findable, plus a
+  `ResourceReaper` plugin seam and `csbench sweep --provider <p> [--confirm]`
+  that reconciles them (open-core ships no reaper and fails clearly). **Cloud
+  account scrub** (`redaction.scrub_cloud_identifiers`): every stage-error
+  message is stripped of embedded ARNs / account ids before it is stored, so a
+  published record never leaks the operator's cloud account. A shared
+  **`ClientPolicy`** (timeouts + retry/backoff on `ClientContext`, resolved from
+  `target.timeouts` / `target.retries`) that all four clouds inherit, bounded by
+  the run's remaining deadline (`bounded_read_timeout`) since the SIGALRM stage
+  deadline cannot interrupt a threaded load probe. Optional
+  **`X-Clousight-Token` auth** on the mock tool server (`--token` /
+  `CSBENCH_MOCK_TOKEN`) for when it must be tunnel-exposed to a cloud runtime.
+  Complete provision/deprovision RAM/IAM maps for Huawei & Volcengine, and the
+  AgentRun integration research doc (`docs/agentrun-integration-research.md`)
+  the Aliyun adapter cites.
 - Phase 1D plugin & contract hardening (stability slice): plugins declare a
   `requires_plugin_api` range (`core.versioning`, zero-dependency) and the
   registry hard-rejects one that excludes this core (`IncompatiblePluginError`)

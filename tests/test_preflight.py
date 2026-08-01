@@ -89,7 +89,9 @@ def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
     _clear_aws(monkeypatch, tmp_path)
     spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun",
                    target={"region": "cn-hangzhou"})
-    rec = execute(spec, results_dir=tmp_path, preflight=False)
+    # allow_live: this is a real-cloud run; acknowledge the cost gate so the test
+    # reaches the mid-run failure it is about (not the live-gate block).
+    rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=True)
     # gate off -> we fail LATER, mid-run (mock unreachable / skeleton NotWired),
     # exactly the late error the preflight gate exists to prevent.
     assert rec.status == "failed"

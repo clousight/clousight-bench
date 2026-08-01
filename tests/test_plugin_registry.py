@@ -129,5 +129,6 @@ def test_wired_provider_flips_real_mode_runnable(tmp_path, monkeypatch):
         RunSpec("agent-runtime", "T1.1", "aliyun-agentrun"),
         results_dir=tmp_path,
         preflight=False,
+        allow_live=True,  # real-cloud run: acknowledge the live-run cost gate
     )
     assert rec.status == "completed"

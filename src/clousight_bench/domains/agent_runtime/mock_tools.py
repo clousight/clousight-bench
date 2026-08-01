@@ -102,9 +102,25 @@ class ToolState:
         return add
 
 
-def make_handler(state: ToolState) -> type[BaseHTTPRequestHandler]:
+#: Header a client presents to authenticate against a token-locked mock server.
+AUTH_HEADER = "X-Clousight-Token"
+
+
+def make_handler(
+    state: ToolState, token: str | None = None
+) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "ClousightBenchMock/0.1"
+
+        def _authorized(self) -> bool:
+            """No token configured -> open (local-sim, 127.0.0.1). Token set ->
+            every request must present it, EXCEPT /health, which reveals nothing
+            and must stay reachable for preflight's reachability probe."""
+            if not token:
+                return True
+            if urlparse(self.path).path == "/health":
+                return True
+            return self.headers.get(AUTH_HEADER) == token
 
         def _send(self, payload: Any, status: int = 200) -> None:
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -136,6 +152,9 @@ def make_handler(state: ToolState) -> type[BaseHTTPRequestHandler]:
             return False
 
         def do_GET(self) -> None:
+            if not self._authorized():
+                self._send({"error": "unauthorized"}, status=401)
+                return
             parsed = urlparse(self.path)
             if parsed.path == "/health":
                 self._send({"ok": True})
@@ -170,6 +189,9 @@ def make_handler(state: ToolState) -> type[BaseHTTPRequestHandler]:
             self._send({"error": "not_found", "path": parsed.path}, status=404)
 
         def do_POST(self) -> None:
+            if not self._authorized():
+                self._send({"error": "unauthorized"}, status=401)
+                return
             parsed = urlparse(self.path)
             length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(length) if length else b"{}"
@@ -205,24 +227,36 @@ def make_handler(state: ToolState) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def make_server(port: int, state: ToolState | None = None) -> tuple[ThreadingHTTPServer, ToolState]:
+def make_server(
+    port: int, state: ToolState | None = None, token: str | None = None
+) -> tuple[ThreadingHTTPServer, ToolState]:
     state = state or ToolState()
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(state))
+    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(state, token))
     return server, state
 
 
-def start_in_thread(port: int = 8770) -> tuple[ThreadingHTTPServer, ToolState]:
-    server, state = make_server(port)
+def start_in_thread(
+    port: int = 8770, token: str | None = None
+) -> tuple[ThreadingHTTPServer, ToolState]:
+    server, state = make_server(port, token=token)
     Thread(target=server.serve_forever, daemon=True).start()
     return server, state
 
 
 def main() -> None:
+    import os
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8770)
+    parser.add_argument(
+        "--token", default=os.environ.get("CSBENCH_MOCK_TOKEN"),
+        help="require this token in the X-Clousight-Token header (default: "
+             "$CSBENCH_MOCK_TOKEN). Strongly recommended when exposing the server "
+             "on a public tunnel for a real-cloud run.")
     args = parser.parse_args()
-    server, _ = make_server(args.port)
-    print(f"fault-injectable mock tool server on http://127.0.0.1:{args.port}")
+    server, _ = make_server(args.port, token=args.token)
+    lock = " (token-locked)" if args.token else " (OPEN -- no token; do not expose publicly)"
+    print(f"fault-injectable mock tool server on http://127.0.0.1:{args.port}{lock}")
     server.serve_forever()
 
 

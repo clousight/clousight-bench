@@ -267,6 +267,8 @@ def execute_plan(
     plan_id: str | None = None,
     resume: bool = False,
     timeout_s: float | None = None,
+    allow_live: bool = False,
+    cost_budget: float | None = None,
 ) -> RunPlanAggregate:
     """Run a plan end to end: warmups, repeats, aggregate, and persist it.
 
@@ -297,6 +299,8 @@ def execute_plan(
             debug=debug,
             run_context=context,
             timeout_s=timeout_s,
+            allow_live=allow_live,
+            cost_budget=cost_budget,
         )
 
     resumed = 0

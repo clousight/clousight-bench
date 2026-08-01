@@ -1,8 +1,11 @@
 # Aliyun AgentRun. Copy to a private file, fill in, DO NOT commit real values.
-#   csbench run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config your.yaml
+#   csbench run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config your.yaml --allow-live
+# A live (real-cloud) run needs --allow-live (or CSBENCH_ALLOW_LIVE=1): it spends
+# real money. Simulated dry-run instead: set mode: mock (no account, no cost).
 target:
   region: cn-hangzhou
-  endpoint: ""            # AgentRun invoke endpoint
+  endpoint: ""            # AgentRun control-plane endpoint override (private region)
+  data_endpoint: ""       # AgentRun data-plane endpoint override (invoke/session)
   agent_id: ""            # pre-deployed benchmark agent id
   # Names of env vars that hold credentials -- never the secret itself.
   auth_env:
@@ -10,6 +13,24 @@ target:
     access_key_secret: ALIBABA_CLOUD_ACCESS_KEY_SECRET
   # Public address the cloud runtime can reach the pinned tool universe at.
   # localhost is NOT reachable from a cloud runtime -- expose via a tunnel or a
-  # tiny cloud function.
+  # tiny cloud function, and set CSBENCH_MOCK_TOKEN so it is not an open surface
+  # (start it with: python -m clousight_bench...mock_tools --token $CSBENCH_MOCK_TOKEN).
   mock_base_url: "https://your-tunnel.example.com"
+
+  # --- optional hardening knobs (safe defaults if omitted) ------------------
+  # Per-request timeout + retry policy every SDK call inherits (ClientPolicy).
+  timeouts: { connect_s: 10, read_s: 30 }
+  retries:  { max_attempts: 3, backoff_base_s: 0.2, backoff_max_s: 5.0 }
+  # Caps a wired transport enforces on load/soak/concurrency dimensions so a live
+  # run cannot run away on cost. Recorded under extensions.core.live_run.limits.
+  live_limits: { max_concurrency: 8, max_duration_s: 120, max_requests: 2000 }
+  # Cumulative USD cap across runs in the --results dir (same as --cost-budget /
+  # CSBENCH_COST_BUDGET): a billable run that would cross it stops before
+  # provisioning. estimated_cost_usd feeds the pre-run check + the ledger when no
+  # pricing enricher is installed.
+  cost_budget: 25.0
+  estimated_cost_usd: 0.5
+  # Extra tags stamped on every created resource (merged with the run-id tag);
+  # csbench sweep --provider aliyun reaps orphans by these.
+  resource_tags: { team: platform, env: bench }
 params: {}

@@ -92,6 +92,34 @@ def scrub_identity_text(text: str, identities: tuple[str, ...] | None = None) ->
     return text
 
 
+# Cloud account identifiers that ride inside SDK error *values* (not keys, not
+# operator identity). An ARN embeds the account id; a bare Aliyun UID is a 16-digit
+# account number. Ordinary numbers (latency, http status) are left alone -- only
+# these distinctive shapes match.
+_CLOUD_ID_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # AWS ARN: arn:aws...:<account>:resource -- account id + resource path.
+    (re.compile(r"arn:aws[\w-]*:[^\s\"']+"), "<redacted-arn>"),
+    # Aliyun resource name: acs:<svc>:<region>:<uid>:resource (uid may be empty
+    # for RAM, e.g. acs:ram::1234567890123456:role/X).
+    (re.compile(r"acs:[\w*-]*:[\w*-]*:\d*:[^\s\"']+"), "<redacted-arn>"),
+    # Bare Aliyun account UID: a standalone 16-digit run (an ordinary metric is
+    # not 16 digits). Kept last so an ARN's uid is already gone by now.
+    (re.compile(r"(?<!\d)\d{16}(?!\d)"), "<redacted-account-id>"),
+)
+
+
+def scrub_cloud_identifiers(text: str) -> str:
+    """Replace cloud account ids / ARNs embedded in free text.
+
+    Runs on every stage-error message before it is stored, so a published record
+    never carries the operator's cloud account id or an ARN. Conservative by
+    construction: only ARN shapes and 16-digit account ids match, so latencies,
+    http status codes and other ordinary numbers survive."""
+    for pattern, replacement in _CLOUD_ID_PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 def scrub_identities(value: Any, identities: tuple[str, ...] | None = None) -> Any:
     """Return a copy of ``value`` with every embedded identity replaced."""
     known = identity_values() if identities is None else identities

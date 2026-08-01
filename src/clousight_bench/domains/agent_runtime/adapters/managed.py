@@ -96,6 +96,7 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             ep.url if ep else None,
             self.target,
             platform=self.name,
+            deadline_s=self.deadline_s,
         )
 
     def _build_transport(self) -> RuntimeTransport:
@@ -241,10 +242,36 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
         return self._transport_().probe_concurrency_ceiling()
 
     def provision(self, spec: dict[str, Any] | None = None) -> Any:
-        return self._transport_().provision(spec)
+        """Provision through the transport, but first stamp this run's resource
+        tags into the spec (so a wired transport tags the real cloud resource)
+        and, after, book the resource in the run's ResourceLedger so teardown can
+        reverse-look-up anything left behind. Shared by all four clouds."""
+        tags = self.resource_tags()
+        spec = dict(spec or {})
+        spec.setdefault("tags", tags)
+        result = self._transport_().provision(spec)
+        if not getattr(result, "tags", None):
+            result.tags = tags
+        ledger = self._resource_ledger()
+        if ledger is not None and self.run_id:
+            ledger.record_created(
+                self.run_id, self.provider, result.runtime_id, "runtime", result.tags)
+        return result
 
     def provision_status(self, runtime_id: str) -> str:
         return self._transport_().provision_status(runtime_id)
 
     def deprovision(self, runtime_id: str) -> Any:
-        return self._transport_().deprovision(runtime_id)
+        result = self._transport_().deprovision(runtime_id)
+        ledger = self._resource_ledger()
+        if ledger is not None and self.run_id:
+            ledger.mark_deleted(self.run_id, runtime_id)
+        return result
+
+    def _resource_ledger(self) -> Any:
+        """The run's ResourceLedger, or None outside a run (no results_dir)."""
+        if self.results_dir is None:
+            return None
+        from clousight_bench.core.resource_ledger import ResourceLedger
+
+        return ResourceLedger(self.results_dir)

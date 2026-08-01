@@ -50,6 +50,15 @@ class ProviderAdapter(ABC):
     # can tag the resources it creates (for cost/billing reconciliation). None
     # outside a run (construction, mock/tests). Not part of any fingerprint.
     run_id: str | None = None
+    # Set by the orchestrator before setup() to the run's remaining stage deadline
+    # (--timeout, seconds), so a wired adapter can bound each SDK call by it -- the
+    # real guard against a hung live call, since the SIGALRM stage deadline does
+    # not interrupt a threaded probe. None when no deadline was set.
+    deadline_s: float | None = None
+    # Set by the orchestrator before setup() to the run's results dir, so an
+    # adapter can book the resources it creates in the run's ResourceLedger for
+    # tag-based teardown reconciliation. None outside a run.
+    results_dir: Any | None = None
 
     def __init__(self, target: dict[str, Any] | None = None) -> None:
         self.target = target or {}
@@ -84,6 +93,18 @@ class ProviderAdapter(ABC):
     def describe(self) -> dict[str, Any]:
         """Non-secret target description, folded into the implementation fingerprint."""
         return {"adapter": self.name, "target": redact(self.target)}
+
+    def resource_tags(self) -> dict[str, Any]:
+        """Tags a wired adapter must stamp on every cloud resource it creates.
+
+        The single source of the run-id / managed-by convention (``core/
+        resource_tags.py``), so an orphaned resource from a crashed run is
+        findable and reap-able by ``csbench sweep``. ``target['resource_tags']``
+        adds caller tags; the reserved keys are never overridden."""
+        from clousight_bench.core.resource_tags import run_tags
+
+        extra = self.target.get("resource_tags") or {}
+        return run_tags(self.run_id, extra)
 
     def resolve_credentials(self) -> Any:
         """Report where this adapter's credentials come from (never the secret).
@@ -248,3 +269,36 @@ class RuntimeProviderPlugin(ABC):
     @abstractmethod
     def build_transport(self, adapter: Any) -> Any:
         """Build a live transport for ``adapter`` (called only in real mode)."""
+
+
+class ResourceReaper(ABC):
+    """Reconciles orphaned cloud resources a run left behind (``csbench sweep``).
+
+    A run that dies before ``teardown`` (SIGKILL, crashed host) can leak a
+    provisioned runtime that keeps billing. Every resource this harness creates
+    is tagged with the run id (``core/resource_tags.py``), so a reaper can list
+    tagged resources for one cloud and delete the stale ones. Open-core ships
+    NONE -- listing/deleting needs the provider SDK + credentials -- so ``sweep``
+    without an installed reaper fails clearly. A commercial pack registers one
+    via the ``clousight_bench.resource_reapers`` entry point.
+    """
+
+    provider: str = "abstract"
+    requires_plugin_api: str = ">=1.0,<2.0"
+
+    @abstractmethod
+    def sweep(
+        self, *, dry_run: bool, older_than_s: float | None = None
+    ) -> list[dict[str, Any]]:
+        """Find harness-tagged resources and, unless ``dry_run``, delete them.
+
+        Returns one dict per resource acted on (id + run_id + whatever the cloud
+        exposes). ``older_than_s`` restricts to resources older than a window, so
+        an in-flight run's resources are never reaped out from under it."""
+
+    def verify(self, run_id: str) -> list[dict[str, Any]]:
+        """Authoritative post-teardown check: cloud resources still tagged with
+        ``run_id`` (i.e. NOT reclaimed). Empty list = confirmed clean. Default
+        delegates to a read-only sweep filtered to this run; a reaper may override
+        with a cheaper direct tag query."""
+        return [r for r in self.sweep(dry_run=True) if r.get("run_id") == run_id]

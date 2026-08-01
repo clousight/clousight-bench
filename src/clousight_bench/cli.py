@@ -141,6 +141,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
             plan_id=args.plan_id,
             resume=args.resume,
             timeout_s=args.timeout,
+            allow_live=args.allow_live,
+            cost_budget=args.cost_budget,
         )
         print(aggregate.to_json())
         bad = sum(
@@ -157,6 +159,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         preflight=not args.skip_preflight,
         debug=args.debug,
         timeout_s=args.timeout,
+        allow_live=args.allow_live,
+        cost_budget=args.cost_budget,
     )
     print(record.to_json())
     return _exit_code(record)
@@ -471,6 +475,41 @@ def _print_rows(rows: list[dict], fmt: str) -> None:
         print("  ".join(str(row.get(c, "")).ljust(widths[c]) for c in cols))
 
 
+def _cmd_sweep(args: argparse.Namespace) -> int:
+    """Reconcile orphaned cloud resources a crashed run left behind.
+
+    Reaps resources tagged with a clousight-bench run id (``core/resource_tags``)
+    via the provider's installed ResourceReaper. Open-core installs none, so this
+    fails clearly until a pack provides one. Dry-run by default: pass --confirm to
+    actually delete."""
+    from clousight_bench.core.registry import get_resource_reaper
+
+    reaper = get_resource_reaper(args.provider)
+    if reaper is None:
+        print(
+            f"no resource reaper installed for provider {args.provider!r}. "
+            "Sweeping a real cloud needs the provider SDK + credentials, which a "
+            "commercial pack supplies via the clousight_bench.resource_reapers "
+            "entry point. Nothing was swept.",
+            file=sys.stderr,
+        )
+        return 1
+
+    dry_run = not args.confirm
+    acted = reaper.sweep(dry_run=dry_run, older_than_s=args.older_than_s)
+    verb = "would reap" if dry_run else "reaped"
+    if not acted:
+        print(f"{args.provider}: no orphaned resources found")
+        return 0
+    print(f"{args.provider}: {verb} {len(acted)} resource(s)"
+          + ("  (dry-run; pass --confirm to delete)" if dry_run else ""))
+    for res in acted:
+        rid = res.get("id", "?")
+        run = res.get("run_id", "?")
+        print(f"  - {rid}  (run {run})")
+    return 0
+
+
 def _cmd_conformance(args: argparse.Namespace) -> int:
     from clousight_bench.core.conformance import run_conformance
 
@@ -498,6 +537,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "migrate-results": _cmd_migrate,
         "init": _cmd_init,
         "doctor": _cmd_doctor,
+        "sweep": _cmd_sweep,
         "conformance": _cmd_conformance,
         "query": _cmd_query,
         "export": _cmd_export,
@@ -537,6 +577,14 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--timeout", type=float, default=None,
                        help="per-run deadline in seconds for setup+execute+collect "
                             "(guards against a hung stage; teardown still runs)")
+    run_p.add_argument("--allow-live", action="store_true",
+                       help="acknowledge real-cloud cost: required to run a live "
+                            "(non-simulated) platform. Simulated runs never need it. "
+                            "Env: CSBENCH_ALLOW_LIVE=1")
+    run_p.add_argument("--cost-budget", type=float, default=None,
+                       help="cumulative USD cap across runs in this --results dir; a "
+                            "billable run that would cross it is stopped before "
+                            "provisioning. Env: CSBENCH_COST_BUDGET")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
@@ -590,6 +638,17 @@ def main(argv: list[str] | None = None) -> int:
     doc_p.add_argument("--platform", help="platform name, used to infer provider")
     doc_p.add_argument("--domain", help="domain; with --platform runs the adapter's full preflight")
     doc_p.add_argument("--task", help="task id; check the minimal permissions THIS benchmark needs")
+
+    sweep_p = sub.add_parser(
+        "sweep",
+        help="reap orphaned cloud resources a crashed run left behind (needs a reaper plugin)")
+    sweep_p.add_argument("--provider", required=True,
+                         help="cloud provider (aws/aliyun/huawei/volcengine)")
+    sweep_p.add_argument("--confirm", action="store_true",
+                         help="actually delete (default: dry-run, only report)")
+    sweep_p.add_argument("--older-than-s", type=float, default=None,
+                         help="only resources older than this many seconds "
+                              "(protects in-flight runs)")
 
     conf_p = sub.add_parser("conformance",
                             help="check an installed domain plugin against the contract")
