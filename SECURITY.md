@@ -15,6 +15,14 @@ privately.
 
 ## Current trust boundary
 
+> **Policy: only run workloads you own or have reviewed.**
+> Clousight Bench is designed for benchmark workloads authored by you or your
+> team. Layers 1+2 (below) defend against incidental exploitation but do **not**
+> contain deliberately hostile code. If you intend to run untrusted third-party
+> workloads, wait for the `ExecutionBackend` abstraction (Docker / Firecracker
+> isolation, tracked in ROADMAP.md under "Workload sandbox, layers 3-5") before
+> doing so in a sensitive environment.
+
 Clousight Bench runs workload executables and reads asset URLs declared by
 manifests. As of the sandbox slice (layers 1+2), those inputs run under three
 enforced constraints:
