@@ -34,6 +34,7 @@ class ToolRegistrationTask(Task):
     title = "Tool registration paths"
     evidence_layer = "B"
     required_permissions = (perm.TOOL_REGISTER,)
+    capability_tags = ("capability/tool-registration",)
     task_revision = "2"
     scorer_revision = "2"
 

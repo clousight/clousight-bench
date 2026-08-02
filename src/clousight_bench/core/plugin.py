@@ -46,6 +46,9 @@ class ProviderAdapter(ABC):
     name: str = "abstract"
     status: AdapterStatus = "experimental"
     provider: str | None = None
+    # Example target dict shown in `csbench list --verbose` and `--json`.
+    # Adapters that have a non-trivial target override this as a class variable.
+    target_example: dict = {}
     # Set by the orchestrator before setup() to this run's run_id, so an adapter
     # can tag the resources it creates (for cost/billing reconciliation). None
     # outside a run (construction, mock/tests). Not part of any fingerprint.
@@ -158,6 +161,9 @@ class Task(ABC):
     # The adapter maps these to each cloud's concrete minimal permissions and
     # verifies them at preflight. Empty = no special permissions declared.
     required_permissions: tuple[str, ...] = ()
+    # Taxonomy tags describing what capability dimension(s) this task exercises.
+    # Cloud-independent; used for structured listing and LLM-consumable output.
+    capability_tags: tuple[str, ...] = ()
 
     @abstractmethod
     def config(self, params: dict[str, Any]) -> dict[str, Any]:

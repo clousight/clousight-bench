@@ -44,6 +44,7 @@ class CostAttributionTask(Task):
     task_revision = "1"
     scorer_revision = "2"  # dropped the inline cost_usd measurement (usage-only)
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
+    capability_tags = ("cost/attribution",)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id,

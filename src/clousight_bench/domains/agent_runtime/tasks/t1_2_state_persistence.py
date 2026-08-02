@@ -34,6 +34,7 @@ class StatePersistenceTask(Task):
     task_revision = "2"
     scorer_revision = "2"
     required_permissions = (perm.SESSION_CREATE, perm.SESSION_STATE)
+    capability_tags = ("reliability/state-persistence",)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id, "probe_state": _PROBE_STATE}

@@ -38,6 +38,7 @@ class StartupLatencyTask(Task):
     task_revision = "1"
     scorer_revision = "1"
     required_permissions = (perm.SESSION_CREATE,)
+    capability_tags = ("performance/cold-start", "performance/warm-start")
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id, "warm_samples": WARM_SAMPLES}

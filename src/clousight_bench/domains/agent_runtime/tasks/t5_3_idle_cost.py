@@ -33,6 +33,7 @@ class IdleCostTask(Task):
     task_revision = "1"
     scorer_revision = "1"
     required_permissions = (perm.SESSION_CREATE,)
+    capability_tags = ("cost/idle",)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}

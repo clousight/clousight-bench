@@ -45,6 +45,7 @@ class FaultRecoveryTask(Task):
     title = "Tool-failure recovery"
     evidence_layer = "C"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
+    capability_tags = ("reliability/fault-recovery",)
     task_revision = "2"
     scorer_revision = "2"
 

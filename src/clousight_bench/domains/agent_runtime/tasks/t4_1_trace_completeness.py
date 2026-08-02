@@ -44,6 +44,7 @@ class TraceCompletenessTask(Task):
     title = "Trace span completeness (OpenInference)"
     evidence_layer = "C"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE, perm.TRACE_READ)
+    capability_tags = ("observability/tracing",)
     task_revision = "2"
     scorer_revision = "2"
 

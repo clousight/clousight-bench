@@ -36,6 +36,35 @@ def _cmd_list(args: argparse.Namespace) -> int:
     if not domains:
         print("no domain packs installed")
         return 1
+    if args.json:
+        import json as _json
+        out = {"schema": "list/1.0", "domains": []}
+        for name, pack in sorted(domains.items()):
+            domain_obj = {
+                "domain": name,
+                "description": pack.description,
+                "tasks": [
+                    {
+                        "task_id": tid,
+                        "title": tcls.title,
+                        "evidence_layer": tcls.evidence_layer,
+                        "capability_tags": list(tcls.capability_tags),
+                    }
+                    for tid, tcls in sorted(pack.tasks().items())
+                ],
+                "platforms": [
+                    {
+                        "platform": pname,
+                        "status": acls.status,
+                        "provider": acls.provider,
+                        "target_example": acls.target_example,
+                    }
+                    for pname, acls in sorted(pack.adapters().items())
+                ],
+            }
+            out["domains"].append(domain_obj)
+        print(_json.dumps(out, indent=2, ensure_ascii=False))
+        return 0
     for name, pack in sorted(domains.items()):
         print(f"domain: {name}")
         if pack.description:
@@ -46,10 +75,9 @@ def _cmd_list(args: argparse.Namespace) -> int:
             continue
         print("  tasks:")
         for task_id, task_cls in sorted(pack.tasks().items()):
-            print(
-                f"    {task_id:<8} {task_cls.title} "
-                f"[evidence={task_cls.evidence_layer}]"
-            )
+            tags = ", ".join(task_cls.capability_tags) or "—"
+            print(f"    {task_id:<8} {task_cls.title} [evidence={task_cls.evidence_layer}]")
+            print(f"             tags: {tags}")
         print("  platforms:")
         for platform, adapter_cls in sorted(pack.adapters().items()):
             provider = adapter_cls.provider or "local"
@@ -57,6 +85,9 @@ def _cmd_list(args: argparse.Namespace) -> int:
                 f"    {platform:<24} status={adapter_cls.status} "
                 f"provider={provider}"
             )
+            if adapter_cls.target_example:
+                import json as _json
+                print(f"             target_example: {_json.dumps(adapter_cls.target_example)}")
     return 0
 
 
@@ -164,76 +195,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
     )
     print(record.to_json())
     return _exit_code(record)
-
-
-def _cmd_run_plan(args: argparse.Namespace) -> int:
-    import os
-
-    import yaml as _yaml
-    from clousight_bench.core.runplan import RunPlan, execute_plan
-    from clousight_bench.core.schema import RunSpec
-
-    plan_path = Path(args.plan_file)
-    try:
-        spec = _yaml.safe_load(plan_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        print(f"error: cannot read plan file {plan_path}: {exc}", file=sys.stderr)
-        return 2
-    if not isinstance(spec, dict):
-        print("error: plan file must be a YAML mapping", file=sys.stderr)
-        return 2
-
-    domain = spec.get("domain")
-    platform = spec.get("platform")
-    if not domain or not platform:
-        print("error: plan must have 'domain' and 'platform'", file=sys.stderr)
-        return 2
-
-    base_target = spec.get("target") or {}
-    if args.config:
-        cfg = _load_config(args.config)
-        base_target = {**cfg.get("target", {}), **base_target}
-
-    task_specs = spec.get("tasks") or []
-    if not task_specs:
-        print("error: plan has no tasks", file=sys.stderr)
-        return 2
-
-    results_dir = Path(args.results)
-    allow_live = args.allow_live or (os.environ.get("CSBENCH_ALLOW_LIVE", "") == "1")
-    cost_budget = args.cost_budget or (
-        float(os.environ["CSBENCH_COST_BUDGET"])
-        if "CSBENCH_COST_BUDGET" in os.environ else None
-    )
-
-    ok = failed = 0
-    for t in task_specs:
-        task_id = t.get("task")
-        if not task_id:
-            print("error: task entry missing 'task' key", file=sys.stderr)
-            return 2
-        repeat = int(t.get("repeat", 1))
-        warmup = int(t.get("warmup", 0))
-        params = t.get("params") or {}
-        run_spec = RunSpec(domain, task_id, platform,
-                           target=dict(base_target), params=params)
-        plan = RunPlan(run_spec, repeat=repeat, warmup=warmup)
-        print(f"running {task_id}  repeat={repeat}  warmup={warmup} ...")
-        try:
-            agg = execute_plan(
-                plan, results_dir=results_dir,
-                allow_live=allow_live, cost_budget=cost_budget,
-            )
-            status_str = "  ".join(f"{s}={n}" for s, n in sorted(agg.status_counts.items()))
-            print(f"  v {task_id}  plan={agg.plan_id}  {status_str}")
-            ok += 1
-        except Exception as exc:
-            print(f"  x {task_id}  {exc}", file=sys.stderr)
-            failed += 1
-
-    total = ok + failed
-    print(f"\n{total} task(s): {ok} ok, {failed} failed")
-    return 0 if failed == 0 else 1
 
 
 def _cmd_trace(args: argparse.Namespace) -> int:
@@ -667,7 +628,6 @@ def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "list": _cmd_list,
         "run": _cmd_run,
-        "run-plan": _cmd_run_plan,
         "report": _cmd_report,
         "trace": _cmd_trace,
         "rollup": _cmd_rollup,
@@ -691,6 +651,7 @@ def main(argv: list[str] | None = None) -> int:
 
     list_p = sub.add_parser("list", help="list installed domains, tasks and platforms")
     list_p.add_argument("--verbose", action="store_true", help="show task and adapter metadata")
+    list_p.add_argument("--json", action="store_true", help="output as JSON (LLM-friendly)")
 
     run_p = sub.add_parser("run", help="run one task against one platform")
     run_p.add_argument("--domain", required=True)
@@ -723,17 +684,6 @@ def main(argv: list[str] | None = None) -> int:
                        help="cumulative USD cap across runs in this --results dir; a "
                             "billable run that would cross it is stopped before "
                             "provisioning. Env: CSBENCH_COST_BUDGET")
-
-    rp_p = sub.add_parser("run-plan",
-        help="run a YAML batch plan (multiple tasks with repeat/warmup)")
-    rp_p.add_argument("plan_file", help="YAML plan file")
-    rp_p.add_argument("--config",
-        help="YAML file with base `target:` and `params:` (merged with plan file)")
-    rp_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
-    rp_p.add_argument("--allow-live", action="store_true",
-        help="acknowledge real-cloud cost (required for live platforms)")
-    rp_p.add_argument("--cost-budget", type=float, default=None,
-        help="cumulative USD cap across all tasks in this plan")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))

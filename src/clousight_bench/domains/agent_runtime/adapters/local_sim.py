@@ -23,3 +23,8 @@ class LocalSimAdapter(ManagedAgentRuntimeAdapter):
     name = "local-sim"
     status = "reference"
     provider = None
+    target_example: dict = {
+        "startup": {"cold_ms": 200, "warm_ms": 10},
+        "recovery": {"mode": "auto-retry"},
+        "limits": {"cpu_seconds": 30},
+    }

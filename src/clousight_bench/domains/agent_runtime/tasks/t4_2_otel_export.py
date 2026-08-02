@@ -45,6 +45,7 @@ class OtelExportTask(Task):
     title = "OTel export compatibility"
     evidence_layer = "B"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE, perm.TRACE_EXPORT)
+    capability_tags = ("observability/tracing",)
     task_revision = "2"
     scorer_revision = "2"
 

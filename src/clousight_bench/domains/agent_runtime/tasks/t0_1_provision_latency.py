@@ -38,6 +38,7 @@ class ProvisionLatencyTask(Task):
     task_revision = "1"
     scorer_revision = "1"
     required_permissions = (perm.PROVISION, perm.DEPROVISION)
+    capability_tags = ("performance/provisioning",)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
