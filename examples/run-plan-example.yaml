@@ -1,0 +1,20 @@
+# Example batch run plan for csbench run-plan
+version: "1"
+domain: agent-runtime
+platform: local-sim
+target:
+  startup:
+    cold_ms: 200
+    warm_ms: 10
+  recovery:
+    mode: auto-retry
+tasks:
+  - task: T1.1
+    repeat: 5
+    warmup: 1
+  - task: T1.3
+    repeat: 5
+    warmup: 1
+  - task: T1.4
+    repeat: 3
+    warmup: 0
