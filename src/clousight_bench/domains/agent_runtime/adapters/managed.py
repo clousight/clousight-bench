@@ -249,6 +249,9 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_concurrency_ceiling(self) -> Any:
         return self._transport_().probe_concurrency_ceiling()
 
+    def probe_fault_recovery(self, fault_call_index: int = 3) -> Any:
+        return self._transport_().probe_fault_recovery(fault_call_index)
+
     def provision(self, spec: dict[str, Any] | None = None) -> Any:
         """Provision through the transport, but first stamp this run's resource
         tags into the spec (so a wired transport tags the real cloud resource)
