@@ -128,7 +128,7 @@ class ProvisionLatencyTask(Task):
         ready_all = list(raw.get("ready_all") or [True])
         if not latencies:
             latencies = [0.0]
-        p = percentiles(latencies)
+        p = percentiles(latencies, ps=(25, 50, 75, 95, 99))
         median_ms = round(p[50], 2)
         p25_ms = round(p[25], 2)
         p75_ms = round(p[75], 2)
