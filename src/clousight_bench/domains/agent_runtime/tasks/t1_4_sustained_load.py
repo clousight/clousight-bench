@@ -37,8 +37,8 @@ class SustainedLoadTask(Task):
     task_id = "T1.4"
     title = "Sustained load & tail latency"
     evidence_layer = "B"
-    task_revision = "2"
-    scorer_revision = "2"
+    task_revision = "3"
+    scorer_revision = "3"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
     capability_tags = ("performance/sustained-throughput",)
 
@@ -66,6 +66,7 @@ class SustainedLoadTask(Task):
                 "error_rate": r.error_rate,
                 "transport_error_rate": getattr(r, "transport_error_rate", 0.0),
                 "runtime_error_rate": getattr(r, "runtime_error_rate", 0.0),
+                "tool_error_rate": getattr(r, "tool_error_rate", 0.0),
                 "requests": r.requests,
                 "duration_s": r.duration_s,
                 "target_rps": TARGET_RPS,
@@ -97,6 +98,7 @@ class SustainedLoadTask(Task):
         error_rate = float(raw["error_rate"])
         transport_err = float(raw.get("transport_error_rate") or 0.0)
         runtime_err = float(raw.get("runtime_error_rate") or 0.0)
+        tool_err = float(raw.get("tool_error_rate") or 0.0)
         findings = []
         if transport_err > 0:
             findings.append(
@@ -118,14 +120,27 @@ class SustainedLoadTask(Task):
                 Finding(
                     code="agent_runtime.load_runtime_errors",
                     severity="warning",
-                    summary=f"{runtime_err:.1%} of requests failed with runtime errors (non-2xx)",
+                    summary=f"{runtime_err:.1%} of requests failed with runtime errors (AgentRun returned non-2xx)",
                     evidence="B",
                     details={"runtime_error_rate": runtime_err,
                              "target_rps": raw["target_rps"],
                              "throughput_rps": raw["throughput_rps"]},
                 )
             )
-        if error_rate > 0 and transport_err == 0 and runtime_err == 0:
+        if tool_err > 0:
+            findings.append(
+                Finding(
+                    code="agent_runtime.load_tool_errors",
+                    severity="info",
+                    summary=(
+                        f"{tool_err:.1%} of requests had mock-tool failures (AgentRun invoke succeeded, "
+                        "downstream tool returned error). This reflects mock-server capacity, not AgentRun rate limiting."
+                    ),
+                    evidence="B",
+                    details={"tool_error_rate": tool_err, "target_rps": raw["target_rps"]},
+                )
+            )
+        if error_rate > 0 and transport_err == 0 and runtime_err == 0 and tool_err == 0:
             # Adapter didn't disaggregate; surface the total.
             findings.append(
                 Finding(
@@ -151,11 +166,13 @@ class SustainedLoadTask(Task):
                     value=transport_err, unit="", evidence="B"),
                 "runtime_error_rate": Measurement(
                     value=runtime_err, unit="", evidence="B"),
+                "tool_error_rate": Measurement(
+                    value=tool_err, unit="", evidence="B"),
             },
             findings=findings,
             notes=(f"sustained {raw['throughput_rps']}rps of {raw['target_rps']} target; "
                    f"p50={raw['p50_ms']}ms p99={raw['p99_ms']}ms "
-                   f"err={error_rate:.1%} (transport={transport_err:.1%} runtime={runtime_err:.1%})"),
+                   f"err={error_rate:.1%} (transport={transport_err:.1%} runtime={runtime_err:.1%} tool={tool_err:.1%})"),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

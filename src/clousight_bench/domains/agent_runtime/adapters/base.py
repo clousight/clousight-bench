@@ -65,9 +65,11 @@ class LoadResult:
     duration_s: float      # observation window length
     # Error breakdown (optional; default=0.0 when adapter doesn't disaggregate).
     # transport_error_rate: SSL / connection failures before the runtime was reached.
-    # runtime_error_rate: non-2xx responses from the runtime itself.
+    # runtime_error_rate: AgentRun data-plane returned non-2xx HTTP (exception with HTTP status 4xx/5xx).
+    # tool_error_rate: AgentRun invoke succeeded, mock tool returned ok=False (mock-server capacity issue).
     transport_error_rate: float = 0.0
     runtime_error_rate: float = 0.0
+    tool_error_rate: float = 0.0   # 0..1 mock-tool failures (AgentRun OK, tool returned error)
 
 
 @dataclass
@@ -411,6 +413,18 @@ class AgentRuntimeAdapter(ProviderAdapter):
         """Report the concurrency ceiling (T5.4): max in-flight admitted and
         whether it is a hard cap."""
         raise CapabilityNotSupported("probe_concurrency_ceiling")
+
+    def probe_fault_recovery(self, fault_call_index: int = 3) -> "InvocationTrace":
+        """Run the T1.3 request-level fault injection probe.
+
+        Encodes the fault spec in each request body (fail_after_n_calls=fault_call_index)
+        so the deployed agent returns a synthetic failure on the Nth call without
+        relying on shared mock-server state. Transports that support this method
+        override it; the default raises CapabilityNotSupported so the task can
+        fall back to the legacy mock-server fault path when the transport has not
+        yet implemented this method.
+        """
+        raise CapabilityNotSupported("probe_fault_recovery")
 
     # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
     # An always-on runtime instance is stood up before it can host sessions and

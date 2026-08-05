@@ -102,6 +102,20 @@ class RateLimitTask(Task):
                     details={"throttle_onset_rps": onset},
                 )
             )
+        if onset <= 0:
+            findings.append(
+                Finding(
+                    code="agent_runtime.no_rate_limiting_observed",
+                    severity="info",
+                    summary=(
+                        "No AgentRun-level 429 throttling observed up to 80 concurrent requests. "
+                        "If T1.4 shows high error rates, check tool_error_rate — mock-server saturation "
+                        "is distinct from AgentRun rate limiting."
+                    ),
+                    evidence="B",
+                    details={"burst_levels_tested": [10, 20, 40, 80]},
+                )
+            )
         return TaskResult(
             measurements={
                 "rate_limit_capability": Measurement(
