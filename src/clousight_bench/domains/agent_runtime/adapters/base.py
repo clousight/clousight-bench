@@ -185,6 +185,33 @@ class DeprovisionResult:
     residual: list[str] = field(default_factory=list)  # ids of any leaked/residual resources
 
 
+@dataclass
+class RetryStormResult:
+    """Whether all-call-failure triggers abort-on-first or infinite retry (T1.10)."""
+
+    storm_behavior: str   # "abort_on_first_failure" | "timeout_loop" | "unexpected_success"
+    calls_attempted: int  # physical tool call attempts before abort/timeout
+    duration_ms: float    # wall time of the probe window
+
+
+@dataclass
+class ConcurrentWriteResult:
+    """Whether two simultaneous writes to the same state key corrupt it (T1.11)."""
+
+    write_safe: bool  # True if the final value is one of the two written values
+    winner: str       # "session_a" | "session_b" | "unknown"
+
+
+@dataclass
+class HOLResult:
+    """Whether a slow request blocks fast ones sharing the same session queue (T1.12)."""
+
+    blocked: bool       # True if fast_p99 > slow_p50 * 0.5
+    fast_p50_ms: float  # median latency of the fast requests
+    slow_p50_ms: float  # median latency of the slow request
+    hol_ratio: float    # fast_p99 / slow_p50 (> 0.5 = blocked)
+
+
 class CapabilityNotSupported(NotImplementedError):
     """A runtime does not offer a capability a task probes for.
 
@@ -425,6 +452,32 @@ class AgentRuntimeAdapter(ProviderAdapter):
         yet implemented this method.
         """
         raise CapabilityNotSupported("probe_fault_recovery")
+
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> "RetryStormResult":
+        """Run the T1.10 retry-storm probe.
+
+        Injects a persistent fault (every call fails) on a 5-call plan and
+        observes whether the runtime aborts cleanly on the first failure or
+        loops indefinitely until the window expires.
+        """
+        raise CapabilityNotSupported("probe_retry_storm")
+
+    def probe_concurrent_writes(self) -> "ConcurrentWriteResult":
+        """Run the T1.11 concurrent state-write probe.
+
+        Two sessions simultaneously write to the same state key; the result
+        must be one of the two written values (last-writer-wins, no corruption).
+        """
+        raise CapabilityNotSupported("probe_concurrent_writes")
+
+    def probe_hol_blocking(self) -> "HOLResult":
+        """Run the T1.12 head-of-line blocking probe.
+
+        Fires 1 slow request and 5 fast requests concurrently on the same
+        session. If the fast requests are delayed nearly as long as the slow
+        one, the runtime has HOL-blocking in its session queue.
+        """
+        raise CapabilityNotSupported("probe_hol_blocking")
 
     # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
     # An always-on runtime instance is stood up before it can host sessions and

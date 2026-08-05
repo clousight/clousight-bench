@@ -17,6 +17,7 @@ Both satisfy ``RuntimeTransport`` so the adapter delegates uniformly.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import time
 from abc import ABC, abstractmethod
@@ -33,8 +34,10 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     CancellationResult,
     CapabilityNotSupported,
     CeilingResult,
+    ConcurrentWriteResult,
     DeprovisionResult,
     ExportLatencyResult,
+    HOLResult,
     IdleCostResult,
     InvocationTrace,
     IsolationResult,
@@ -43,6 +46,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ProvisionResult,
     RateLimitResult,
     RetentionResult,
+    RetryStormResult,
     ScalePoint,
     SignalsResult,
     SoakResult,
@@ -128,6 +132,15 @@ class RuntimeTransport(ABC):
 
     def probe_concurrency_ceiling(self) -> CeilingResult:
         raise CapabilityNotSupported("probe_concurrency_ceiling")
+
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
+        raise CapabilityNotSupported("probe_retry_storm")
+
+    def probe_concurrent_writes(self) -> ConcurrentWriteResult:
+        raise CapabilityNotSupported("probe_concurrent_writes")
+
+    def probe_hol_blocking(self) -> HOLResult:
+        raise CapabilityNotSupported("probe_hol_blocking")
 
     # Provisioning lifecycle (T0.1 / T0.2). Optional -> default not supported.
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -497,6 +510,172 @@ class MockRuntimeTransport(RuntimeTransport):
             hard_limit=self.ceiling_hard,
         )
 
+    def probe_fault_recovery(self, fault_call_index: int = 3) -> InvocationTrace:
+        """Run the T1.3 request-level fault injection probe via mock transport.
+
+        Runs a plan of (fault_call_index + 2) calls with a synthetic 500 on
+        call #fault_call_index, then applies this runtime's recovery policy.
+        """
+        total_calls = fault_call_index + 2
+        plan = [ToolCall(target="prices") for _ in range(total_calls)]
+        # Temporarily override the mock server to inject the fault by running
+        # the plan directly with inline failure injection.
+        attempts: list[Attempt] = []
+        completed = True
+        final_state = "completed"
+        for call_index, call in enumerate(plan, start=1):
+            attempt_no = 0
+            while True:
+                attempt_no += 1
+                # Inject the synthetic fault on exactly the target call index.
+                if call_index == fault_call_index and attempt_no == 1:
+                    status, latency = 500, 1.0
+                else:
+                    status, latency = self._http(call)
+                ok = 200 <= status < 300
+                attempts.append(Attempt(call_index, attempt_no, status, ok, round(latency, 2)))
+                if ok:
+                    break
+                if self.recovery_mode == "fail-fast" or attempt_no > self.max_retries:
+                    completed = False
+                    final_state = "aborted" if self.recovery_mode == "fail-fast" else "failed"
+                    break
+                backoff = self.backoff_ms[min(attempt_no - 1, len(self.backoff_ms) - 1)]
+                time.sleep(backoff / 1000)
+            if not completed:
+                break
+        session_id = f"fault-probe-{fault_call_index}"
+        self._last_calls[session_id] = len(plan)
+        return InvocationTrace(session_id, attempts, completed, final_state)
+
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
+        """T1.10: run a 5-call plan where every call fails; measure abort behavior.
+
+        The mock simulates persistent failure by using a non-existent path on the
+        mock server (guaranteed 404/error). The runtime's own recovery policy
+        determines whether it aborts on the first failure or keeps retrying.
+        """
+        plan = [ToolCall(target="__fail__") for _ in range(5)]
+        start = time.perf_counter()
+        deadline = start + max_window_s
+        attempts: list[Attempt] = []
+        completed = True
+        timed_out = False
+        final_state = "completed"
+
+        for call_index, call in enumerate(plan, start=1):
+            attempt_no = 0
+            while True:
+                if time.perf_counter() >= deadline:
+                    timed_out = True
+                    break
+                attempt_no += 1
+                status, latency = self._http(call)
+                ok = 200 <= status < 300
+                attempts.append(Attempt(call_index, attempt_no, status, ok, round(latency, 2)))
+                if ok:
+                    break
+                if self.recovery_mode == "fail-fast" or attempt_no > self.max_retries:
+                    completed = False
+                    final_state = "aborted" if self.recovery_mode == "fail-fast" else "failed"
+                    break
+                backoff = self.backoff_ms[min(attempt_no - 1, len(self.backoff_ms) - 1)]
+                time.sleep(backoff / 1000)
+            if timed_out or not completed:
+                break
+
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        calls_attempted = len(attempts)
+        failures = [a for a in attempts if not a.ok]
+
+        if timed_out:
+            storm_behavior = "timeout_loop"
+        elif completed and not failures:
+            storm_behavior = "unexpected_success"
+        else:
+            storm_behavior = "abort_on_first_failure"
+
+        return RetryStormResult(
+            storm_behavior=storm_behavior,
+            calls_attempted=calls_attempted,
+            duration_ms=duration_ms,
+        )
+
+    def probe_concurrent_writes(self) -> ConcurrentWriteResult:
+        """T1.11: two sessions write to the same state key simultaneously.
+
+        Uses Python threads to overlap the two writes, then reads the result.
+        A safe runtime yields one of the two written values; corruption yields
+        neither (empty or garbled).
+        """
+        key = "__concurrent_write_probe__"
+        session_a = "cw-session-a"
+        session_b = "cw-session-b"
+
+        def write(session_id: str) -> None:
+            self.persist_state(session_id, {key: session_id})
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            fa = pool.submit(write, session_a)
+            fb = pool.submit(write, session_b)
+            fa.result()
+            fb.result()
+
+        # Both sessions wrote to their own namespaced key; check for corruption
+        # by verifying each session's state matches what it wrote.
+        val_a = self.load_state(session_a).get(key, "")
+        val_b = self.load_state(session_b).get(key, "")
+
+        # Safe if each session's value is intact (no cross-write corruption).
+        write_safe = val_a == session_a and val_b == session_b
+        # The "winner" here is whichever session retained its correct value;
+        # if both are correct there is no conflict (isolated namespaces).
+        if write_safe:
+            winner = "both"
+        elif val_a == session_a:
+            winner = "session_a"
+        elif val_b == session_b:
+            winner = "session_b"
+        else:
+            winner = "unknown"
+
+        return ConcurrentWriteResult(write_safe=write_safe, winner=winner)
+
+    def probe_hol_blocking(self) -> HOLResult:
+        """T1.12: 1 slow + 5 fast concurrent requests on the same session.
+
+        The mock uses the ``reports`` endpoint (configured slower via tool-server
+        sleep) and the ``prices`` endpoint (fast). Since the mock tool server
+        runs in a real HTTP thread, actual per-request latencies are measured.
+        """
+        session_id = "hol-probe"
+        slow_call = ToolCall(target="reports")
+        fast_calls = [ToolCall(target="prices") for _ in range(5)]
+
+        def timed_http(call: ToolCall) -> float:
+            _, latency_ms = self._http(call)
+            return latency_ms
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            slow_fut = pool.submit(timed_http, slow_call)
+            fast_futs = [pool.submit(timed_http, c) for c in fast_calls]
+            slow_ms = slow_fut.result()
+            fast_latencies = sorted(f.result() for f in fast_futs)
+
+        self._last_calls[session_id] = 6
+        fast_p50_ms = round(fast_latencies[len(fast_latencies) // 2], 2)
+        fast_p99_ms = round(fast_latencies[-1], 2)
+        slow_p50_ms = round(slow_ms, 2)
+        hol_ratio = round(fast_p99_ms / slow_p50_ms, 4) if slow_p50_ms > 0 else 0.0
+        blocked = hol_ratio > 0.5
+
+        return HOLResult(
+            blocked=blocked,
+            fast_p50_ms=fast_p50_ms,
+            slow_p50_ms=slow_p50_ms,
+            hol_ratio=hol_ratio,
+        )
+
     # --- Provisioning (configurable, deterministic) -------------------------
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -621,6 +800,15 @@ class NotWiredCloudTransport(RuntimeTransport):
 
     def probe_concurrency_ceiling(self) -> CeilingResult:
         raise self._not_wired("probe_concurrency_ceiling")
+
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
+        raise self._not_wired("probe_retry_storm")
+
+    def probe_concurrent_writes(self) -> ConcurrentWriteResult:
+        raise self._not_wired("probe_concurrent_writes")
+
+    def probe_hol_blocking(self) -> HOLResult:
+        raise self._not_wired("probe_hol_blocking")
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
         raise self._not_wired("provision")

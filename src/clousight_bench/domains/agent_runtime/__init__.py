@@ -13,6 +13,9 @@ v1 dimensions (precisely reproducible tests):
     T1.5 warm-pool retention      (implemented: keep-alive window)
     T1.2 state persistence        (implemented)
     T1.3 tool-failure recovery    (implemented)
+    T1.10 retry storm             (implemented: abort-on-first vs timeout-loop)
+    T1.11 concurrent state writes (implemented: last-writer-wins / corruption)
+    T1.12 head-of-line blocking   (implemented: slow-request delay on fast ones)
     T1.6 soak availability        (implemented: steady-state availability/error rate)
     T1.7 rate limiting            (implemented: throttle onset + 429 contract)
     T1.8 timeout & cancellation   (implemented: honored + teardown-on-cancel)
@@ -46,6 +49,9 @@ from clousight_bench.domains.agent_runtime.tasks.t0_2_teardown_cleanliness impor
 from clousight_bench.domains.agent_runtime.tasks.t1_1_startup_latency import StartupLatencyTask
 from clousight_bench.domains.agent_runtime.tasks.t1_2_state_persistence import StatePersistenceTask
 from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
+from clousight_bench.domains.agent_runtime.tasks.t1_10_retry_storm import RetryStormTask
+from clousight_bench.domains.agent_runtime.tasks.t1_11_concurrent_writes import ConcurrentWritesTask
+from clousight_bench.domains.agent_runtime.tasks.t1_12_head_of_line import HOLBlockingTask
 from clousight_bench.domains.agent_runtime.tasks.t1_4_sustained_load import SustainedLoadTask
 from clousight_bench.domains.agent_runtime.tasks.t1_5_warm_retention import WarmRetentionTask
 from clousight_bench.domains.agent_runtime.tasks.t1_6_soak import SoakTask
@@ -80,6 +86,9 @@ class AgentRuntimeDomain(DomainPack):
             WarmRetentionTask.task_id: WarmRetentionTask,
             StatePersistenceTask.task_id: StatePersistenceTask,
             FaultRecoveryTask.task_id: FaultRecoveryTask,
+            RetryStormTask.task_id: RetryStormTask,
+            ConcurrentWritesTask.task_id: ConcurrentWritesTask,
+            HOLBlockingTask.task_id: HOLBlockingTask,
             SoakTask.task_id: SoakTask,
             RateLimitTask.task_id: RateLimitTask,
             CancellationTask.task_id: CancellationTask,

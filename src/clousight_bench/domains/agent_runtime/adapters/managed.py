@@ -252,6 +252,15 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_fault_recovery(self, fault_call_index: int = 3) -> Any:
         return self._transport_().probe_fault_recovery(fault_call_index)
 
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> Any:
+        return self._transport_().probe_retry_storm(max_window_s)
+
+    def probe_concurrent_writes(self) -> Any:
+        return self._transport_().probe_concurrent_writes()
+
+    def probe_hol_blocking(self) -> Any:
+        return self._transport_().probe_hol_blocking()
+
     def provision(self, spec: dict[str, Any] | None = None) -> Any:
         """Provision through the transport, but first stamp this run's resource
         tags into the spec (so a wired transport tags the real cloud resource)
