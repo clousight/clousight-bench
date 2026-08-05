@@ -36,6 +36,7 @@ class TeardownCleanlinessTask(Task):
     scorer_revision = "1"
     required_permissions = (perm.PROVISION, perm.DEPROVISION)
     capability_tags = ("performance/provisioning",)
+    requires_mock_server = False  # control-plane only: no tool-call mock needed
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}

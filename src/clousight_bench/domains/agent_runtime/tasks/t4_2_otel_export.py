@@ -32,10 +32,12 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
 PLAN = [ToolCall(target="prices", params={"provider": "aws"}) for _ in range(2)]
 
 
-def _post(base_url: str, path: str, body: dict[str, Any]) -> None:
+def _post(base_url: str, path: str, body: dict[str, Any], token: str | None = None) -> None:
     data = json.dumps(body).encode("utf-8")
-    req = request.Request(f"{base_url}{path}", data=data, method="POST",
-                          headers={"Content-Type": "application/json"})
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if token:
+        headers["X-Clousight-Token"] = token
+    req = request.Request(f"{base_url}{path}", data=data, method="POST", headers=headers)
     with request.urlopen(req, timeout=10) as resp:
         resp.read()
 
@@ -66,7 +68,8 @@ class OtelExportTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T4.2 needs an AgentRuntimeAdapter")
-        _post(adapter.mock_base_url.rstrip("/"), "/reset", {})
+        _token: str | None = (adapter.target or {}).get("mock_token") or None
+        _post(adapter.mock_base_url.rstrip("/"), "/reset", {}, _token)
         session = adapter.create_session()
         try:
             adapter.run_tool_plan(session, PLAN)

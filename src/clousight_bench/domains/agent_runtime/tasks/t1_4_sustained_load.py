@@ -37,8 +37,8 @@ class SustainedLoadTask(Task):
     task_id = "T1.4"
     title = "Sustained load & tail latency"
     evidence_layer = "B"
-    task_revision = "1"
-    scorer_revision = "1"
+    task_revision = "2"
+    scorer_revision = "2"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
     capability_tags = ("performance/sustained-throughput",)
 
@@ -64,6 +64,8 @@ class SustainedLoadTask(Task):
                 "p99_ms": r.p99_ms,
                 "jitter_ms": r.jitter_ms,
                 "error_rate": r.error_rate,
+                "transport_error_rate": getattr(r, "transport_error_rate", 0.0),
+                "runtime_error_rate": getattr(r, "runtime_error_rate", 0.0),
                 "requests": r.requests,
                 "duration_s": r.duration_s,
                 "target_rps": TARGET_RPS,
@@ -93,8 +95,38 @@ class SustainedLoadTask(Task):
                 unsupported=True,
             )
         error_rate = float(raw["error_rate"])
+        transport_err = float(raw.get("transport_error_rate") or 0.0)
+        runtime_err = float(raw.get("runtime_error_rate") or 0.0)
         findings = []
-        if error_rate > 0:
+        if transport_err > 0:
+            findings.append(
+                Finding(
+                    code="agent_runtime.load_transport_errors",
+                    severity="warning",
+                    summary=(
+                        f"{transport_err:.1%} of requests failed with transport errors "
+                        "(SSL/connection) — indicates connection-pool exhaustion or "
+                        "network instability, not runtime errors"
+                    ),
+                    evidence="B",
+                    details={"transport_error_rate": transport_err,
+                             "target_rps": raw["target_rps"]},
+                )
+            )
+        if runtime_err > 0:
+            findings.append(
+                Finding(
+                    code="agent_runtime.load_runtime_errors",
+                    severity="warning",
+                    summary=f"{runtime_err:.1%} of requests failed with runtime errors (non-2xx)",
+                    evidence="B",
+                    details={"runtime_error_rate": runtime_err,
+                             "target_rps": raw["target_rps"],
+                             "throughput_rps": raw["throughput_rps"]},
+                )
+            )
+        if error_rate > 0 and transport_err == 0 and runtime_err == 0:
+            # Adapter didn't disaggregate; surface the total.
             findings.append(
                 Finding(
                     code="agent_runtime.load_errors",
@@ -115,10 +147,15 @@ class SustainedLoadTask(Task):
                 "jitter_ms": Measurement(value=raw["jitter_ms"], unit="ms", evidence="B"),
                 "error_rate_under_load": Measurement(
                     value=error_rate, unit="", evidence="B"),
+                "transport_error_rate": Measurement(
+                    value=transport_err, unit="", evidence="B"),
+                "runtime_error_rate": Measurement(
+                    value=runtime_err, unit="", evidence="B"),
             },
             findings=findings,
             notes=(f"sustained {raw['throughput_rps']}rps of {raw['target_rps']} target; "
-                   f"p50={raw['p50_ms']}ms p99={raw['p99_ms']}ms err={error_rate:.1%}"),
+                   f"p50={raw['p50_ms']}ms p99={raw['p99_ms']}ms "
+                   f"err={error_rate:.1%} (transport={transport_err:.1%} runtime={runtime_err:.1%})"),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

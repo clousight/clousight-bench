@@ -63,6 +63,11 @@ class LoadResult:
     error_rate: float      # 0.0..1.0 of requests that failed under load
     requests: int          # total requests issued during the window
     duration_s: float      # observation window length
+    # Error breakdown (optional; default=0.0 when adapter doesn't disaggregate).
+    # transport_error_rate: SSL / connection failures before the runtime was reached.
+    # runtime_error_rate: non-2xx responses from the runtime itself.
+    transport_error_rate: float = 0.0
+    runtime_error_rate: float = 0.0
 
 
 @dataclass
@@ -144,6 +149,10 @@ class IsolationResult:
     tenant_isolated: bool             # workloads of different tenants are isolated
     network_egress_controlled: bool   # outbound network is restricted by default
     filesystem_isolated: bool         # the workload filesystem is private/ephemeral
+    # Dimensions whose value comes from platform documentation, not live measurement.
+    # Adapters that hardcode a dimension list its name here so the scorer can apply
+    # evidence="A" instead of evidence="B" and exclude it from measured_score.
+    platform_asserted_dimensions: list = field(default_factory=list)
 
 
 @dataclass
