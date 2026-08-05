@@ -30,8 +30,8 @@ class IdleCostTask(Task):
     task_id = "T5.3"
     title = "Idle / scale-to-zero cost"
     evidence_layer = "B"
-    task_revision = "1"
-    scorer_revision = "1"
+    task_revision = "2"
+    scorer_revision = "2"
     required_permissions = (perm.SESSION_CREATE,)
     capability_tags = ("cost/idle",)
 
@@ -86,14 +86,23 @@ class IdleCostTask(Task):
                 code="agent_runtime.no_scale_to_zero", severity="info",
                 summary="runtime bills while idle (no scale-to-zero)", evidence="B",
                 details={"idle_cost_per_hour": raw["idle_cost_per_hour"]}))
+        findings.append(Finding(
+            code="agent_runtime.idle_cost_platform_asserted",
+            severity="info",
+            summary=(
+                "idle cost=0 (scale-to-zero) is a platform documentation claim for "
+                "FC-based AgentRun; not independently measured via billing API"
+            ),
+            evidence="A",
+        ))
         return TaskResult(
             measurements={
                 "idle_cost_capability": Measurement(
                     value="supported", unit="", evidence="B"),
                 "scales_to_zero": Measurement(
-                    value=scales_to_zero, unit="", evidence="B"),
+                    value=scales_to_zero, unit="", evidence="A"),
                 "idle_cost_per_hour": Measurement(
-                    value=raw["idle_cost_per_hour"], unit="USD/h", evidence="B"),
+                    value=raw["idle_cost_per_hour"], unit="USD/h", evidence="A"),
             },
             findings=findings,
             notes=(f"scales_to_zero={scales_to_zero} "
