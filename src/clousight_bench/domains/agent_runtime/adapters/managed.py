@@ -52,6 +52,11 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
         super().__init__(target)
         self._transport: RuntimeTransport | None = None
 
+    @property
+    def session_cold_start_is_provision(self) -> bool:
+        """Delegates to the transport so the flag survives a mock<->real switch."""
+        return bool(getattr(self._transport_(), "session_cold_start_is_provision", False))
+
     # --- mode / endpoint / client ------------------------------------------
 
     @property
@@ -219,6 +224,9 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
 
     def probe_rate_limit(self) -> Any:
         return self._transport_().probe_rate_limit()
+
+    def probe_ttft(self) -> float:
+        return self._transport_().probe_ttft()
 
     def probe_cancellation(self) -> Any:
         return self._transport_().probe_cancellation()

@@ -49,6 +49,7 @@ class ScalePoint:
     concurrency: int
     success_rate: float  # 0.0..1.0 of invocations that succeeded at this level
     p95_ms: float        # 95th-percentile latency observed at this level
+    observed_instances: int | None = None  # actual instance count post-burst (None if unsupported)
 
 
 @dataclass
@@ -193,6 +194,13 @@ class AgentRuntimeAdapter(ProviderAdapter):
     name = "abstract-agent-runtime"
 
     @property
+    def session_cold_start_is_provision(self) -> bool:
+        """True when ``create_session`` has no cloud round-trip (session ID is
+        client-local). Cold-start cost lives in T0.1 (provision), not T1.1.
+        Override in transports where session creation is a cheap local operation."""
+        return False
+
+    @property
     def mock_base_url(self) -> str:
         """Where the pinned tool universe lives. Local tasks inject this."""
         return str(self.target.get("mock_base_url", "http://127.0.0.1:8770"))
@@ -217,7 +225,8 @@ class AgentRuntimeAdapter(ProviderAdapter):
         report = super().preflight(task)
         provider = infer_provider(self.target, self.name)
         if provider is not None:  # real cloud platform
-            report.add(pf.mock_reachable_check(str(self.target.get("mock_base_url", ""))))
+            if getattr(task, "requires_mock_server", True):
+                report.add(pf.mock_reachable_check(str(self.target.get("mock_base_url", ""))))
             report.add(*self.check_permissions(task))
         return report
 
@@ -348,6 +357,16 @@ class AgentRuntimeAdapter(ProviderAdapter):
         """Report throttling behaviour once demand exceeds quota (T1.7): the onset
         rps, advertised Retry-After, and whether a proper 429 is returned."""
         raise CapabilityNotSupported("probe_rate_limit")
+
+    def probe_ttft(self) -> float:
+        """Time-to-first-token via streaming invoke (T1.9).
+
+        Fire a single tool call with ``stream=True`` and return the milliseconds
+        elapsed from sending the request to receiving the first non-empty SSE
+        ``data:`` chunk. A runtime that does not support streaming invoke returns
+        the full round-trip latency (RTT) as a best-effort proxy.
+        CapabilityNotSupported = the transport cannot issue streaming requests at all."""
+        raise CapabilityNotSupported("probe_ttft")
 
     def probe_cancellation(self) -> CancellationResult:
         """Report whether a timed-out / cancelled request is honored and still

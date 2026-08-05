@@ -105,6 +105,9 @@ class RuntimeTransport(ABC):
     def probe_rate_limit(self) -> RateLimitResult:
         raise CapabilityNotSupported("probe_rate_limit")
 
+    def probe_ttft(self) -> float:
+        raise CapabilityNotSupported("probe_ttft")
+
     def probe_cancellation(self) -> CancellationResult:
         raise CapabilityNotSupported("probe_cancellation")
 

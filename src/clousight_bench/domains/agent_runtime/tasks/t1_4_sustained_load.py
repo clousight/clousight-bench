@@ -29,7 +29,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     CapabilityNotSupported,
 )
 
-DURATION_S = 5.0
+DURATION_S = 60.0   # 60s gives ~1000+ samples at 20rps; p99 from <200 samples is statistically invalid
 TARGET_RPS = 50.0
 
 

@@ -27,7 +27,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     CapabilityNotSupported,
 )
 
-DURATION_S = 10.0
+DURATION_S = 60.0  # 60s gives enough samples for statistically meaningful availability
 # below this steady-state availability, flag the runtime (a common 3-nines bar).
 _AVAILABILITY_SLA = 0.999
 

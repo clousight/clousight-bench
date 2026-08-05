@@ -32,10 +32,12 @@ PLAN = [ToolCall(target="prices", params={"provider": "aws"}) for _ in range(5)]
 FAULT = {"target": "prices", "fail_on_calls": [3], "status": 500}
 
 
-def _post(base_url: str, path: str, body: dict[str, Any]) -> None:
+def _post(base_url: str, path: str, body: dict[str, Any], token: str | None = None) -> None:
     data = json.dumps(body).encode("utf-8")
-    req = request.Request(f"{base_url}{path}", data=data, method="POST",
-                          headers={"Content-Type": "application/json"})
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if token:
+        headers["X-Clousight-Token"] = token
+    req = request.Request(f"{base_url}{path}", data=data, method="POST", headers=headers)
     with request.urlopen(req, timeout=10) as resp:
         resp.read()
 
@@ -71,10 +73,11 @@ class FaultRecoveryTask(Task):
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.3 needs an AgentRuntimeAdapter")
         mock = adapter.mock_base_url.rstrip("/")
+        token: str | None = adapter.target.get("mock_token") or None
 
         # 1. reset + arm the deterministic fault
-        _post(mock, "/reset", {})
-        _post(mock, "/fault/config", FAULT)
+        _post(mock, "/reset", {}, token)
+        _post(mock, "/fault/config", FAULT, token)
 
         # 2. run the plan under the runtime's own recovery semantics
         session = adapter.create_session()
@@ -105,7 +108,10 @@ class FaultRecoveryTask(Task):
             recovery_mode = "no-fault-observed"  # fault never triggered -> test invalid
         elif completed and retried:
             recovery_mode = "auto-retry"
-        elif not completed and final_state == "aborted":
+        elif not completed:
+            # Any non-completion after a fault is fail-fast: the runtime surfaced the
+            # error rather than absorbing it. The exact final_state label ("aborted",
+            # "failed") is platform-specific and must not gate the classification.
             recovery_mode = "fail-fast"
         else:
             recovery_mode = "manual-resume"

@@ -2,7 +2,13 @@
 
 When demand exceeds quota, does the runtime throttle *gracefully* — a proper 429
 with a Retry-After the client can honor — or silently drop work? Observe the
-onset rps, the advertised Retry-After, and whether a 429 contract is honored.
+onset level, the advertised Retry-After, and whether a 429 contract is honored.
+
+Probe method (real adapters): stepped burst levels [10, 20, 40, 80] concurrent
+requests fired simultaneously; the first level that returns any HTTP 429 from the
+runtime's data-plane is recorded as the onset. A real adapter checks the runtime's
+own HTTP status (not the tool's inner response status) so platform-level throttling
+is detected regardless of the tool's outcome.
 
 Evidence layer B: method reproducible, numbers environment-dependent. A real
 adapter drives past quota and inspects the response; local-sim reports the
