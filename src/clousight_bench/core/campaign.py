@@ -57,6 +57,8 @@ class TaskProgress:
     elapsed_s: float | None = None
     status_counts: dict[str, int] = field(default_factory=dict)
     error: str | None = None
+    job_progress: dict[str, Any] = field(default_factory=dict)
+    chunk_refs: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -72,6 +74,8 @@ class TaskProgress:
             elapsed_s=data.get("elapsed_s"),
             status_counts=dict(data.get("status_counts") or {}),
             error=data.get("error"),
+            job_progress=dict(data.get("job_progress") or {}),
+            chunk_refs=list(data.get("chunk_refs") or []),
         )
 
 
@@ -97,6 +101,23 @@ class CampaignManifest:
             if t.task_id == task_id:
                 return t
         raise KeyError(f"no task {task_id!r} in campaign {self.campaign_id}")
+
+    def mark_progress(
+        self,
+        task_id: str,
+        *,
+        job_progress: dict[str, Any] | None = None,
+        chunk_refs: list[str] | None = None,
+    ) -> None:
+        """Mirror a running task's live probe status (channel ①) into the manifest.
+        Does NOT change task.status — only progress/chunk fields — so csbench
+        progress can show intra-job status while the task is still running."""
+        t = self._task(task_id)
+        if job_progress is not None:
+            t.job_progress = dict(job_progress)
+        if chunk_refs is not None:
+            t.chunk_refs = list(chunk_refs)
+        self.updated_at = _now_iso()
 
     def mark_running(self, task_id: str) -> None:
         t = self._task(task_id)
