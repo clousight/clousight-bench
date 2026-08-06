@@ -10,6 +10,7 @@ from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.core.plugin import ProviderAdapter
 
 
@@ -335,6 +336,18 @@ class AgentRuntimeAdapter(ProviderAdapter):
     @abstractmethod
     def destroy_session(self, session_id: str) -> None:
         """Tear down the session."""
+
+    def run_data_plane_probe(self, name: str,
+                             params: dict[str, Any] | None = None) -> ObservationBundle:
+        """Dispatch a data-plane probe by name, returning an ObservationBundle.
+
+        Default: run the shared packer (call probe_<name>, pack). A real adapter
+        may override to route the whole measurement to an in-region probe.
+        """
+        from clousight_bench.domains.agent_runtime.dataplane_dispatch import (
+            run_data_plane_probe as _dispatch,
+        )
+        return _dispatch(self, name, params)
 
     # --- Optional capabilities (probed by T1.2 / T2.1 / T4.1 / T4.2) ---------
     # Default = CapabilityNotSupported so an adapter opts in by overriding.
