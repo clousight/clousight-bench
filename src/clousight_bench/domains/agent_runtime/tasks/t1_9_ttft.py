@@ -27,10 +27,7 @@ from clousight_bench.core.observation import (
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.core.stats import percentiles
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 # One warm-up + 5 measured samples: enough for a stable median and p95.
 WARMUP = 1
@@ -54,27 +51,7 @@ class TTFTTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.9 needs an AgentRuntimeAdapter")
-        # Warm-up: ensure the runtime is hot before measuring.
-        for _ in range(WARMUP):
-            try:
-                adapter.probe_ttft()
-            except CapabilityNotSupported as exc:
-                return ObservationBundle(
-                    observations={"capability": "unsupported", "reason": str(exc)}
-                )
-        ttft_ms: list[float] = []
-        for _ in range(SAMPLES):
-            try:
-                ms = adapter.probe_ttft()
-                ttft_ms.append(ms)
-            except CapabilityNotSupported as exc:
-                return ObservationBundle(
-                    observations={"capability": "unsupported", "reason": str(exc)}
-                )
-        return ObservationBundle(
-            observations={"capability": "supported", "ttft_ms": ttft_ms},
-            series={"ttft_ms": [[i + 1, v] for i, v in enumerate(ttft_ms)]},
-        )
+        return adapter.run_data_plane_probe("ttft", {"warmup": WARMUP, "samples": SAMPLES})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

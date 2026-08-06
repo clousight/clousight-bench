@@ -13,7 +13,6 @@ fail-fast abort means it surfaced the fault to the caller. Both are findings.
 """
 from __future__ import annotations
 
-from dataclasses import asdict
 from typing import Any
 
 from clousight_bench.core.observation import (
@@ -24,7 +23,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter, CapabilityNotSupported
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 # Fault fires on the 3rd tool call (1-indexed).
 FAULT_CALL_INDEX = 3
@@ -64,22 +63,7 @@ class FaultRecoveryTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.3 needs an AgentRuntimeAdapter")
-
-        # Use request-level fault injection (fail_after_n_calls encoded in request body)
-        # to avoid the multi-instance FC state-sharing problem of POST /fault/config.
-        # If the transport does not yet implement probe_fault_recovery (raises
-        # CapabilityNotSupported), that is itself a finding and we re-raise.
-        trace = adapter.probe_fault_recovery(fault_call_index=FAULT_CALL_INDEX)
-
-        return ObservationBundle(
-            observations={
-                "fault": dict(FAULT),
-                "plan_calls": FAULT_CALL_INDEX + 2,
-                "completed": trace.completed,
-                "final_state": trace.final_state,
-                "attempts": [asdict(a) for a in trace.attempts],
-            }
-        )
+        return adapter.run_data_plane_probe("fault_recovery", {"fault_call_index": FAULT_CALL_INDEX})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

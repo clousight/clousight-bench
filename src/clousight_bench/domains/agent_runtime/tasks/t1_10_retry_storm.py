@@ -24,7 +24,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter, CapabilityNotSupported
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 # Observation window: the runtime must decide within this many seconds.
 MAX_WINDOW_S = 30.0
@@ -61,16 +61,7 @@ class RetryStormTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.10 needs an AgentRuntimeAdapter")
-
-        result = adapter.probe_retry_storm(max_window_s=MAX_WINDOW_S)
-
-        return ObservationBundle(
-            observations={
-                "storm_behavior": result.storm_behavior,
-                "calls_attempted": result.calls_attempted,
-                "duration_ms": result.duration_ms,
-            }
-        )
+        return adapter.run_data_plane_probe("retry_storm", {"max_window_s": MAX_WINDOW_S})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

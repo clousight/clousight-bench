@@ -24,10 +24,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 LEVELS = [1, 4, 16, 32, 64]  # max 64: meaningful range for a cloud-managed runtime
 # p95 more than this multiple of the level-1 baseline counts as a latency knee.
@@ -51,37 +48,7 @@ class ElasticityTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T5.2 needs an AgentRuntimeAdapter")
-        try:
-            points = adapter.probe_scaling(LEVELS)
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        points = sorted(points, key=lambda p: p.concurrency)
-        all_instances_none = all(
-            getattr(p, "observed_instances", None) is None for p in points
-        )
-        extra_findings: list[str] = []
-        if all_instances_none:
-            extra_findings.append(
-                "AgentRun GetAgentRuntime 不暴露实时实例数，无法观测弹性行为。"
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "points": [
-                    {"concurrency": p.concurrency, "success_rate": p.success_rate,
-                     "p95_ms": p.p95_ms,
-                     "observed_instances": getattr(p, "observed_instances", None)}
-                    for p in points
-                ],
-                **({"instance_visibility_findings": extra_findings} if extra_findings else {}),
-            },
-            series={
-                "success_rate": [[p.concurrency, p.success_rate] for p in points],
-                "p95_ms": [[p.concurrency, p.p95_ms] for p in points],
-            },
-        )
+        return adapter.run_data_plane_probe("scaling", {"levels": LEVELS})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

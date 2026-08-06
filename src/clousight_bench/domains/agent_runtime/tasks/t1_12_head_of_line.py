@@ -21,7 +21,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter, CapabilityNotSupported
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 # HOL is flagged when fast_p99 > slow_p50 * this ratio.
 HOL_THRESHOLD = 0.5
@@ -55,17 +55,7 @@ class HOLBlockingTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.12 needs an AgentRuntimeAdapter")
-
-        result = adapter.probe_hol_blocking()
-
-        return ObservationBundle(
-            observations={
-                "blocked": result.blocked,
-                "fast_p50_ms": result.fast_p50_ms,
-                "slow_p50_ms": result.slow_p50_ms,
-                "hol_ratio": result.hol_ratio,
-            }
-        )
+        return adapter.run_data_plane_probe("hol_blocking", {})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations
