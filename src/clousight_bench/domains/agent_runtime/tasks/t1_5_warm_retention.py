@@ -23,10 +23,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 
 class WarmRetentionTask(Task):
@@ -46,19 +43,7 @@ class WarmRetentionTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.5 needs an AgentRuntimeAdapter")
-        try:
-            r = adapter.probe_warm_retention()
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "retention_ms": r.retention_ms,
-                "keeps_warm": r.keeps_warm,
-            }
-        )
+        return adapter.run_data_plane_probe("warm_retention", {})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

@@ -22,10 +22,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 
 class CancellationTask(Task):
@@ -45,20 +42,7 @@ class CancellationTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.8 needs an AgentRuntimeAdapter")
-        try:
-            r = adapter.probe_cancellation()
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "honored": r.honored,
-                "teardown_ran": r.teardown_ran,
-                "residual": list(r.residual),
-            }
-        )
+        return adapter.run_data_plane_probe("cancellation", {})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

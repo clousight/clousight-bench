@@ -20,10 +20,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 
 class ConcurrencyCeilingTask(Task):
@@ -43,19 +40,7 @@ class ConcurrencyCeilingTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T5.4 needs an AgentRuntimeAdapter")
-        try:
-            r = adapter.probe_concurrency_ceiling()
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "max_in_flight": r.max_in_flight,
-                "hard_limit": r.hard_limit,
-            }
-        )
+        return adapter.run_data_plane_probe("concurrency_ceiling", {})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

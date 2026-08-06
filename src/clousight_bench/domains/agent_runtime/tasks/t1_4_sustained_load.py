@@ -24,10 +24,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 DURATION_S = 60.0   # 60s gives ~1000+ samples at 20rps; p99 from <200 samples is statistically invalid
 TARGET_RPS = 50.0
@@ -50,28 +47,8 @@ class SustainedLoadTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.4 needs an AgentRuntimeAdapter")
-        try:
-            r = adapter.probe_sustained_load(DURATION_S, TARGET_RPS)
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "throughput_rps": r.throughput_rps,
-                "p50_ms": r.p50_ms,
-                "p99_ms": r.p99_ms,
-                "jitter_ms": r.jitter_ms,
-                "error_rate": r.error_rate,
-                "transport_error_rate": getattr(r, "transport_error_rate", 0.0),
-                "runtime_error_rate": getattr(r, "runtime_error_rate", 0.0),
-                "tool_error_rate": getattr(r, "tool_error_rate", 0.0),
-                "requests": r.requests,
-                "duration_s": r.duration_s,
-                "target_rps": TARGET_RPS,
-            }
-        )
+        return adapter.run_data_plane_probe(
+            "sustained_load", {"duration_s": DURATION_S, "target_rps": TARGET_RPS})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

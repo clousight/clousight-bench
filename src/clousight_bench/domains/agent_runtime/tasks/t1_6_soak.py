@@ -22,10 +22,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 DURATION_S = 60.0  # 60s gives enough samples for statistically meaningful availability
 # below this steady-state availability, flag the runtime (a common 3-nines bar).
@@ -49,21 +46,7 @@ class SoakTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.6 needs an AgentRuntimeAdapter")
-        try:
-            r = adapter.probe_soak(DURATION_S)
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "availability": r.availability,
-                "error_rate": r.error_rate,
-                "requests": r.requests,
-                "window_s": r.window_s,
-            }
-        )
+        return adapter.run_data_plane_probe("soak", {"duration_s": DURATION_S})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

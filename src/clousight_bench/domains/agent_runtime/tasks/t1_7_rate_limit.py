@@ -27,10 +27,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 
 class RateLimitTask(Task):
@@ -50,20 +47,7 @@ class RateLimitTask(Task):
     ) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.7 needs an AgentRuntimeAdapter")
-        try:
-            r = adapter.probe_rate_limit()
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "throttle_onset_rps": r.throttle_onset_rps,
-                "retry_after_ms": r.retry_after_ms,
-                "honors_429": r.honors_429,
-            }
-        )
+        return adapter.run_data_plane_probe("rate_limit", {})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations
