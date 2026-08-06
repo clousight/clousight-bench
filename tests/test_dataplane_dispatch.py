@@ -162,3 +162,18 @@ def test_retry_storm_reraises_capability_not_supported():
 def test_hol_blocking_reraises_capability_not_supported():
     with pytest.raises(CapabilityNotSupported):
         run_data_plane_probe(_IncapableAdapter(), "hol_blocking", {})
+
+
+def test_managed_adapter_delegates_to_transport_when_present(monkeypatch):
+    from clousight_bench.domains.agent_runtime.adapters.local_sim import LocalSimAdapter
+    a = LocalSimAdapter(target={})
+    # MockRuntimeTransport has no run_data_plane_probe -> base packer path is used.
+    b = a.run_data_plane_probe("warm_retention", {})
+    assert b.observations["capability"] == "supported"  # local-sim keeps working
+
+    # If the transport DOES define run_data_plane_probe, it wins.
+    sentinel = ObservationBundle(observations={"capability": "supported", "via": "transport"})
+    t = a._transport_()
+    monkeypatch.setattr(t, "run_data_plane_probe",
+                        lambda name, params: sentinel, raising=False)
+    assert a.run_data_plane_probe("warm_retention", {}).observations.get("via") == "transport"

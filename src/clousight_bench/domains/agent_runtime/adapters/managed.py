@@ -261,6 +261,14 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_hol_blocking(self) -> Any:
         return self._transport_().probe_hol_blocking()
 
+    def run_data_plane_probe(self, name: str,
+                             params: dict[str, Any] | None = None):
+        t = self._transport_()
+        fn = getattr(t, "run_data_plane_probe", None)
+        if callable(fn):
+            return fn(name, params or {})
+        return super().run_data_plane_probe(name, params)
+
     def provision(self, spec: dict[str, Any] | None = None) -> Any:
         """Provision through the transport, but first stamp this run's resource
         tags into the spec (so a wired transport tags the real cloud resource)
