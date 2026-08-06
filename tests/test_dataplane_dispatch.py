@@ -3,11 +3,13 @@ import pytest
 from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
+    Attempt,
     CapabilityNotSupported,
-)
-from clousight_bench.domains.agent_runtime.adapters.base import (
+    HOLResult,
+    InvocationTrace,
     LoadResult,
     RetentionResult,
+    RetryStormResult,
 )
 from clousight_bench.domains.agent_runtime.dataplane_dispatch import (
     DATA_PLANE_PACKERS,
@@ -32,6 +34,43 @@ class _FakeAdapter(AgentRuntimeAdapter):
                           error_rate=0.0, requests=100, duration_s=duration_s)
     def probe_warm_retention(self):
         return RetentionResult(retention_ms=1000.0, keeps_warm=True)
+    # re-raise probes: three probes that do NOT catch CapabilityNotSupported
+    def probe_fault_recovery(self, fault_call_index: int = 3) -> InvocationTrace:
+        return InvocationTrace(
+            session_id="s",
+            attempts=[
+                Attempt(call_index=0, attempt=1, status=200, ok=True, latency_ms=12.0),
+                Attempt(call_index=1, attempt=1, status=200, ok=True, latency_ms=11.0),
+                Attempt(call_index=2, attempt=1, status=500, ok=False, latency_ms=8.0),
+                Attempt(call_index=2, attempt=2, status=200, ok=True, latency_ms=10.0),
+                Attempt(call_index=3, attempt=1, status=200, ok=True, latency_ms=9.0),
+            ],
+            completed=True,
+            final_state="completed",
+        )
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
+        return RetryStormResult(
+            storm_behavior="abort_on_first_failure",
+            calls_attempted=1,
+            duration_ms=42.0,
+        )
+    def probe_hol_blocking(self) -> HOLResult:
+        return HOLResult(
+            blocked=False,
+            fast_p50_ms=5.0,
+            slow_p50_ms=200.0,
+            hol_ratio=0.025,
+        )
+
+
+class _IncapableAdapter(_FakeAdapter):
+    """Adapter whose re-raise probes raise CapabilityNotSupported."""
+    def probe_fault_recovery(self, fault_call_index: int = 3) -> InvocationTrace:  # type: ignore[override]
+        raise CapabilityNotSupported("probe_fault_recovery")
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:  # type: ignore[override]
+        raise CapabilityNotSupported("probe_retry_storm")
+    def probe_hol_blocking(self) -> HOLResult:  # type: ignore[override]
+        raise CapabilityNotSupported("probe_hol_blocking")
 
 
 def test_registry_has_all_eleven_probe_names():
@@ -67,3 +106,59 @@ def test_adapter_method_delegates_to_registry():
     b = _FakeAdapter().run_data_plane_probe("warm_retention", {})
     assert b.observations == {"capability": "supported", "retention_ms": 1000.0,
                               "keeps_warm": True}
+
+
+# ---------------------------------------------------------------------------
+# Happy-path tests for the three re-raise packers (fault_recovery, retry_storm,
+# hol_blocking) — these packers do NOT catch CapabilityNotSupported and have
+# NO "capability" key in their output.
+# ---------------------------------------------------------------------------
+
+def test_fault_recovery_happy_path_no_capability_key():
+    b = run_data_plane_probe(_FakeAdapter(), "fault_recovery", {"fault_call_index": 3})
+    o = b.observations
+    assert "capability" not in o, "fault_recovery must NOT include a 'capability' key"
+    assert isinstance(o["fault"], dict)
+    assert isinstance(o["plan_calls"], int)
+    assert isinstance(o["completed"], bool)
+    assert isinstance(o["final_state"], str)
+    assert isinstance(o["attempts"], list)
+
+
+def test_retry_storm_happy_path_no_capability_key():
+    b = run_data_plane_probe(_FakeAdapter(), "retry_storm", {"max_window_s": 30.0})
+    o = b.observations
+    assert "capability" not in o, "retry_storm must NOT include a 'capability' key"
+    assert isinstance(o["storm_behavior"], str)
+    assert isinstance(o["calls_attempted"], int)
+    assert isinstance(o["duration_ms"], float)
+
+
+def test_hol_blocking_happy_path_no_capability_key():
+    b = run_data_plane_probe(_FakeAdapter(), "hol_blocking", {})
+    o = b.observations
+    assert "capability" not in o, "hol_blocking must NOT include a 'capability' key"
+    assert isinstance(o["blocked"], bool)
+    assert isinstance(o["fast_p50_ms"], float)
+    assert isinstance(o["slow_p50_ms"], float)
+    assert isinstance(o["hol_ratio"], float)
+
+
+# ---------------------------------------------------------------------------
+# Re-raise tests: these packers must propagate CapabilityNotSupported rather
+# than swallowing it.
+# ---------------------------------------------------------------------------
+
+def test_fault_recovery_reraises_capability_not_supported():
+    with pytest.raises(CapabilityNotSupported):
+        run_data_plane_probe(_IncapableAdapter(), "fault_recovery", {})
+
+
+def test_retry_storm_reraises_capability_not_supported():
+    with pytest.raises(CapabilityNotSupported):
+        run_data_plane_probe(_IncapableAdapter(), "retry_storm", {})
+
+
+def test_hol_blocking_reraises_capability_not_supported():
+    with pytest.raises(CapabilityNotSupported):
+        run_data_plane_probe(_IncapableAdapter(), "hol_blocking", {})

@@ -179,6 +179,9 @@ def _pack_scaling(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> Obser
 
 
 def _pack_fault_recovery(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> ObservationBundle:
+    # Default 3 must stay in sync with t1_3_fault_recovery.FAULT_CALL_INDEX.
+    # Do NOT change one without changing the other or the injected fault index
+    # and the packer's plan_calls computation will silently diverge.
     fault_call_index = int(params.get("fault_call_index", 3))
     # Fault description (matches FAULT in t1_3_fault_recovery.py)
     fault = {"target": "prices", "fail_on_calls": [fault_call_index], "status": 500}
