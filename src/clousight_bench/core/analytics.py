@@ -38,9 +38,11 @@ def iter_verified_records(results_dir: Path) -> Iterator[tuple[Path, dict[str, A
     """
     root = Path(results_dir)
     agg = (root / "aggregates").resolve()
+    campaigns = (root / "campaigns").resolve()
     for record_path in sorted(root.rglob("*.json")):
         try:
-            if agg in record_path.resolve().parents:
+            resolved = record_path.resolve()
+            if agg in resolved.parents or campaigns in resolved.parents:
                 continue
             payload = json.loads(record_path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict):

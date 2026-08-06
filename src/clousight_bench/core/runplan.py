@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.campaign import CAMPAIGNS_DIRNAME
 from clousight_bench.core.canonical import canonical_json, digest
 from clousight_bench.core.errors import UserInputError
 from clousight_bench.core.fingerprints import UNKNOWN
@@ -234,7 +235,7 @@ def _completed_slots(
     (or missing) slot is re-run."""
     done: dict[tuple[str, int], ResultRecord] = {}
     for path in Path(results_dir).rglob("*.json"):
-        if AGGREGATES_DIRNAME in path.parts:
+        if AGGREGATES_DIRNAME in path.parts or CAMPAIGNS_DIRNAME in path.parts:
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))

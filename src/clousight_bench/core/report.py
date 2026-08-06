@@ -18,6 +18,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.campaign import CAMPAIGNS_DIRNAME
 from clousight_bench.core.fingerprints import record_digest
 from clousight_bench.core.record import SCHEMA_VERSION, RecordError, ResultRecord
 from clousight_bench.core.runplan import AGGREGATES_DIRNAME
@@ -96,6 +97,9 @@ def _load_results(results_dir: Path) -> list[ResultRecord]:
         # Run-plan aggregates are summaries of records, not records; the plan
         # writer owns them and they never parse as a 0.2 ResultRecord.
         if AGGREGATES_DIRNAME in path.relative_to(results_dir).parts:
+            continue
+        # Campaign manifests are live progress state, not records; skip wholesale.
+        if CAMPAIGNS_DIRNAME in path.relative_to(results_dir).parts:
             continue
         reason = None
         try:

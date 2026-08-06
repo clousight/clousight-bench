@@ -223,6 +223,7 @@ def _cmd_trace(args: argparse.Namespace) -> int:
 
 def _load_aggregates(results_dir: Path) -> list[dict]:
     import json
+
     from clousight_bench.core.runplan import AGGREGATES_DIRNAME
 
     agg_dir = results_dir / AGGREGATES_DIRNAME
@@ -591,6 +592,7 @@ def _cmd_conformance(args: argparse.Namespace) -> int:
 
 def _cmd_verify(args: argparse.Namespace) -> int:
     import json
+
     from clousight_bench.core.fingerprints import record_digest
     from clousight_bench.core.runplan import AGGREGATES_DIRNAME
 
@@ -628,6 +630,13 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
     import os
 
     import yaml as _yaml
+
+    from clousight_bench.core.campaign import (
+        CampaignManifest,
+        TaskProgress,
+        new_campaign_id,
+        write_manifest,
+    )
     from clousight_bench.core.runplan import RunPlan, execute_plan
     from clousight_bench.core.schema import RunSpec
 
@@ -664,12 +673,29 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
         if "CSBENCH_COST_BUDGET" in os.environ else None
     )
 
-    ok = failed = 0
+    # Validate task ids up front so the manifest reflects the real work list.
+    task_ids: list[str] = []
     for t in task_specs:
         task_id = t.get("task")
         if not task_id:
             print("error: task entry missing 'task' key", file=sys.stderr)
             return 2
+        task_ids.append(task_id)
+
+    manifest = CampaignManifest(
+        campaign_id=new_campaign_id(),
+        plan_file=str(plan_path),
+        domain=domain,
+        platform=platform,
+        tasks=[TaskProgress(task_id=tid) for tid in task_ids],
+    )
+    write_manifest(results_dir, manifest)
+    print(f"campaign {manifest.campaign_id}  ({manifest.total_tasks} task(s))  "
+          f"progress: csbench progress --results {results_dir}")
+
+    ok = failed = 0
+    for t in task_specs:
+        task_id = t.get("task")
         repeat = int(t.get("repeat", 1))
         warmup = int(t.get("warmup", 0))
         params = t.get("params") or {}
@@ -677,6 +703,8 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
                            target=dict(base_target), params=params)
         plan = RunPlan(run_spec, repeat=repeat, warmup=warmup)
         print(f"running {task_id}  repeat={repeat}  warmup={warmup} ...")
+        manifest.mark_running(task_id)
+        write_manifest(results_dir, manifest)
         try:
             agg = execute_plan(
                 plan, results_dir=results_dir,
@@ -684,14 +712,119 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
             )
             status_str = "  ".join(f"{s}={n}" for s, n in sorted(agg.status_counts.items()))
             print(f"  ✓ {task_id}  plan={agg.plan_id}  {status_str}")
+            manifest.mark_done(task_id, status="completed", plan_id=agg.plan_id,
+                               status_counts=agg.status_counts)
             ok += 1
         except Exception as exc:
             print(f"  ✗ {task_id}  {exc}", file=sys.stderr)
+            manifest.mark_done(task_id, status="failed", error=str(exc))
             failed += 1
+        write_manifest(results_dir, manifest)
 
     total = ok + failed
     print(f"\n{total} task(s): {ok} ok, {failed} failed")
     return 0 if failed == 0 else 1
+
+
+_STATE_ICON = {
+    "completed": "✓",
+    "failed": "✗",
+    "running": "▶",
+    "pending": "·",
+}
+
+
+def _fmt_elapsed(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    return f"{seconds // 60}m{seconds % 60:02d}s"
+
+
+def _render_progress(manifest: CampaignManifest) -> str:  # noqa: F821
+    import time as _time
+
+    from clousight_bench.core.campaign import TERMINAL_STATES
+
+    done = sum(1 for t in manifest.tasks if t.status in TERMINAL_STATES)
+    running = [t for t in manifest.tasks if t.status == "running"]
+    lines = [
+        f"campaign {manifest.campaign_id}  ({manifest.platform})",
+        f"progress: {done}/{manifest.total_tasks} done"
+        + (f"  ·  {len(running)} running" if running else "")
+        + f"  ·  updated {manifest.updated_at}",
+        "",
+    ]
+    for t in manifest.tasks:
+        icon = _STATE_ICON.get(t.status, "?")
+        if t.status == "running" and t.started_at:
+            try:
+                started = _time.mktime(
+                    _time.strptime(t.started_at, "%Y-%m-%dT%H:%M:%S%z")
+                )
+                elapsed = f"{_fmt_elapsed(_time.time() - started)} (running)"
+            except (ValueError, OverflowError):
+                elapsed = "running"
+        else:
+            elapsed = _fmt_elapsed(t.elapsed_s)
+        counts = "  ".join(f"{s}={n}" for s, n in sorted(t.status_counts.items()))
+        detail = t.error or counts
+        lines.append(f"  {icon} {t.task_id:<8} {elapsed:>14}   {detail}")
+    return "\n".join(lines)
+
+
+def _cmd_progress(args: argparse.Namespace) -> int:
+    import time as _time
+
+    from clousight_bench.core.campaign import (
+        CampaignManifest,  # noqa: F401  (used by _render_progress annotation)
+        load_manifest,
+        manifest_path,
+    )
+    from clousight_bench.core.campaign import (
+        latest_manifest as _latest,
+    )
+
+    results_dir = Path(args.results)
+    if args.campaign:
+        path = manifest_path(results_dir, args.campaign)
+        if not path.exists():
+            print(f"error: no campaign {args.campaign!r} under {results_dir}",
+                  file=sys.stderr)
+            return 2
+    else:
+        path = _latest(results_dir)
+        if path is None:
+            print(f"error: no campaigns found under {results_dir} — has a "
+                  "run-plan started?", file=sys.stderr)
+            return 2
+
+    def _print_once() -> CampaignManifest:  # noqa: F821
+        manifest = load_manifest(path)
+        if args.json:
+            print(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2))
+        else:
+            print(_render_progress(manifest))
+        return manifest
+
+    if not args.watch:
+        _print_once()
+        return 0
+
+    from clousight_bench.core.campaign import TERMINAL_STATES
+
+    try:
+        while True:
+            print("\033[2J\033[H", end="")  # clear screen, cursor home
+            manifest = _print_once()
+            if all(t.status in TERMINAL_STATES for t in manifest.tasks):
+                break
+            _time.sleep(args.interval)
+    except KeyboardInterrupt:
+        pass
+    return 0
 
 
 def _dispatch(args: argparse.Namespace) -> int:
@@ -710,6 +843,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "export": _cmd_export,
         "verify": _cmd_verify,
         "run-plan": _cmd_run_plan,
+        "progress": _cmd_progress,
     }
     return handlers[args.command](args)
 
@@ -766,6 +900,18 @@ def main(argv: list[str] | None = None) -> int:
                       help="acknowledge real-cloud cost (required for live platforms)")
     rp_p.add_argument("--cost-budget", type=float, default=None,
                       help="cumulative USD cap across all tasks in this plan")
+
+    prog_p = sub.add_parser("progress",
+                            help="show a run-plan campaign's live progress")
+    prog_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
+    prog_p.add_argument("--campaign",
+                        help="campaign id (default: the most recently updated one)")
+    prog_p.add_argument("--json", action="store_true",
+                        help="print the raw manifest as JSON")
+    prog_p.add_argument("--watch", action="store_true",
+                        help="redraw until every task reaches a terminal state")
+    prog_p.add_argument("--interval", type=float, default=2.0,
+                        help="seconds between redraws when --watch (default: 2)")
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
