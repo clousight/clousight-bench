@@ -693,33 +693,53 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
     print(f"campaign {manifest.campaign_id}  ({manifest.total_tasks} task(s))  "
           f"progress: csbench progress --results {results_dir}")
 
+    from clousight_bench.core.plugin import campaign_probe_hook  # local import
+
+    hook = None
+    if getattr(args, "probe", "") == "eci":
+        hook = campaign_probe_hook(platform)
+        if hook is not None:
+            base_target.update(hook.start_campaign_probe(dict(base_target)))
+
     ok = failed = 0
-    for t in task_specs:
-        task_id = t.get("task")
-        repeat = int(t.get("repeat", 1))
-        warmup = int(t.get("warmup", 0))
-        params = t.get("params") or {}
-        run_spec = RunSpec(domain, task_id, platform,
-                           target=dict(base_target), params=params)
-        plan = RunPlan(run_spec, repeat=repeat, warmup=warmup)
-        print(f"running {task_id}  repeat={repeat}  warmup={warmup} ...")
-        manifest.mark_running(task_id)
-        write_manifest(results_dir, manifest)
-        try:
-            agg = execute_plan(
-                plan, results_dir=results_dir,
-                allow_live=allow_live, cost_budget=cost_budget,
-            )
-            status_str = "  ".join(f"{s}={n}" for s, n in sorted(agg.status_counts.items()))
-            print(f"  ✓ {task_id}  plan={agg.plan_id}  {status_str}")
-            manifest.mark_done(task_id, status="completed", plan_id=agg.plan_id,
-                               status_counts=agg.status_counts)
-            ok += 1
-        except Exception as exc:
-            print(f"  ✗ {task_id}  {exc}", file=sys.stderr)
-            manifest.mark_done(task_id, status="failed", error=str(exc))
-            failed += 1
-        write_manifest(results_dir, manifest)
+    try:
+        for t in task_specs:
+            task_id = t.get("task")
+            repeat = int(t.get("repeat", 1))
+            warmup = int(t.get("warmup", 0))
+            params = t.get("params") or {}
+            run_spec = RunSpec(domain, task_id, platform,
+                               target=dict(base_target), params=params)
+            plan = RunPlan(run_spec, repeat=repeat, warmup=warmup)
+            print(f"running {task_id}  repeat={repeat}  warmup={warmup} ...")
+            manifest.mark_running(task_id)
+            write_manifest(results_dir, manifest)
+            try:
+                agg = execute_plan(
+                    plan, results_dir=results_dir,
+                    allow_live=allow_live, cost_budget=cost_budget,
+                )
+                status_str = "  ".join(f"{s}={n}" for s, n in sorted(agg.status_counts.items()))
+                print(f"  ✓ {task_id}  plan={agg.plan_id}  {status_str}")
+                manifest.mark_done(task_id, status="completed", plan_id=agg.plan_id,
+                                   status_counts=agg.status_counts)
+                ok += 1
+            except Exception as exc:
+                print(f"  ✗ {task_id}  {exc}", file=sys.stderr)
+                manifest.mark_done(task_id, status="failed", error=str(exc))
+                failed += 1
+            write_manifest(results_dir, manifest)
+            if hook is not None:
+                try:
+                    hook.sync_probe_artifacts(results_dir)   # cadence: after each task
+                except Exception:  # noqa: BLE001 — a sync hiccup must not fail the campaign
+                    pass
+    finally:
+        if hook is not None:
+            try:
+                hook.sync_probe_artifacts(results_dir)       # final sync for late chunks
+            finally:
+                hook.stop_campaign_probe()                    # interrupt-safe reap
 
     total = ok + failed
     print(f"\n{total} task(s): {ok} ok, {failed} failed")
@@ -909,6 +929,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="acknowledge real-cloud cost (required for live platforms)")
     rp_p.add_argument("--cost-budget", type=float, default=None,
                       help="cumulative USD cap across all tasks in this plan")
+    rp_p.add_argument("--probe", choices=["local", "eci"], default="local",
+                      help="probe mode: 'local' keeps in-process behavior (default); "
+                           "'eci' brings up a per-campaign ECI probe carrier")
 
     prog_p = sub.add_parser("progress",
                             help="show a run-plan campaign's live progress")

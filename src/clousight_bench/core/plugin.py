@@ -277,6 +277,41 @@ class RuntimeProviderPlugin(ABC):
         """Build a live transport for ``adapter`` (called only in real mode)."""
 
 
+class CampaignProbeHook(ABC):
+    """Optional per-campaign data-plane probe lifecycle (probe-sink §7).
+
+    A provider that supports an in-region probe implements this so the run-plan
+    loop can bring one probe up per campaign, expose it to every task's freshly
+    built transport (via target stamping), sync its OSS telemetry, and reap it —
+    interrupt-safe. Open-core defines only the seam; the aliyun impl lives in the
+    pack. A provider without this returns None from campaign_probe_hook()."""
+
+    @abstractmethod
+    def start_campaign_probe(self, target: dict[str, Any]) -> dict[str, str]:
+        """Provision the probe. Return keys to merge into every task target,
+        e.g. {"probe_url": ..., "probe_oss_prefix": ...}. Raise on failure
+        (spec §9: no silent fallback)."""
+
+    @abstractmethod
+    def sync_probe_artifacts(self, results_dir: Any) -> None:
+        """Mirror the probe's OSS prefix into results_dir (channel ②)."""
+
+    @abstractmethod
+    def stop_campaign_probe(self) -> None:
+        """Reap the probe. Idempotent + best-effort (called from a finally)."""
+
+
+def campaign_probe_hook(provider: str) -> "CampaignProbeHook | None":
+    """Look up the CampaignProbeHook for *provider*, or None if unsupported."""
+    from clousight_bench.core.registry import get_runtime_provider
+
+    plugin = get_runtime_provider(provider)
+    if plugin is None:
+        return None
+    fn = getattr(plugin, "campaign_probe_hook", None)
+    return fn() if callable(fn) else None
+
+
 class ResourceReaper(ABC):
     """Reconciles orphaned cloud resources a run left behind (``csbench sweep``).
 
