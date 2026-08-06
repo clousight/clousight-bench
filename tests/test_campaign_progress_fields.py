@@ -37,3 +37,16 @@ def test_old_manifest_without_new_fields_still_loads():
     }
     m = CampaignManifest.from_dict(legacy)
     assert m.tasks[0].job_progress == {} and m.tasks[0].chunk_refs == []
+
+
+def test_mark_progress_partial_update_leaves_other_field_untouched():
+    m = _manifest()
+    m.mark_progress("T1.4", chunk_refs=["a", "b"])
+    m.mark_progress("T1.4", job_progress={"phase": "running"})   # no chunk_refs arg
+    t = m._task("T1.4")
+    assert t.chunk_refs == ["a", "b"]          # untouched by the second call
+    assert t.job_progress == {"phase": "running"}
+    # and the reverse
+    m.mark_progress("T1.4", chunk_refs=["c"])                     # no job_progress arg
+    assert m._task("T1.4").job_progress == {"phase": "running"}   # untouched
+    assert m._task("T1.4").chunk_refs == ["c"]
