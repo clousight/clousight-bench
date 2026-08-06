@@ -772,6 +772,15 @@ def _render_progress(manifest: CampaignManifest) -> str:  # noqa: F821
         counts = "  ".join(f"{s}={n}" for s, n in sorted(t.status_counts.items()))
         detail = t.error or counts
         lines.append(f"  {icon} {t.task_id:<8} {elapsed:>14}   {detail}")
+        jp = getattr(t, "job_progress", {}) or {}
+        if t.status == "running" and jp:
+            completed = int(jp.get("completed", 0))
+            total = int(jp.get("total", 0))
+            phase = str(jp.get("phase", ""))
+            pct = f" ({completed * 100 // total}%)" if total else ""
+            lines.append(f"        └ {phase} {completed}/{total}{pct}")
+        if getattr(t, "chunk_refs", None):
+            lines.append(f"        └ {len(t.chunk_refs)} chunk(s) in OSS")
     return "\n".join(lines)
 
 

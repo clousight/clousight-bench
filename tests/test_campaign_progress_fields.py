@@ -50,3 +50,15 @@ def test_mark_progress_partial_update_leaves_other_field_untouched():
     m.mark_progress("T1.4", chunk_refs=["c"])                     # no job_progress arg
     assert m._task("T1.4").job_progress == {"phase": "running"}   # untouched
     assert m._task("T1.4").chunk_refs == ["c"]
+
+
+def test_render_progress_shows_live_job_status():
+    from clousight_bench.cli import _render_progress
+    m = _manifest()
+    m.mark_running("T1.4")
+    m.mark_progress("T1.4",
+                    job_progress={"phase": "burst", "completed": 300, "total": 500},
+                    chunk_refs=["a/raw-0000.jsonl", "a/raw-0001.jsonl"])
+    out = _render_progress(m)
+    assert "burst 300/500 (60%)" in out
+    assert "2 chunk(s) in OSS" in out
