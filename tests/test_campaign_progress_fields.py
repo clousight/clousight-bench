@@ -62,3 +62,14 @@ def test_render_progress_shows_live_job_status():
     out = _render_progress(m)
     assert "burst 300/500 (60%)" in out
     assert "2 chunk(s) in OSS" in out
+
+
+def test_render_progress_non_probe_task_no_indicator():
+    """Tasks without probe fields (empty job_progress/chunk_refs) should not render probe lines."""
+    from clousight_bench.cli import _render_progress
+    m = _manifest()
+    m.mark_running("T1.4")
+    # Don't call mark_progress — job_progress and chunk_refs stay empty
+    out = _render_progress(m)
+    # Probe indicators (└) should not appear for non-probe tasks
+    assert "└" not in out
