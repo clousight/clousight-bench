@@ -698,11 +698,11 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
     hook = None
     if getattr(args, "probe", "") == "eci":
         hook = campaign_probe_hook(platform)
-        if hook is not None:
-            base_target.update(hook.start_campaign_probe(dict(base_target)))
 
     ok = failed = 0
     try:
+        if hook is not None:
+            base_target.update(hook.start_campaign_probe(dict(base_target)))
         for t in task_specs:
             task_id = t.get("task")
             repeat = int(t.get("repeat", 1))

@@ -63,3 +63,45 @@ def test_stop_runs_even_on_exception(monkeypatch, tmp_path):
         allow_live=False, cost_budget=None, probe="eci")
     cli._cmd_run_plan(args)   # task fails, but campaign completes the finally
     assert ("stop", None) in hook.events        # carrier reaped despite task failure
+
+
+def test_stop_runs_on_start_campaign_probe_failure(monkeypatch, tmp_path):
+    """start_campaign_probe raising must still trigger stop_campaign_probe.
+
+    Regression guard for the resource-leak bug where start was called OUTSIDE
+    the try/finally — a provision failure would skip teardown entirely.
+    """
+    from clousight_bench import cli
+
+    stop_called = []
+
+    class _FailStartHook:
+        def start_campaign_probe(self, target):
+            raise RuntimeError("provision timed out")
+
+        def sync_probe_artifacts(self, results_dir):
+            pass
+
+        def stop_campaign_probe(self):
+            stop_called.append(True)
+
+    hook = _FailStartHook()
+    monkeypatch.setattr("clousight_bench.core.plugin.campaign_probe_hook",
+                        lambda provider: hook)
+
+    plan = tmp_path / "plan.yaml"
+    plan.write_text(
+        "domain: agent_runtime\nplatform: aliyun\n"
+        "tasks:\n  - task: T1.4\n", encoding="utf-8")
+    args = types.SimpleNamespace(
+        plan_file=str(plan), results=str(tmp_path / "res"), config=None,
+        allow_live=False, cost_budget=None, probe="eci")
+
+    # The campaign raises because start failed; that's expected.
+    try:
+        cli._cmd_run_plan(args)
+    except Exception:
+        pass
+
+    # The critical assertion: stop must have been called even though start raised.
+    assert stop_called, "stop_campaign_probe was NOT called after start_campaign_probe raised — carrier leak!"
