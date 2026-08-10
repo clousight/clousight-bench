@@ -13,14 +13,9 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
 )
 from clousight_bench.domains.agent_runtime.dataplane_dispatch import (
     DATA_PLANE_PACKERS,
+    PROBE_NAMES,
     run_data_plane_probe,
 )
-
-PROBE_NAMES = {
-    "ttft", "sustained_load", "soak", "warm_retention", "rate_limit",
-    "concurrency_ceiling", "cancellation", "scaling", "hol_blocking",
-    "fault_recovery", "retry_storm",
-}
 
 
 class _FakeAdapter(AgentRuntimeAdapter):
@@ -75,6 +70,7 @@ class _IncapableAdapter(_FakeAdapter):
 
 def test_registry_has_all_eleven_probe_names():
     assert set(DATA_PLANE_PACKERS) == PROBE_NAMES
+    assert len(PROBE_NAMES) == 11
 
 
 def test_supported_probe_packs_expected_observations():

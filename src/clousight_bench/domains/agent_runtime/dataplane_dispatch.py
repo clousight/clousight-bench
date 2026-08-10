@@ -224,6 +224,26 @@ def _pack_hol_blocking(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> 
     )
 
 
+# Canonical set of data-plane probe names — the single source of truth shared by
+# the local-sim packers below AND any remote probe implementation (e.g. the
+# cb-adapters-enterprise cb-probe server). Both sides MUST register exactly these
+# names; the guards below turn any drift (a renamed/added/removed probe) into a
+# loud failure at import/build time instead of a silent change in scoring output.
+PROBE_NAMES: frozenset[str] = frozenset({
+    "sustained_load",
+    "warm_retention",
+    "soak",
+    "rate_limit",
+    "cancellation",
+    "ttft",
+    "concurrency_ceiling",
+    "scaling",
+    "fault_recovery",
+    "retry_storm",
+    "hol_blocking",
+})
+
+
 DATA_PLANE_PACKERS: dict[str, Packer] = {
     "sustained_load": _pack_sustained_load,
     "warm_retention": _pack_warm_retention,
@@ -237,6 +257,22 @@ DATA_PLANE_PACKERS: dict[str, Packer] = {
     "retry_storm": _pack_retry_storm,
     "hol_blocking": _pack_hol_blocking,
 }
+
+
+def _assert_conforms(names: "set[str] | frozenset[str]", *, who: str) -> None:
+    """Raise if ``names`` drifts from the canonical PROBE_NAMES."""
+    names = set(names)
+    missing = PROBE_NAMES - names
+    extra = names - PROBE_NAMES
+    if missing or extra:
+        raise RuntimeError(
+            f"{who} drifted from PROBE_NAMES (single source of truth): "
+            f"missing={sorted(missing)} extra={sorted(extra)}"
+        )
+
+
+# Local-sim packers must cover exactly the canonical set.
+_assert_conforms(set(DATA_PLANE_PACKERS), who="DATA_PLANE_PACKERS")
 
 
 def run_data_plane_probe(
