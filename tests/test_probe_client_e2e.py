@@ -56,7 +56,7 @@ def test_client_raises_on_failed_job():
     try:
         client = RemoteProbeClient(f"http://127.0.0.1:{probe_srv.server_address[1]}",
                                    poll_interval_s=0.02, timeout_s=10)
-        spec = JobSpec(probe="boom", params={}, target_endpoint="u")
+        spec = JobSpec(probe="boom", params={}, target_endpoint="http://127.0.0.1:9999")
         try:
             client.run_job(spec)
             assert False, "expected ProbeJobFailed"

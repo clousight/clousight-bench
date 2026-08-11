@@ -11,6 +11,33 @@ from clousight_bench.core.observation import ObservationBundle
 JOB_STATUSES: tuple[str, ...] = ("pending", "running", "completed", "failed")
 TERMINAL_STATUSES: tuple[str, ...] = ("completed", "failed")
 
+# Cloud instance-metadata hosts reachable from inside the ECI. A forged /run-job
+# steering target_endpoint at these would exfiltrate the instance RAM role, so
+# JobSpec refuses them (SSRF guard). Legit in-region public/VPC endpoints are
+# unaffected — only metadata + link-local are blocked.
+_METADATA_HOSTS: frozenset[str] = frozenset({"100.100.100.200", "169.254.169.254"})
+
+
+def _assert_safe_endpoint(url: str, field: str) -> None:
+    """Reject non-http(s) schemes and cloud-metadata / link-local targets."""
+    if not url:
+        return
+    import ipaddress
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"{field}: only http(s) endpoints are allowed, got {parsed.scheme!r}")
+    host = parsed.hostname or ""
+    if host in _METADATA_HOSTS:
+        raise ValueError(f"{field}: refusing to target cloud metadata endpoint {host}")
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return  # a hostname (not a bare IP) — allowed
+    if ip.is_link_local:
+        raise ValueError(f"{field}: refusing to target link-local address {host}")
+
 
 @dataclass
 class JobSpec:
@@ -37,11 +64,17 @@ class JobSpec:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> JobSpec:
+        target_endpoint = str(d["target_endpoint"])
+        mock_base_url = str(d.get("mock_base_url", ""))
+        # SSRF guard: a remotely-submitted job must not steer the probe at cloud
+        # metadata or link-local addresses.
+        _assert_safe_endpoint(target_endpoint, "target_endpoint")
+        _assert_safe_endpoint(mock_base_url, "mock_base_url")
         return cls(
             probe=str(d["probe"]),
             params=dict(d.get("params") or {}),
-            target_endpoint=str(d["target_endpoint"]),
-            mock_base_url=str(d.get("mock_base_url", "")),
+            target_endpoint=target_endpoint,
+            mock_base_url=mock_base_url,
             mock_token=str(d.get("mock_token", "")),
             session_header_scheme=str(d.get("session_header_scheme", "X-AgentRun-Session-ID")),
             oss_prefix=str(d.get("oss_prefix", "")),

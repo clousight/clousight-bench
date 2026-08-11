@@ -42,7 +42,7 @@ def test_run_job_then_poll_to_completion():
     srv = serve(_runner(), host="127.0.0.1", port=0)
     base = f"http://127.0.0.1:{srv.server_address[1]}"
     try:
-        spec = JobSpec(probe="quick", params={}, target_endpoint="u")
+        spec = JobSpec(probe="quick", params={}, target_endpoint="http://127.0.0.1:9999")
         status, body = _post(base, "/run-job", spec.to_dict())
         assert status == 200 and body["job_id"].startswith("job-")
         job_id = body["job_id"]

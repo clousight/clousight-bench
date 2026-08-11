@@ -120,7 +120,8 @@ def make_handler(
                 return True
             if urlparse(self.path).path == "/health":
                 return True
-            return self.headers.get(AUTH_HEADER) == token
+            import hmac
+            return hmac.compare_digest(self.headers.get(AUTH_HEADER) or "", token)
 
         def _send(self, payload: Any, status: int = 200) -> None:
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")

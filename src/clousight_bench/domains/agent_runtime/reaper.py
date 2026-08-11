@@ -48,8 +48,13 @@ class AliyunResourceReaper(ResourceReaper):
                 if res.get("tags", {}).get(TAG_MANAGED) != "true":
                     continue
                 if older_than_s is not None:
-                    age = self._now() - float(res.get("created_ts") or 0.0)
-                    if age < older_than_s:
+                    created_ts = float(res.get("created_ts") or 0.0)
+                    # Fail safe: a resource whose creation time is unknown (0.0)
+                    # must NOT be age-reaped — it may be in-flight. Only reap it
+                    # in an untimed sweep (older_than_s is None), never by age.
+                    if created_ts <= 0.0:
+                        continue
+                    if self._now() - created_ts < older_than_s:
                         continue
                 if not dry_run:
                     self._delete_fn(res["kind"], res["id"])

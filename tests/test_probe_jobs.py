@@ -13,7 +13,8 @@ def test_jobspec_roundtrips_through_dict():
 
 
 def test_jobspec_from_dict_applies_defaults():
-    spec = JobSpec.from_dict({"probe": "ttft", "params": {}, "target_endpoint": "u"})
+    spec = JobSpec.from_dict({"probe": "ttft", "params": {},
+                              "target_endpoint": "http://127.0.0.1:9000"})
     assert spec.session_header_scheme == "X-AgentRun-Session-ID"
     assert spec.mock_base_url == "" and spec.oss_prefix == ""
 
