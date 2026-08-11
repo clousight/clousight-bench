@@ -11,11 +11,11 @@ def test_chunks_to_artifacts_pass_bundle_validation():
     sink.append("series", {"t": 1, "v": 1.0})
     sink.append("spans", {"trace_id": "T1", "span_id": "a"})
     manifest = sink.close()
-    arts = chunks_to_artifacts(manifest, bucket="clousight-bench-8388a7e6")
+    arts = chunks_to_artifacts(manifest, bucket="test-bucket")
     kinds = sorted(a["kind"] for a in arts)
     assert kinds == ["probe-series", "probe-spans"]
     for a in arts:
-        assert a["uri"].startswith("oss://clousight-bench-8388a7e6/campaign-x/job-y/")
+        assert a["uri"].startswith("oss://test-bucket/campaign-x/job-y/")
         assert a["sha256"].startswith("sha256:") and a["media"] == "application/x-ndjson"
     # The whole point: these attach to a bundle and survive COLLECT validation.
     validate_observation_bundle(ObservationBundle(observations={"capability": "supported"}, artifacts=arts))
