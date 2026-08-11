@@ -45,6 +45,17 @@ dev = [
 # and CLI never import the probe subpackage, so a bare install stays minimal;
 # these are only needed to run/host a probe.
 probe = ["requests>=2.28", "oss2>=2.18"]
+# Benchmark agent bundle: LangChain + OpenInference + OTel. These are vendored
+# into the deployable agent zip by the artifact builder; installed here only to
+# build/run the agent in-process. Core/CLI never import the agent bundle.
+agent = [
+    "langchain==0.3.*",
+    "langchain-core==0.3.*",
+    "openinference-instrumentation-langchain",
+    "opentelemetry-api",
+    "opentelemetry-sdk",
+    "opentelemetry-exporter-otlp-proto-http",
+]
 store = ["duckdb>=1.0", "pyarrow>=16"]
 validate = ["jsonschema>=4.20"]
 report = ["jinja2>=3.1"]
