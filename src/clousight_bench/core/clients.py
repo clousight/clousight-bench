@@ -13,6 +13,7 @@ builder is registered via ``register_builder``. This keeps the open-core honest
 adapter or task -- you register one builder and every adapter for that provider
 gets a real client.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable

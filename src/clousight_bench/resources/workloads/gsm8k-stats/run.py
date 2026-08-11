@@ -6,6 +6,7 @@ caches GSM8K test.jsonl) and passes its local path in params["assets"]["gsm8k-te
 This workload just reads that path -- it never fetches anything itself -- and emits
 corpus statistics as metric events, proving the asset pipeline end to end.
 """
+
 from __future__ import annotations
 
 import json

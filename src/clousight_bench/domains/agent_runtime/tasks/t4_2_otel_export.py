@@ -8,6 +8,7 @@ CapabilityNotSupported = the runtime cannot export OTel at all.
 Evidence layer B: capability + format conformance; whether a platform exports
 OTel is environment-dependent, but the validation is reproducible.
 """
+
 from __future__ import annotations
 
 import json
@@ -57,15 +58,11 @@ class OtelExportTask(Task):
             "plan": [{"target": c.target, "params": c.params} for c in PLAN],
         }
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
         trace = adapter.target.get("trace", {})
         return {"otel_export_policy": bool(trace.get("otel_export", True))}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T4.2 needs an AgentRuntimeAdapter")
         _token: str | None = (adapter.target or {}).get("mock_token") or None
@@ -76,23 +73,17 @@ class OtelExportTask(Task):
             try:
                 payload = adapter.export_otel(session)
             except CapabilityNotSupported as exc:
-                return ObservationBundle(
-                    observations={"capability": "unsupported", "reason": str(exc)}
-                )
+                return ObservationBundle(observations={"capability": "unsupported", "reason": str(exc)})
         finally:
             adapter.destroy_session(session)
-        return ObservationBundle(
-            observations={"capability": "supported", "otel": payload}
-        )
+        return ObservationBundle(observations={"capability": "supported", "otel": payload})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "otel_export_supported": Measurement(
-                        value=False, unit="", evidence="B"
-                    ),
+                    "otel_export_supported": Measurement(value=False, unit="", evidence="B"),
                     "otel_valid": Measurement(value=False, unit="", evidence="B"),
                 },
                 findings=[
@@ -129,9 +120,7 @@ class OtelExportTask(Task):
             )
         return TaskResult(
             measurements={
-                "otel_export_supported": Measurement(
-                    value=True, unit="", evidence="B"
-                ),
+                "otel_export_supported": Measurement(value=True, unit="", evidence="B"),
                 "otel_valid": Measurement(value=valid, unit="", evidence="B"),
                 "span_count": Measurement(value=span_count, unit="count", evidence="B"),
                 "problems": Measurement(value=problems, unit="", evidence="B"),

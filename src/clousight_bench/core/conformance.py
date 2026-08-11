@@ -10,6 +10,7 @@ task's declared contract. Emitted-record conformance itself is guaranteed at a
 different layer -- the PERSIST gate validates every record against the 0.2
 schema -- so a successful ``csbench run`` already proves records conform.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -71,23 +72,26 @@ def _check_task(tid: str, task_cls: type) -> list[CheckResult]:
         return [CheckResult(f"{label}:construct", False, f"cannot instantiate: {exc}")]
 
     meta_ok = bool(getattr(task, "task_id", "")) and bool(getattr(task, "title", ""))
-    out.append(CheckResult(f"{label}:meta", meta_ok,
-                           "" if meta_ok else "task_id/title must be non-empty"))
+    out.append(CheckResult(f"{label}:meta", meta_ok, "" if meta_ok else "task_id/title must be non-empty"))
 
     ev = getattr(task, "evidence_layer", "")
-    out.append(CheckResult(f"{label}:evidence", ev in EVIDENCE_LAYERS,
-                           f"evidence_layer {ev!r} not in {EVIDENCE_LAYERS}"))
+    out.append(
+        CheckResult(
+            f"{label}:evidence", ev in EVIDENCE_LAYERS, f"evidence_layer {ev!r} not in {EVIDENCE_LAYERS}"
+        )
+    )
 
-    revs_ok = bool(getattr(task, "task_revision", "")) and bool(
-        getattr(task, "scorer_revision", ""))
-    out.append(CheckResult(f"{label}:revisions", revs_ok,
-                           "task_revision/scorer_revision must be set"))
+    revs_ok = bool(getattr(task, "task_revision", "")) and bool(getattr(task, "scorer_revision", ""))
+    out.append(CheckResult(f"{label}:revisions", revs_ok, "task_revision/scorer_revision must be set"))
 
     try:
         cfg = task.config({})
         if not isinstance(cfg, dict):
-            out.append(CheckResult(f"{label}:config", False,
-                                   f"config({{}}) must return a dict, got {type(cfg).__name__}"))
+            out.append(
+                CheckResult(
+                    f"{label}:config", False, f"config({{}}) must return a dict, got {type(cfg).__name__}"
+                )
+            )
         else:
             canonical_json(cfg)
             out.append(CheckResult(f"{label}:config", True, ""))
@@ -101,6 +105,6 @@ def _check_platform(pack, platform: str) -> CheckResult:
     adapters = pack.adapters()
     if platform not in adapters:
         return CheckResult(
-            f"platform:{platform}", False,
-            f"platform {platform!r} is not one of {sorted(adapters)}")
+            f"platform:{platform}", False, f"platform {platform!r} is not one of {sorted(adapters)}"
+        )
     return CheckResult(f"platform:{platform}", True, "adapter is declared")

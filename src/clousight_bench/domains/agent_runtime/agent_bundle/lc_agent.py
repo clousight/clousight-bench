@@ -13,12 +13,13 @@ response body under ``_spans`` for in-band collection by the transport.
 An ARMS OTLP export (best-effort, async) is added as a secondary exporter to
 test the platform's real OTel pipeline end-to-end.
 """
+
 from __future__ import annotations
 
-import threading
-from typing import Any, Optional, List
-from urllib import request as urlrequest
 import json
+import threading
+from typing import Any
+from urllib import request as urlrequest
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -32,12 +33,14 @@ from pydantic import Field
 # Deterministic stub LLM
 # ---------------------------------------------------------------------------
 
+
 class BenchmarkChatModel(BaseChatModel):
     """Always returns exactly the tool call specified at construction.
 
     Implements bind_tools() so create_tool_calling_agent() can register tools.
     OpenInference instruments _generate() → LLM span.
     """
+
     model_name: str = Field(default="clousight-bench-stub")
     tool_name: str = Field(default="prices")
     tool_args: dict = Field(default_factory=dict)
@@ -47,7 +50,7 @@ class BenchmarkChatModel(BaseChatModel):
     def _llm_type(self) -> str:
         return "clousight-bench"
 
-    def bind_tools(self, tools: list, **kwargs: Any) -> "BenchmarkChatModel":
+    def bind_tools(self, tools: list, **kwargs: Any) -> BenchmarkChatModel:
         """Required by create_tool_calling_agent; returns self (stub ignores tool schemas)."""
         copy = self.model_copy()
         copy._bound_tools = list(tools)
@@ -55,26 +58,29 @@ class BenchmarkChatModel(BaseChatModel):
 
     def _generate(
         self,
-        messages: List[BaseMessage],
-        stop: Optional[List[str]] = None,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
         run_manager: Any = None,
         **kwargs: Any,
     ) -> ChatResult:
         # If the conversation already has a ToolMessage (tool result), return the
         # final answer so AgentExecutor stops after exactly one tool call.
         from langchain_core.messages import ToolMessage
+
         has_tool_result = any(isinstance(m, ToolMessage) for m in messages)
         if has_tool_result:
             message = AIMessage(content=f"Tool {self.tool_name!r} executed successfully.")
         else:
             message = AIMessage(
                 content="",
-                tool_calls=[{
-                    "name": self.tool_name,
-                    "args": self.tool_args,
-                    "id": "call_bench_001",
-                    "type": "tool_call",
-                }],
+                tool_calls=[
+                    {
+                        "name": self.tool_name,
+                        "args": self.tool_args,
+                        "id": "call_bench_001",
+                        "type": "tool_call",
+                    }
+                ],
             )
         return ChatResult(generations=[ChatGeneration(message=message)])
 
@@ -83,11 +89,13 @@ class BenchmarkChatModel(BaseChatModel):
 # Mock server tools
 # ---------------------------------------------------------------------------
 
+
 class MockServerTool(BaseTool):
     """LangChain tool backed by a mock HTTP server endpoint.
 
     OpenInference instruments run() → TOOL span.
     """
+
     name: str
     description: str
     mock_base_url: str = Field(default="")
@@ -115,9 +123,9 @@ def make_tools(mock_base_url: str, mock_token: str) -> list[BaseTool]:
     """Build the set of benchmark tools pointing to mock_base_url."""
     common = {"mock_base_url": mock_base_url, "mock_token": mock_token}
     return [
-        MockServerTool(name="prices",    description="Get current prices",        **common),
-        MockServerTool(name="inventory", description="Get inventory status",       **common),
-        MockServerTool(name="reports",   description="Get analytics reports",      **common),
+        MockServerTool(name="prices", description="Get current prices", **common),
+        MockServerTool(name="inventory", description="Get inventory status", **common),
+        MockServerTool(name="reports", description="Get analytics reports", **common),
     ]
 
 
@@ -142,11 +150,11 @@ def setup_otel(arms_config: dict | None = None) -> bool:
         if _otel_ready:
             return True
         try:
+            from openinference.instrumentation.langchain import LangChainInstrumentor
             from opentelemetry import trace
             from opentelemetry.sdk.trace import TracerProvider
             from opentelemetry.sdk.trace.export import SimpleSpanProcessor
             from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-            from openinference.instrumentation.langchain import LangChainInstrumentor
 
             _mem_exporter = InMemorySpanExporter()
             provider = TracerProvider()
@@ -169,8 +177,9 @@ def setup_otel(arms_config: dict | None = None) -> bool:
 def _try_add_arms_exporter(provider: Any, license_key: str, region: str) -> None:
     """Add async ARMS OTLP exporter. Best-effort — failures are silenced."""
     try:
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
         for ep in [
             f"http://arms-dc.{region}-internal.aliyuncs.com:8091/api/otlp/traces",
             f"http://arms-dc.{region}.aliyuncs.com:8091/api/otlp/traces",
@@ -193,11 +202,13 @@ def _try_add_arms_exporter(provider: Any, license_key: str, region: str) -> None
 # Main agent entry point
 # ---------------------------------------------------------------------------
 
-_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", "You are a benchmark agent. Execute exactly the tool call requested."),
-    ("human", "{input}"),
-    ("placeholder", "{agent_scratchpad}"),
-])
+_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        ("system", "You are a benchmark agent. Execute exactly the tool call requested."),
+        ("human", "{input}"),
+        ("placeholder", "{agent_scratchpad}"),
+    ]
+)
 
 
 def run(body: dict[str, Any]) -> dict[str, Any]:
@@ -240,17 +251,19 @@ def run(body: dict[str, Any]) -> dict[str, Any]:
     # Collect OpenInference spans from in-memory exporter
     spans: list[dict] = []
     if otel_ok and _mem_exporter is not None:
-        span_ids_set = {format(s.context.span_id, "016x") for s in _mem_exporter.get_finished_spans()}
+        _span_ids_set = {format(s.context.span_id, "016x") for s in _mem_exporter.get_finished_spans()}
         for s in _mem_exporter.get_finished_spans():
             attrs = dict(s.attributes or {})
-            spans.append({
-                "trace_id":      format(s.context.trace_id, "032x"),
-                "span_id":       format(s.context.span_id, "016x"),
-                "parent_span_id": format(s.parent.span_id, "016x") if s.parent else "",
-                "name":          s.name,
-                "kind":          attrs.get("openinference.span.kind", "CHAIN"),
-                "attributes":    attrs,
-            })
+            spans.append(
+                {
+                    "trace_id": format(s.context.trace_id, "032x"),
+                    "span_id": format(s.context.span_id, "016x"),
+                    "parent_span_id": format(s.parent.span_id, "016x") if s.parent else "",
+                    "name": s.name,
+                    "kind": attrs.get("openinference.span.kind", "CHAIN"),
+                    "attributes": attrs,
+                }
+            )
 
     result_body: dict[str, Any] = {
         "ok": ok,

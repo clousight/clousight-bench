@@ -1,4 +1,5 @@
 """Secrets and machine identity must never reach a record or a fingerprint."""
+
 from clousight_bench.core.redaction import (
     REDACTED,
     find_identity_leaks,
@@ -62,9 +63,7 @@ def test_scrub_identity_text_removes_embedded_machine_identities():
 
 
 def test_scrub_identity_text_leaves_a_clean_message_alone():
-    assert scrub_identity_text("connection reset", identities=("alice",)) == (
-        "connection reset"
-    )
+    assert scrub_identity_text("connection reset", identities=("alice",)) == ("connection reset")
 
 
 def test_short_common_identity_is_scrubbed_only_as_a_whole_word():

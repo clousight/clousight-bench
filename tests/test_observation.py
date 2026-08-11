@@ -1,4 +1,5 @@
 """Observations stay raw; scoring conclusions live only in TaskResult."""
+
 import pytest
 
 from clousight_bench.core.canonical import CanonicalJSONError
@@ -92,11 +93,7 @@ def test_collect_rejects_artifacts_without_a_pointer_or_digest():
     with pytest.raises(ObservationError, match="sha256"):
         collect(ObservationBundle(artifacts=[{"kind": "t", "path": "p", "media": "m"}]))
     with pytest.raises(ObservationError, match="pointer"):
-        collect(
-            ObservationBundle(
-                artifacts=[{"kind": "t", "media": "m", "sha256": "sha256:ab"}]
-            )
-        )
+        collect(ObservationBundle(artifacts=[{"kind": "t", "media": "m", "sha256": "sha256:ab"}]))
 
 
 def test_task_result_defaults_are_empty_and_supported():

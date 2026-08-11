@@ -44,9 +44,7 @@ def test_atomic_write_cleans_up_and_reraises_when_replace_fails(tmp_path, monkey
     assert list(tmp_path.iterdir()) == []
 
 
-def test_emergency_write_returns_an_absolute_path_under_the_temp_dir(
-    tmp_path, monkeypatch
-):
+def test_emergency_write_returns_an_absolute_path_under_the_temp_dir(tmp_path, monkeypatch):
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
     path = emergency_write_text("agent-runtime-T1.3-run-1.json", '{"x":1}')
     assert path.is_absolute()
@@ -56,9 +54,7 @@ def test_emergency_write_returns_an_absolute_path_under_the_temp_dir(
 
 
 @pytest.mark.parametrize("name", ["../escaped.json", "nested/escaped.json"])
-def test_emergency_write_rejects_path_traversal_and_subpaths(
-    name, tmp_path, monkeypatch
-):
+def test_emergency_write_rejects_path_traversal_and_subpaths(name, tmp_path, monkeypatch):
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
 
     with pytest.raises(ValueError, match="basename"):

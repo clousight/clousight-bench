@@ -2,6 +2,7 @@
 under a unique key, and delete on teardown -- all without an account (the OSS
 bucket client is injected).
 """
+
 import io
 import zipfile
 
@@ -58,7 +59,9 @@ def test_upload_namespaces_key_under_run_id():
     # the artifact to the run.
     fake = _FakeBucket()
     store = OssArtifactStore(
-        "my-bucket", "cn-hangzhou", run_id="run-20260730-000000-abcdef",
+        "my-bucket",
+        "cn-hangzhou",
+        run_id="run-20260730-000000-abcdef",
         bucket_factory=lambda: fake,
     )
     ref = store.upload()
@@ -111,9 +114,7 @@ def test_provision_builds_and_uploads_when_bucket_set_and_teardown_deletes(monke
     fake = _FakeBucket()
 
     def _fake_store(bucket, region, *, endpoint=None, run_id=None):
-        return OssArtifactStore(
-            bucket, region, endpoint=endpoint, run_id=run_id, bucket_factory=lambda: fake
-        )
+        return OssArtifactStore(bucket, region, endpoint=endpoint, run_id=run_id, bucket_factory=lambda: fake)
 
     monkeypatch.setattr(artifact, "OssArtifactStore", _fake_store)
 

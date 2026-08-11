@@ -14,6 +14,7 @@ Realized cost comes from the pricing enricher (``extensions["pricing"]
 The ledger is a small JSON file under the results dir. It is best-effort
 durable, not a billing system: the authoritative meter is the cloud's own bill.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,6 +66,5 @@ class CostLedger:
             {"run_id": run_id, "provider": provider or "", "cost_usd": round(cost_usd, 9)}
         )
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return data["total_usd"]

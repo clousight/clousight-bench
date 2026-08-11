@@ -118,9 +118,7 @@ def test_t1_3_score_flags_a_missing_fault_as_critical():
 
 def test_environment_facts_are_declared_and_non_sensitive():
     adapter = LocalSimAdapter({"recovery": {"mode": "auto-retry"}})
-    assert StatePersistenceTask().environment_facts(adapter, {}) == {
-        "state_persistence_policy": "durable"
-    }
+    assert StatePersistenceTask().environment_facts(adapter, {}) == {"state_persistence_policy": "durable"}
     assert FaultRecoveryTask().environment_facts(adapter, {}) == {
         "recovery_policy": "auto-retry",
         "max_retries": 3,
@@ -157,9 +155,7 @@ def test_t2_1_score_counts_paths_and_flags_a_runtime_with_none():
 
     none_result = task.score(_run(task, LocalSimAdapter({"tool_registration": []})))
     assert none_result.unsupported is True
-    assert [f.code for f in none_result.findings] == [
-        "agent_runtime.no_tool_registration_path"
-    ]
+    assert [f.code for f in none_result.findings] == ["agent_runtime.no_tool_registration_path"]
 
 
 def test_t4_1_score_flags_missing_span_kinds():
@@ -173,9 +169,7 @@ def test_t4_1_score_flags_missing_span_kinds():
     assert full.measurements["kinds_missing"].value == []
     assert full.findings == []
 
-    partial = task.score(
-        _run(task, LocalSimAdapter({"trace": {"completeness": "partial"}}))
-    )
+    partial = task.score(_run(task, LocalSimAdapter({"trace": {"completeness": "partial"}})))
     assert partial.measurements["span_completeness"].value < 1.0
     assert "TOOL" in partial.measurements["kinds_missing"].value
     assert [(f.code, f.severity) for f in partial.findings] == [

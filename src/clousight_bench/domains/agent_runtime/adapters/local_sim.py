@@ -14,6 +14,7 @@ logic.
 Target keys: recovery{mode,max_retries,backoff_ms}, state_persistence,
 tool_registration, trace{completeness,otel_export}, mock_port.
 """
+
 from __future__ import annotations
 
 from clousight_bench.domains.agent_runtime.adapters.managed import ManagedAgentRuntimeAdapter

@@ -1,12 +1,13 @@
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from clousight_bench.domains.agent_runtime.probe.dataplane import run_ttft, TTFT_SAMPLES
-from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec, JobProgress
+from clousight_bench.domains.agent_runtime.probe.dataplane import TTFT_SAMPLES, run_ttft
+from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec
 
 
 class _SSETarget(BaseHTTPRequestHandler):
     """A fake data-plane endpoint that streams a tiny SSE completion."""
+
     def do_POST(self):  # noqa: N802
         n = int(self.headers.get("Content-Length", 0))
         self.rfile.read(n)
@@ -32,8 +33,9 @@ def test_run_ttft_collects_samples_and_reports_progress():
     srv, base = _serve()
     seen = []
     try:
-        spec = JobSpec(probe="ttft", params={}, target_endpoint=base,
-                       mock_base_url="http://mock", mock_token="t")
+        spec = JobSpec(
+            probe="ttft", params={}, target_endpoint=base, mock_base_url="http://mock", mock_token="t"
+        )
         bundle = run_ttft(spec, lambda prog, metrics: seen.append((prog.completed, prog.total)))
     finally:
         srv.shutdown()
@@ -50,8 +52,13 @@ def test_run_ttft_honors_params_sample_count():
     srv, base = _serve()
     seen = []
     try:
-        spec = JobSpec(probe="ttft", params={"warmup": 2, "samples": 3},
-                       target_endpoint=base, mock_base_url="http://mock", mock_token="t")
+        spec = JobSpec(
+            probe="ttft",
+            params={"warmup": 2, "samples": 3},
+            target_endpoint=base,
+            mock_base_url="http://mock",
+            mock_token="t",
+        )
         bundle = run_ttft(spec, lambda prog, metrics: seen.append((prog.completed, prog.total)))
     finally:
         srv.shutdown()

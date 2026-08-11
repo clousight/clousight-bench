@@ -6,6 +6,7 @@ remote cluster. This is the EMR-domain analogue of agent-runtime's local-sim --
 it validates that the SAME lifecycle + cross-language workload protocol carries a
 non-agent product category, which is the whole point of the unified abstraction.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

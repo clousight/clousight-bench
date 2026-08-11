@@ -5,6 +5,7 @@ InMemoryOssClient (dict-backed fake — the test double and the --probe=local
 backend). The 4-method interface is all the sink/sync need; keeping it tiny
 means the whole channel is testable without an account.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -59,9 +60,7 @@ class _ChainCredentialsProvider:
         import oss2
 
         c = self._cred_client.get_credential()
-        return oss2.credentials.Credentials(
-            c.access_key_id, c.access_key_secret, c.security_token
-        )
+        return oss2.credentials.Credentials(c.access_key_id, c.access_key_secret, c.security_token)
 
 
 class Oss2Client(OssClient):
@@ -79,8 +78,7 @@ class Oss2Client(OssClient):
             from alibabacloud_credentials.client import Client as CredClient
 
             auth = oss2.ProviderAuthV4(_ChainCredentialsProvider(CredClient()))
-            self._bucket = oss2.Bucket(auth, self._endpoint, self._bucket_name,
-                                       region=self._region)
+            self._bucket = oss2.Bucket(auth, self._endpoint, self._bucket_name, region=self._region)
         return self._bucket
 
     def put_object(self, key: str, data: bytes) -> None:
@@ -91,6 +89,7 @@ class Oss2Client(OssClient):
 
     def list_prefix(self, prefix: str) -> list[str]:
         import oss2
+
         return [o.key for o in oss2.ObjectIterator(self._bucket_handle(), prefix=prefix)]
 
     def delete_object(self, key: str) -> None:

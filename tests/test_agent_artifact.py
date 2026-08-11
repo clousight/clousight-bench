@@ -4,6 +4,7 @@ No cloud: starts the mock tool universe in-process and drives the agent's
 invoke core against it, proving the deployable payload makes the requested tool
 call and reports the tool's own HTTP outcome.
 """
+
 import importlib
 
 
@@ -23,9 +24,7 @@ def test_agent_invoke_calls_the_tool_and_reports_status():
     agent = _agent()
     server, base = _mock_universe()
     try:
-        r = agent.handle_invoke(
-            {"tool": {"target": "prices", "method": "GET"}, "mock_base_url": base}
-        )
+        r = agent.handle_invoke({"tool": {"target": "prices", "method": "GET"}, "mock_base_url": base})
         assert r["ok"] is True
         assert r["status"] == 200
         assert r["tool_target"] == "prices"

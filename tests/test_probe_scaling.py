@@ -1,4 +1,5 @@
 """Test for run_scaling data-plane probe."""
+
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,9 +15,10 @@ class _FakeAgent(BaseHTTPRequestHandler):
     ``fail_after_n_calls`` per session header, models a slower ``reports``
     target, and returns 429 past a burst threshold. Subclass attributes tune it.
     """
-    fault_threshold = 0      # >0: return ok=false with _fault_injected on the Nth+ call per session
-    reject_after = 0         # >0: return HTTP 429 once this many concurrent calls seen
-    slow_targets = ()        # tool targets that sleep slow_ms
+
+    fault_threshold = 0  # >0: return ok=false with _fault_injected on the Nth+ call per session
+    reject_after = 0  # >0: return HTTP 429 once this many concurrent calls seen
+    slow_targets = ()  # tool targets that sleep slow_ms
     slow_ms = 0
 
     _counts: dict = {}
@@ -43,14 +45,14 @@ class _FakeAgent(BaseHTTPRequestHandler):
                 return
             if cls.slow_ms and tool.get("target") in cls.slow_targets:
                 import time as _t
+
                 _t.sleep(cls.slow_ms / 1000)
             faulted = bool(cls.fault_threshold and call_n >= cls.fault_threshold)
             result = {"ok": not faulted, "status": 500 if faulted else 200}
             if faulted:
                 result["_fault_injected"] = True
             content = json.dumps(result)
-            out = json.dumps({"choices": [{"message": {"role": "assistant",
-                                                        "content": content}}]}).encode()
+            out = json.dumps({"choices": [{"message": {"role": "assistant", "content": content}}]}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -75,10 +77,13 @@ def _serve(handler_cls):
 def test_scaling_reports_points_series_and_null_instances():
     srv, base = _serve(_FakeAgent)
     try:
-        spec = JobSpec(probe="scaling",
-                       params={"levels": [1, 4], "n_reps": 1,
-                               "inter_rep_cooldown_s": 0, "inter_level_cooldown_s": 0},
-                       target_endpoint=base, mock_base_url="http://mock", mock_token="t")
+        spec = JobSpec(
+            probe="scaling",
+            params={"levels": [1, 4], "n_reps": 1, "inter_rep_cooldown_s": 0, "inter_level_cooldown_s": 0},
+            target_endpoint=base,
+            mock_base_url="http://mock",
+            mock_token="t",
+        )
         b = run_scaling(spec, lambda p, m: None)
     finally:
         srv.shutdown()
@@ -87,6 +92,8 @@ def test_scaling_reports_points_series_and_null_instances():
     assert [p["concurrency"] for p in o["points"]] == [1, 4]
     assert all(p["success_rate"] == 1.0 for p in o["points"])
     assert all(p["observed_instances"] is None for p in o["points"])
-    assert o["instance_visibility_findings"]           # non-empty: probe can't see instances
-    assert b.series["p95_ms"] == [[1, b.observations["points"][0]["p95_ms"]],
-                                  [4, b.observations["points"][1]["p95_ms"]]]
+    assert o["instance_visibility_findings"]  # non-empty: probe can't see instances
+    assert b.series["p95_ms"] == [
+        [1, b.observations["points"][0]["p95_ms"]],
+        [4, b.observations["points"][1]["p95_ms"]],
+    ]

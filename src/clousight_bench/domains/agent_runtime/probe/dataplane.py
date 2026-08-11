@@ -5,6 +5,7 @@ issues real invokes to the target endpoint and returns an ObservationBundle.
 No adapter state, no cloud SDK — just HTTP to a public endpoint. This is the
 code that must run co-located with the runtime-under-test.
 """
+
 from __future__ import annotations
 
 import threading
@@ -18,8 +19,10 @@ if TYPE_CHECKING:
     from .oss_sink import OssChunkSink
 
 import requests
+
 from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.core.stats import percentiles
+from clousight_bench.domains.agent_runtime import protocol
 from clousight_bench.domains.agent_runtime.adapters.base import (
     Attempt,
     CancellationResult,
@@ -35,7 +38,6 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     SoakResult,
 )
 
-from clousight_bench.domains.agent_runtime import protocol
 from .invoke import ProbeInvoker
 from .jobs import JobProgress, JobSpec
 
@@ -49,6 +51,7 @@ def _p95(values: list[float]) -> float:
     ordered = sorted(values)
     idx = min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))
     return ordered[idx]
+
 
 ProgressCb = Callable[[JobProgress, dict], None]
 
@@ -72,8 +75,7 @@ def measure_ttft(
     )
     url = endpoint_url.rstrip("/") + "/openai/v1/chat/completions"
     t0 = time.perf_counter()
-    resp = session.post(url, json=body, headers={session_header: session_id},
-                        stream=True, timeout=120)
+    resp = session.post(url, json=body, headers={session_header: session_id}, stream=True, timeout=120)
     resp.raise_for_status()
     if "text/event-stream" not in str(resp.headers.get("Content-Type") or ""):
         return 0.0
@@ -83,7 +85,9 @@ def measure_ttft(
     return (time.perf_counter() - t0) * 1000
 
 
-def run_ttft(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_ttft(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """Warm up, then measure ``samples`` streaming invokes.
 
     ``warmup``/``samples`` come from ``spec.params`` (T1.9 passes {"warmup", "samples"});
@@ -95,20 +99,33 @@ def run_ttft(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | No
     t_start = time.perf_counter()
 
     def report(phase: str, completed: int, ms_so_far: list[float]) -> None:
-        prog = JobProgress(phase=phase, completed=completed, total=samples,
-                           elapsed_s=round(time.perf_counter() - t_start, 3))
+        prog = JobProgress(
+            phase=phase, completed=completed, total=samples, elapsed_s=round(time.perf_counter() - t_start, 3)
+        )
         metrics = {"last_ttft_ms": ms_so_far[-1]} if ms_so_far else {}
         progress_cb(prog, metrics)
 
     sid = f"ttft-{int(t_start * 1000)}"
     for _ in range(warmup):
-        measure_ttft(session, spec.target_endpoint, spec.session_header_scheme,
-                     sid, spec.mock_base_url, spec.mock_token)
+        measure_ttft(
+            session,
+            spec.target_endpoint,
+            spec.session_header_scheme,
+            sid,
+            spec.mock_base_url,
+            spec.mock_token,
+        )
     ttft_ms: list[float] = []
     report("sample", 0, ttft_ms)
     for i in range(samples):
-        ms = measure_ttft(session, spec.target_endpoint, spec.session_header_scheme,
-                          f"{sid}-{i}", spec.mock_base_url, spec.mock_token)
+        ms = measure_ttft(
+            session,
+            spec.target_endpoint,
+            spec.session_header_scheme,
+            f"{sid}-{i}",
+            spec.mock_base_url,
+            spec.mock_token,
+        )
         ttft_ms.append(round(ms, 3))
         report("sample", i + 1, ttft_ms)
     return ObservationBundle(
@@ -117,7 +134,9 @@ def run_ttft(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | No
     )
 
 
-def run_sustained_load(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_sustained_load(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """真并发持续负载：用令牌桶 + 线程池驱动，真实测量吞吐和尾延迟。
 
     工作者数量 = min(target_rps * 预估延迟, 32)（Little's Law）。
@@ -180,7 +199,8 @@ def run_sustained_load(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChun
         p99_ms=round(p[99], 2),
         jitter_ms=round(p[99] - p[50], 2),
         error_rate=round(errors_count / n, 4),
-        requests=n, duration_s=round(actual_elapsed, 2),
+        requests=n,
+        duration_s=round(actual_elapsed, 2),
         transport_error_rate=round(transport_errors / n, 4),
         runtime_error_rate=round(runtime_errors / n, 4),
         tool_error_rate=round(tool_errors / n, 4),
@@ -191,17 +211,27 @@ def run_sustained_load(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChun
     if sink is not None:
         sink.append("series", {"t": round(actual_elapsed, 3), "throughput_rps": actual_rps})
 
-    return ObservationBundle(observations={
-        "capability": "supported",
-        "throughput_rps": r.throughput_rps, "p50_ms": r.p50_ms, "p99_ms": r.p99_ms,
-        "jitter_ms": r.jitter_ms, "error_rate": r.error_rate,
-        "transport_error_rate": r.transport_error_rate,
-        "runtime_error_rate": r.runtime_error_rate, "tool_error_rate": r.tool_error_rate,
-        "requests": r.requests, "duration_s": r.duration_s, "target_rps": target_rps,
-    })
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "throughput_rps": r.throughput_rps,
+            "p50_ms": r.p50_ms,
+            "p99_ms": r.p99_ms,
+            "jitter_ms": r.jitter_ms,
+            "error_rate": r.error_rate,
+            "transport_error_rate": r.transport_error_rate,
+            "runtime_error_rate": r.runtime_error_rate,
+            "tool_error_rate": r.tool_error_rate,
+            "requests": r.requests,
+            "duration_s": r.duration_s,
+            "target_rps": target_rps,
+        }
+    )
 
 
-def run_soak(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_soak(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """持续可用性探测：在 duration_s 内循环单次调用，统计成功率。"""
     duration_s: float = spec.params.get("duration_s", 60.0)
 
@@ -232,16 +262,24 @@ def run_soak(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | No
     r = SoakResult(
         availability=1.0 - errors / n,
         error_rate=errors / n,
-        requests=req_count, window_s=duration_s,
+        requests=req_count,
+        window_s=duration_s,
     )
 
-    return ObservationBundle(observations={
-        "capability": "supported", "availability": r.availability,
-        "error_rate": r.error_rate, "requests": r.requests, "window_s": r.window_s,
-    })
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "availability": r.availability,
+            "error_rate": r.error_rate,
+            "requests": r.requests,
+            "window_s": r.window_s,
+        }
+    )
 
 
-def run_warm_retention(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_warm_retention(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """多点检测：建立热实例后，依次等待，观察哪个时间点变冷。
 
     阈值策略：取 warmup_samples 次热调用的 p95，乘以 2 作为"仍然热"的上限。
@@ -284,12 +322,18 @@ def run_warm_retention(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChun
         keeps_warm=keeps_warm,
     )
 
-    return ObservationBundle(observations={
-        "capability": "supported", "retention_ms": r.retention_ms, "keeps_warm": r.keeps_warm,
-    })
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "retention_ms": r.retention_ms,
+            "keeps_warm": r.keeps_warm,
+        }
+    )
 
 
-def run_rate_limit(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_rate_limit(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """阶梯式并发探测限流：观察首个出现 429 的级别。
 
     直接检查 AgentRun 数据面的 HTTP 状态（不经过 run_tool_plan），捕获
@@ -304,7 +348,8 @@ def run_rate_limit(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSin
     mock = spec.mock_base_url
     mock_token = spec.mock_token
     body = protocol.encode_invoke(
-        {"target": "prices", "method": "GET"}, mock,
+        {"target": "prices", "method": "GET"},
+        mock,
         mock_token=mock_token or None,
     )
     inv = ProbeInvoker(spec)
@@ -316,11 +361,13 @@ def run_rate_limit(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSin
     t_start = time.perf_counter()
 
     for idx, burst_n in enumerate(levels):
+
         def _raw_call(i: int, _n: int = burst_n) -> tuple[int, float]:
             sid = f"rl-{_n}-{i}"
             try:
                 resp = session_obj.post(
-                    url, json=body,
+                    url,
+                    json=body,
                     headers={spec.session_header_scheme: sid},
                     timeout=30,
                 )
@@ -348,13 +395,19 @@ def run_rate_limit(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSin
         retry_after_ms=retry_after_ms,
         honors_429=honors_429,
     )
-    return ObservationBundle(observations={
-        "capability": "supported", "throttle_onset_rps": r.throttle_onset_rps,
-        "retry_after_ms": r.retry_after_ms, "honors_429": r.honors_429,
-    })
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "throttle_onset_rps": r.throttle_onset_rps,
+            "retry_after_ms": r.retry_after_ms,
+            "honors_429": r.honors_429,
+        }
+    )
 
 
-def run_concurrency_ceiling(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_concurrency_ceiling(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """阶梯式并发上限探测：逐步提升并发量，找到拒绝率超阈值的级别。"""
     endpoint_url = spec.target_endpoint
     if not endpoint_url:
@@ -364,7 +417,8 @@ def run_concurrency_ceiling(spec: JobSpec, progress_cb: ProgressCb, *, sink: "Os
     mock = spec.mock_base_url
     mock_token = spec.mock_token
     body = protocol.encode_invoke(
-        {"target": "prices", "method": "GET"}, mock,
+        {"target": "prices", "method": "GET"},
+        mock,
         mock_token=mock_token or None,
     )
     inv = ProbeInvoker(spec)
@@ -377,10 +431,12 @@ def run_concurrency_ceiling(spec: JobSpec, progress_cb: ProgressCb, *, sink: "Os
     t_start = time.perf_counter()
 
     for idx, burst_n in enumerate(levels):
+
         def _call(i: int, _n: int = burst_n) -> int:
             try:
                 resp = session_obj.post(
-                    url, json=body,
+                    url,
+                    json=body,
                     headers={spec.session_header_scheme: f"ceil-{_n}-{i}"},
                     timeout=15,
                 )
@@ -406,12 +462,18 @@ def run_concurrency_ceiling(spec: JobSpec, progress_cb: ProgressCb, *, sink: "Os
         max_in_flight=ceiling if ceiling else levels[-1],
         hard_limit=hard_limit,
     )
-    return ObservationBundle(observations={
-        "capability": "supported", "max_in_flight": r.max_in_flight, "hard_limit": r.hard_limit,
-    })
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "max_in_flight": r.max_in_flight,
+            "hard_limit": r.hard_limit,
+        }
+    )
 
 
-def run_cancellation(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_cancellation(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """真实取消探测：用极短超时强制客户端断开，验证端点能从中恢复。
 
     honored=True: 超时异常已抛出 = 客户端取消有效
@@ -446,13 +508,15 @@ def run_cancellation(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkS
             mock_token = spec.mock_token
             body = protocol.encode_invoke(
                 {"target": "prices", "method": "GET"},
-                mock, mock_token=mock_token or None,
+                mock,
+                mock_token=mock_token or None,
             )
             url = endpoint_url.rstrip("/") + "/openai/v1/chat/completions"
             session_obj = inv.session
             try:
                 session_obj.post(
-                    url, json=body,
+                    url,
+                    json=body,
                     headers={spec.session_header_scheme: session_id},
                     timeout=CLIENT_TIMEOUT_S,
                 )
@@ -483,13 +547,19 @@ def run_cancellation(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkS
         teardown_ran=teardown_ran,
         residual=residual,
     )
-    return ObservationBundle(observations={
-        "capability": "supported", "honored": r.honored,
-        "teardown_ran": r.teardown_ran, "residual": list(r.residual),
-    })
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "honored": r.honored,
+            "teardown_ran": r.teardown_ran,
+            "residual": list(r.residual),
+        }
+    )
 
 
-def run_scaling(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_scaling(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """弹性探测：在各并发级别跑 N_REPS 次，报告中位 success_rate 和 p95_ms。
 
     The probe has no control credentials and cannot query instance counts;
@@ -504,7 +574,8 @@ def run_scaling(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink |
     base = spec.mock_base_url
     mock_token = spec.mock_token
     body = protocol.encode_invoke(
-        {"target": "prices", "method": "GET"}, base,
+        {"target": "prices", "method": "GET"},
+        base,
         mock_token=mock_token or None,
     )
 
@@ -558,16 +629,23 @@ def run_scaling(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink |
         elapsed = time.perf_counter() - t_start
         progress_cb(JobProgress("level", idx + 1, len(levels), elapsed), {"concurrency": n})
 
-        points.append(ScalePoint(
-            concurrency=n,
-            success_rate=round(_median(rep_success_rates), 4),
-            p95_ms=round(_median(rep_p95s), 2),
-            observed_instances=None,  # probe has no control creds; never query instances
-        ))
+        points.append(
+            ScalePoint(
+                concurrency=n,
+                success_rate=round(_median(rep_success_rates), 4),
+                p95_ms=round(_median(rep_p95s), 2),
+                observed_instances=None,  # probe has no control creds; never query instances
+            )
+        )
         if sink is not None:
-            sink.append("series", {"concurrency": n,
-                                   "success_rate": round(_median(rep_success_rates), 4),
-                                   "p95_ms": round(_median(rep_p95s), 2)})
+            sink.append(
+                "series",
+                {
+                    "concurrency": n,
+                    "success_rate": round(_median(rep_success_rates), 4),
+                    "p95_ms": round(_median(rep_p95s), 2),
+                },
+            )
 
     points = sorted(points, key=lambda p: p.concurrency)
     extra = ["AgentRun GetAgentRuntime 不暴露实时实例数，无法观测弹性行为。"]
@@ -575,8 +653,12 @@ def run_scaling(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink |
         observations={
             "capability": "supported",
             "points": [
-                {"concurrency": p.concurrency, "success_rate": p.success_rate,
-                 "p95_ms": p.p95_ms, "observed_instances": p.observed_instances}
+                {
+                    "concurrency": p.concurrency,
+                    "success_rate": p.success_rate,
+                    "p95_ms": p.p95_ms,
+                    "observed_instances": p.observed_instances,
+                }
                 for p in points
             ],
             "instance_visibility_findings": extra,
@@ -588,7 +670,9 @@ def run_scaling(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink |
     )
 
 
-def run_hol_blocking(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_hol_blocking(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """T1.12: 1 slow + fast_count fast concurrent requests on the same session.
 
     Fires requests to the ``slow_target`` endpoint (slow) and ``fast_target``
@@ -607,7 +691,8 @@ def run_hol_blocking(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkS
 
     def timed_invoke(target: str) -> float:
         body = protocol.encode_invoke(
-            {"target": target, "method": "GET"}, base,
+            {"target": target, "method": "GET"},
+            base,
             mock_token=mock_token or None,
         )
         t0 = time.perf_counter()
@@ -644,13 +729,19 @@ def run_hol_blocking(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkS
 
     progress_cb(JobProgress("hol", 1, 1, elapsed), {"blocked": r.blocked})
 
-    return ObservationBundle(observations={
-        "blocked": r.blocked, "fast_p50_ms": r.fast_p50_ms,
-        "slow_p50_ms": r.slow_p50_ms, "hol_ratio": r.hol_ratio,
-    })
+    return ObservationBundle(
+        observations={
+            "blocked": r.blocked,
+            "fast_p50_ms": r.fast_p50_ms,
+            "slow_p50_ms": r.slow_p50_ms,
+            "hol_ratio": r.hol_ratio,
+        }
+    )
 
 
-def run_fault_recovery(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_fault_recovery(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """T1.3 request-level fault injection probe.
 
     Makes ``fault_call_index + 2`` sequential tool calls with
@@ -665,7 +756,7 @@ def run_fault_recovery(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChun
     fault_call_index: int = spec.params.get("fault_call_index", 3)
     base = spec.mock_base_url
     mock_token = spec.mock_token
-    n_calls = fault_call_index + 2   # enough calls to guarantee fault fires
+    n_calls = fault_call_index + 2  # enough calls to guarantee fault fires
     inv = ProbeInvoker(spec)
     session = inv.create_session()
     attempts: list[Attempt] = []
@@ -674,10 +765,10 @@ def run_fault_recovery(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChun
     t_start = time.perf_counter()
     try:
         for call_index in range(1, n_calls + 1):
-            tool = {"target": "prices", "method": "GET",
-                    "params": {"provider": "aliyun"}}
+            tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
             body = protocol.encode_invoke(
-                tool, base,
+                tool,
+                base,
                 mock_token=mock_token or None,
                 fail_after_n_calls=fault_call_index,
                 session_id=session,
@@ -704,16 +795,20 @@ def run_fault_recovery(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChun
     finally:
         inv.destroy_session(session)
     trace = InvocationTrace(session, attempts, completed, final_state)
-    return ObservationBundle(observations={
-        "fault": {"target": "prices", "fail_on_calls": [fault_call_index], "status": 500},
-        "plan_calls": fault_call_index + 2,
-        "completed": trace.completed,
-        "final_state": trace.final_state,
-        "attempts": [asdict(a) for a in trace.attempts],
-    })
+    return ObservationBundle(
+        observations={
+            "fault": {"target": "prices", "fail_on_calls": [fault_call_index], "status": 500},
+            "plan_calls": fault_call_index + 2,
+            "completed": trace.completed,
+            "final_state": trace.final_state,
+            "attempts": [asdict(a) for a in trace.attempts],
+        }
+    )
 
 
-def run_retry_storm(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSink | None" = None) -> ObservationBundle:
+def run_retry_storm(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
     """T1.10: run a n_calls-call plan where every call fails; measure abort behavior.
 
     Uses fail_after_n_calls=1 encoded in every request body so the deployed
@@ -738,10 +833,10 @@ def run_retry_storm(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSi
             if time.perf_counter() >= deadline:
                 timed_out = True
                 break
-            tool = {"target": "prices", "method": "GET",
-                    "params": {"provider": "aliyun"}}
+            tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
             body = protocol.encode_invoke(
-                tool, base,
+                tool,
+                base,
                 mock_token=mock_token or None,
                 fail_after_n_calls=1,
                 session_id=session,
@@ -777,8 +872,10 @@ def run_retry_storm(spec: JobSpec, progress_cb: ProgressCb, *, sink: "OssChunkSi
         calls_attempted=calls_attempted,
         duration_ms=duration_ms,
     )
-    return ObservationBundle(observations={
-        "storm_behavior": r.storm_behavior,
-        "calls_attempted": r.calls_attempted,
-        "duration_ms": r.duration_ms,
-    })
+    return ObservationBundle(
+        observations={
+            "storm_behavior": r.storm_behavior,
+            "calls_attempted": r.calls_attempted,
+            "duration_ms": r.duration_ms,
+        }
+    )

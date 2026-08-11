@@ -15,6 +15,7 @@ shared by `ProviderAdapter.preflight()` (used by `csbench run`) and
 `csbench doctor`. Checks only inspect the environment; they never read or store
 a secret value.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -79,6 +80,7 @@ class PreflightReport:
 
 # --- Reusable check functions (single source of truth) ----------------------
 
+
 def credential_check(target: dict[str, Any], platform: str | None) -> Check:
     """Are credentials resolvable from the cloud's default chain?
 
@@ -86,14 +88,19 @@ def credential_check(target: dict[str, Any], platform: str | None) -> Check:
     """
     provider = infer_provider(target, platform)
     if provider is None:
-        return Check("credentials", ok=True, severity=WARNING,
-                     detail="no cloud credentials required")
+        return Check("credentials", ok=True, severity=WARNING, detail="no cloud credentials required")
     res = resolve_credentials(target, platform=platform)
     if res.ok:
-        return Check("credentials", ok=True, severity=CRITICAL,
-                     detail=f"via {res.source} ({res.identity_hint})")
-    return Check("credentials", ok=False, severity=CRITICAL,
-                 detail=f"{provider}: not resolvable", remediation=res.remediation)
+        return Check(
+            "credentials", ok=True, severity=CRITICAL, detail=f"via {res.source} ({res.identity_hint})"
+        )
+    return Check(
+        "credentials",
+        ok=False,
+        severity=CRITICAL,
+        detail=f"{provider}: not resolvable",
+        remediation=res.remediation,
+    )
 
 
 def sdk_check(target: dict[str, Any], platform: str | None) -> Check | None:
@@ -105,8 +112,13 @@ def sdk_check(target: dict[str, Any], platform: str | None) -> Check | None:
     sdk = PROVIDER_CREDENTIALS[provider]["sdk_module"]
     if importlib.util.find_spec(sdk) is not None:
         return Check(f"sdk:{sdk}", ok=True, severity=WARNING, detail="importable")
-    return Check(f"sdk:{sdk}", ok=False, severity=WARNING,
-                 detail="not installed", remediation=f"pip install {sdk} (only needed for real runs)")
+    return Check(
+        f"sdk:{sdk}",
+        ok=False,
+        severity=WARNING,
+        detail="not installed",
+        remediation=f"pip install {sdk} (only needed for real runs)",
+    )
 
 
 def mock_reachable_check(url: str) -> Check:
@@ -117,22 +129,38 @@ def mock_reachable_check(url: str) -> Check:
     """
     url = (url or "").strip()
     if not url:
-        return Check("mock_base_url", ok=False, severity=CRITICAL,
-                     detail="not set",
-                     remediation="expose the mock server publicly and set target.mock_base_url")
+        return Check(
+            "mock_base_url",
+            ok=False,
+            severity=CRITICAL,
+            detail="not set",
+            remediation="expose the mock server publicly and set target.mock_base_url",
+        )
     if url.startswith(("http://127.", "http://localhost", "https://localhost", "http://0.0.0.0")):
-        return Check("mock_base_url", ok=False, severity=CRITICAL,
-                     detail=f"{url} is localhost",
-                     remediation="a cloud runtime cannot reach localhost; use a tunnel or cloud function")
+        return Check(
+            "mock_base_url",
+            ok=False,
+            severity=CRITICAL,
+            detail=f"{url} is localhost",
+            remediation="a cloud runtime cannot reach localhost; use a tunnel or cloud function",
+        )
     try:
         with request.urlopen(f"{url.rstrip('/')}/health", timeout=5) as resp:
             healthy = 200 <= resp.status < 300
         if healthy:
             return Check("mock_base_url", ok=True, severity=CRITICAL, detail=f"{url} /health ok")
-        return Check("mock_base_url", ok=False, severity=WARNING,
-                     detail=f"{url} /health non-2xx",
-                     remediation="mock server responded but not healthy")
+        return Check(
+            "mock_base_url",
+            ok=False,
+            severity=WARNING,
+            detail=f"{url} /health non-2xx",
+            remediation="mock server responded but not healthy",
+        )
     except Exception as exc:  # noqa: BLE001 - report, never crash preflight
-        return Check("mock_base_url", ok=False, severity=WARNING,
-                     detail=f"{url} unreachable from here ({type(exc).__name__})",
-                     remediation="confirm it is publicly reachable by the cloud runtime")
+        return Check(
+            "mock_base_url",
+            ok=False,
+            severity=WARNING,
+            detail=f"{url} unreachable from here ({type(exc).__name__})",
+            remediation="confirm it is publicly reachable by the cloud runtime",
+        )

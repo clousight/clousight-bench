@@ -4,6 +4,7 @@ submit() starts a daemon thread and returns immediately with a job_id; the
 thread runs the named probe, streaming JobProgress into the shared JobRecord
 under a lock. get() returns a thread-safe snapshot for the poll endpoint.
 """
+
 from __future__ import annotations
 
 import copy
@@ -23,8 +24,7 @@ SinkFactory = Callable[[JobSpec], "OssChunkSink | None"]
 
 
 class JobRunner:
-    def __init__(self, probes: dict[str, ProbeFn],
-                 sink_factory: "SinkFactory | None" = None) -> None:
+    def __init__(self, probes: dict[str, ProbeFn], sink_factory: SinkFactory | None = None) -> None:
         self._probes = dict(probes)
         self._sink_factory = sink_factory
         self._jobs: dict[str, JobRecord] = {}
@@ -69,8 +69,6 @@ class JobRunner:
                 try:
                     manifest = sink.close()
                     with self._lock:
-                        self._jobs[job_id].chunk_refs = [
-                            ch["key"] for ch in manifest.get("chunks", [])
-                        ]
+                        self._jobs[job_id].chunk_refs = [ch["key"] for ch in manifest.get("chunks", [])]
                 except Exception:  # noqa: BLE001 — sink flush must not mask job result
                     pass

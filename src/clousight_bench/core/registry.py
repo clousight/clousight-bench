@@ -5,6 +5,7 @@ all register through the ``clousight_bench.domains`` entry point group -- the
 core never imports a domain by path. Installing a plugin package is enough for
 ``csbench list`` to see it.
 """
+
 from __future__ import annotations
 
 from importlib.metadata import entry_points
@@ -95,8 +96,7 @@ def load_domains() -> dict[str, DomainPack]:
         _check_api_version(ep, pack)
         if pack.domain in seen:
             raise DuplicatePluginError(
-                f"domain {pack.domain!r} is provided by two plugins: "
-                f"{seen[pack.domain]!r} and {ep.name!r}"
+                f"domain {pack.domain!r} is provided by two plugins: {seen[pack.domain]!r} and {ep.name!r}"
             )
         check_domain_conflicts(pack)
         seen[pack.domain] = ep.name
@@ -108,9 +108,7 @@ def get_domain(name: str) -> DomainPack:
     domains = load_domains()
     if name not in domains:
         available = ", ".join(sorted(domains)) or "<none installed>"
-        raise UnknownDomainError(
-            f"domain {name!r} not found. Installed domains: {available}"
-        )
+        raise UnknownDomainError(f"domain {name!r} not found. Installed domains: {available}")
     return domains[name]
 
 
@@ -126,8 +124,7 @@ def load_enrichers() -> list[ResultEnricher]:
         _check_api_version(ep, inst)
         if inst.name in seen:
             raise DuplicatePluginError(
-                f"enricher name {inst.name!r} is provided by two plugins: "
-                f"{seen[inst.name]!r} and {ep.name!r}"
+                f"enricher name {inst.name!r} is provided by two plugins: {seen[inst.name]!r} and {ep.name!r}"
             )
         seen[inst.name] = ep.name
         enrichers.append(inst)

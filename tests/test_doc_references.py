@@ -5,6 +5,7 @@ its RAM action map. A comment that points at a missing file is a silent trap
 before a wiring effort. This guards that every ``docs/....md`` a cn-cloud adapter
 references actually exists.
 """
+
 import re
 from pathlib import Path
 

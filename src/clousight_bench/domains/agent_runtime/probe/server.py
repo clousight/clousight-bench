@@ -3,6 +3,7 @@
 A thin adapter over JobRunner. Async by construction: /run-job returns a job_id
 immediately, /job/<id> is polled by csbench. No streaming back to the client.
 """
+
 from __future__ import annotations
 
 import json
@@ -44,6 +45,7 @@ def make_handler(runner: JobRunner, token: str | None = None) -> type[BaseHTTPRe
             if not token:
                 return True
             import hmac
+
             presented = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
             return hmac.compare_digest(presented, token)
 
@@ -55,7 +57,7 @@ def make_handler(runner: JobRunner, token: str | None = None) -> type[BaseHTTPRe
                 self._send(401, {"error": "unauthorized"})
                 return
             if self.path.startswith("/job/"):
-                job_id = self.path[len("/job/"):]
+                job_id = self.path[len("/job/") :]
                 rec = runner.get(job_id)
                 if rec is None:
                     self._send(404, {"error": f"no job {job_id}"})
@@ -86,8 +88,9 @@ def make_handler(runner: JobRunner, token: str | None = None) -> type[BaseHTTPRe
     return _Handler
 
 
-def serve(runner: JobRunner, host: str = "0.0.0.0", port: int = 0,
-          token: str | None = None) -> ThreadingHTTPServer:
+def serve(
+    runner: JobRunner, host: str = "0.0.0.0", port: int = 0, token: str | None = None
+) -> ThreadingHTTPServer:
     srv = ThreadingHTTPServer((host, port), make_handler(runner, token))
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv

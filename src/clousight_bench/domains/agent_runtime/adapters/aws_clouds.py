@@ -22,6 +22,7 @@ SDK (or installing a commercial pack that registers a wired runtime provider);
 it must NOT touch tasks/ or scoring -- the runtime's own behaviour is measured
 as observed, never re-implemented.
 """
+
 from __future__ import annotations
 
 from clousight_bench.domains.agent_runtime import permissions as perm
@@ -37,7 +38,7 @@ class AwsAgentCoreAdapter(ManagedAgentRuntimeAdapter):
     status = "skeleton"
     provider = "aws"
     endpoint_service = "bedrock-agentcore-control"  # control plane: create/delete runtime
-    data_endpoint_service = "bedrock-agentcore"      # data plane: invoke / memory
+    data_endpoint_service = "bedrock-agentcore"  # data plane: invoke / memory
     DOCS = "https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html"
     # Abstract capability token -> real AgentCore IAM action(s). Both planes share
     # the ``bedrock-agentcore:`` prefix.

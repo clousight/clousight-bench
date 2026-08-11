@@ -13,6 +13,7 @@ as the reference the scorer compares real platform traces against).
 ``to_otel`` maps those spans to a minimal OTLP resourceSpans structure so T4.2
 can validate a runtime's OTel export against a known-good schema.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -32,27 +33,33 @@ def build_spans(
     """
     spans: list[dict[str, Any]] = []
     if "CHAIN" not in drop_kinds:
-        spans.append({
-            "span_id": f"{session_id}-chain",
-            "parent_id": None,
-            "name": "agent.invocation",
-            "attributes": {_KIND_ATTR: "CHAIN"},
-        })
+        spans.append(
+            {
+                "span_id": f"{session_id}-chain",
+                "parent_id": None,
+                "name": "agent.invocation",
+                "attributes": {_KIND_ATTR: "CHAIN"},
+            }
+        )
     if "LLM" not in drop_kinds:
-        spans.append({
-            "span_id": f"{session_id}-llm",
-            "parent_id": f"{session_id}-chain",
-            "name": "llm.plan",
-            "attributes": {_KIND_ATTR: "LLM"},
-        })
+        spans.append(
+            {
+                "span_id": f"{session_id}-llm",
+                "parent_id": f"{session_id}-chain",
+                "name": "llm.plan",
+                "attributes": {_KIND_ATTR: "LLM"},
+            }
+        )
     if "TOOL" not in drop_kinds:
         for i in range(1, tool_calls + 1):
-            spans.append({
-                "span_id": f"{session_id}-tool-{i}",
-                "parent_id": f"{session_id}-chain",
-                "name": f"tool.call.{i}",
-                "attributes": {_KIND_ATTR: "TOOL"},
-            })
+            spans.append(
+                {
+                    "span_id": f"{session_id}-tool-{i}",
+                    "parent_id": f"{session_id}-chain",
+                    "name": f"tool.call.{i}",
+                    "attributes": {_KIND_ATTR: "TOOL"},
+                }
+            )
     return spans
 
 
@@ -78,11 +85,7 @@ def to_otel(spans: list[dict[str, Any]], service_name: str) -> dict[str, Any]:
     return {
         "resourceSpans": [
             {
-                "resource": {
-                    "attributes": [
-                        {"key": "service.name", "value": {"stringValue": service_name}}
-                    ]
-                },
+                "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": service_name}}]},
                 "scopeSpans": [
                     {
                         "scope": {"name": "clousight-bench"},

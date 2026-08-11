@@ -16,6 +16,7 @@ environment-dependent (region, image pull, cold capacity). On mock the cost is
 a deterministic knob (``target.provision.ready_ms``) so scoring can be exercised
 with no account.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -54,19 +55,14 @@ class ProvisionLatencyTask(Task):
     requires_mock_server = False  # control-plane only: no tool-call mock needed
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
-        return {"task_id": self.task_id, "samples": SAMPLES,
-                "inter_sample_idle_s": INTER_SAMPLE_IDLE_S}
+        return {"task_id": self.task_id, "samples": SAMPLES, "inter_sample_idle_s": INTER_SAMPLE_IDLE_S}
 
     def _artifact_spec(self, adapter: AgentRuntimeAdapter) -> dict[str, Any]:
         return {
-            "artifact_ref": str(
-                adapter.target.get("artifact_ref") or adapter.target.get("agent_id") or ""
-            )
+            "artifact_ref": str(adapter.target.get("artifact_ref") or adapter.target.get("agent_id") or "")
         }
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T0.1 needs an AgentRuntimeAdapter")
         latencies: list[float] = []
@@ -78,9 +74,7 @@ class ProvisionLatencyTask(Task):
                 spec["_sample"] = i  # disambiguates runtime names across samples
                 result = adapter.provision(spec)
             except CapabilityNotSupported as exc:
-                return ObservationBundle(
-                    observations={"capability": "unsupported", "reason": str(exc)}
-                )
+                return ObservationBundle(observations={"capability": "unsupported", "reason": str(exc)})
             latencies.append(result.ready_latency_ms)
             ready_all.append(result.ready)
             artifact_ref = result.artifact_ref
@@ -106,9 +100,7 @@ class ProvisionLatencyTask(Task):
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "provision_capability": Measurement(
-                        value="unsupported", unit="", evidence="B"
-                    ),
+                    "provision_capability": Measurement(value="unsupported", unit="", evidence="B"),
                 },
                 findings=[
                     Finding(
@@ -150,24 +142,25 @@ class ProvisionLatencyTask(Task):
         return TaskResult(
             measurements={
                 "provision_ready_ms": Measurement(
-                    value=median_ms, unit="ms", evidence="B",
-                    aggregation="p50", sample_count=len(latencies)),
+                    value=median_ms, unit="ms", evidence="B", aggregation="p50", sample_count=len(latencies)
+                ),
                 "provision_ready_ms_p25": Measurement(
-                    value=p25_ms, unit="ms", evidence="B",
-                    aggregation="p25", sample_count=len(latencies)),
+                    value=p25_ms, unit="ms", evidence="B", aggregation="p25", sample_count=len(latencies)
+                ),
                 "provision_ready_ms_p75": Measurement(
-                    value=p75_ms, unit="ms", evidence="B",
-                    aggregation="p75", sample_count=len(latencies)),
+                    value=p75_ms, unit="ms", evidence="B", aggregation="p75", sample_count=len(latencies)
+                ),
                 "provision_ready_ms_stdev": Measurement(
-                    value=stdev_ms, unit="ms", evidence="B",
-                    sample_count=len(latencies)),
-                "provision_samples": Measurement(
-                    value=len(latencies), unit="count", evidence="B"),
+                    value=stdev_ms, unit="ms", evidence="B", sample_count=len(latencies)
+                ),
+                "provision_samples": Measurement(value=len(latencies), unit="count", evidence="B"),
                 "provision_ready": Measurement(value=ready, unit="", evidence="B"),
             },
             findings=findings,
-            notes=(f"provision create->ready p25={p25_ms}ms p50={median_ms}ms "
-                   f"p75={p75_ms}ms stdev={stdev_ms}ms (n={len(latencies)}, ready={ready})"),
+            notes=(
+                f"provision create->ready p25={p25_ms}ms p50={median_ms}ms "
+                f"p75={p75_ms}ms stdev={stdev_ms}ms (n={len(latencies)}, ready={ready})"
+            ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

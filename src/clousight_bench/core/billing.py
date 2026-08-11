@@ -14,6 +14,7 @@ never hard-coded here. It converts raw per-invocation durations into the
 billing-grade usage units the pricing enricher prices
 (:data:`core.usage.USAGE_METRIC_KEYS`).
 """
+
 from __future__ import annotations
 
 import math

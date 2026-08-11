@@ -107,6 +107,11 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately use local (mid-file) imports for isolation and lambda
+# fakes/factories; those are noise there, not a code-quality signal.
+"tests/*" = ["E402", "E731"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

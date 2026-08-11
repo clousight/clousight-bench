@@ -6,6 +6,7 @@ after every run the orchestrator reconciles: look up this run's residual by tag,
 destroy it, and confirm. Anything it reclaims is flagged (a leak happened);
 anything it cannot reclaim is a critical finding pointing at ``csbench sweep``.
 """
+
 from clousight_bench.core.resource_ledger import ResourceLedger
 from clousight_bench.core.resource_reconcile import reconcile_run_resources
 from clousight_bench.core.schema import RunSpec
@@ -49,8 +50,9 @@ def test_unreclaimable_residual_is_critical(tmp_path, monkeypatch):
     adapter.results_dir = tmp_path
     adapter.setup()
     # destroy fails -> the resource stays, and that is a critical, actionable leak
-    monkeypatch.setattr(LocalSimAdapter, "deprovision",
-                        lambda self, rid: (_ for _ in ()).throw(RuntimeError("denied")))
+    monkeypatch.setattr(
+        LocalSimAdapter, "deprovision", lambda self, rid: (_ for _ in ()).throw(RuntimeError("denied"))
+    )
     findings = reconcile_run_resources(adapter, "run-1", "aliyun", tmp_path)
     residual_finding = [f for f in findings if f.code == "teardown.residual"]
     assert residual_finding and residual_finding[0].severity == "critical"
@@ -72,10 +74,8 @@ def test_reaper_verify_confirms_via_the_cloud(tmp_path, monkeypatch):
     adapter.run_id = "run-1"
     adapter.results_dir = tmp_path
     adapter.setup()
-    findings = reconcile_run_resources(
-        adapter, "run-1", "aliyun", tmp_path, reaper=_FakeReaper())
-    assert any(f.code == "teardown.residual" and "cloud-orphan-1" in str(f.details)
-               for f in findings)
+    findings = reconcile_run_resources(adapter, "run-1", "aliyun", tmp_path, reaper=_FakeReaper())
+    assert any(f.code == "teardown.residual" and "cloud-orphan-1" in str(f.details) for f in findings)
     adapter.teardown()
 
 

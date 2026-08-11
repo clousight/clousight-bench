@@ -1,4 +1,5 @@
 """Tests for run_sustained_load and run_soak data-plane probes."""
+
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,9 +12,10 @@ class _FakeAgent(BaseHTTPRequestHandler):
     ``fail_after_n_calls`` per session header, models a slower ``reports``
     target, and returns 429 past a burst threshold. Subclass attributes tune it.
     """
-    fault_threshold = 0      # >0: return ok=false with _fault_injected on the Nth+ call per session
-    reject_after = 0         # >0: return HTTP 429 once this many concurrent calls seen
-    slow_targets = ()        # tool targets that sleep slow_ms
+
+    fault_threshold = 0  # >0: return ok=false with _fault_injected on the Nth+ call per session
+    reject_after = 0  # >0: return HTTP 429 once this many concurrent calls seen
+    slow_targets = ()  # tool targets that sleep slow_ms
     slow_ms = 0
 
     _counts: dict = {}
@@ -40,14 +42,14 @@ class _FakeAgent(BaseHTTPRequestHandler):
                 return
             if cls.slow_ms and tool.get("target") in cls.slow_targets:
                 import time as _t
+
                 _t.sleep(cls.slow_ms / 1000)
             faulted = bool(cls.fault_threshold and call_n >= cls.fault_threshold)
             result = {"ok": not faulted, "status": 500 if faulted else 200}
             if faulted:
                 result["_fault_injected"] = True
             content = json.dumps(result)
-            out = json.dumps({"choices": [{"message": {"role": "assistant",
-                                                        "content": content}}]}).encode()
+            out = json.dumps({"choices": [{"message": {"role": "assistant", "content": content}}]}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -69,20 +71,22 @@ def _serve(handler_cls):
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
-from clousight_bench.domains.agent_runtime.probe.dataplane import run_sustained_load, run_soak
+from clousight_bench.domains.agent_runtime.probe.dataplane import run_soak, run_sustained_load
 from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec
 
 
 def _spec(probe, base, **params):
-    return JobSpec(probe=probe, params=params, target_endpoint=base,
-                   mock_base_url="http://mock", mock_token="t")
+    return JobSpec(
+        probe=probe, params=params, target_endpoint=base, mock_base_url="http://mock", mock_token="t"
+    )
 
 
 def test_sustained_load_reports_throughput_and_error_breakdown():
     srv, base = _serve(_FakeAgent)
     try:
-        b = run_sustained_load(_spec("sustained_load", base, duration_s=0.5, target_rps=5.0),
-                               lambda p, m: None)
+        b = run_sustained_load(
+            _spec("sustained_load", base, duration_s=0.5, target_rps=5.0), lambda p, m: None
+        )
     finally:
         srv.shutdown()
     o = b.observations

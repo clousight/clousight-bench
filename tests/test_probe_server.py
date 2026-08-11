@@ -3,10 +3,10 @@ import time
 import urllib.error
 import urllib.request
 
-from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec, JobProgress, TERMINAL_STATUSES
+from clousight_bench.core.observation import ObservationBundle
+from clousight_bench.domains.agent_runtime.probe.jobs import TERMINAL_STATUSES, JobProgress, JobSpec
 from clousight_bench.domains.agent_runtime.probe.runner import JobRunner
 from clousight_bench.domains.agent_runtime.probe.server import serve
-from clousight_bench.core.observation import ObservationBundle
 
 
 def _get(base, path):
@@ -15,8 +15,12 @@ def _get(base, path):
 
 
 def _post(base, path, payload):
-    req = urllib.request.Request(base + path, data=json.dumps(payload).encode(),
-                                 headers={"Content-Type": "application/json"}, method="POST")
+    req = urllib.request.Request(
+        base + path,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     with urllib.request.urlopen(req, timeout=5) as r:
         return r.status, json.loads(r.read())
 
@@ -25,6 +29,7 @@ def _runner():
     def quick(spec, progress_cb):
         progress_cb(JobProgress(phase="done", completed=1, total=1, elapsed_s=0.0), {})
         return ObservationBundle(observations={"ok": True}, series={})
+
     return JobRunner({"quick": quick})
 
 

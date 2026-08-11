@@ -15,6 +15,7 @@ the transport:
 
 Both satisfy ``RuntimeTransport`` so the adapter delegates uniformly.
 """
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -213,8 +214,7 @@ class MockRuntimeTransport(RuntimeTransport):
         # to 1 - error_rate unless set explicitly. Default: perfectly available.
         soak = cfg.get("soak", {})
         self.soak_error_rate: float = float(soak.get("error_rate", 0.0))
-        self.soak_availability: float = float(
-            soak.get("availability", 1.0 - self.soak_error_rate))
+        self.soak_availability: float = float(soak.get("availability", 1.0 - self.soak_error_rate))
         self.soak_rps: float = float(soak.get("rps", 20))
         # T1.7 rate limiting: onset_rps=0 -> no throttle observed. honors_429 =
         # returns a proper 429 + Retry-After rather than silently dropping.
@@ -231,11 +231,9 @@ class MockRuntimeTransport(RuntimeTransport):
         # T4.3 signals: metrics & log completeness beyond traces. Default: complete.
         signals = cfg.get("signals", {})
         self.sig_metrics_expected: int = int(signals.get("metrics_expected", 6))
-        self.sig_metrics_present: int = int(
-            signals.get("metrics_present", self.sig_metrics_expected))
+        self.sig_metrics_present: int = int(signals.get("metrics_present", self.sig_metrics_expected))
         self.sig_logs_expected: int = int(signals.get("logs_expected", 4))
-        self.sig_logs_present: int = int(
-            signals.get("logs_present", self.sig_logs_expected))
+        self.sig_logs_present: int = int(signals.get("logs_present", self.sig_logs_expected))
         self.sig_structured: bool = bool(signals.get("structured_logs", True))
         # T4.4 span propagation: orphaned spans + root count (clean = 0 / 1).
         propagation = cfg.get("span_propagation", {})
@@ -249,8 +247,7 @@ class MockRuntimeTransport(RuntimeTransport):
         # T5.3 idle cost: scales to zero -> no idle bill. Default: scales to zero.
         idle = cfg.get("idle", {})
         self.idle_cost_per_hour: float = float(idle.get("cost_per_hour", 0.0))
-        self.idle_scales_to_zero: bool = bool(
-            idle.get("scales_to_zero", self.idle_cost_per_hour <= 0))
+        self.idle_scales_to_zero: bool = bool(idle.get("scales_to_zero", self.idle_cost_per_hour <= 0))
         # T6.1 isolation: tenant / network-egress / filesystem. Default: all on.
         isolation = cfg.get("isolation", {})
         self.iso_tenant: bool = bool(isolation.get("tenant_isolated", True))
@@ -306,8 +303,9 @@ class MockRuntimeTransport(RuntimeTransport):
             qs = "&".join(f"{k}={v}" for k, v in call.params.items())
             url = f"{url}?{qs}"
         data = json.dumps(call.body).encode("utf-8") if call.method == "POST" else None
-        req = request.Request(url, data=data, method=call.method,
-                              headers={"Content-Type": "application/json"})
+        req = request.Request(
+            url, data=data, method=call.method, headers={"Content-Type": "application/json"}
+        )
         start = time.perf_counter()
         try:
             with request.urlopen(req, timeout=10) as resp:
@@ -397,10 +395,7 @@ class MockRuntimeTransport(RuntimeTransport):
             overload_ratio = max(0.0, (level - self.concurrency_limit) / self.concurrency_limit)
             span = self.overload_penalty_ms * overload_ratio
             # request i (0-based) waits progressively longer as the queue deepens
-            latencies = [
-                self.scale_base_ms + span * (i / max(served - 1, 1))
-                for i in range(served)
-            ]
+            latencies = [self.scale_base_ms + span * (i / max(served - 1, 1)) for i in range(served)]
             p95 = percentiles(latencies, ps=(95,))[95]
             points.append(ScalePoint(level, success, round(p95, 2)))
         return points
@@ -414,8 +409,7 @@ class MockRuntimeTransport(RuntimeTransport):
         (p99); ``jitter`` is that p99-p50 spread — the predictability signal.
         """
         served_rps = min(target_rps, self.load_sustained_rps)
-        overflow = max(0.0, (target_rps - self.load_sustained_rps) / target_rps) \
-            if target_rps > 0 else 0.0
+        overflow = max(0.0, (target_rps - self.load_sustained_rps) / target_rps) if target_rps > 0 else 0.0
         error_rate = min(1.0, self.load_error_rate + overflow)
         p50 = self.load_base_ms
         p99 = self.load_base_ms + self.load_tail_ms
@@ -561,7 +555,7 @@ class MockRuntimeTransport(RuntimeTransport):
         attempts: list[Attempt] = []
         completed = True
         timed_out = False
-        final_state = "completed"
+        _final_state = "completed"
 
         for call_index, call in enumerate(plan, start=1):
             attempt_no = 0
@@ -577,7 +571,7 @@ class MockRuntimeTransport(RuntimeTransport):
                     break
                 if self.recovery_mode == "fail-fast" or attempt_no > self.max_retries:
                     completed = False
-                    final_state = "aborted" if self.recovery_mode == "fail-fast" else "failed"
+                    _final_state = "aborted" if self.recovery_mode == "fail-fast" else "failed"
                     break
                 backoff = self.backoff_ms[min(attempt_no - 1, len(self.backoff_ms) - 1)]
                 time.sleep(backoff / 1000)

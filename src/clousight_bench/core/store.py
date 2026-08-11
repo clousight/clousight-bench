@@ -23,6 +23,7 @@ cb-dataservice and the SaaS web):
 
     run_id | domain | task_id | platform | benchmark_fingerprint | series | t | value | unit
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -66,8 +67,15 @@ except ImportError:  # pragma: no cover - depends on install extras
 logger = logging.getLogger(__name__)
 
 _LONG_COLUMNS = [
-    "run_id", "domain", "task_id", "platform", "benchmark_fingerprint",
-    "series", "t", "value", "unit",
+    "run_id",
+    "domain",
+    "task_id",
+    "platform",
+    "benchmark_fingerprint",
+    "series",
+    "t",
+    "value",
+    "unit",
 ]
 
 
@@ -85,9 +93,7 @@ class _Sidecar:
         return {"$parquet": self.relpath, "sha256": self.sha256, "rows": self.rows}
 
 
-def validate_sidecar(
-    results_dir: Path, payload: dict[str, Any]
-) -> tuple[Path | None, str | None]:
+def validate_sidecar(results_dir: Path, payload: dict[str, Any]) -> tuple[Path | None, str | None]:
     """Resolve and verify the sidecar referenced by one trusted record payload."""
     pointer = payload.get("series")
     if not isinstance(pointer, dict) or "$parquet" not in pointer:
@@ -213,8 +219,7 @@ class ResultStore:
             leaks = find_identity_leaks(payload)
             if leaks:
                 raise SensitiveDataError(
-                    f"refusing to persist run {record.run.run_id}: "
-                    f"operator-identifying values at {leaks}"
+                    f"refusing to persist run {record.run.run_id}: operator-identifying values at {leaks}"
                 )
         payload["fingerprints"]["record_digest"] = record_digest(payload)
         self._assert_schema(record, payload)
@@ -228,10 +233,7 @@ class ResultStore:
         try:
             validate_against_schema(payload, "result-record-0.2")
         except SchemaValidationError:
-            name = (
-                f"INVALID-{record.identity.domain}-{record.identity.task_id}"
-                f"-{record.run.run_id}.json"
-            )
+            name = f"INVALID-{record.identity.domain}-{record.identity.task_id}-{record.run.run_id}.json"
             try:
                 dump_path = _emergency_write_unique(name, _dump(payload))
                 print(
@@ -281,10 +283,7 @@ class ResultStore:
                 )
                 return path
 
-        name = (
-            f"{record.identity.domain}-{record.identity.task_id}"
-            f"-{record.run.run_id}.json"
-        )
+        name = f"{record.identity.domain}-{record.identity.task_id}-{record.run.run_id}.json"
         try:
             path = _emergency_write_unique(name, text)
         except Exception:  # noqa: BLE001 - the record must not vanish in silence
@@ -354,9 +353,7 @@ class ResultStore:
 
         leaks = find_identity_leaks(rows)
         if leaks:
-            raise SensitiveDataError(
-                f"refusing operator-identifying values in series sidecar at {leaks}"
-            )
+            raise SensitiveDataError(f"refusing operator-identifying values in series sidecar at {leaks}")
         buffer = io.BytesIO()
         pq.write_table(pa.table(rows), buffer)
         data = buffer.getvalue()
@@ -369,13 +366,9 @@ class ResultStore:
             rows=count,
         )
 
-    def query_series(
-        self, sql: str | None = None, glob: str = "**/series.parquet"
-    ) -> list[dict[str, Any]]:
+    def query_series(self, sql: str | None = None, glob: str = "**/series.parquet") -> list[dict[str, Any]]:
         if not STORE_AVAILABLE:
-            raise ImportError(
-                "query_series needs the [store] extra: pip install clousight-bench[store]"
-            )
+            raise ImportError("query_series needs the [store] extra: pip install clousight-bench[store]")
         import duckdb
 
         from clousight_bench.core.analytics import iter_verified_records
@@ -476,6 +469,7 @@ def _emergency_write_unique(name: str, text: str) -> Path:
 
 def _minimal_payload(record: ResultRecord) -> dict[str, Any]:
     """Build a hand-owned canonical 0.2 record when every plugin field is bad."""
+
     def text(value: Any) -> str:
         try:
             rendered = str(value)

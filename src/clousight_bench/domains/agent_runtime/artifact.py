@@ -12,6 +12,7 @@ lifecycle and the provisioner wiring are fully testable without an account. The
 exact ``oss2`` auth incantation is the one detail confirmed on the first live
 run; everything around it is exercised offline.
 """
+
 from __future__ import annotations
 
 import importlib.resources as resources
@@ -34,16 +35,15 @@ _PROTOCOL_PKG = "clousight_bench.domains.agent_runtime"
 # Installed via `pip install --target vendor/` at build time.
 # Excluded from git (.gitignore) — regenerated on each build.
 _LC_DEPS = [
-    "langchain==0.3.*",          # AgentExecutor + create_tool_calling_agent
-    "langchain-core==0.3.*",     # BaseChatModel, BaseTool, LCEL
+    "langchain==0.3.*",  # AgentExecutor + create_tool_calling_agent
+    "langchain-core==0.3.*",  # BaseChatModel, BaseTool, LCEL
     "openinference-instrumentation-langchain",
     "opentelemetry-api",
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp-proto-http",
 ]
 # Patterns to strip from the vendor directory to keep the zip small
-_VENDOR_EXCLUDE = ("__pycache__", ".dist-info", ".pyc", "tests/", "test/", "docs/",
-                   ".deps-hash")
+_VENDOR_EXCLUDE = ("__pycache__", ".dist-info", ".pyc", "tests/", "test/", "docs/", ".deps-hash")
 
 
 def _deps_fingerprint() -> str:
@@ -221,5 +221,5 @@ class OssArtifactStore:
         prefix = f"oss://{self._bucket_name}/"
         if not ref.startswith(prefix):
             return
-        key = ref[len(prefix):]
+        key = ref[len(prefix) :]
         self._bucket_client().delete_object(key)

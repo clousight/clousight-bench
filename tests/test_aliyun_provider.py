@@ -5,6 +5,7 @@ discovered, real mode runnable, wired transport built) and that a real call with
 the SDK missing fails with a clear install hint. The live request/response
 plumbing is validated against a real account as a separate step.
 """
+
 import sys
 
 import pytest

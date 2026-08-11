@@ -8,6 +8,7 @@ CapabilityNotSupported -> the platform has no state API (task returns unsupporte
 
 Evidence layer C: deterministic, replayable.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,18 +40,10 @@ class ConcurrentWritesTask(Task):
             "write_key": "__concurrent_write_probe__",
         }
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        return {
-            "state_persistence_policy": str(
-                adapter.target.get("state_persistence", "durable")
-            )
-        }
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
+        return {"state_persistence_policy": str(adapter.target.get("state_persistence", "durable"))}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.11 needs an AgentRuntimeAdapter")
 
@@ -78,9 +71,7 @@ class ConcurrentWritesTask(Task):
             return TaskResult(
                 measurements={
                     "write_safe": Measurement(value=False, unit="", evidence="C"),
-                    "state_capability": Measurement(
-                        value="unsupported", unit="", evidence="C"
-                    ),
+                    "state_capability": Measurement(value="unsupported", unit="", evidence="C"),
                 },
                 findings=[
                     Finding(
@@ -116,9 +107,7 @@ class ConcurrentWritesTask(Task):
             measurements={
                 "write_safe": Measurement(value=write_safe, unit="", evidence="C"),
                 "winner": Measurement(value=winner, unit="", evidence="C"),
-                "state_capability": Measurement(
-                    value="supported", unit="", evidence="C"
-                ),
+                "state_capability": Measurement(value="supported", unit="", evidence="C"),
             },
             findings=findings,
             notes=f"concurrent writes -> write_safe={write_safe}, winner={winner}",

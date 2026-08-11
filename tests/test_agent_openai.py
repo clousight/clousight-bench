@@ -1,8 +1,8 @@
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from clousight_bench.domains.agent_runtime.agent_bundle import agent
 from clousight_bench.domains.agent_runtime import protocol as p
+from clousight_bench.domains.agent_runtime.agent_bundle import agent
 
 
 class _Tool(BaseHTTPRequestHandler):

@@ -19,6 +19,7 @@ An asset's identity (``name@version`` + ``sha256``) is safe to fold into a
 result's config_hash for reproducibility; the asset *contents* (e.g. scoring
 keys) never are.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -79,8 +80,7 @@ class AssetSpec:
 
     def identity(self) -> dict[str, str]:
         """Reproducibility-safe identity (never the contents)."""
-        return {"name": self.name, "version": self.version,
-                "source": self.source, "sha256": self.sha256}
+        return {"name": self.name, "version": self.version, "source": self.source, "sha256": self.sha256}
 
 
 def load_asset_specs(manifest: dict[str, Any]) -> list[AssetSpec]:
@@ -100,9 +100,7 @@ def _verify(path: Path, expected: str, name: str) -> None:
         return
     actual = _sha256_file(path)
     if actual != expected:
-        raise AssetError(
-            f"asset {name!r} sha256 mismatch: expected {expected}, got {actual} ({path})"
-        )
+        raise AssetError(f"asset {name!r} sha256 mismatch: expected {expected}, got {actual} ({path})")
 
 
 def resolve_asset(

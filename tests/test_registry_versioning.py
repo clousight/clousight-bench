@@ -38,14 +38,12 @@ class _FutureDomain(DomainPack):
 
 
 def test_incompatible_domain_rejected(monkeypatch):
-    monkeypatch.setattr(registry, "entry_points",
-                        lambda group: [_FakeEP("future", _FutureDomain)])
+    monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("future", _FutureDomain)])
     with pytest.raises(IncompatiblePluginError) as ei:
         registry.load_domains()
     assert "future" in str(ei.value) and "1.0" in str(ei.value)
 
 
 def test_compatible_domain_loads(monkeypatch):
-    monkeypatch.setattr(registry, "entry_points",
-                        lambda group: [_FakeEP("good", _GoodDomain)])
+    monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("good", _GoodDomain)])
     assert "good" in registry.load_domains()

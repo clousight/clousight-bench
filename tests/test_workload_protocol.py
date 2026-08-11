@@ -1,4 +1,5 @@
 """WorkloadEngine protocol: sample + artifact events parse into WorkloadResult."""
+
 import hashlib
 import stat
 from pathlib import Path

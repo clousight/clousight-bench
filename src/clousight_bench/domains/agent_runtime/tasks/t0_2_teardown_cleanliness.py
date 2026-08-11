@@ -10,6 +10,7 @@ Evidence layer C: deterministic. On mock, ``target.provision.clean_teardown``
 and ``target.provision.residual_on_delete`` drive both the clean and the leaky
 case so scoring is exercisable with no account.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -41,23 +42,17 @@ class TeardownCleanlinessTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T0.2 needs an AgentRuntimeAdapter")
         spec = {
-            "artifact_ref": str(
-                adapter.target.get("artifact_ref") or adapter.target.get("agent_id") or ""
-            )
+            "artifact_ref": str(adapter.target.get("artifact_ref") or adapter.target.get("agent_id") or "")
         }
         try:
             provisioned = adapter.provision(spec)
             result = adapter.deprovision(provisioned.runtime_id)
         except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
+            return ObservationBundle(observations={"capability": "unsupported", "reason": str(exc)})
         return ObservationBundle(
             observations={
                 "capability": "supported",
@@ -72,9 +67,7 @@ class TeardownCleanlinessTask(Task):
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "teardown_capability": Measurement(
-                        value="unsupported", unit="", evidence="C"
-                    ),
+                    "teardown_capability": Measurement(value="unsupported", unit="", evidence="C"),
                 },
                 findings=[
                     Finding(
@@ -107,13 +100,9 @@ class TeardownCleanlinessTask(Task):
         )
         return TaskResult(
             measurements={
-                "teardown_ms": Measurement(
-                    value=raw.get("teardown_ms"), unit="ms", evidence="C"
-                ),
+                "teardown_ms": Measurement(value=raw.get("teardown_ms"), unit="ms", evidence="C"),
                 "teardown_clean": Measurement(value=clean, unit="", evidence="C"),
-                "residual_count": Measurement(
-                    value=len(residual), unit="", evidence="C"
-                ),
+                "residual_count": Measurement(value=len(residual), unit="", evidence="C"),
             },
             findings=findings,
             notes=f"teardown clean={clean}, residual={len(residual)}",

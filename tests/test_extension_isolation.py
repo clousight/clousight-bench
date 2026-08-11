@@ -1,4 +1,5 @@
 """A third-party extension must never be able to change the core verdict."""
+
 import json
 import os
 import stat
@@ -46,19 +47,11 @@ def _persisted(tmp_path, record):
 
 
 def _record_path(tmp_path, record):
-    return (
-        tmp_path
-        / "agent-runtime"
-        / "local-sim"
-        / f"T1.3-{record.run.run_id}.json"
-    )
+    return tmp_path / "agent-runtime" / "local-sim" / f"T1.3-{record.run.run_id}.json"
 
 
 def _receipts(tmp_path):
-    return [
-        json.loads(line)
-        for line in (tmp_path / RECEIPTS_FILE).read_text(encoding="utf-8").splitlines()
-    ]
+    return [json.loads(line) for line in (tmp_path / RECEIPTS_FILE).read_text(encoding="utf-8").splitlines()]
 
 
 def test_a_failing_enricher_does_not_change_the_core_status(monkeypatch, tmp_path):
@@ -92,9 +85,7 @@ def test_an_enricher_returning_the_wrong_type_is_rejected(monkeypatch, tmp_path)
     rec = orch.execute(_SPEC, results_dir=tmp_path)
     assert isinstance(rec, ResultRecord)
     assert rec.status == "completed"
-    assert [e["code"] for e in rec.errors if e["stage"] == "ENRICH"] == [
-        "enricher_failed"
-    ]
+    assert [e["code"] for e in rec.errors if e["stage"] == "ENRICH"] == ["enricher_failed"]
 
 
 def test_publish_is_off_unless_a_publisher_is_injected(monkeypatch, tmp_path):
@@ -104,9 +95,7 @@ def test_publish_is_off_unless_a_publisher_is_injected(monkeypatch, tmp_path):
     assert not (tmp_path / RECEIPTS_FILE).exists()
 
 
-def test_a_failing_publisher_writes_a_receipt_and_leaves_the_record_alone(
-    monkeypatch, tmp_path
-):
+def test_a_failing_publisher_writes_a_receipt_and_leaves_the_record_alone(monkeypatch, tmp_path):
     calls = []
 
     class _BadPublisher(ResultPublisher):
@@ -164,9 +153,7 @@ def test_a_successful_publisher_writes_an_ok_receipt(monkeypatch, tmp_path):
     assert receipt["detail"] == {"remote_id": "abc"}
 
 
-def test_publisher_receives_the_durable_record_and_cannot_mutate_core(
-    monkeypatch, tmp_path
-):
+def test_publisher_receives_the_durable_record_and_cannot_mutate_core(monkeypatch, tmp_path):
     seen = {}
 
     class _MutatingPublisher(ResultPublisher):
@@ -203,9 +190,7 @@ def test_receipts_redact_secrets_and_machine_identity(monkeypatch, tmp_path):
             }
 
     monkeypatch.setattr(orch, "load_enrichers", list)
-    monkeypatch.setattr(
-        "clousight_bench.core.publish.identity_values", lambda: ("build-user",)
-    )
+    monkeypatch.setattr("clousight_bench.core.publish.identity_values", lambda: ("build-user",))
     orch.execute(_SPEC, results_dir=tmp_path, publisher=_LeakyPublisher())
     text = (tmp_path / RECEIPTS_FILE).read_text(encoding="utf-8")
 
@@ -214,9 +199,7 @@ def test_receipts_redact_secrets_and_machine_identity(monkeypatch, tmp_path):
     assert "<redacted>" in text
 
 
-def test_publisher_reads_and_validates_the_actual_persisted_path(
-    monkeypatch, tmp_path
-):
+def test_publisher_reads_and_validates_the_actual_persisted_path(monkeypatch, tmp_path):
     calls = []
 
     class _Publisher(ResultPublisher):
@@ -397,9 +380,7 @@ def test_name_and_failure_receipt_errors_are_both_isolated(monkeypatch, tmp_path
     assert record_digest(rec.to_dict()) == rec.fingerprints.record_digest
 
 
-def test_terminal_receipt_failure_keeps_pending_and_retry_does_not_republish(
-    monkeypatch, tmp_path
-):
+def test_terminal_receipt_failure_keeps_pending_and_retry_does_not_republish(monkeypatch, tmp_path):
     calls = []
 
     class _Publisher(ResultPublisher):
@@ -517,9 +498,7 @@ def test_hostile_detail_serialization_is_isolated(monkeypatch, tmp_path):
     assert terminal["code"] == "publish_detail_invalid"
 
 
-def test_publisher_file_tampering_is_detected_after_the_remote_call(
-    monkeypatch, tmp_path
-):
+def test_publisher_file_tampering_is_detected_after_the_remote_call(monkeypatch, tmp_path):
     original_bytes = {}
 
     class _Publisher(ResultPublisher):
@@ -580,9 +559,7 @@ def test_publisher_sidecar_tampering_is_restored_atomically(monkeypatch, tmp_pat
     assert terminal["code"] == "publisher_tampering_restored"
 
 
-def test_first_receipt_creation_fsyncs_file_and_parent_directory(
-    monkeypatch, tmp_path
-):
+def test_first_receipt_creation_fsyncs_file_and_parent_directory(monkeypatch, tmp_path):
     fsynced_modes = []
     real_fsync = os.fsync
 
@@ -614,9 +591,7 @@ def test_receipt_append_is_private_durable_and_thread_safe(tmp_path):
     ("publisher_called", "should_publish"),
     [(False, True), (True, False)],
 )
-def test_only_pre_call_failed_receipts_allow_retry(
-    tmp_path, publisher_called, should_publish
-):
+def test_only_pre_call_failed_receipts_allow_retry(tmp_path, publisher_called, should_publish):
     key = "sha256:stable"
     append_receipt(
         tmp_path,

@@ -9,24 +9,31 @@ from clousight_bench.domains.agent_runtime.eci_carrier import (
 
 
 class _NoSdk:
-    def create_container_group(self, req): return "eci-x"
-    def describe_container_group(self, i): return {"status": "Running", "public_ip": "1.1.1.1"}
-    def delete_container_group(self, i): return None
+    def create_container_group(self, req):
+        return "eci-x"
+
+    def describe_container_group(self, i):
+        return {"status": "Running", "public_ip": "1.1.1.1"}
+
+    def delete_container_group(self, i):
+        return None
 
 
 def test_split_oss_uri():
-    assert _split_oss_uri("oss://mybucket/campaign-1/cb-probe.zip") == (
-        "mybucket", "campaign-1/cb-probe.zip")
+    assert _split_oss_uri("oss://mybucket/campaign-1/cb-probe.zip") == ("mybucket", "campaign-1/cb-probe.zip")
     assert _split_oss_uri("") == ("", "")
 
 
 def test_bootstrap_fetches_from_oss_not_urlretrieve():
     cfg = EciCarrierConfig(
         oss_code_uri="oss://b/clousight-bench/run-x/cb-probe.zip",
-        region="cn-hangzhou", port=9000, run_id="run-x")
-    carrier = EciProbeCarrier(sdk=_NoSdk(), config=cfg,
-                              health_check=lambda u: True,
-                              sleep=lambda s: None, now=lambda: 0.0)
+        region="cn-hangzhou",
+        port=9000,
+        run_id="run-x",
+    )
+    carrier = EciProbeCarrier(
+        sdk=_NoSdk(), config=cfg, health_check=lambda u: True, sleep=lambda s: None, now=lambda: 0.0
+    )
     req = carrier._build_create_request()
     c = req["container"][0]
     boot = c["command"][-1]
@@ -47,9 +54,14 @@ def test_bootstrap_fetches_from_oss_not_urlretrieve():
 def test_bootstrap_verifies_sha256_before_run_and_carries_token():
     cfg = EciCarrierConfig(
         oss_code_uri="oss://b/clousight-bench/run-x/cb-probe.zip",
-        code_sha256="deadbeefcafe", region="cn-hangzhou", port=9000, run_id="run-x")
-    carrier = EciProbeCarrier(sdk=_NoSdk(), config=cfg, health_check=lambda u: True,
-                              sleep=lambda s: None, now=lambda: 0.0)
+        code_sha256="deadbeefcafe",
+        region="cn-hangzhou",
+        port=9000,
+        run_id="run-x",
+    )
+    carrier = EciProbeCarrier(
+        sdk=_NoSdk(), config=cfg, health_check=lambda u: True, sleep=lambda s: None, now=lambda: 0.0
+    )
     carrier.provision()  # generates the per-probe bearer token
     assert carrier.token, "provision must mint a bearer token"
     req = carrier._build_create_request()
@@ -73,15 +85,17 @@ def test_bootstrap_shell_syntax_is_valid():
     terminates the outer argument and the container exits on boot."""
     cfg = EciCarrierConfig(
         oss_code_uri="oss://b/clousight-bench/run-x/cb-probe.zip",
-        region="cn-hangzhou", port=9000, run_id="run-x")
-    carrier = EciProbeCarrier(sdk=_NoSdk(), config=cfg,
-                              health_check=lambda u: True,
-                              sleep=lambda s: None, now=lambda: 0.0)
+        region="cn-hangzhou",
+        port=9000,
+        run_id="run-x",
+    )
+    carrier = EciProbeCarrier(
+        sdk=_NoSdk(), config=cfg, health_check=lambda u: True, sleep=lambda s: None, now=lambda: 0.0
+    )
     req = carrier._build_create_request()
     c = req["container"][0]
     boot = c["command"][-1]
     result = subprocess.run(["/bin/sh", "-n", "-c", boot], capture_output=True)
     assert result.returncode == 0, (
-        f"Bootstrap command fails shell syntax check:\n{boot}\n"
-        f"stderr: {result.stderr.decode()}"
+        f"Bootstrap command fails shell syntax check:\n{boot}\nstderr: {result.stderr.decode()}"
     )

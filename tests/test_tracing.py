@@ -1,6 +1,7 @@
 """The orchestrator emits an OTel-shaped trace per run: a root csbench.run span
 with a child span per lifecycle stage, exported locally as queryable JSONL and
 linked from the record by trace_id."""
+
 import glob
 import json
 
@@ -18,8 +19,7 @@ from clousight_bench.core.tracing import (
 
 
 def _spec():
-    return RunSpec("agent-runtime", "T1.3", "local-sim",
-                   target={"recovery": {"mode": "auto-retry"}})
+    return RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
 
 def test_run_emits_a_linked_trace_of_stage_spans(tmp_path):
@@ -48,7 +48,9 @@ def test_run_emits_a_linked_trace_of_stage_spans(tmp_path):
 
 def test_stage_span_durations_match_the_recorded_timings():
     info = RunInfo(
-        run_id="run-x", started_at="t0", finished_at="t1",
+        run_id="run-x",
+        started_at="t0",
+        finished_at="t1",
         stages={"SETUP": "ok", "TEARDOWN": "ok"},
         stage_timings={"SETUP": 12.0, "TEARDOWN": 4.0},
     )
@@ -86,6 +88,6 @@ def test_exporter_writes_nothing_for_no_spans(tmp_path):
 
 def test_span_ids_are_otlp_shaped():
     assert len(new_trace_id()) == 32  # 128-bit hex
-    assert len(new_span_id()) == 16   # 64-bit hex
+    assert len(new_span_id()) == 16  # 64-bit hex
     span = Span("n", "t", "s", "", 0, 1_000_000)
     assert span.to_dict()["duration_ms"] == 1.0

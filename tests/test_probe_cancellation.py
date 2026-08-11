@@ -5,6 +5,7 @@ client_timeout_s=0.05 (50ms), so the explicit cancel call times out and
 honored=True. The warm-up one_tool_call() and post-cancel healthcheck both
 use the default 120s invoke timeout so they succeed despite the 300ms sleep.
 """
+
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -20,9 +21,10 @@ class _FakeAgent(BaseHTTPRequestHandler):
     ``fail_after_n_calls`` per session header, models a slower ``reports``
     target, and returns 429 past a burst threshold. Subclass attributes tune it.
     """
-    fault_threshold = 0      # >0: return ok=false with _fault_injected on the Nth+ call per session
-    reject_after = 0         # >0: return HTTP 429 once this many concurrent calls seen
-    slow_targets = ()        # tool targets that sleep slow_ms
+
+    fault_threshold = 0  # >0: return ok=false with _fault_injected on the Nth+ call per session
+    reject_after = 0  # >0: return HTTP 429 once this many concurrent calls seen
+    slow_targets = ()  # tool targets that sleep slow_ms
     slow_ms = 0
 
     _counts: dict = {}
@@ -49,14 +51,14 @@ class _FakeAgent(BaseHTTPRequestHandler):
                 return
             if cls.slow_ms and tool.get("target") in cls.slow_targets:
                 import time as _t
+
                 _t.sleep(cls.slow_ms / 1000)
             faulted = bool(cls.fault_threshold and call_n >= cls.fault_threshold)
             result = {"ok": not faulted, "status": 500 if faulted else 200}
             if faulted:
                 result["_fault_injected"] = True
             content = json.dumps(result)
-            out = json.dumps({"choices": [{"message": {"role": "assistant",
-                                                        "content": content}}]}).encode()
+            out = json.dumps({"choices": [{"message": {"role": "assistant", "content": content}}]}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -80,19 +82,24 @@ def _serve(handler_cls):
 
 class _Slow(_FakeAgent):
     slow_targets = ("prices",)
-    slow_ms = 300   # exceeds the 50ms client timeout below → cancel is honored
+    slow_ms = 300  # exceeds the 50ms client timeout below → cancel is honored
 
 
 def test_cancellation_is_honored_and_endpoint_recovers():
     srv, base = _serve(_Slow)
     try:
-        spec = JobSpec(probe="cancellation", params={"client_timeout_s": 0.05},
-                       target_endpoint=base, mock_base_url="http://mock", mock_token="t")
+        spec = JobSpec(
+            probe="cancellation",
+            params={"client_timeout_s": 0.05},
+            target_endpoint=base,
+            mock_base_url="http://mock",
+            mock_token="t",
+        )
         b = run_cancellation(spec, lambda p, m: None)
     finally:
         srv.shutdown()
     o = b.observations
     assert o["capability"] == "supported"
-    assert o["honored"] is True                 # 50ms timeout tripped the 300ms call
-    assert o["teardown_ran"] is True            # post-cancel healthcheck succeeded
+    assert o["honored"] is True  # 50ms timeout tripped the 300ms call
+    assert o["teardown_ran"] is True  # post-cancel healthcheck succeeded
     assert o["residual"] == []

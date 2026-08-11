@@ -1,4 +1,5 @@
 """Installed-safe access to bundled reference workloads."""
+
 from __future__ import annotations
 
 from importlib.resources import files

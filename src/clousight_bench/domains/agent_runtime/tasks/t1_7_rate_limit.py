@@ -15,6 +15,7 @@ adapter drives past quota and inspects the response; local-sim reports the
 configured ``target.rate_limit = {onset_rps, retry_after_ms, honors_429}``. A
 platform with no rate-limit probe yields an ``unsupported`` measurement.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -42,9 +43,7 @@ class RateLimitTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.7 needs an AgentRuntimeAdapter")
         return adapter.run_data_plane_probe("rate_limit", {})
@@ -54,8 +53,7 @@ class RateLimitTask(Task):
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "rate_limit_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
+                    "rate_limit_capability": Measurement(value="unsupported", unit="", evidence="B")
                 },
                 findings=[
                     Finding(
@@ -102,17 +100,18 @@ class RateLimitTask(Task):
             )
         return TaskResult(
             measurements={
-                "rate_limit_capability": Measurement(
-                    value="supported", unit="", evidence="B"),
+                "rate_limit_capability": Measurement(value="supported", unit="", evidence="B"),
                 "throttle_onset_rps": Measurement(
-                    value=onset if onset > 0 else "none", unit="rps", evidence="B"),
-                "retry_after_ms": Measurement(
-                    value=raw["retry_after_ms"], unit="ms", evidence="B"),
+                    value=onset if onset > 0 else "none", unit="rps", evidence="B"
+                ),
+                "retry_after_ms": Measurement(value=raw["retry_after_ms"], unit="ms", evidence="B"),
                 "honors_429": Measurement(value=honors, unit="", evidence="B"),
             },
             findings=findings,
-            notes=(f"onset={'none' if onset <= 0 else onset}rps honors_429={honors} "
-                   f"retry_after={raw['retry_after_ms']}ms"),
+            notes=(
+                f"onset={'none' if onset <= 0 else onset}rps honors_429={honors} "
+                f"retry_after={raw['retry_after_ms']}ms"
+            ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

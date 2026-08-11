@@ -1,4 +1,5 @@
 """The lifecycle must never leak a resource and never lose an observation."""
+
 import json
 
 import pytest
@@ -53,9 +54,7 @@ class _Task(Task):
         CALLS.append("execute")
         if type(self).execute_raises:
             raise ConnectionError("the runtime dropped the session")
-        return ObservationBundle(
-            observations={"hits": 3}, series={"latency_ms": [[1, 10.0]]}
-        )
+        return ObservationBundle(observations={"hits": 3}, series={"latency_ms": [[1, 10.0]]})
 
     def score(self, observations):
         CALLS.append("score")
@@ -63,9 +62,7 @@ class _Task(Task):
             raise ZeroDivisionError("scorer bug")
         return TaskResult(
             measurements={
-                "hits": Measurement(
-                    value=observations.observations["hits"], unit="count", evidence="C"
-                )
+                "hits": Measurement(value=observations.observations["hits"], unit="count", evidence="C")
             },
             notes="ok",
             task_revision=self.task_revision,
@@ -95,9 +92,7 @@ def _reset(monkeypatch):
 
 
 def _run(tmp_path, **kwargs):
-    return orch.execute(
-        RunSpec("fake-domain", "TX", "fake"), results_dir=tmp_path, **kwargs
-    )
+    return orch.execute(RunSpec("fake-domain", "TX", "fake"), results_dir=tmp_path, **kwargs)
 
 
 def test_happy_path_produces_a_completed_0_2_record(tmp_path):
@@ -159,7 +154,8 @@ def test_score_failure_keeps_the_observations(tmp_path, monkeypatch):
 
 
 def test_execute_failure_keeps_partial_observations_carried_by_the_error(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     partial = ObservationBundle(observations={"attempts": [{"ok": False}]})
     monkeypatch.setattr(
@@ -167,8 +163,10 @@ def test_execute_failure_keeps_partial_observations_carried_by_the_error(
         "execute",
         lambda self, adapter, params: (_ for _ in ()).throw(
             TaskExecutionError(
-                "tool failed", observations=partial,
-                code="tool_failed", retryable=True,
+                "tool failed",
+                observations=partial,
+                code="tool_failed",
+                retryable=True,
             )
         ),
     )
@@ -198,7 +196,8 @@ def test_debug_writes_the_traceback_to_a_local_log_only(tmp_path):
 
 def test_unsupported_capability_becomes_an_unsupported_status(tmp_path, monkeypatch):
     monkeypatch.setattr(
-        _Task, "score",
+        _Task,
+        "score",
         lambda self, observations: TaskResult(unsupported=True, notes="no API"),
     )
     assert _run(tmp_path).status == "unsupported"

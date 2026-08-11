@@ -31,10 +31,17 @@ def test_resolve_within_rejects_symlink_escape(tmp_path):
         resolve_within(tmp_path, "link")
 
 
-@pytest.mark.parametrize("uri", [
-    "http://example.com/a", "file:///etc/passwd", "ftp://h/a",
-    "https://localhost/a", "https://127.0.0.1/a", "https://169.254.169.254/latest",
-])
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "http://example.com/a",
+        "file:///etc/passwd",
+        "ftp://h/a",
+        "https://localhost/a",
+        "https://127.0.0.1/a",
+        "https://169.254.169.254/latest",
+    ],
+)
 def test_validate_asset_uri_rejects(uri):
     with pytest.raises(SandboxViolation):
         validate_asset_uri(uri)

@@ -1,4 +1,5 @@
 """Tests for run_fault_recovery and run_retry_storm data-plane probes."""
+
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,9 +15,10 @@ class _FakeAgent(BaseHTTPRequestHandler):
     ``fail_after_n_calls`` per session header, models a slower ``reports``
     target, and returns 429 past a burst threshold. Subclass attributes tune it.
     """
-    fault_threshold = 0      # >0: return ok=false with _fault_injected on the Nth+ call per session
-    reject_after = 0         # >0: return HTTP 429 once this many concurrent calls seen
-    slow_targets = ()        # tool targets that sleep slow_ms
+
+    fault_threshold = 0  # >0: return ok=false with _fault_injected on the Nth+ call per session
+    reject_after = 0  # >0: return HTTP 429 once this many concurrent calls seen
+    slow_targets = ()  # tool targets that sleep slow_ms
     slow_ms = 0
 
     _counts: dict = {}
@@ -43,14 +45,14 @@ class _FakeAgent(BaseHTTPRequestHandler):
                 return
             if cls.slow_ms and tool.get("target") in cls.slow_targets:
                 import time as _t
+
                 _t.sleep(cls.slow_ms / 1000)
             faulted = bool(cls.fault_threshold and call_n >= cls.fault_threshold)
             result = {"ok": not faulted, "status": 500 if faulted else 200}
             if faulted:
                 result["_fault_injected"] = True
             content = json.dumps(result)
-            out = json.dumps({"choices": [{"message": {"role": "assistant",
-                                                        "content": content}}]}).encode()
+            out = json.dumps({"choices": [{"message": {"role": "assistant", "content": content}}]}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(out)))
@@ -73,23 +75,23 @@ def _serve(handler_cls):
 
 
 class _FaultOnFirst(_FakeAgent):
-    fault_threshold = 1    # every call fails (ok=false, _fault_injected)
+    fault_threshold = 1  # every call fails (ok=false, _fault_injected)
 
 
 class _FaultOnThird(_FakeAgent):
-    fault_threshold = 3    # succeeds twice, then faults on the 3rd call per session
+    fault_threshold = 3  # succeeds twice, then faults on the 3rd call per session
 
 
 def _spec(probe, base, **params):
-    return JobSpec(probe=probe, params=params, target_endpoint=base,
-                   mock_base_url="http://mock", mock_token="t")
+    return JobSpec(
+        probe=probe, params=params, target_endpoint=base, mock_base_url="http://mock", mock_token="t"
+    )
 
 
 def test_fault_recovery_records_fault_and_stops():
     srv, base = _serve(_FaultOnThird)
     try:
-        b = run_fault_recovery(_spec("fault_recovery", base, fault_call_index=3),
-                               lambda p, m: None)
+        b = run_fault_recovery(_spec("fault_recovery", base, fault_call_index=3), lambda p, m: None)
     finally:
         srv.shutdown()
     o = b.observations
@@ -102,8 +104,7 @@ def test_fault_recovery_records_fault_and_stops():
 def test_retry_storm_aborts_on_first_failure():
     srv, base = _serve(_FaultOnFirst)
     try:
-        b = run_retry_storm(_spec("retry_storm", base, max_window_s=5.0, n_calls=5),
-                            lambda p, m: None)
+        b = run_retry_storm(_spec("retry_storm", base, max_window_s=5.0, n_calls=5), lambda p, m: None)
     finally:
         srv.shutdown()
     o = b.observations

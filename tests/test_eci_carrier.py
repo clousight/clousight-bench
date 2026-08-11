@@ -10,6 +10,7 @@ from clousight_bench.domains.agent_runtime.eci_carrier import (
 
 class FakeEciSdk:
     """Records the create/describe/delete call sequence; scripts describe()."""
+
     def __init__(self, describe_script):
         self.script = list(describe_script)
         self.created_req = None
@@ -30,17 +31,20 @@ class FakeEciSdk:
 
 
 def test_provision_waits_for_running_and_health_then_returns_url():
-    sdk = FakeEciSdk([
-        {"status": "Pending", "public_ip": ""},
-        {"status": "Running", "public_ip": "1.2.3.4"},
-    ])
+    sdk = FakeEciSdk(
+        [
+            {"status": "Pending", "public_ip": ""},
+            {"status": "Running", "public_ip": "1.2.3.4"},
+        ]
+    )
     carrier = EciProbeCarrier(
         sdk=sdk,
-        config=EciCarrierConfig(port=9000, run_id="run-abcdef12",
-                                oss_code_uri="oss://b/campaign-1/cb-probe.zip"),
-        health_check=lambda url: True,     # /health green
-        sleep=lambda s: None,              # no real waiting
-        now=lambda: 0.0,                   # never times out on this short script
+        config=EciCarrierConfig(
+            port=9000, run_id="run-abcdef12", oss_code_uri="oss://b/campaign-1/cb-probe.zip"
+        ),
+        health_check=lambda url: True,  # /health green
+        sleep=lambda s: None,  # no real waiting
+        now=lambda: 0.0,  # never times out on this short script
     )
     url = carrier.provision()
     assert url == "http://1.2.3.4:9000"
@@ -59,26 +63,30 @@ def test_provision_times_out_reaps_and_raises():
     ticks = iter([0.0, 100.0, 200.0])
     sdk = FakeEciSdk([{"status": "Pending", "public_ip": ""}])
     carrier = EciProbeCarrier(
-        sdk=sdk, config=EciCarrierConfig(ready_timeout_s=150.0),
-        health_check=lambda url: True, sleep=lambda s: None,
+        sdk=sdk,
+        config=EciCarrierConfig(ready_timeout_s=150.0),
+        health_check=lambda url: True,
+        sleep=lambda s: None,
         now=lambda: next(ticks),
     )
     with pytest.raises(CarrierError):
         carrier.provision()
-    assert sdk.deleted == ["eci-123"]          # half-booted instance reaped
+    assert sdk.deleted == ["eci-123"]  # half-booted instance reaped
     assert carrier.instance_id is None
 
 
 def test_health_gate_blocks_url_until_green():
     sdk = FakeEciSdk([{"status": "Running", "public_ip": "1.2.3.4"}])
     calls = {"n": 0}
+
     def health(url):
         calls["n"] += 1
-        return calls["n"] >= 2                  # green only on the 2nd check
+        return calls["n"] >= 2  # green only on the 2nd check
+
     ticks = iter([0.0, 1.0, 2.0, 3.0])
-    carrier = EciProbeCarrier(sdk=sdk, config=EciCarrierConfig(),
-                              health_check=health, sleep=lambda s: None,
-                              now=lambda: next(ticks))
+    carrier = EciProbeCarrier(
+        sdk=sdk, config=EciCarrierConfig(), health_check=health, sleep=lambda s: None, now=lambda: next(ticks)
+    )
     assert carrier.provision() == "http://1.2.3.4:9000"
     assert calls["n"] == 2
 
@@ -87,13 +95,18 @@ def test_teardown_is_idempotent_and_best_effort():
     class Boom(FakeEciSdk):
         def delete_container_group(self, instance_id):
             raise RuntimeError("transient")
+
     sdk = Boom([{"status": "Running", "public_ip": "1.2.3.4"}])
-    carrier = EciProbeCarrier(sdk=sdk, config=EciCarrierConfig(),
-                              health_check=lambda url: True, sleep=lambda s: None,
-                              now=lambda: 0.0)
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=EciCarrierConfig(),
+        health_check=lambda url: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
     carrier.provision()
-    carrier.teardown()   # swallows the RuntimeError
-    carrier.teardown()   # second call is a no-op
+    carrier.teardown()  # swallows the RuntimeError
+    carrier.teardown()  # second call is a no-op
     assert carrier.instance_id is None
 
 
@@ -101,10 +114,14 @@ def test_teardown_before_provision_is_noop():
     """teardown() called before provision() (the finally-block scenario where
     provision raised before create_container_group returned) must not call
     delete_container_group and must not raise."""
-    sdk = FakeEciSdk([])   # no describe script needed — teardown exits early
-    carrier = EciProbeCarrier(sdk=sdk, config=EciCarrierConfig(),
-                              health_check=lambda url: True, sleep=lambda s: None,
-                              now=lambda: 0.0)
-    carrier.teardown()   # no provision() called first — should be a no-op
-    assert sdk.deleted == []          # delete_container_group never called
+    sdk = FakeEciSdk([])  # no describe script needed — teardown exits early
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=EciCarrierConfig(),
+        health_check=lambda url: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.teardown()  # no provision() called first — should be a no-op
+    assert sdk.deleted == []  # delete_container_group never called
     assert carrier.instance_id is None

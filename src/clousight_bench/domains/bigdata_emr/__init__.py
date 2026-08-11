@@ -9,6 +9,7 @@ It intentionally ships ONE minimal task (J1.1 wordcount smoke) and TWO adapters
 Serious big-data dimensions (TPC-DS price/performance, terasort, shuffle
 stress) land later as additional workloads under workloads/, reusing this pack.
 """
+
 from __future__ import annotations
 
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task

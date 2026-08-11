@@ -1,25 +1,37 @@
 from pathlib import Path
 
-from clousight_bench.core.reporting.bundle import Cell, _agg_cell, _build_agg_cells, build_bundle, Panel
+from clousight_bench.core.reporting.bundle import _agg_cell, build_bundle
 from clousight_bench.core.reporting.profiles import PROFILES
 
 
-def _make_agg(task_id="T1.1", platform="local-sim", n=5, comparable=True, notes=None,
-              measurements=None):
+def _make_agg(task_id="T1.1", platform="local-sim", n=5, comparable=True, notes=None, measurements=None):
     return {
         "kind": "run_plan_aggregate",
         "plan_id": f"plan-20260801-{n}",
-        "identity": {"domain": "agent-runtime", "task_id": task_id, "adapter": platform,
-                     "core_version": "0.2.0"},
-        "fingerprints": {"benchmark": "sha256:b", "environment": "sha256:e",
-                         "implementation": "sha256:i"},
+        "identity": {
+            "domain": "agent-runtime",
+            "task_id": task_id,
+            "adapter": platform,
+            "core_version": "0.2.0",
+        },
+        "fingerprints": {"benchmark": "sha256:b", "environment": "sha256:e", "implementation": "sha256:i"},
         "comparable": comparable,
         "plan": {"repeat": n, "warmup": 0},
         "runs": {"warmup": [], "measured": [f"run-{i}" for i in range(n)]},
         "status_counts": {"completed": n},
-        "measurements": measurements or {
-            "cold_start_ms": {"kind": "numeric", "n": n, "mean": 45.2, "stdev": 3.1,
-                              "min": 42.0, "max": 50.0, "p50": 45.0, "p95": 51.8, "cv": 0.07},
+        "measurements": measurements
+        or {
+            "cold_start_ms": {
+                "kind": "numeric",
+                "n": n,
+                "mean": 45.2,
+                "stdev": 3.1,
+                "min": 42.0,
+                "max": 50.0,
+                "p50": 45.0,
+                "p95": 51.8,
+                "cv": 0.07,
+            },
         },
         "notes": notes or [],
     }
@@ -46,11 +58,18 @@ def test_agg_cell_comparability_warning():
 
 
 def test_agg_cell_categorical():
-    agg = _make_agg(measurements={
-        "state_persisted": {"kind": "categorical", "n": 5, "mode": True,
-                            "agreement": 1.0, "distinct": 1,
-                            "values": [[True, 5]]}
-    })
+    agg = _make_agg(
+        measurements={
+            "state_persisted": {
+                "kind": "categorical",
+                "n": 5,
+                "mode": True,
+                "agreement": 1.0,
+                "distinct": 1,
+                "values": [[True, 5]],
+            }
+        }
+    )
     cell = _agg_cell(agg, ["state_persisted"])
     m = next(m for m in cell.metrics if m["name"] == "state_persisted")
     assert m["value_str"] == "True"
@@ -59,8 +78,7 @@ def test_agg_cell_categorical():
 
 def test_build_bundle_no_aggregates_no_agg_cells(report_record):
     rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
-    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
-                          profiles=PROFILES)
+    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00", profiles=PROFILES)
     for dom in bundle.domains:
         for panel in dom.panels:
             assert all(c.agg_stats is None for c in panel.cells)
@@ -69,8 +87,9 @@ def test_build_bundle_no_aggregates_no_agg_cells(report_record):
 def test_build_bundle_with_aggregate_injects_agg_cell(report_record):
     rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
     agg = _make_agg(task_id="T1.1", platform="local-sim", n=5)
-    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
-                          profiles=PROFILES, aggregates=[agg])
+    bundle = build_bundle(
+        [rec], results_dir=".", generated_at="2026-01-01T00:00:00", profiles=PROFILES, aggregates=[agg]
+    )
     # find the startup latency panel
     agg_cells = []
     for dom in bundle.domains:
@@ -90,8 +109,9 @@ def test_build_bundle_multiple_aggregates_keeps_highest_n(report_record):
     # build_bundle receives only one per (domain, task_id, platform).
     # Test that two aggs with different n don't produce two agg cells for same platform.
     # In practice _load_aggregates dedupes, but build_bundle must not double-inject.
-    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
-                          profiles=PROFILES, aggregates=[agg3, agg5])
+    bundle = build_bundle(
+        [rec], results_dir=".", generated_at="2026-01-01T00:00:00", profiles=PROFILES, aggregates=[agg3, agg5]
+    )
     for dom in bundle.domains:
         for panel in dom.panels:
             platforms = [c.platform for c in panel.cells if c.agg_stats is not None]
@@ -103,6 +123,7 @@ def test_build_bundle_multiple_aggregates_keeps_highest_n(report_record):
 # _load_aggregates tests (Task 4)
 # ---------------------------------------------------------------------------
 import json
+
 from clousight_bench.cli import _load_aggregates
 
 
@@ -121,8 +142,11 @@ def test_load_aggregates_reads_agg_files(tmp_path):
         "plan_id": "plan-20260801-120000-abc",
         "identity": {"domain": "agent-runtime", "task_id": "T1.1", "adapter": "local-sim"},
         "plan": {"repeat": 5, "warmup": 0},
-        "comparable": True, "notes": [], "measurements": {},
-        "runs": {}, "status_counts": {},
+        "comparable": True,
+        "notes": [],
+        "measurements": {},
+        "runs": {},
+        "status_counts": {},
     }
     _write_agg(tmp_path / "aggregates" / "agent-runtime" / "local-sim" / "T1.1-plan-abc.json", agg)
     result = _load_aggregates(tmp_path)
@@ -131,10 +155,15 @@ def test_load_aggregates_reads_agg_files(tmp_path):
 
 
 def test_load_aggregates_keeps_highest_n(tmp_path):
-    base = {"kind": "run_plan_aggregate",
-            "identity": {"domain": "agent-runtime", "task_id": "T1.1", "adapter": "local-sim"},
-            "comparable": True, "notes": [], "measurements": {},
-            "runs": {}, "status_counts": {}}
+    base = {
+        "kind": "run_plan_aggregate",
+        "identity": {"domain": "agent-runtime", "task_id": "T1.1", "adapter": "local-sim"},
+        "comparable": True,
+        "notes": [],
+        "measurements": {},
+        "runs": {},
+        "status_counts": {},
+    }
     agg3 = {**base, "plan_id": "plan-20260801-120000-aaa", "plan": {"repeat": 3, "warmup": 0}}
     agg5 = {**base, "plan_id": "plan-20260801-120001-bbb", "plan": {"repeat": 5, "warmup": 0}}
     d = tmp_path / "aggregates" / "agent-runtime" / "local-sim"
@@ -162,18 +191,20 @@ from clousight_bench.core.reporting.renderers.html import HtmlRenderer
 def test_html_aggregate_column_contains_sigma_and_n(report_record):
     rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
     agg = _make_agg(task_id="T1.1", platform="local-sim", n=5)
-    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
-                          profiles=PROFILES, aggregates=[agg])
+    bundle = build_bundle(
+        [rec], results_dir=".", generated_at="2026-01-01T00:00:00", profiles=PROFILES, aggregates=[agg]
+    )
     html = HtmlRenderer().render(bundle)
-    assert "Σ" in html   # Σ
+    assert "Σ" in html  # Σ
     assert "n=5" in html
 
 
 def test_html_aggregate_column_contains_stdev_and_p95(report_record):
     rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
     agg = _make_agg(task_id="T1.1", platform="local-sim", n=5)
-    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
-                          profiles=PROFILES, aggregates=[agg])
+    bundle = build_bundle(
+        [rec], results_dir=".", generated_at="2026-01-01T00:00:00", profiles=PROFILES, aggregates=[agg]
+    )
     html = HtmlRenderer().render(bundle)
     assert "±" in html or "&plusmn;" in html
     assert "p95" in html
@@ -181,17 +212,22 @@ def test_html_aggregate_column_contains_stdev_and_p95(report_record):
 
 def test_html_aggregate_comparability_warning_badge(report_record):
     rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
-    agg = _make_agg(task_id="T1.1", platform="local-sim", n=5,
-                    comparable=False, notes=["fingerprint mismatch: 1 run excluded"])
-    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
-                          profiles=PROFILES, aggregates=[agg])
+    agg = _make_agg(
+        task_id="T1.1",
+        platform="local-sim",
+        n=5,
+        comparable=False,
+        notes=["fingerprint mismatch: 1 run excluded"],
+    )
+    bundle = build_bundle(
+        [rec], results_dir=".", generated_at="2026-01-01T00:00:00", profiles=PROFILES, aggregates=[agg]
+    )
     html = HtmlRenderer().render(bundle)
-    assert "⚠" in html   # ⚠
+    assert "⚠" in html  # ⚠
 
 
 def test_html_no_aggregate_no_sigma(report_record):
     rec = report_record("local-sim", "T1.1", measurements={"cold_start_ms": 45.0})
-    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00",
-                          profiles=PROFILES)
+    bundle = build_bundle([rec], results_dir=".", generated_at="2026-01-01T00:00:00", profiles=PROFILES)
     html = HtmlRenderer().render(bundle)
     assert "Σ" not in html

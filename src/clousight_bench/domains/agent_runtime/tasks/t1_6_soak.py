@@ -10,6 +10,7 @@ adapter runs continuous traffic and measures; local-sim reports the configured
 ``target.soak = {availability, error_rate, rps}``. A platform with no soak probe
 yields an ``unsupported`` measurement, never a crash.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -41,9 +42,7 @@ class SoakTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id, "duration_s": DURATION_S}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.6 needs an AgentRuntimeAdapter")
         return adapter.run_data_plane_probe("soak", {"duration_s": DURATION_S})
@@ -52,10 +51,7 @@ class SoakTask(Task):
         raw = observations.observations
         if raw.get("capability") != "supported":
             return TaskResult(
-                measurements={
-                    "soak_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
-                },
+                measurements={"soak_capability": Measurement(value="unsupported", unit="", evidence="B")},
                 findings=[
                     Finding(
                         code="agent_runtime.soak_probe_absent",
@@ -79,21 +75,25 @@ class SoakTask(Task):
                     severity="warning",
                     summary=f"availability {availability:.3%} under soak",
                     evidence="B",
-                    details={"availability": availability, "sla": _AVAILABILITY_SLA,
-                             "error_rate": raw["error_rate"]},
+                    details={
+                        "availability": availability,
+                        "sla": _AVAILABILITY_SLA,
+                        "error_rate": raw["error_rate"],
+                    },
                 )
             )
         return TaskResult(
             measurements={
                 "soak_capability": Measurement(value="supported", unit="", evidence="B"),
                 "availability": Measurement(value=availability, unit="", evidence="B"),
-                "soak_error_rate": Measurement(
-                    value=raw["error_rate"], unit="", evidence="B"),
+                "soak_error_rate": Measurement(value=raw["error_rate"], unit="", evidence="B"),
                 "soak_requests": Measurement(value=raw["requests"], unit="", evidence="B"),
             },
             findings=findings,
-            notes=(f"availability={availability:.3%} err={raw['error_rate']:.3%} "
-                   f"over {raw['requests']} req / {raw['window_s']}s"),
+            notes=(
+                f"availability={availability:.3%} err={raw['error_rate']:.3%} "
+                f"over {raw['requests']} req / {raw['window_s']}s"
+            ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

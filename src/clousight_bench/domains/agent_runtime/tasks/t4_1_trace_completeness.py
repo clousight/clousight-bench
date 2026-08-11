@@ -7,6 +7,7 @@ spans) scores below 1.0. CapabilityNotSupported = no trace API.
 
 Evidence layer C: deterministic against the pinned tool universe on local-sim.
 """
+
 from __future__ import annotations
 
 import json
@@ -57,15 +58,11 @@ class TraceCompletenessTask(Task):
             "expected_kinds": list(openinference.SPAN_KINDS),
         }
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
         trace = adapter.target.get("trace", {})
         return {"trace_completeness_policy": str(trace.get("completeness", "full"))}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T4.1 needs an AgentRuntimeAdapter")
         _token: str | None = (adapter.target or {}).get("mock_token") or None
@@ -98,12 +95,8 @@ class TraceCompletenessTask(Task):
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "trace_capability": Measurement(
-                        value="unsupported", unit="", evidence="C"
-                    ),
-                    "span_completeness": Measurement(
-                        value=0.0, unit="ratio", evidence="C"
-                    ),
+                    "trace_capability": Measurement(value="unsupported", unit="", evidence="C"),
+                    "span_completeness": Measurement(value=0.0, unit="ratio", evidence="C"),
                 },
                 findings=[
                     Finding(
@@ -138,20 +131,14 @@ class TraceCompletenessTask(Task):
         return TaskResult(
             measurements={
                 "trace_capability": Measurement(value="supported", unit="", evidence="C"),
-                "span_completeness": Measurement(
-                    value=completeness, unit="ratio", evidence="C"
-                ),
-                "spans_present": Measurement(
-                    value=len(spans), unit="count", evidence="C"
-                ),
+                "span_completeness": Measurement(value=completeness, unit="ratio", evidence="C"),
+                "spans_present": Measurement(value=len(spans), unit="count", evidence="C"),
                 "spans_expected": Measurement(
                     value=openinference.expected_span_count(tool_calls),
                     unit="count",
                     evidence="C",
                 ),
-                "kinds_present": Measurement(
-                    value=sorted(present), unit="", evidence="C"
-                ),
+                "kinds_present": Measurement(value=sorted(present), unit="", evidence="C"),
                 "kinds_missing": Measurement(value=missing, unit="", evidence="C"),
             },
             findings=findings,

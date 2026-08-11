@@ -15,6 +15,7 @@ reports:
 Best-effort and never raises into the run: a reconcile failure is itself
 reported, never masks the run's result.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -58,25 +59,30 @@ def reconcile_run_resources(
     findings: list[Finding] = []
     reclaimed_ids = [r for r in reclaimed if r not in {e.get("resource_id") for e in local_residual}]
     if reclaimed_ids:
-        findings.append(Finding(
-            code="teardown.reclaimed",
-            severity="warning",
-            summary="harness reclaimed resources the run left behind",
-            evidence="B",
-            details={"reclaimed": reclaimed_ids, "run_id": run_id},
-        ))
-    unreclaimed = [e.get("resource_id") for e in local_residual] + \
-        [e.get("id", e.get("resource_id")) for e in cloud_residual]
+        findings.append(
+            Finding(
+                code="teardown.reclaimed",
+                severity="warning",
+                summary="harness reclaimed resources the run left behind",
+                evidence="B",
+                details={"reclaimed": reclaimed_ids, "run_id": run_id},
+            )
+        )
+    unreclaimed = [e.get("resource_id") for e in local_residual] + [
+        e.get("id", e.get("resource_id")) for e in cloud_residual
+    ]
     if unreclaimed:
-        findings.append(Finding(
-            code="teardown.residual",
-            severity="critical",
-            summary="resources could not be reclaimed and keep billing",
-            evidence="B",
-            details={
-                "residual": unreclaimed,
-                "run_id": run_id,
-                "remediation": f"run: csbench sweep --provider {provider or '<provider>'} --confirm",
-            },
-        ))
+        findings.append(
+            Finding(
+                code="teardown.residual",
+                severity="critical",
+                summary="resources could not be reclaimed and keep billing",
+                evidence="B",
+                details={
+                    "residual": unreclaimed,
+                    "run_id": run_id,
+                    "remediation": f"run: csbench sweep --provider {provider or '<provider>'} --confirm",
+                },
+            )
+        )
     return findings

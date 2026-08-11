@@ -1,5 +1,6 @@
 """The serverless billing model applies per-invocation minimum + rounding, so a
 modeled cost tracks how the bill is actually computed."""
+
 import pytest
 
 from clousight_bench.core.billing import ComputeBillingRule, billed_compute
@@ -14,7 +15,7 @@ def test_default_rule_bills_exact_duration():
 
 def test_minimum_duration_dominates_short_calls():
     rule = ComputeBillingRule(min_ms=100.0, rounding_ms=1.0)
-    assert rule.billed_ms(3.0) == 100.0   # a 3 ms call still bills the 100 ms floor
+    assert rule.billed_ms(3.0) == 100.0  # a 3 ms call still bills the 100 ms floor
     assert rule.billed_ms(250.4) == 251.0  # above the floor, rounded up
 
 
@@ -34,8 +35,8 @@ def test_billed_compute_sums_per_invocation_then_scales():
     rule = ComputeBillingRule(min_ms=100.0)
     usage = billed_compute([40.0, 40.0, 40.0], vcpu=2.0, memory_gb=4.0, rule=rule)
     assert usage["requests"] == 3.0
-    assert usage["vcpu_seconds"] == pytest.approx(0.3 * 2.0)   # 0.6
-    assert usage["gb_seconds"] == pytest.approx(0.3 * 4.0)     # 1.2
+    assert usage["vcpu_seconds"] == pytest.approx(0.3 * 2.0)  # 0.6
+    assert usage["gb_seconds"] == pytest.approx(0.3 * 4.0)  # 1.2
 
 
 def test_billed_compute_output_is_priceable_vocabulary():

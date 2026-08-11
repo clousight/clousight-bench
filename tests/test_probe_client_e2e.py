@@ -1,13 +1,12 @@
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from clousight_bench.domains.agent_runtime.probe.client import RemoteProbeClient, ProbeJobFailed
+from clousight_bench.core.observation import ObservationBundle
+from clousight_bench.domains.agent_runtime.probe.client import ProbeJobFailed, RemoteProbeClient
+from clousight_bench.domains.agent_runtime.probe.dataplane import TTFT_SAMPLES
 from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec
 from clousight_bench.domains.agent_runtime.probe.runner import JobRunner
-from clousight_bench.domains.agent_runtime.probe.server import serve, build_default_runner
-from clousight_bench.domains.agent_runtime.probe.dataplane import TTFT_SAMPLES
-from clousight_bench.core.observation import ObservationBundle
-from clousight_bench.domains.agent_runtime.probe.jobs import JobProgress
+from clousight_bench.domains.agent_runtime.probe.server import build_default_runner, serve
 
 
 class _SSETarget(BaseHTTPRequestHandler):
@@ -20,6 +19,7 @@ class _SSETarget(BaseHTTPRequestHandler):
         self.wfile.write(b'data: {"choices":[{"delta":{}}]}\n\n')
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
+
     def log_message(self, *a):
         pass
 
@@ -35,10 +35,12 @@ def test_client_runs_ttft_job_end_to_end():
     target_srv, target = _serve_target()
     seen_progress = []
     try:
-        client = RemoteProbeClient(f"http://127.0.0.1:{probe_srv.server_address[1]}",
-                                   poll_interval_s=0.02, timeout_s=10)
-        spec = JobSpec(probe="ttft", params={}, target_endpoint=target,
-                       mock_base_url="http://mock", mock_token="t")
+        client = RemoteProbeClient(
+            f"http://127.0.0.1:{probe_srv.server_address[1]}", poll_interval_s=0.02, timeout_s=10
+        )
+        spec = JobSpec(
+            probe="ttft", params={}, target_endpoint=target, mock_base_url="http://mock", mock_token="t"
+        )
         bundle = client.run_job(spec, on_progress=lambda p, m: seen_progress.append(p.completed))
     finally:
         probe_srv.shutdown()
@@ -52,10 +54,12 @@ def test_client_runs_ttft_job_end_to_end():
 def test_client_raises_on_failed_job():
     def boom(spec, progress_cb):
         raise RuntimeError("kaboom")
+
     probe_srv = serve(JobRunner({"boom": boom}), host="127.0.0.1", port=0)
     try:
-        client = RemoteProbeClient(f"http://127.0.0.1:{probe_srv.server_address[1]}",
-                                   poll_interval_s=0.02, timeout_s=10)
+        client = RemoteProbeClient(
+            f"http://127.0.0.1:{probe_srv.server_address[1]}", poll_interval_s=0.02, timeout_s=10
+        )
         spec = JobSpec(probe="boom", params={}, target_endpoint="http://127.0.0.1:9999")
         try:
             client.run_job(spec)

@@ -1,4 +1,5 @@
 """Credential resolution: reuse the cloud's own chain, never store a secret."""
+
 from clousight_bench.core.credentials import infer_provider, resolve_credentials
 
 

@@ -17,6 +17,7 @@ and declare only that metadata; the behaviour lives here.
   provider's SDK calls are filled in; until then it is a skeleton and the
   orchestrator refuses it up front (see ``is_runnable_instance``).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -117,8 +118,11 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             return plugin.build_transport(self)
         ep = self.endpoint()
         return NotWiredCloudTransport(
-            self.name, self.provider, ep.url if ep else None,
-            self.client_factory(), self.DOCS,
+            self.name,
+            self.provider,
+            ep.url if ep else None,
+            self.client_factory(),
+            self.DOCS,
         )
 
     def _transport_(self) -> RuntimeTransport:
@@ -176,8 +180,12 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             from clousight_bench.core import preflight as pf
 
             return pf.PreflightReport().add(
-                pf.Check("mode", ok=True, severity=pf.WARNING,
-                         detail="mock: simulated runtime, no cloud prerequisites")
+                pf.Check(
+                    "mode",
+                    ok=True,
+                    severity=pf.WARNING,
+                    detail="mock: simulated runtime, no cloud prerequisites",
+                )
             )
         return super().preflight(task)
 
@@ -261,8 +269,7 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_hol_blocking(self) -> Any:
         return self._transport_().probe_hol_blocking()
 
-    def run_data_plane_probe(self, name: str,
-                             params: dict[str, Any] | None = None):
+    def run_data_plane_probe(self, name: str, params: dict[str, Any] | None = None):
         t = self._transport_()
         fn = getattr(t, "run_data_plane_probe", None)
         if callable(fn):
@@ -282,8 +289,7 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             result.tags = tags
         ledger = self._resource_ledger()
         if ledger is not None and self.run_id:
-            ledger.record_created(
-                self.run_id, self.provider, result.runtime_id, "runtime", result.tags)
+            ledger.record_created(self.run_id, self.provider, result.runtime_id, "runtime", result.tags)
         return result
 
     def provision_status(self, runtime_id: str) -> str:

@@ -1,5 +1,6 @@
 """Compact self-authored inline chart interaction (no third-party library).
 Tab switching; hover tooltip on any [data-value] element; legend series toggle."""
+
 from __future__ import annotations
 
 CHART_JS = """

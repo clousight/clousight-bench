@@ -9,6 +9,7 @@ has head-of-line blocking in its per-session dispatch queue.
 
 Evidence layer C: deterministic, replayable.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -45,14 +46,10 @@ class HOLBlockingTask(Task):
             "hol_threshold": HOL_THRESHOLD,
         }
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
         return {}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.12 needs an AgentRuntimeAdapter")
         return adapter.run_data_plane_probe("hol_blocking", {})
@@ -84,16 +81,15 @@ class HOLBlockingTask(Task):
         return TaskResult(
             measurements={
                 "blocked": Measurement(value=blocked, unit="", evidence="C"),
-                "fast_p50_ms": Measurement(
-                    value=fast_p50_ms, unit="ms", evidence="C", aggregation="p50"
-                ),
-                "slow_p50_ms": Measurement(
-                    value=slow_p50_ms, unit="ms", evidence="C", aggregation="p50"
-                ),
+                "fast_p50_ms": Measurement(value=fast_p50_ms, unit="ms", evidence="C", aggregation="p50"),
+                "slow_p50_ms": Measurement(value=slow_p50_ms, unit="ms", evidence="C", aggregation="p50"),
                 "hol_ratio": Measurement(value=hol_ratio, unit="ratio", evidence="C"),
             },
             findings=findings,
-            notes=f"HOL probe: fast_p50={fast_p50_ms:.1f}ms slow_p50={slow_p50_ms:.1f}ms ratio={hol_ratio:.3f} blocked={blocked}",
+            notes=(
+                f"HOL probe: fast_p50={fast_p50_ms:.1f}ms slow_p50={slow_p50_ms:.1f}ms "
+                f"ratio={hol_ratio:.3f} blocked={blocked}"
+            ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

@@ -7,6 +7,7 @@ where credentials would come from -- it never reads or stores the secret value.
 Real adapters still hand off to the official SDK's chain at call time; this
 layer powers `csbench init` / `csbench doctor` and adapter self-reporting.
 """
+
 from __future__ import annotations
 
 import os
@@ -73,16 +74,16 @@ def _all_env_set(names: list[str]) -> bool:
     return bool(names) and all(os.environ.get(n) for n in names)
 
 
-def resolve_credentials(
-    target: dict[str, Any], platform: str | None = None
-) -> CredentialResolution:
+def resolve_credentials(target: dict[str, Any], platform: str | None = None) -> CredentialResolution:
     """Report where credentials *would* come from. Order:
     explicit auth_env -> CLI profile -> standard env vars -> credential file.
     """
     provider = infer_provider(target, platform)
     if provider is None:
         return CredentialResolution(
-            provider=None, ok=False, source="unknown-provider",
+            provider=None,
+            ok=False,
+            source="unknown-provider",
             remediation="set target.provider to one of: " + ", ".join(PROVIDER_CREDENTIALS),
         )
     spec = PROVIDER_CREDENTIALS[provider]
@@ -93,42 +94,56 @@ def resolve_credentials(
         env_names = [str(v) for v in auth_env.values()]
         if _all_env_set(env_names):
             return CredentialResolution(
-                provider, True, "auth_env",
+                provider,
+                True,
+                "auth_env",
                 identity_hint="env:" + ",".join(env_names),
             )
         missing = [n for n in env_names if not os.environ.get(n)]
         return CredentialResolution(
-            provider, False, "auth_env", identity_hint="env:" + ",".join(env_names),
+            provider,
+            False,
+            "auth_env",
+            identity_hint="env:" + ",".join(env_names),
             remediation=f"export the missing env var(s): {', '.join(missing)}",
             detail={"missing_env": missing},
         )
 
     # 2) CLI profile explicitly requested.
-    profile = target.get("profile") or (
-        os.environ.get(spec["profile_env"]) if spec["profile_env"] else None
-    )
+    profile = target.get("profile") or (os.environ.get(spec["profile_env"]) if spec["profile_env"] else None)
     if profile:
         return CredentialResolution(
-            provider, True, "profile", identity_hint=f"profile:{profile}",
+            provider,
+            True,
+            "profile",
+            identity_hint=f"profile:{profile}",
             detail={"profile": profile},
         )
 
     # 3) standard env vars of the provider's default chain.
     if _all_env_set(spec["std_env"]):
         return CredentialResolution(
-            provider, True, "std_env", identity_hint="env:" + ",".join(spec["std_env"]),
+            provider,
+            True,
+            "std_env",
+            identity_hint="env:" + ",".join(spec["std_env"]),
         )
 
     # 4) credential file on disk (profile "default" assumed by the SDK).
     for cf in spec["cred_files"]:
         if Path(cf).expanduser().exists():
             return CredentialResolution(
-                provider, True, "cred_file", identity_hint=f"file:{cf}",
+                provider,
+                True,
+                "cred_file",
+                identity_hint=f"file:{cf}",
                 detail={"cred_file": cf},
             )
 
     return CredentialResolution(
-        provider, False, "none",
+        provider,
+        False,
+        "none",
         remediation=(
             f"provide {provider} credentials via any of: "
             f"export {' & '.join(spec['std_env'])}; or set target.profile; "

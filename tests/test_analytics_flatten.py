@@ -8,23 +8,45 @@ from clousight_bench.core.fingerprints import record_digest
 def _write(root: Path, run_id="r1"):
     payload = {
         "schema_version": "0.2",
-        "run": {"run_id": run_id, "started_at": "2026-01-01T00:00:00Z",
-                "finished_at": "2026-01-01T00:00:01Z", "stages": {}},
-        "identity": {"domain": "agent-runtime", "task_id": "T1.3", "adapter": "local-sim",
-                     "task_revision": "2", "scorer_revision": "2"},
+        "run": {
+            "run_id": run_id,
+            "started_at": "2026-01-01T00:00:00Z",
+            "finished_at": "2026-01-01T00:00:01Z",
+            "stages": {},
+        },
+        "identity": {
+            "domain": "agent-runtime",
+            "task_id": "T1.3",
+            "adapter": "local-sim",
+            "task_revision": "2",
+            "scorer_revision": "2",
+        },
         "environment": {"region": "cn-hangzhou", "mode": "mock"},
-        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b",
-                         "implementation": "sha256:c"},
+        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b", "implementation": "sha256:c"},
         "measurements": {
-            "cold_start_ms": {"value": 42.0, "unit": "ms", "evidence": "B",
-                              "aggregation": "p50", "sample_count": 5},
+            "cold_start_ms": {
+                "value": 42.0,
+                "unit": "ms",
+                "evidence": "B",
+                "aggregation": "p50",
+                "sample_count": 5,
+            },
             "recovery_mode": {"value": "auto-retry", "unit": "", "evidence": "C"},
         },
-        "findings": [{"code": "agent_runtime.scaling_knee", "severity": "warning",
-                      "summary": "knee at 8", "evidence": "B"}],
-        "observations": {}, "series": {}, "artifacts": [],
+        "findings": [
+            {
+                "code": "agent_runtime.scaling_knee",
+                "severity": "warning",
+                "summary": "knee at 8",
+                "evidence": "B",
+            }
+        ],
+        "observations": {},
+        "series": {},
+        "artifacts": [],
         "extensions": {"pricing": {"cost_usd": 0.0123}},
-        "errors": [], "status": "completed",
+        "errors": [],
+        "status": "completed",
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     p = root / "agent-runtime" / "local-sim"
@@ -66,15 +88,23 @@ def test_records_expose_list_and_discount(tmp_path):
     payload = {
         "schema_version": "0.2",
         "run": {"run_id": "rc", "stages": {}},
-        "identity": {"domain": "agent-runtime", "task_id": "T5.1", "adapter": "aliyun-agentrun",
-                     "task_revision": "1", "scorer_revision": "2"},
+        "identity": {
+            "domain": "agent-runtime",
+            "task_id": "T5.1",
+            "adapter": "aliyun-agentrun",
+            "task_revision": "1",
+            "scorer_revision": "2",
+        },
         "environment": {"region": "cn-hangzhou", "mode": "cloud"},
-        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b",
-                         "implementation": "sha256:c"},
-        "measurements": {}, "findings": [], "observations": {}, "series": {},
+        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b", "implementation": "sha256:c"},
+        "measurements": {},
+        "findings": [],
+        "observations": {},
+        "series": {},
         "artifacts": [],
         "extensions": {"pricing": {"cost_usd": 0.7, "list_cost_usd": 1.0, "discount_usd": 0.3}},
-        "errors": [], "status": "completed",
+        "errors": [],
+        "status": "completed",
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     p = tmp_path / "agent-runtime" / "aliyun-agentrun"
@@ -88,13 +118,23 @@ def test_records_expose_execution(tmp_path):
     payload = {
         "schema_version": "0.2",
         "run": {"run_id": "re", "stages": {}},
-        "identity": {"domain": "agent-runtime", "task_id": "T1.1", "adapter": "aliyun-agentrun",
-                     "task_revision": "1", "scorer_revision": "1"},
+        "identity": {
+            "domain": "agent-runtime",
+            "task_id": "T1.1",
+            "adapter": "aliyun-agentrun",
+            "task_revision": "1",
+            "scorer_revision": "1",
+        },
         "environment": {"region": "cn-hangzhou", "mode": "cloud", "execution": "simulated"},
-        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b",
-                         "implementation": "sha256:c"},
-        "measurements": {}, "findings": [], "observations": {}, "series": {},
-        "artifacts": [], "extensions": {}, "errors": [], "status": "completed",
+        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b", "implementation": "sha256:c"},
+        "measurements": {},
+        "findings": [],
+        "observations": {},
+        "series": {},
+        "artifacts": [],
+        "extensions": {},
+        "errors": [],
+        "status": "completed",
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     p = tmp_path / "agent-runtime" / "aliyun-agentrun"

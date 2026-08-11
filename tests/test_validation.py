@@ -13,9 +13,7 @@ from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import (
 
 
 def test_a_well_formed_spec_validates():
-    validate_run_spec(
-        RunSpec("agent-runtime", "T1.3", "local-sim"), FaultRecoveryTask()
-    )
+    validate_run_spec(RunSpec("agent-runtime", "T1.3", "local-sim"), FaultRecoveryTask())
 
 
 def test_invalid_run_spec_error_is_a_user_input_error():

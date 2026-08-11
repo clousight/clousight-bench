@@ -36,11 +36,9 @@ def test_bad_evidence_layer_flagged():
         def config(self, p):
             return {}
 
-        def execute(self, a, p):
-            ...
+        def execute(self, a, p): ...
 
-        def score(self, o):
-            ...
+        def score(self, o): ...
 
     results = _check_task("T0", _BadTask)
     ev = [r for r in results if r.name.endswith(":evidence")][0]
@@ -58,11 +56,9 @@ def test_missing_revision_flagged():
         def config(self, p):
             return {}
 
-        def execute(self, a, p):
-            ...
+        def execute(self, a, p): ...
 
-        def score(self, o):
-            ...
+        def score(self, o): ...
 
     results = _check_task("T0", _NoRev)
     rev = [r for r in results if r.name.endswith(":revisions")][0]

@@ -10,6 +10,7 @@ transition appends one line to an append-only receipt file: a durable pending
 event is written before the remote call and a terminal event follows when
 possible. A failed or indeterminate upload is evidence rather than a silent gap.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -100,9 +101,7 @@ def load_trusted_record(path: Path, results_dir: Path) -> ResultRecord:
     return capture_trusted_snapshot(path, results_dir).record
 
 
-def capture_trusted_snapshot(
-    path: Path, results_dir: Path
-) -> TrustedRecordSnapshot:
+def capture_trusted_snapshot(path: Path, results_dir: Path) -> TrustedRecordSnapshot:
     """Validate and retain the exact record and referenced sidecar bytes."""
     record_path = Path(path)
     record_bytes = record_path.read_bytes()
@@ -137,9 +136,7 @@ def capture_trusted_snapshot(
     )
 
 
-def snapshot_is_unchanged(
-    snapshot: TrustedRecordSnapshot, results_dir: Path
-) -> bool:
+def snapshot_is_unchanged(snapshot: TrustedRecordSnapshot, results_dir: Path) -> bool:
     """Revalidate content and require byte-for-byte equality."""
     current = capture_trusted_snapshot(snapshot.record_path, results_dir)
     return (
@@ -149,9 +146,7 @@ def snapshot_is_unchanged(
     )
 
 
-def restore_trusted_snapshot(
-    snapshot: TrustedRecordSnapshot, results_dir: Path
-) -> None:
+def restore_trusted_snapshot(snapshot: TrustedRecordSnapshot, results_dir: Path) -> None:
     """Atomically restore synchronous tampering, then verify the restoration.
 
     A publisher can still launch a background process that tampers again after
@@ -195,9 +190,7 @@ def begin_publish_attempt(
     }
     with _locked_receipts(results_dir, readable=True) as (fd, _):
         receipts = _read_receipts(fd)
-        same_key = [
-            item for item in receipts if item.get("idempotency_key") == idempotency_key
-        ]
+        same_key = [item for item in receipts if item.get("idempotency_key") == idempotency_key]
         if any(item.get("state") == "success" for item in same_key):
             _write_receipt(
                 fd,
@@ -221,9 +214,7 @@ def begin_publish_attempt(
             return PublishReservation(False, idempotency_key, attempt_id)
 
         if any(
-            item.get("state") == "failed"
-            and item.get("publisher_called") is not False
-            for item in same_key
+            item.get("state") == "failed" and item.get("publisher_called") is not False for item in same_key
         ):
             _write_receipt(
                 fd,
@@ -243,8 +234,7 @@ def begin_publish_attempt(
         unresolved = [
             item
             for item in same_key
-            if item.get("state") == "pending"
-            and item.get("attempt_id") not in terminals
+            if item.get("state") == "pending" and item.get("attempt_id") not in terminals
         ]
         if unresolved:
             _write_receipt(
@@ -308,9 +298,7 @@ def _safe_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
 
 
 @contextmanager
-def _locked_receipts(
-    results_dir: Path, *, readable: bool = False
-) -> Iterator[tuple[int, Path]]:
+def _locked_receipts(results_dir: Path, *, readable: bool = False) -> Iterator[tuple[int, Path]]:
     root = Path(results_dir)
     root.mkdir(parents=True, exist_ok=True)
     path = root / RECEIPTS_FILE
@@ -370,9 +358,7 @@ def _read_receipts(fd: int) -> list[dict[str, Any]]:
     return receipts
 
 
-def _write_receipt(
-    fd: int, receipt: dict[str, Any], *, already_safe: bool = False
-) -> None:
+def _write_receipt(fd: int, receipt: dict[str, Any], *, already_safe: bool = False) -> None:
     safe = receipt if already_safe else _safe_receipt(receipt)
     data = (
         json.dumps(

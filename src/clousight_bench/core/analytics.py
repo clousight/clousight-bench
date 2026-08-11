@@ -5,6 +5,7 @@ rule as store.query_series), flattens them into records/measurements/findings
 rows, and joins the existing series.parquet sidecars. JSON stays the single
 source of truth; nothing new is persisted unless you export.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,18 +16,54 @@ from typing import Any
 from clousight_bench.core.fingerprints import record_digest
 
 _COLUMNS: dict[str, list[str]] = {
-    "records": ["run_id", "domain", "task_id", "platform", "task_revision",
-                "scorer_revision", "status", "started_at", "finished_at",
-                "benchmark_fp", "environment_fp", "implementation_fp",
-                "record_digest", "region", "mode", "execution", "cost_usd",
-                "list_cost_usd", "discount_usd"],
-    "measurements": ["run_id", "domain", "task_id", "platform", "benchmark_fp",
-                     "environment_fp", "name", "value_num", "value_str", "unit",
-                     "evidence", "aggregation", "sample_count"],
-    "findings": ["run_id", "domain", "task_id", "platform", "code", "severity",
-                 "summary", "evidence"],
-    "series": ["run_id", "domain", "task_id", "platform", "benchmark_fingerprint",
-               "series", "t", "value", "unit"],
+    "records": [
+        "run_id",
+        "domain",
+        "task_id",
+        "platform",
+        "task_revision",
+        "scorer_revision",
+        "status",
+        "started_at",
+        "finished_at",
+        "benchmark_fp",
+        "environment_fp",
+        "implementation_fp",
+        "record_digest",
+        "region",
+        "mode",
+        "execution",
+        "cost_usd",
+        "list_cost_usd",
+        "discount_usd",
+    ],
+    "measurements": [
+        "run_id",
+        "domain",
+        "task_id",
+        "platform",
+        "benchmark_fp",
+        "environment_fp",
+        "name",
+        "value_num",
+        "value_str",
+        "unit",
+        "evidence",
+        "aggregation",
+        "sample_count",
+    ],
+    "findings": ["run_id", "domain", "task_id", "platform", "code", "severity", "summary", "evidence"],
+    "series": [
+        "run_id",
+        "domain",
+        "task_id",
+        "platform",
+        "benchmark_fingerprint",
+        "series",
+        "t",
+        "value",
+        "unit",
+    ],
 }
 
 
@@ -151,7 +188,7 @@ class Analytics:
         for _p, rec in iter_verified_records(self.results_dir):
             ident = rec.get("identity", {})
             run = rec.get("run", {})
-            for f in (rec.get("findings") or []):
+            for f in rec.get("findings") or []:
                 if not isinstance(f, dict):
                     continue
                 yield {
@@ -173,8 +210,7 @@ class Analytics:
             import pyarrow.parquet as pq
         except ImportError as exc:
             raise ImportError(
-                "series analytics needs the [store] extra: "
-                "pip install clousight-bench[store]"
+                "series analytics needs the [store] extra: pip install clousight-bench[store]"
             ) from exc
         rows: list[dict[str, Any]] = []
         for _p, payload in iter_verified_records(self.results_dir):
@@ -190,9 +226,7 @@ class Analytics:
             import duckdb
             import pyarrow as pa
         except ImportError as exc:
-            raise ImportError(
-                "query needs the [store] extra: pip install clousight-bench[store]"
-            ) from exc
+            raise ImportError("query needs the [store] extra: pip install clousight-bench[store]") from exc
         con = duckdb.connect()
         try:
             for view in ("records", "measurements", "findings", "series"):
@@ -229,8 +263,7 @@ class Analytics:
                 import pyarrow.parquet as pq
             except ImportError as exc:
                 raise ImportError(
-                    "parquet export needs the [store] extra: "
-                    "pip install clousight-bench[store]"
+                    "parquet export needs the [store] extra: pip install clousight-bench[store]"
                 ) from exc
             pq.write_table(pa.table(_as_columns(rows, columns)), out)
         else:

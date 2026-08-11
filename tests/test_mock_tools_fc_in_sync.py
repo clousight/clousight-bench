@@ -2,6 +2,7 @@
 mock_tools module (it must run without clousight-bench installed). Guard against
 drift: a fix to one (e.g. the auth path) must be mirrored to the other.
 """
+
 from pathlib import Path
 
 

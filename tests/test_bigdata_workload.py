@@ -27,8 +27,9 @@ def test_workload_identity_in_describe():
 
 
 def test_bigdata_j1_1_local_process(tmp_path):
-    spec = RunSpec(domain="bigdata-emr", task_id="J1.1", platform="local-process",
-                   params={"rows": 5000, "seed": 1})
+    spec = RunSpec(
+        domain="bigdata-emr", task_id="J1.1", platform="local-process", params={"rows": 5000, "seed": 1}
+    )
     rec = execute(spec, results_dir=tmp_path)
     assert rec.status == "completed"
     assert rec.measurements["job_succeeded"]["value"] is True

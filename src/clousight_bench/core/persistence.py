@@ -19,9 +19,7 @@ def atomic_write_bytes(path: Path, data: bytes) -> Path:
     """Write ``data`` to ``path`` so readers see either the old or the new file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    handle_fd, tmp_name = tempfile.mkstemp(
-        dir=str(path.parent), prefix=f"{path.name}.", suffix=".tmp"
-    )
+    handle_fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f"{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(handle_fd, "wb") as handle:
             handle.write(data)

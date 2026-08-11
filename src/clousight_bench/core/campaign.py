@@ -16,6 +16,7 @@ The manifest is progress state, not evidence: it carries no ``record_digest``
 and lives under its own ``campaigns/`` subtree so the record loaders skip it
 wholesale (mirroring how ``aggregates/`` is skipped).
 """
+
 from __future__ import annotations
 
 import json
@@ -201,7 +202,5 @@ def latest_manifest(results_dir: Path) -> Path | None:
     campaigns = Path(results_dir) / CAMPAIGNS_DIRNAME
     if not campaigns.is_dir():
         return None
-    candidates = sorted(
-        campaigns.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
-    )
+    candidates = sorted(campaigns.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
     return candidates[0] if candidates else None

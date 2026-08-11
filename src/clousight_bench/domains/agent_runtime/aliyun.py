@@ -32,6 +32,7 @@ against a live account with a deployed agent and a public mock endpoint -- it
 raises a clear ``_DataPlaneNotWired`` until then. Mock mode exercises everything
 without an account.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -76,6 +77,7 @@ def _get_probe_fns() -> dict:
     global _PROBE_FNS
     if _PROBE_FNS is None:
         from clousight_bench.domains.agent_runtime.probe.server import build_default_runner
+
         _PROBE_FNS = build_default_runner()._probes
     return _PROBE_FNS
 
@@ -134,12 +136,14 @@ class _LiveMemory:
         from alibabacloud_credentials.client import Client as CredClient
 
         from clousight_bench.domains.agent_runtime.probe.oss_client import _ChainCredentialsProvider
+
         auth = oss2.ProviderAuthV4(_ChainCredentialsProvider(CredClient()))
         endpoint = f"https://oss-{self._region}.aliyuncs.com"
         return oss2.Bucket(auth, endpoint, self._bucket, region=self._region)
 
     def store(self, session_id: str, state: dict[str, Any]) -> None:
         import json
+
         key = f"clousight-bench/state/{self._run_id or 'default'}/{session_id}.json"
         self._oss_bucket().put_object(key, json.dumps(state).encode("utf-8"))
         if key not in self._keys:
@@ -147,6 +151,7 @@ class _LiveMemory:
 
     def fetch(self, session_id: str) -> dict[str, Any]:
         import json
+
         key = f"clousight-bench/state/{self._run_id or 'default'}/{session_id}.json"
         result = self._oss_bucket().get_object(key)
         return json.loads(result.read().decode("utf-8"))
@@ -182,6 +187,7 @@ class _LiveMcp:
         # 尝试激活同名模板；若模板不存在或格式不符则视为能力不支持
         try:
             from alibabacloud_agentrun20250910 import models as m
+
             self._client_factory().activate_template_mcp(
                 name,
                 m.ActivateTemplateMCPRequest(transport="sse"),  # 必须指定传输协议
@@ -238,13 +244,14 @@ class AliyunAgentRunTransport(RuntimeTransport):
         probe_url = str(adapter.target.get("probe_url") or "")
         if probe_url:
             from clousight_bench.domains.agent_runtime.probe.client import RemoteProbeClient
+
             probe_token = str(adapter.target.get("probe_token") or "") or None
             self._probe_client = RemoteProbeClient(probe_url, token=probe_token)
         else:
             self._probe_client = None
-        self._last_ttft_ms: float | None = None   # set by run_tool_plan on first invoke
-        self._last_trace_id: str | None = None    # set by _live_invoke from response headers
-        self._collected_spans: list[dict] = []    # spans embedded in agent responses (_spans)
+        self._last_ttft_ms: float | None = None  # set by run_tool_plan on first invoke
+        self._last_trace_id: str | None = None  # set by _live_invoke from response headers
+        self._collected_spans: list[dict] = []  # spans embedded in agent responses (_spans)
         target = adapter.target
         self._memory: Any = _LiveMemory(
             bucket=str(target.get("oss_bucket") or ""),
@@ -346,10 +353,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             self.provision({"oss_bucket": str(target.get("oss_bucket") or "")})
             self._lazy_provisioned = True
 
-        endpoint_url = (
-            self._endpoint_public_url
-            or str(self._adapter.target.get("endpoint_url") or "")
-        )
+        endpoint_url = self._endpoint_public_url or str(self._adapter.target.get("endpoint_url") or "")
         if not endpoint_url:
             raise RuntimeError(
                 "aliyun _live_invoke: no endpoint_public_url — endpoint may not be active yet."
@@ -388,10 +392,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         Falls back to a normal (non-streaming) invoke and returns (0.0, response)
         if the endpoint_url is not available or requests is not installed.
         """
-        endpoint_url = (
-            self._endpoint_public_url
-            or str(self._adapter.target.get("endpoint_url") or "")
-        )
+        endpoint_url = self._endpoint_public_url or str(self._adapter.target.get("endpoint_url") or "")
         # Build a non-streaming fallback body (strip stream=True so _live_invoke
         # receives a body it can parse as JSON rather than SSE).
         non_stream_body = {k: v for k, v in openai_body.items() if k != "stream"}
@@ -466,6 +467,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
 
         # Reassemble full response from all chunks by merging content deltas.
         import json as _json
+
         merged_content = ""
         for chunk_str in chunks:
             try:
@@ -476,9 +478,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 pass
 
         # Build a response that looks like a normal (non-streaming) chat completion.
-        full_resp = {
-            "choices": [{"message": {"role": "assistant", "content": merged_content}}]
-        }
+        full_resp = {"choices": [{"message": {"role": "assistant", "content": merged_content}}]}
         return round(ttft_ms, 3), full_resp
 
     def run_tool_plan(self, session_id: str, plan: list[ToolCall]) -> InvocationTrace:
@@ -497,20 +497,16 @@ class AliyunAgentRunTransport(RuntimeTransport):
         completed = True
         final_state = "completed"
         for call_index, call in enumerate(plan, start=1):
-            tool = {"target": call.target, "method": call.method,
-                    "params": call.params, "body": call.body}
+            tool = {"target": call.target, "method": call.method, "params": call.params, "body": call.body}
             if call_index == 1:
                 # First invoke: measure TTFT with a streaming request.
-                stream_body = protocol.encode_invoke_stream(
-                    tool, base, mock_token=mock_token or None
-                )
+                stream_body = protocol.encode_invoke_stream(tool, base, mock_token=mock_token or None)
                 start = time.perf_counter()
                 ttft_ms, resp = self._measure_ttft(session_id, stream_body)
                 latency = (time.perf_counter() - start) * 1000
                 self._last_ttft_ms = ttft_ms
             else:
-                body = protocol.encode_invoke(tool, base, mock_token=mock_token or None,
-                                              arms_config=arms_cfg)
+                body = protocol.encode_invoke(tool, base, mock_token=mock_token or None, arms_config=arms_cfg)
                 start = time.perf_counter()
                 resp = self._invoke(session_id, body)
                 latency = (time.perf_counter() - start) * 1000
@@ -552,6 +548,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         If any templates exist, we activate + stop one to confirm the path works.
         """
         from alibabacloud_agentrun20250910 import models as m
+
         try:
             client = self._control_client()
             resp = client.list_templates(m.ListTemplatesRequest(page_size=5))
@@ -570,17 +567,14 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 m.ActivateTemplateMCPRequest(transport="sse"),
             )
             import contextlib as _cl
+
             with _cl.suppress(Exception):
-                self._control_client().stop_template_mcp(
-                    template_name, m.StopTemplateMCPRequest()
-                )
+                self._control_client().stop_template_mcp(template_name, m.StopTemplateMCPRequest())
             return True
         except CapabilityNotSupported:
             raise
         except Exception as exc:
-            raise CapabilityNotSupported(
-                f"register_tool[mcp]: {exc}"
-            ) from exc
+            raise CapabilityNotSupported(f"register_tool[mcp]: {exc}") from exc
 
     def _register_tool_native(self) -> bool:
         """T2.1 native path: list_tools confirms the native tool API is accessible.
@@ -589,6 +583,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         Confirming list_tools succeeds proves the native registration path is open.
         """
         from alibabacloud_agentrun20250910 import models as m
+
         try:
             client = self._control_client()
             resp = client.list_tools(m.ListToolsRequest())
@@ -597,9 +592,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             _ = items  # count is informational; API reachability is the gate
             return True
         except Exception as exc:
-            raise CapabilityNotSupported(
-                f"register_tool[native]: {exc}"
-            ) from exc
+            raise CapabilityNotSupported(f"register_tool[native]: {exc}") from exc
 
     # --- probe methods (T1.4-T1.8): implemented via run_tool_plan ---------------
 
@@ -619,6 +612,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         import time as _time
 
         from clousight_bench.domains.agent_runtime.adapters.base import ToolCall
+
         plan = [ToolCall(target="prices", params={"provider": "aliyun"})]
         session = self.create_session()
         t0 = _time.perf_counter()
@@ -627,14 +621,14 @@ class AliyunAgentRunTransport(RuntimeTransport):
             trace = self.run_tool_plan(session, plan)
             ok = trace.completed
             if not ok:
-                error_type = "tool"   # AgentRun OK, mock tool failed
+                error_type = "tool"  # AgentRun OK, mock tool failed
         except Exception as exc:
             ok = False
             err_str = str(exc).lower()
             if any(k in err_str for k in ("ssl", "connection", "eof", "timeout", "connect")):
                 error_type = "transport"
             else:
-                error_type = "runtime"   # AgentRun data-plane returned non-2xx
+                error_type = "runtime"  # AgentRun data-plane returned non-2xx
         finally:
             self.destroy_session(session)
         return ok, (_time.perf_counter() - t0) * 1000, error_type
@@ -700,7 +694,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
             p99_ms=round(p[99], 2),
             jitter_ms=round(p[99] - p[50], 2),
             error_rate=round(errors_count / n, 4),
-            requests=n, duration_s=round(actual_elapsed, 2),
+            requests=n,
+            duration_s=round(actual_elapsed, 2),
             transport_error_rate=round(transport_errors / n, 4),
             runtime_error_rate=round(runtime_errors / n, 4),
             tool_error_rate=round(tool_errors / n, 4),
@@ -748,6 +743,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         import time as _time
 
         from clousight_bench.domains.agent_runtime.adapters.base import SoakResult
+
         deadline = _time.perf_counter() + duration_s
         requests, errors = 0, 0
         while _time.perf_counter() < deadline:
@@ -759,7 +755,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         return SoakResult(
             availability=1.0 - errors / n,
             error_rate=errors / n,
-            requests=requests, window_s=duration_s,
+            requests=requests,
+            window_s=duration_s,
         )
 
     def probe_rate_limit(self) -> Any:
@@ -784,7 +781,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         mock = self._adapter.mock_base_url
         mock_token = str(self._adapter.target.get("mock_token") or "")
         body = protocol.encode_invoke(
-            {"target": "prices", "method": "GET"}, mock,
+            {"target": "prices", "method": "GET"},
+            mock,
             mock_token=mock_token or None,
         )
         session_obj = self._http_session()
@@ -794,11 +792,13 @@ class AliyunAgentRunTransport(RuntimeTransport):
         honors_429 = False
 
         for burst_n in BURST_LEVELS:
+
             def _raw_call(i: int, _n: int = burst_n) -> tuple[int, float]:
                 sid = f"rl-{_n}-{i}"
                 try:
                     resp = session_obj.post(
-                        url, json=body,
+                        url,
+                        json=body,
                         headers={"X-AgentRun-Session-ID": sid},
                         timeout=30,
                     )
@@ -860,13 +860,15 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 mock_token = str(self._adapter.target.get("mock_token") or "")
                 body = protocol.encode_invoke(
                     {"target": "prices", "method": "GET"},
-                    mock, mock_token=mock_token or None,
+                    mock,
+                    mock_token=mock_token or None,
                 )
                 url = endpoint_url.rstrip("/") + "/openai/v1/chat/completions"
                 session_obj = self._http_session()
                 try:
                     session_obj.post(
-                        url, json=body,
+                        url,
+                        json=body,
                         headers={"X-AgentRun-Session-ID": session_id},
                         timeout=CLIENT_TIMEOUT_S,
                     )
@@ -903,6 +905,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         the time to the full non-streaming response) and T1.9 surfaces a finding.
         """
         from clousight_bench.domains.agent_runtime.adapters.base import ToolCall
+
         plan = [ToolCall(target="prices", params={"provider": "aliyun"})]
         session = self.create_session()
         try:
@@ -928,17 +931,17 @@ class AliyunAgentRunTransport(RuntimeTransport):
         """
         base = self._adapter.mock_base_url
         mock_token = str(self._adapter.target.get("mock_token") or "")
-        n_calls = fault_call_index + 2   # enough calls to guarantee fault fires
+        n_calls = fault_call_index + 2  # enough calls to guarantee fault fires
         session = self.create_session()
         attempts: list[Attempt] = []
         completed = True
         final_state = "completed"
         try:
             for call_index in range(1, n_calls + 1):
-                tool = {"target": "prices", "method": "GET",
-                        "params": {"provider": "aliyun"}}
+                tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
                 body = protocol.encode_invoke(
-                    tool, base,
+                    tool,
+                    base,
                     mock_token=mock_token or None,
                     fail_after_n_calls=fault_call_index,
                     session_id=session,
@@ -987,10 +990,10 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 if time.perf_counter() >= deadline:
                     timed_out = True
                     break
-                tool = {"target": "prices", "method": "GET",
-                        "params": {"provider": "aliyun"}}
+                tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
                 body = protocol.encode_invoke(
-                    tool, base,
+                    tool,
+                    base,
                     mock_token=mock_token or None,
                     fail_after_n_calls=1,
                     session_id=session,
@@ -1032,6 +1035,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         reads each session's state to verify no cross-write corruption.
         """
         import concurrent.futures as _cf
+
         key = "__concurrent_write_probe__"
         session_a = self.create_session()
         session_b = self.create_session()
@@ -1051,9 +1055,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         except CapabilityNotSupported:
             raise
         except Exception as exc:
-            raise CapabilityNotSupported(
-                f"probe_concurrent_writes: state API unavailable — {exc}"
-            ) from exc
+            raise CapabilityNotSupported(f"probe_concurrent_writes: state API unavailable — {exc}") from exc
         finally:
             with contextlib.suppress(Exception):
                 self._memory.cleanup()
@@ -1091,7 +1093,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
 
         def timed_invoke(target: str) -> float:
             body = protocol.encode_invoke(
-                {"target": target, "method": "GET"}, base,
+                {"target": target, "method": "GET"},
+                base,
                 mock_token=mock_token or None,
             )
             t0 = time.perf_counter()
@@ -1142,19 +1145,13 @@ class AliyunAgentRunTransport(RuntimeTransport):
         from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec
 
         # Resolve endpoint the same way _live_invoke does.
-        endpoint = (
-            self._endpoint_public_url
-            or str(self._adapter.target.get("endpoint_url") or "")
-        )
+        endpoint = self._endpoint_public_url or str(self._adapter.target.get("endpoint_url") or "")
         if not endpoint:
             # Lazy provision for tasks that skip explicit provision().
             target = self._adapter.target
             self.provision({"oss_bucket": str(target.get("oss_bucket") or "")})
             self._lazy_provisioned = True
-            endpoint = (
-                self._endpoint_public_url
-                or str(self._adapter.target.get("endpoint_url") or "")
-            )
+            endpoint = self._endpoint_public_url or str(self._adapter.target.get("endpoint_url") or "")
         if not endpoint:
             raise RuntimeError(
                 "aliyun run_data_plane_probe: no endpoint_public_url — endpoint may not be active yet."
@@ -1212,7 +1209,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         Returns [] if the trace is not yet visible or ARMS is inaccessible.
         """
         import time as _time
-        ARMS_WAIT_S = 25   # ARMS trace propagation typically 10–30s
+
+        ARMS_WAIT_S = 25  # ARMS trace propagation typically 10–30s
         ARMS_POLL_S = 5
         from alibabacloud_arms20190808 import models as arms_m
 
@@ -1224,12 +1222,14 @@ class AliyunAgentRunTransport(RuntimeTransport):
             try:
                 # Query a 5-minute window centered on now to catch the trace
                 now_ms = int(_time.time() * 1000)
-                resp = client.get_trace(arms_m.GetTraceRequest(
-                    region_id=region,
-                    trace_id=trace_id,
-                    start_time=now_ms - 5 * 60 * 1000,
-                    end_time=now_ms + 60 * 1000,
-                ))
+                resp = client.get_trace(
+                    arms_m.GetTraceRequest(
+                        region_id=region,
+                        trace_id=trace_id,
+                        start_time=now_ms - 5 * 60 * 1000,
+                        end_time=now_ms + 60 * 1000,
+                    )
+                )
                 spans_raw = getattr(resp.body, "spans", None) or []
                 if spans_raw:
                     spans = []
@@ -1239,16 +1239,18 @@ class AliyunAgentRunTransport(RuntimeTransport):
                             for t in (getattr(s, "tag_entry_list", None) or [])
                             if hasattr(t, "key")
                         }
-                        spans.append({
-                            "trace_id": getattr(s, "trace_id", trace_id),
-                            "span_id": getattr(s, "span_id", ""),
-                            "parent_span_id": getattr(s, "parent_span_id", None) or "",
-                            "operation_name": getattr(s, "operation_name", ""),
-                            "service_name": getattr(s, "service_name", ""),
-                            "duration_us": getattr(s, "duration", 0),
-                            "timestamp_ms": getattr(s, "timestamp", 0),
-                            "tags": tags,
-                        })
+                        spans.append(
+                            {
+                                "trace_id": getattr(s, "trace_id", trace_id),
+                                "span_id": getattr(s, "span_id", ""),
+                                "parent_span_id": getattr(s, "parent_span_id", None) or "",
+                                "operation_name": getattr(s, "operation_name", ""),
+                                "service_name": getattr(s, "service_name", ""),
+                                "duration_us": getattr(s, "duration", 0),
+                                "timestamp_ms": getattr(s, "timestamp", 0),
+                                "tags": tags,
+                            }
+                        )
                     return spans
             except Exception:
                 pass
@@ -1278,11 +1280,13 @@ class AliyunAgentRunTransport(RuntimeTransport):
         while _time.perf_counter() < deadline:
             _time.sleep(POLL_S)
             try:
-                resp = client.search_traces(arms_m.SearchTracesRequest(
-                    region_id=region,
-                    start_time=invocation_time_ms - 30_000,    # 30s before invocation
-                    end_time=int(_time.time() * 1000) + 5_000,
-                ))
+                resp = client.search_traces(
+                    arms_m.SearchTracesRequest(
+                        region_id=region,
+                        start_time=invocation_time_ms - 30_000,  # 30s before invocation
+                        end_time=int(_time.time() * 1000) + 5_000,
+                    )
+                )
                 trace_infos = getattr(resp.body, "trace_infos", None) or []
                 # Pick the first trace not yet fetched
                 for ti in trace_infos:
@@ -1312,8 +1316,11 @@ class AliyunAgentRunTransport(RuntimeTransport):
         - root_count: number of spans with no parent (should be exactly 1 = CHAIN)
         """
         from clousight_bench.domains.agent_runtime.adapters.base import PropagationResult, ToolCall
-        plan = [ToolCall(target="prices", params={"provider": "aliyun"}),
-                ToolCall(target="inventory", params={"item": "A"})]
+
+        plan = [
+            ToolCall(target="prices", params={"provider": "aliyun"}),
+            ToolCall(target="inventory", params={"item": "A"}),
+        ]
         session = self.create_session()
         self._collected_spans.clear()
         try:
@@ -1329,7 +1336,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         # _collected_spans uses "parent_span_id" (from agent.py _spans field)
         span_ids = {s.get("span_id") for s in self._collected_spans}
         orphans = sum(
-            1 for s in self._collected_spans
+            1
+            for s in self._collected_spans
             if s.get("parent_span_id") and s["parent_span_id"] not in span_ids
         )
         roots = sum(1 for s in self._collected_spans if not s.get("parent_span_id"))
@@ -1372,14 +1380,16 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 "fc_function_invocations",
             ]:
                 try:
-                    resp = client.query_metric_by_page(arms_m.QueryMetricByPageRequest(
-                        metric=metric_name,
-                        start_time=now_ms - 5 * 60 * 1000,
-                        end_time=now_ms,
-                        measures=["count"],
-                        current_page=1,
-                        page_size=5,
-                    ))
+                    resp = client.query_metric_by_page(
+                        arms_m.QueryMetricByPageRequest(
+                            metric=metric_name,
+                            start_time=now_ms - 5 * 60 * 1000,
+                            end_time=now_ms,
+                            measures=["count"],
+                            current_page=1,
+                            page_size=5,
+                        )
+                    )
                     data = getattr(resp.body, "data", None) or {}
                     rows = (data.get("items") if isinstance(data, dict) else None) or []
                     if rows:
@@ -1391,7 +1401,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
 
         return SignalsResult(
             metrics_present=len(metrics_found),
-            metrics_expected=3,   # count, error_rate, duration from FC
+            metrics_expected=3,  # count, error_rate, duration from FC
             logs_present=1 if metrics_found else 0,  # logs co-located with metrics
             logs_expected=1,
             structured_logs=True,  # ARMS metrics are always structured
@@ -1464,6 +1474,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             f"arms_config={'present' if arms_cfg else 'absent'}. "
             "Ensure the deployed agent supports the _spans response field."
         )
+
         # Convert ARMS span format → OpenInference-compatible dict expected by T4.1 scorer.
         # Map ARMS operation_name to OpenInference kind via tag inspection.
         def _oi_kind(span: dict) -> str:
@@ -1501,6 +1512,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         using the same helper the scorer's validate_otel() expects.
         """
         from clousight_bench.domains.agent_runtime import openinference as oi
+
         spans = self.get_trace(session_id)  # raises CapabilityNotSupported if unavailable
         return oi.to_otel(spans, service_name="agentrun")
 
@@ -1515,10 +1527,9 @@ class AliyunAgentRunTransport(RuntimeTransport):
             return None
         try:
             from alibabacloud_agentrun20250910 import models as m
+
             client = self._control_client()
-            resp = client.list_agent_runtime_endpoints(
-                self._runtime_id, m.ListAgentRuntimeEndpointsRequest()
-            )
+            resp = client.list_agent_runtime_endpoints(self._runtime_id, m.ListAgentRuntimeEndpointsRequest())
             items = getattr(getattr(getattr(resp, "body", None), "data", None), "items", None) or []
             for ep in items:
                 if str(getattr(ep, "agent_runtime_endpoint_name", "") or "") == "Default":
@@ -1583,8 +1594,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
             asserted.append("tenant_isolated")
         return IsolationResult(
             tenant_isolated=tenant_isolated,
-            network_egress_controlled=True,   # VPC-isolated per AgentRun docs
-            filesystem_isolated=True,          # FC container ephemeral FS
+            network_egress_controlled=True,  # VPC-isolated per AgentRun docs
+            filesystem_isolated=True,  # FC container ephemeral FS
             platform_asserted_dimensions=asserted,
         )
 
@@ -1604,7 +1615,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         base = self._adapter.mock_base_url
         mock_token = str(self._adapter.target.get("mock_token") or "")
         body = protocol.encode_invoke(
-            {"target": "prices", "method": "GET"}, base,
+            {"target": "prices", "method": "GET"},
+            base,
             mock_token=mock_token or None,
         )
         _instance_count_supported = self._query_current_instances() is not None
@@ -1656,12 +1668,14 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 s = sorted(vals)
                 return s[len(s) // 2]
 
-            points.append(ScalePoint(
-                concurrency=n,
-                success_rate=round(_median(rep_success_rates), 4),
-                p95_ms=round(_median(rep_p95s), 2),
-                observed_instances=observed_instances,
-            ))
+            points.append(
+                ScalePoint(
+                    concurrency=n,
+                    success_rate=round(_median(rep_success_rates), 4),
+                    p95_ms=round(_median(rep_p95s), 2),
+                    observed_instances=observed_instances,
+                )
+            )
 
         return points
 
@@ -1681,7 +1695,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         start = time.perf_counter()
         created = client.create_agent_runtime(self._create_runtime_request(spec))
         runtime_id = _runtime_id(created)
-        self._runtime_id = runtime_id   # stored for data-plane URL construction
+        self._runtime_id = runtime_id  # stored for data-plane URL construction
         ready = self._poll_ready(client, runtime_id)
         ready_ms = (time.perf_counter() - start) * 1000
         # Publish a version (required before the endpoint can route traffic).
@@ -1702,6 +1716,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
     def _publish_version(self, client: Any, runtime_id: str) -> str:
         """Publish a runtime version so the code is deployable. Returns version ID."""
         from alibabacloud_agentrun20250910 import models as m
+
         resp = client.publish_runtime_version(
             runtime_id,
             m.PublishRuntimeVersionRequest(
@@ -1719,19 +1734,19 @@ class AliyunAgentRunTransport(RuntimeTransport):
         Returns the public URL to use for data-plane HTTP calls.
         """
         from alibabacloud_agentrun20250910 import models as m
+
         body = m.CreateAgentRuntimeEndpointInput(
             agent_runtime_endpoint_name="Default",
             disable_public_network_access=False,
             target_version=version_id or "LATEST",
         )
         try:
-            client.create_agent_runtime_endpoint(
-                runtime_id, m.CreateAgentRuntimeEndpointRequest(body=body)
-            )
+            client.create_agent_runtime_endpoint(runtime_id, m.CreateAgentRuntimeEndpointRequest(body=body))
         except Exception as exc:
             err = str(exc)
             if "already exist" not in err.lower() and "AlreadyExist" not in err:
                 import logging
+
                 logging.getLogger(__name__).warning(
                     "CreateAgentRuntimeEndpoint warning (continuing): %s", exc
                 )
@@ -1739,9 +1754,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         # Using list (not get) because get requires a UUID, not the name.
         deadline = time.perf_counter() + _READY_TIMEOUT_S
         while time.perf_counter() < deadline:
-            list_resp = client.list_agent_runtime_endpoints(
-                runtime_id, m.ListAgentRuntimeEndpointsRequest()
-            )
+            list_resp = client.list_agent_runtime_endpoints(runtime_id, m.ListAgentRuntimeEndpointsRequest())
             items = getattr(getattr(getattr(list_resp, "body", None), "data", None), "items", None) or []
             for ep in items:
                 if str(getattr(ep, "agent_runtime_endpoint_name", "") or "") == "Default":
@@ -1758,10 +1771,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         # Delete the Default endpoint before deleting the runtime.
         with contextlib.suppress(Exception):
             from alibabacloud_agentrun20250910 import models as m
-            client.delete_agent_runtime_endpoint(
-                runtime_id, "Default",
-                m.DeleteAgentRuntimeEndpointRequest()
-            )
+
+            client.delete_agent_runtime_endpoint(runtime_id, "Default", m.DeleteAgentRuntimeEndpointRequest())
         client.delete_agent_runtime(runtime_id)
         residual = self._residual_after_delete(client, runtime_id)
         teardown_ms = (time.perf_counter() - start) * 1000
@@ -1861,6 +1872,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
 
     def probe_idle_cost(self) -> Any:
         from clousight_bench.domains.agent_runtime.adapters.base import IdleCostResult
+
         # AgentRun runs on FC (Function Compute) which scales to zero when idle.
         # Billing is per-invocation only; no charge when there are no requests.
         # This is a platform documentation claim — billing API verification is
@@ -1885,7 +1897,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         mock = self._adapter.mock_base_url
         mock_token = str(self._adapter.target.get("mock_token") or "")
         body = protocol.encode_invoke(
-            {"target": "prices", "method": "GET"}, mock,
+            {"target": "prices", "method": "GET"},
+            mock,
             mock_token=mock_token or None,
         )
         session_obj = self._http_session()
@@ -1897,10 +1910,12 @@ class AliyunAgentRunTransport(RuntimeTransport):
         hard_limit = False
 
         for burst_n in BURST_LEVELS:
+
             def _call(i: int, _n: int = burst_n) -> int:
                 try:
                     resp = session_obj.post(
-                        url, json=body,
+                        url,
+                        json=body,
                         headers={"X-AgentRun-Session-ID": f"ceil-{_n}-{i}"},
                         timeout=15,
                     )
@@ -1947,7 +1962,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         if target.get("network_mode"):
             net_mode = str(target["network_mode"])
         elif vpc_id:
-            net_mode = "VPC"   # assume VPC mode when vpc_id is configured
+            net_mode = "VPC"  # assume VPC mode when vpc_id is configured
         else:
             net_mode = "PUBLIC"  # default: public internet, no VPC needed
         net_cfg = m.NetworkConfiguration(network_mode=net_mode)
@@ -2040,10 +2055,7 @@ class _AliyunCampaignProbe:
         run_id = str(target.get("run_id") or "")
         bucket = str(target.get("oss_bucket") or "")
         region = str(target.get("region") or "cn-hangzhou")
-        oss_code_uri = (
-            f"oss://{bucket}/clousight-bench/{run_id}/cb-probe.zip"
-            if bucket else ""
-        )
+        oss_code_uri = f"oss://{bucket}/clousight-bench/{run_id}/cb-probe.zip" if bucket else ""
         cfg = EciCarrierConfig(
             oss_code_uri=oss_code_uri,
             region=region,
@@ -2052,8 +2064,7 @@ class _AliyunCampaignProbe:
             ram_role=str(target.get("eci_probe_role") or ""),
             cpu=float(target.get("eci_cpu") or 2.0),
             memory=float(target.get("eci_memory") or 4.0),
-            image=str(target.get("eci_image")
-                      or "registry.cn-hangzhou.aliyuncs.com/library/python:3.12"),
+            image=str(target.get("eci_image") or "registry.cn-hangzhou.aliyuncs.com/library/python:3.12"),
             run_id=run_id or None,
         )
         return EciProbeCarrier(sdk=Eci20180808Sdk(region=region), config=cfg)
@@ -2076,9 +2087,12 @@ class _AliyunCampaignProbe:
         self._prefix = f"clousight-bench/telemetry/{run_id or 'adhoc'}/"
         self._oss = self._oss_factory(target)
         self._carrier = self._carrier_factory(target, self._prefix)
-        url = self._carrier.provision()          # raises CarrierError on failure
-        return {"probe_url": url, "probe_oss_prefix": self._prefix,
-                "probe_token": getattr(self._carrier, "token", "") or ""}
+        url = self._carrier.provision()  # raises CarrierError on failure
+        return {
+            "probe_url": url,
+            "probe_oss_prefix": self._prefix,
+            "probe_token": getattr(self._carrier, "token", "") or "",
+        }
 
     def sync_probe_artifacts(self, results_dir: Any) -> None:
         """Mirror the probe's OSS prefix into results_dir (channel ②)."""

@@ -6,6 +6,7 @@ warn "unmapped" instead of naming (and, once wired, verifying) the exact minimal
 actions -- so preflight cannot fail fast on a missing permission. This guards
 that invariant: adding a token or a cloud can never silently drop a mapping.
 """
+
 import pytest
 
 from clousight_bench.domains.agent_runtime import permissions as perm
@@ -35,5 +36,4 @@ def test_provision_tokens_map_to_concrete_actions(adapter_cls):
 
 def test_aliyun_session_create_is_invoke_runtime():
     # AgentRun has no CreateSession API; a session is a header on InvokeRuntime.
-    assert AliyunAgentRunAdapter.PERMISSION_MAP[perm.SESSION_CREATE] == [
-        "agentrun:InvokeRuntime"]
+    assert AliyunAgentRunAdapter.PERMISSION_MAP[perm.SESSION_CREATE] == ["agentrun:InvokeRuntime"]

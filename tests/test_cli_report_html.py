@@ -14,6 +14,17 @@ def test_report_html_writes_self_contained_file(tmp_path):
 
 def test_unknown_renderer_exit_2(tmp_path):
     execute(RunSpec("agent-runtime", "T1.1", "local-sim"), results_dir=tmp_path)
-    rc = main(["report", "--results", str(tmp_path), "--format", "html",
-               "--renderer", "nope", "--out", str(tmp_path / "r.html")])
+    rc = main(
+        [
+            "report",
+            "--results",
+            str(tmp_path),
+            "--format",
+            "html",
+            "--renderer",
+            "nope",
+            "--out",
+            str(tmp_path / "r.html"),
+        ]
+    )
     assert rc == 2

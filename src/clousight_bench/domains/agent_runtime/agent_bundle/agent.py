@@ -20,6 +20,7 @@ Invoke contract:
 The zip ships a ``vendor/`` directory with langchain-core + openinference +
 opentelemetry.  agent.py adds it to sys.path before importing these packages.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,8 +37,8 @@ from urllib import request as urlrequest
 # inside the FC function (the zip flattens everything to one root).
 _here = os.path.dirname(os.path.abspath(__file__))
 for _candidate in (
-    os.path.join(_here, "vendor"),           # flat-zip layout
-    os.path.join(_here, "..", "vendor"),     # package layout
+    os.path.join(_here, "vendor"),  # flat-zip layout
+    os.path.join(_here, "..", "vendor"),  # package layout
 ):
     if os.path.isdir(_candidate) and _candidate not in sys.path:
         sys.path.insert(0, _candidate)
@@ -63,15 +64,16 @@ _call_counter: dict[str, int] = {}
 # OpenInference tracing (stdlib-only OTLP/HTTP export to ARMS)
 # ---------------------------------------------------------------------------
 
+
 class _Span:
     """Minimal span context for OpenInference semantic conventions."""
-    def __init__(self, trace_id: str, name: str, kind: str,
-                 parent_span_id: str = "") -> None:
+
+    def __init__(self, trace_id: str, name: str, kind: str, parent_span_id: str = "") -> None:
         self.trace_id = trace_id
         self.span_id = uuid.uuid4().hex[:16]
         self.parent_span_id = parent_span_id
         self.name = name
-        self.kind = kind          # "CHAIN" | "LLM" | "TOOL"
+        self.kind = kind  # "CHAIN" | "LLM" | "TOOL"
         self.start_ns = time.perf_counter_ns()
         self.end_ns: int = 0
         self.attrs: dict[str, str] = {"openinference.span.kind": kind}
@@ -84,9 +86,9 @@ class _Span:
 
     def to_otlp(self) -> dict:
         epoch_ns = int(time.time() * 1e9)
-        elapsed = self.start_ns  # perf_counter_ns — need wall-clock base
+        _elapsed = self.start_ns  # perf_counter_ns — need wall-clock base
         start_wall = epoch_ns - (time.perf_counter_ns() - self.start_ns)
-        end_wall   = epoch_ns - (time.perf_counter_ns() - (self.end_ns or time.perf_counter_ns()))
+        end_wall = epoch_ns - (time.perf_counter_ns() - (self.end_ns or time.perf_counter_ns()))
         return {
             "traceId": self.trace_id,
             "spanId": self.span_id,
@@ -94,11 +96,8 @@ class _Span:
             "name": self.name,
             "kind": 1,  # SPAN_KIND_SERVER
             "startTimeUnixNano": str(start_wall),
-            "endTimeUnixNano":   str(end_wall),
-            "attributes": [
-                {"key": k, "value": {"stringValue": v}}
-                for k, v in self.attrs.items()
-            ],
+            "endTimeUnixNano": str(end_wall),
+            "attributes": [{"key": k, "value": {"stringValue": v}} for k, v in self.attrs.items()],
             "status": {"code": 1},
         }
 
@@ -115,18 +114,26 @@ def _export_spans(spans: list[_Span], arms_config: dict) -> None:
     if not license_key or not spans:
         return
 
-    payload = json.dumps({
-        "resourceSpans": [{
-            "resource": {"attributes": [
-                {"key": "service.name", "value": {"stringValue": "clousight-bench-agent"}},
-                {"key": "arms.licenseKey", "value": {"stringValue": license_key}},
-            ]},
-            "scopeSpans": [{
-                "scope": {"name": "openinference", "version": "0.1"},
-                "spans": [s.to_otlp() for s in spans],
-            }],
-        }]
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "resourceSpans": [
+                {
+                    "resource": {
+                        "attributes": [
+                            {"key": "service.name", "value": {"stringValue": "clousight-bench-agent"}},
+                            {"key": "arms.licenseKey", "value": {"stringValue": license_key}},
+                        ]
+                    },
+                    "scopeSpans": [
+                        {
+                            "scope": {"name": "openinference", "version": "0.1"},
+                            "spans": [s.to_otlp() for s in spans],
+                        }
+                    ],
+                }
+            ]
+        }
+    ).encode("utf-8")
 
     headers = {"Content-Type": "application/json", "Authentication": license_key}
     endpoints = [
@@ -167,8 +174,7 @@ def handle_invoke(body: dict[str, Any]) -> dict[str, Any]:
         _call_counter[session_id] = _call_counter.get(session_id, 0) + 1
         if _call_counter[session_id] >= fail_after:
             del _call_counter[session_id]
-            return {"ok": False, "status": 500, "tool_target": target,
-                    "_fault_injected": True}
+            return {"ok": False, "status": 500, "tool_target": target, "_fault_injected": True}
 
     url = f"{base}/{target}"
     if method == "GET" and params:
@@ -283,10 +289,10 @@ def _extract_fc_trace_ctx(headers: Any) -> dict[str, str]:
     """
     ctx: dict[str, str] = {}
     for h_name, ctx_key in [
-        ("eagleeye-traceid",  "trace_id"),
-        ("x-b3-traceid",      "trace_id"),
-        ("eagleeye-rpcid",    "rpc_id"),
-        ("x-b3-spanid",       "parent_span_id"),
+        ("eagleeye-traceid", "trace_id"),
+        ("x-b3-traceid", "trace_id"),
+        ("eagleeye-rpcid", "rpc_id"),
+        ("x-b3-spanid", "parent_span_id"),
     ]:
         val = headers.get(h_name) or headers.get(h_name.upper())
         if val and ctx_key not in ctx:
@@ -317,20 +323,16 @@ class _Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
                 self.end_headers()
-                first_chunk = json.dumps({
-                    "choices": [{"delta": {"content": ""}, "finish_reason": None}]
-                })
-                self.wfile.write(f"data: {first_chunk}\n\n".encode("utf-8"))
-                self.wfile.flush()   # push first chunk to client immediately
+                first_chunk = json.dumps({"choices": [{"delta": {"content": ""}, "finish_reason": None}]})
+                self.wfile.write(f"data: {first_chunk}\n\n".encode())
+                self.wfile.flush()  # push first chunk to client immediately
                 # Execute tool call (may take hundreds of ms after the flush).
                 result = handle_chat_completion(body)
                 content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-                full_chunk = json.dumps({
-                    "choices": [{"delta": {"content": content}, "finish_reason": "stop"}]
-                })
-                self.wfile.write(
-                    f"data: {full_chunk}\n\ndata: [DONE]\n\n".encode("utf-8")
+                full_chunk = json.dumps(
+                    {"choices": [{"delta": {"content": content}, "finish_reason": "stop"}]}
                 )
+                self.wfile.write(f"data: {full_chunk}\n\ndata: [DONE]\n\n".encode())
                 self.wfile.flush()
                 return
             if is_chat:

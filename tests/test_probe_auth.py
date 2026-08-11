@@ -3,6 +3,7 @@
 /health stays open (preflight reachability); /run-job and /job require the token.
 A token-less server stays open (local-sim / tests).
 """
+
 import json
 import urllib.error
 import urllib.request
@@ -19,6 +20,7 @@ def _runner():
     def quick(spec, progress_cb):
         progress_cb(JobProgress(phase="done", completed=1, total=1, elapsed_s=0.0), {})
         return ObservationBundle(observations={"ok": True}, series={})
+
     return JobRunner({"quick": quick})
 
 

@@ -7,6 +7,7 @@ CapabilityNotSupported = the runtime offers no state API at all.
 
 Evidence layer C: deterministic, no cloud account needed on local-sim.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,18 +40,10 @@ class StatePersistenceTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id, "probe_state": _PROBE_STATE}
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
-        return {
-            "state_persistence_policy": str(
-                adapter.target.get("state_persistence", "durable")
-            )
-        }
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
+        return {"state_persistence_policy": str(adapter.target.get("state_persistence", "durable"))}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.2 needs an AgentRuntimeAdapter")
         session = adapter.create_session()
@@ -82,12 +75,8 @@ class StatePersistenceTask(Task):
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "state_capability": Measurement(
-                        value="unsupported", unit="", evidence="C"
-                    ),
-                    "state_persisted": Measurement(
-                        value=False, unit="", evidence="C"
-                    ),
+                    "state_capability": Measurement(value="unsupported", unit="", evidence="C"),
+                    "state_persisted": Measurement(value=False, unit="", evidence="C"),
                 },
                 findings=[
                     Finding(
@@ -123,15 +112,9 @@ class StatePersistenceTask(Task):
         )
         return TaskResult(
             measurements={
-                "state_capability": Measurement(
-                    value="supported", unit="", evidence="C"
-                ),
-                "state_persisted": Measurement(
-                    value=persisted, unit="", evidence="C"
-                ),
-                "persistence_mode": Measurement(
-                    value=mode, unit="", evidence="C"
-                ),
+                "state_capability": Measurement(value="supported", unit="", evidence="C"),
+                "state_persisted": Measurement(value=persisted, unit="", evidence="C"),
+                "persistence_mode": Measurement(value=mode, unit="", evidence="C"),
             },
             findings=findings,
             notes=f"state after resume -> {'durable' if persisted else 'ephemeral'}",

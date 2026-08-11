@@ -22,6 +22,7 @@ Third-party plugins register via the ``clousight_bench.domains`` entry point;
 in-tree domains are registered the same way (see pyproject.toml), so external
 and built-in packs are loaded identically.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -170,18 +171,14 @@ class Task(ABC):
         """The controlled inputs that determine the result -> benchmark fingerprint."""
 
     @abstractmethod
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         """Drive the system under test and return raw observations only."""
 
     @abstractmethod
     def score(self, observations: ObservationBundle) -> TaskResult:
         """Turn observations into measurements and findings. Pure function."""
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
         """Non-sensitive environment facts this benchmark depends on.
 
         Folded into the environment fingerprint. Never return a credential,
@@ -301,7 +298,7 @@ class CampaignProbeHook(ABC):
         """Reap the probe. Idempotent + best-effort (called from a finally)."""
 
 
-def campaign_probe_hook(provider: str) -> "CampaignProbeHook | None":
+def campaign_probe_hook(provider: str) -> CampaignProbeHook | None:
     """Look up the CampaignProbeHook for *provider*, or None if unsupported."""
     from clousight_bench.core.registry import get_runtime_provider
 
@@ -328,9 +325,7 @@ class ResourceReaper(ABC):
     requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
-    def sweep(
-        self, *, dry_run: bool, older_than_s: float | None = None
-    ) -> list[dict[str, Any]]:
+    def sweep(self, *, dry_run: bool, older_than_s: float | None = None) -> list[dict[str, Any]]:
         """Find harness-tagged resources and, unless ``dry_run``, delete them.
 
         Returns one dict per resource acted on (id + run_id + whatever the cloud

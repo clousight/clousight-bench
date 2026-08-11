@@ -1,4 +1,5 @@
 """Preflight gate: prerequisites are checked before provisioning, not mid-run."""
+
 from clousight_bench.core import preflight as pf
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.schema import RunSpec
@@ -8,14 +9,20 @@ from clousight_bench.domains.agent_runtime.adapters.cn_clouds import (
 
 
 def _clear_aws(monkeypatch, tmp_path):
-    for var in ("AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
-                "ALIBABA_CLOUD_PROFILE", "ALIBABA_CLOUD_ACCESS_KEY_ID",
-                "ALIBABA_CLOUD_ACCESS_KEY_SECRET"):
+    for var in (
+        "AWS_PROFILE",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "ALIBABA_CLOUD_PROFILE",
+        "ALIBABA_CLOUD_ACCESS_KEY_ID",
+        "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+    ):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))  # no ~/.aws or ~/.alibabacloud here
 
 
 # --- unit: report + check functions -----------------------------------------
+
 
 def test_report_ok_ignores_warnings():
     r = pf.PreflightReport().add(
@@ -27,8 +34,7 @@ def test_report_ok_ignores_warnings():
 
 
 def test_report_blocks_on_critical():
-    r = pf.PreflightReport().add(pf.Check("creds", ok=False, severity=pf.CRITICAL,
-                                          remediation="export keys"))
+    r = pf.PreflightReport().add(pf.Check("creds", ok=False, severity=pf.CRITICAL, remediation="export keys"))
     assert r.ok is False
     assert "creds" in r.summary()
 
@@ -50,6 +56,7 @@ def test_mock_unset_is_critical_fail():
 
 # --- adapter.preflight ------------------------------------------------------
 
+
 def test_local_sim_preflight_passes():
     from clousight_bench.domains.agent_runtime.adapters.local_sim import LocalSimAdapter
 
@@ -68,11 +75,11 @@ def test_real_adapter_preflight_fails_without_prereqs(monkeypatch, tmp_path):
 
 # --- orchestrator gate: abort BEFORE setup/execute --------------------------
 
+
 def test_run_aborts_at_preflight_not_midrun(monkeypatch, tmp_path):
     monkeypatch.setattr(AliyunAgentRunAdapter, "status", "wired")
     _clear_aws(monkeypatch, tmp_path)
-    spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun",
-                   target={"region": "cn-hangzhou"})
+    spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun", target={"region": "cn-hangzhou"})
     rec = execute(spec, results_dir=tmp_path)
     assert rec.status == "invalid"
     assert rec.run.stages["PREFLIGHT"] == "failed"
@@ -87,8 +94,7 @@ def test_run_aborts_at_preflight_not_midrun(monkeypatch, tmp_path):
 def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
     monkeypatch.setattr(AliyunAgentRunAdapter, "status", "wired")
     _clear_aws(monkeypatch, tmp_path)
-    spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun",
-                   target={"region": "cn-hangzhou"})
+    spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun", target={"region": "cn-hangzhou"})
     # allow_live: this is a real-cloud run; acknowledge the cost gate so the test
     # reaches the mid-run failure it is about (not the live-gate block).
     rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=True)
@@ -107,6 +113,7 @@ def test_local_sim_run_still_works_with_preflight(tmp_path):
 
 
 # --- per-benchmark x cloud minimal permission mapping ------------------------
+
 
 def test_required_actions_differ_per_task():
     from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
@@ -178,8 +185,7 @@ def test_wired_probe_makes_permissions_critical(monkeypatch, tmp_path):
 
     adapter = AliyunAgentRunAdapter({"region": "cn-hangzhou"})
     # simulate a wired probe that finds one action missing
-    monkeypatch.setattr(adapter, "_probe_permissions",
-                        lambda actions: (False, ["agentrun:InvokeAgent"]))
+    monkeypatch.setattr(adapter, "_probe_permissions", lambda actions: (False, ["agentrun:InvokeAgent"]))
     checks = adapter.check_permissions(FaultRecoveryTask())
     perm_check = [c for c in checks if c.name.startswith("permissions[")][0]
     assert perm_check.severity == pf.CRITICAL and not perm_check.ok

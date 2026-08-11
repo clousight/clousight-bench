@@ -6,6 +6,7 @@ derives from a bundle, and only ``score`` is allowed to draw conclusions. The
 split is what makes a historical observation re-scorable when a scorer is
 fixed, and it is why ``score`` never touches a cloud.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -34,9 +35,7 @@ class Measurement:
 
     def __post_init__(self) -> None:
         if self.evidence not in EVIDENCE_LAYERS:
-            raise ObservationError(
-                f"evidence must be one of {EVIDENCE_LAYERS}, got {self.evidence!r}"
-            )
+            raise ObservationError(f"evidence must be one of {EVIDENCE_LAYERS}, got {self.evidence!r}")
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -67,13 +66,9 @@ class Finding:
         if not self.code:
             raise ObservationError("finding code must be a stable, non-empty string")
         if self.severity not in SEVERITIES:
-            raise ObservationError(
-                f"severity must be one of {SEVERITIES}, got {self.severity!r}"
-            )
+            raise ObservationError(f"severity must be one of {SEVERITIES}, got {self.severity!r}")
         if self.evidence not in EVIDENCE_LAYERS:
-            raise ObservationError(
-                f"evidence must be one of {EVIDENCE_LAYERS}, got {self.evidence!r}"
-            )
+            raise ObservationError(f"evidence must be one of {EVIDENCE_LAYERS}, got {self.evidence!r}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -133,44 +128,27 @@ class TaskExecutionError(RuntimeError):
 def validate_observation_bundle(bundle: ObservationBundle) -> None:
     """Raise when a full or partial observation bundle is unsafe to record."""
     if not isinstance(bundle, ObservationBundle):
-        raise ObservationError(
-            f"execute() must return an ObservationBundle, got {type(bundle).__name__}"
-        )
+        raise ObservationError(f"execute() must return an ObservationBundle, got {type(bundle).__name__}")
     if not isinstance(bundle.observations, dict):
-        raise ObservationError(
-            "observations must be a dict, got "
-            f"{type(bundle.observations).__name__}"
-        )
+        raise ObservationError(f"observations must be a dict, got {type(bundle.observations).__name__}")
     if not isinstance(bundle.series, dict):
-        raise ObservationError(
-            f"series must be a dict, got {type(bundle.series).__name__}"
-        )
+        raise ObservationError(f"series must be a dict, got {type(bundle.series).__name__}")
     if not isinstance(bundle.artifacts, list):
-        raise ObservationError(
-            f"artifacts must be a list, got {type(bundle.artifacts).__name__}"
-        )
+        raise ObservationError(f"artifacts must be a list, got {type(bundle.artifacts).__name__}")
     for name, points in bundle.series.items():
         if not isinstance(name, str) or not isinstance(points, list):
             raise ObservationError("series names must be strings and values must be lists")
         for point in points:
             if not (isinstance(point, (list, tuple)) and len(point) == 2):
-                raise ObservationError(
-                    f"series {name!r} points must be [t, value] pairs, got {point!r}"
-                )
+                raise ObservationError(f"series {name!r} points must be [t, value] pairs, got {point!r}")
     for artifact in bundle.artifacts:
         if not isinstance(artifact, dict):
-            raise ObservationError(
-                f"artifacts must contain dicts, got {type(artifact).__name__}"
-            )
+            raise ObservationError(f"artifacts must contain dicts, got {type(artifact).__name__}")
         missing = {"kind", "media", "sha256"} - set(artifact)
         if missing:
-            raise ObservationError(
-                f"artifact missing key(s) {sorted(missing)}: {artifact!r}"
-            )
+            raise ObservationError(f"artifact missing key(s) {sorted(missing)}: {artifact!r}")
         if "path" not in artifact and "uri" not in artifact:
-            raise ObservationError(
-                f"artifact needs a path or uri pointer: {artifact!r}"
-            )
+            raise ObservationError(f"artifact needs a path or uri pointer: {artifact!r}")
     canonical_json(bundle.to_dict())  # raises CanonicalJSONError on NaN / bad types
 
 

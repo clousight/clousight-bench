@@ -11,6 +11,7 @@ Deterministic, replayable, evidence layer C:
 An auto-retry recovery means the runtime absorbed the transient fault; a
 fail-fast abort means it surfaced the fault to the caller. Both are findings.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -49,18 +50,14 @@ class FaultRecoveryTask(Task):
             "injection_method": "request-level (fail_after_n_calls)",
         }
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
         recovery = adapter.target.get("recovery", {})
         return {
             "recovery_policy": str(recovery.get("mode", "auto-retry")),
             "max_retries": int(recovery.get("max_retries", 3)),
         }
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.3 needs an AgentRuntimeAdapter")
         return adapter.run_data_plane_probe("fault_recovery", {"fault_call_index": FAULT_CALL_INDEX})
@@ -115,15 +112,9 @@ class FaultRecoveryTask(Task):
 
         return TaskResult(
             measurements={
-                "recovery_mode": Measurement(
-                    value=recovery_mode, unit="", evidence="C"
-                ),
-                "final_state": Measurement(
-                    value=final_state, unit="", evidence="C"
-                ),
-                "budgeted_success": Measurement(
-                    value=completed, unit="", evidence="C"
-                ),
+                "recovery_mode": Measurement(value=recovery_mode, unit="", evidence="C"),
+                "final_state": Measurement(value=final_state, unit="", evidence="C"),
+                "budgeted_success": Measurement(value=completed, unit="", evidence="C"),
                 "time_to_recovery_ms": Measurement(
                     value=ttr_ms,
                     unit="ms",
@@ -131,12 +122,8 @@ class FaultRecoveryTask(Task):
                     aggregation="sum",
                     sample_count=len(failures),
                 ),
-                "total_attempts": Measurement(
-                    value=len(attempts), unit="count", evidence="C"
-                ),
-                "fault_hits": Measurement(
-                    value=len(failures), unit="count", evidence="C"
-                ),
+                "total_attempts": Measurement(value=len(attempts), unit="count", evidence="C"),
+                "fault_hits": Measurement(value=len(failures), unit="count", evidence="C"),
                 "retried": Measurement(value=retried, unit="", evidence="C"),
             },
             findings=findings,

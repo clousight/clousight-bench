@@ -1,13 +1,18 @@
 """A resource with unknown creation time (created_ts=0.0) must never be
 age-reaped — it may be an in-flight run. It is only reaped by an untimed sweep.
 """
+
 from clousight_bench.core.resource_tags import TAG_MANAGED, TAG_RUN_ID
 from clousight_bench.domains.agent_runtime.reaper import AliyunResourceReaper
 
 
 def _managed(rid, created_ts):
-    return {"kind": "agentrun", "id": rid, "created_ts": created_ts,
-            "tags": {TAG_MANAGED: "true", TAG_RUN_ID: "run-x"}}
+    return {
+        "kind": "agentrun",
+        "id": rid,
+        "created_ts": created_ts,
+        "tags": {TAG_MANAGED: "true", TAG_RUN_ID: "run-x"},
+    }
 
 
 def _reaper(resources, deleted):

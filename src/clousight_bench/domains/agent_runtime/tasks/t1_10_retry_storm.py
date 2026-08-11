@@ -12,6 +12,7 @@ Evidence layer C: deterministic, replayable.
       "timeout_loop"           -- runtime looped until the window expired (bad)
       "unexpected_success"     -- calls unexpectedly succeeded (probe invalid)
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -47,18 +48,14 @@ class RetryStormTask(Task):
             "max_window_s": MAX_WINDOW_S,
         }
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
         recovery = adapter.target.get("recovery", {})
         return {
             "recovery_policy": str(recovery.get("mode", "auto-retry")),
             "max_retries": int(recovery.get("max_retries", 3)),
         }
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.10 needs an AgentRuntimeAdapter")
         return adapter.run_data_plane_probe("retry_storm", {"max_window_s": MAX_WINDOW_S})
@@ -87,18 +84,15 @@ class RetryStormTask(Task):
 
         return TaskResult(
             measurements={
-                "storm_behavior": Measurement(
-                    value=storm_behavior, unit="", evidence="C"
-                ),
-                "calls_attempted": Measurement(
-                    value=calls_attempted, unit="count", evidence="C"
-                ),
-                "probe_duration_ms": Measurement(
-                    value=duration_ms, unit="ms", evidence="C"
-                ),
+                "storm_behavior": Measurement(value=storm_behavior, unit="", evidence="C"),
+                "calls_attempted": Measurement(value=calls_attempted, unit="count", evidence="C"),
+                "probe_duration_ms": Measurement(value=duration_ms, unit="ms", evidence="C"),
             },
             findings=findings,
-            notes=f"all-fail plan -> storm_behavior={storm_behavior}, {calls_attempted} attempts in {duration_ms:.0f}ms",
+            notes=(
+                f"all-fail plan -> storm_behavior={storm_behavior}, "
+                f"{calls_attempted} attempts in {duration_ms:.0f}ms"
+            ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

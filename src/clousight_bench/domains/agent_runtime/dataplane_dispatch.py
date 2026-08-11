@@ -5,10 +5,12 @@ Each packer is a task's execute() body, relocated so the adapter — not the tas
 can override run_data_plane_probe to send the whole measurement to an in-region
 probe, while local-sim keeps flowing through these packers unchanged.
 """
+
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import asdict
-from typing import Any, Callable
+from typing import Any
 
 from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.domains.agent_runtime.adapters.base import (
@@ -113,18 +115,14 @@ def _pack_ttft(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> Observat
         try:
             adapter.probe_ttft()
         except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
+            return ObservationBundle(observations={"capability": "unsupported", "reason": str(exc)})
     ttft_ms: list[float] = []
     for _ in range(samples):
         try:
             ms = adapter.probe_ttft()
             ttft_ms.append(ms)
         except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
+            return ObservationBundle(observations={"capability": "unsupported", "reason": str(exc)})
     return ObservationBundle(
         observations={"capability": "supported", "ttft_ms": ttft_ms},
         series={"ttft_ms": [[i + 1, v] for i, v in enumerate(ttft_ms)]},
@@ -152,21 +150,20 @@ def _pack_scaling(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> Obser
     except CapabilityNotSupported as exc:
         return ObservationBundle(observations={"capability": "unsupported", "reason": str(exc)})
     points = sorted(points, key=lambda p: p.concurrency)
-    all_instances_none = all(
-        getattr(p, "observed_instances", None) is None for p in points
-    )
+    all_instances_none = all(getattr(p, "observed_instances", None) is None for p in points)
     extra_findings: list[str] = []
     if all_instances_none:
-        extra_findings.append(
-            "AgentRun GetAgentRuntime 不暴露实时实例数，无法观测弹性行为。"
-        )
+        extra_findings.append("AgentRun GetAgentRuntime 不暴露实时实例数，无法观测弹性行为。")
     return ObservationBundle(
         observations={
             "capability": "supported",
             "points": [
-                {"concurrency": p.concurrency, "success_rate": p.success_rate,
-                 "p95_ms": p.p95_ms,
-                 "observed_instances": getattr(p, "observed_instances", None)}
+                {
+                    "concurrency": p.concurrency,
+                    "success_rate": p.success_rate,
+                    "p95_ms": p.p95_ms,
+                    "observed_instances": getattr(p, "observed_instances", None),
+                }
                 for p in points
             ],
             **({"instance_visibility_findings": extra_findings} if extra_findings else {}),
@@ -229,19 +226,21 @@ def _pack_hol_blocking(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> 
 # cb-adapters-enterprise cb-probe server). Both sides MUST register exactly these
 # names; the guards below turn any drift (a renamed/added/removed probe) into a
 # loud failure at import/build time instead of a silent change in scoring output.
-PROBE_NAMES: frozenset[str] = frozenset({
-    "sustained_load",
-    "warm_retention",
-    "soak",
-    "rate_limit",
-    "cancellation",
-    "ttft",
-    "concurrency_ceiling",
-    "scaling",
-    "fault_recovery",
-    "retry_storm",
-    "hol_blocking",
-})
+PROBE_NAMES: frozenset[str] = frozenset(
+    {
+        "sustained_load",
+        "warm_retention",
+        "soak",
+        "rate_limit",
+        "cancellation",
+        "ttft",
+        "concurrency_ceiling",
+        "scaling",
+        "fault_recovery",
+        "retry_storm",
+        "hol_blocking",
+    }
+)
 
 
 DATA_PLANE_PACKERS: dict[str, Packer] = {
@@ -259,7 +258,7 @@ DATA_PLANE_PACKERS: dict[str, Packer] = {
 }
 
 
-def _assert_conforms(names: "set[str] | frozenset[str]", *, who: str) -> None:
+def _assert_conforms(names: set[str] | frozenset[str], *, who: str) -> None:
     """Raise if ``names`` drifts from the canonical PROBE_NAMES."""
     names = set(names)
     missing = PROBE_NAMES - names
@@ -282,8 +281,5 @@ def run_data_plane_probe(
 ) -> ObservationBundle:
     packer = DATA_PLANE_PACKERS.get(name)
     if packer is None:
-        raise ValueError(
-            f"unknown data-plane probe {name!r}; "
-            f"known: {sorted(DATA_PLANE_PACKERS)}"
-        )
+        raise ValueError(f"unknown data-plane probe {name!r}; known: {sorted(DATA_PLANE_PACKERS)}")
     return packer(adapter, params or {})

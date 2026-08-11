@@ -3,9 +3,12 @@ from clousight_bench.core.reporting.profiles import PROFILES
 
 
 def test_cost_panel_has_three_dimensions(report_record):
-    rec = report_record("aliyun-agentrun", "T5.1", execution="simulated",
-                        extensions={"pricing": {"cost_usd": 0.7, "list_cost_usd": 1.0,
-                                                "discount_usd": 0.3}})
+    rec = report_record(
+        "aliyun-agentrun",
+        "T5.1",
+        execution="simulated",
+        extensions={"pricing": {"cost_usd": 0.7, "list_cost_usd": 1.0, "discount_usd": 0.3}},
+    )
     b = build_bundle([rec], results_dir="r", generated_at="t", profiles=PROFILES)
     cost = [p for p in b.domains[0].panels if p.key == "cost"][0]
     names = {m["name"] for c in cost.cells for m in c.metrics}
@@ -13,11 +16,15 @@ def test_cost_panel_has_three_dimensions(report_record):
 
 
 def test_agent_runtime_groups_and_tabs(report_record):
-    recs = [report_record("aliyun-agentrun", tid, execution="simulated",
-                          measurements={m: 1.0 for m in ms})
-            for tid, ms in [("T1.1", ["cold_start_ms", "cold_warm_ratio"]),
-                            ("T5.1", ["invocations"]), ("T1.3", ["total_attempts"]),
-                            ("T4.1", ["span_completeness"])]]
+    recs = [
+        report_record("aliyun-agentrun", tid, execution="simulated", measurements={m: 1.0 for m in ms})
+        for tid, ms in [
+            ("T1.1", ["cold_start_ms", "cold_warm_ratio"]),
+            ("T5.1", ["invocations"]),
+            ("T1.3", ["total_attempts"]),
+            ("T4.1", ["span_completeness"]),
+        ]
+    ]
     b = build_bundle(recs, results_dir="r", generated_at="t", profiles=PROFILES)
     panels = b.domains[0].panels
     tabs = {p.tab for p in panels}
@@ -30,10 +37,15 @@ def test_agent_runtime_groups_and_tabs(report_record):
 def test_group_spanning_tasks_merges_platform_into_one_column(report_record):
     # Provisioning spans T0.1 + T0.2 — one platform must be a single column.
     recs = [
-        report_record("aliyun-agentrun", "T0.1", execution="simulated",
-                      measurements={"provision_ready_ms": 1500.0}),
-        report_record("aliyun-agentrun", "T0.2", execution="simulated",
-                      measurements={"teardown_ms": 200.0, "residual_count": 0.0}),
+        report_record(
+            "aliyun-agentrun", "T0.1", execution="simulated", measurements={"provision_ready_ms": 1500.0}
+        ),
+        report_record(
+            "aliyun-agentrun",
+            "T0.2",
+            execution="simulated",
+            measurements={"teardown_ms": 200.0, "residual_count": 0.0},
+        ),
     ]
     b = build_bundle(recs, results_dir="r", generated_at="t", profiles=PROFILES)
     prov = [p for p in b.domains[0].panels if p.key == "provisioning"][0]
@@ -43,8 +55,9 @@ def test_group_spanning_tasks_merges_platform_into_one_column(report_record):
 
 
 def test_generic_profile_for_other_domain(report_record):
-    rec = report_record("local-process", "J1.1", domain="bigdata-emr",
-                        measurements={"throughput_ops": 1234.0})
+    rec = report_record(
+        "local-process", "J1.1", domain="bigdata-emr", measurements={"throughput_ops": 1234.0}
+    )
     b = build_bundle([rec], results_dir="r", generated_at="t", profiles=PROFILES)
     assert b.domains[0].profile == "generic"
     assert b.domains[0].panels

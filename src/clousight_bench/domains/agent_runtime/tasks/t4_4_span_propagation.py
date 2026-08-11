@@ -9,6 +9,7 @@ Evidence layer B: method reproducible, numbers environment-dependent. A real
 adapter inspects the emitted trace tree; local-sim reports the configured
 ``target.span_propagation``. No probe -> ``unsupported``, never a crash.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,17 +40,13 @@ class SpanPropagationTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T4.4 needs an AgentRuntimeAdapter")
         try:
             r = adapter.probe_span_propagation()
         except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
+            return ObservationBundle(observations={"capability": "unsupported", "reason": str(exc)})
         return ObservationBundle(
             observations={
                 "capability": "supported",
@@ -64,8 +61,7 @@ class SpanPropagationTask(Task):
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "propagation_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
+                    "propagation_capability": Measurement(value="unsupported", unit="", evidence="B")
                 },
                 findings=[
                     Finding(
@@ -87,16 +83,19 @@ class SpanPropagationTask(Task):
         correctness = round((spans - orphans) / spans, 4) if spans > 0 else 1.0
         findings = []
         if orphans > 0 or roots != 1:
-            findings.append(Finding(
-                code="agent_runtime.broken_span_propagation", severity="warning",
-                summary="orphaned spans or multiple trace roots", evidence="B",
-                details={"orphan_spans": orphans, "root_count": roots}))
+            findings.append(
+                Finding(
+                    code="agent_runtime.broken_span_propagation",
+                    severity="warning",
+                    summary="orphaned spans or multiple trace roots",
+                    evidence="B",
+                    details={"orphan_spans": orphans, "root_count": roots},
+                )
+            )
         return TaskResult(
             measurements={
-                "propagation_capability": Measurement(
-                    value="supported", unit="", evidence="B"),
-                "parent_correctness": Measurement(
-                    value=correctness, unit="", evidence="B"),
+                "propagation_capability": Measurement(value="supported", unit="", evidence="B"),
+                "parent_correctness": Measurement(value=correctness, unit="", evidence="B"),
                 "orphan_spans": Measurement(value=orphans, unit="", evidence="B"),
                 "root_count": Measurement(value=roots, unit="", evidence="B"),
             },

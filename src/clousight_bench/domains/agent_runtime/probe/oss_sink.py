@@ -6,6 +6,7 @@ OSS as they roll, the prefix is queryable mid-run (spec §6.2). close() writes a
 manifest listing every chunk. No local disk needed for the account-free path —
 the OssClient owns storage.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -50,13 +51,15 @@ class OssChunkSink:
         key = f"{self._prefix}{stream}-{idx:04d}.jsonl"
         data = ("\n".join(json.dumps(r, ensure_ascii=False) for r in buf) + "\n").encode("utf-8")
         self._client.put_object(key, data)
-        self._manifest_chunks.append({
-            "stream": stream,
-            "key": key,
-            "records": len(buf),
-            "sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
-            "media": CHUNK_MEDIA,
-        })
+        self._manifest_chunks.append(
+            {
+                "stream": stream,
+                "key": key,
+                "records": len(buf),
+                "sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
+                "media": CHUNK_MEDIA,
+            }
+        )
         self._counters[stream] = idx + 1
         self._buffers[stream] = []
 

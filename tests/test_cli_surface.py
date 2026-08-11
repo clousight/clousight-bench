@@ -19,9 +19,7 @@ def test_list_verbose_shows_task_and_adapter_status(capsys):
 
 
 def test_run_unknown_task_returns_usage_error_without_traceback(capsys):
-    rc = main(
-        ["run", "--domain", "agent-runtime", "--task", "NOPE", "--platform", "local-sim"]
-    )
+    rc = main(["run", "--domain", "agent-runtime", "--task", "NOPE", "--platform", "local-sim"])
     captured = capsys.readouterr()
 
     assert rc == 2

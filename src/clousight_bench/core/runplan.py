@@ -16,6 +16,7 @@ collapsed away. What Phase 1C adds is a *reading* of those records:
 A single failed repeat never aborts the plan: it lands a ``failed`` record like
 any other run and is counted honestly in ``status_counts``.
 """
+
 from __future__ import annotations
 
 import json
@@ -203,13 +204,7 @@ def aggregate_path(results_dir: Path, aggregate: RunPlanAggregate) -> Path:
     domain = str(identity.get("domain", "unknown"))
     adapter = str(identity.get("adapter", "unknown"))
     task_id = str(identity.get("task_id", "unknown"))
-    return (
-        Path(results_dir)
-        / AGGREGATES_DIRNAME
-        / domain
-        / adapter
-        / f"{task_id}-{aggregate.plan_id}.json"
-    )
+    return Path(results_dir) / AGGREGATES_DIRNAME / domain / adapter / f"{task_id}-{aggregate.plan_id}.json"
 
 
 def persist_aggregate(results_dir: Path, aggregate: RunPlanAggregate) -> Path:
@@ -218,15 +213,11 @@ def persist_aggregate(results_dir: Path, aggregate: RunPlanAggregate) -> Path:
     canonical_json(payload)  # reject NaN / non-encodable before writing
     import json
 
-    atomic_write_text(
-        path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    )
+    atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return path
 
 
-def _completed_slots(
-    results_dir: Path, plan_id: str
-) -> dict[tuple[str, int], ResultRecord]:
+def _completed_slots(results_dir: Path, plan_id: str) -> dict[tuple[str, int], ResultRecord]:
     """Already-finished runs of this plan, keyed by ``(role, index)``.
 
     The persisted records ARE the resume state: each carries its plan membership
@@ -320,7 +311,9 @@ def execute_plan(
         total = plan.warmup + plan.repeat
         logger.info(
             "plan %s: resumed %d already-completed run(s), ran %d new",
-            plan_id, resumed, total - resumed,
+            plan_id,
+            resumed,
+            total - resumed,
         )
 
     aggregate = build_aggregate(plan_id, plan, warmup_records, measured_records)

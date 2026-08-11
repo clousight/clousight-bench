@@ -5,9 +5,11 @@ from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssCl
 class _FakeCarrier:
     def __init__(self):
         self.up = self.down = False
+
     def provision(self):
         self.up = True
         return "http://1.2.3.4:9000"
+
     def teardown(self):
         self.down = True
 

@@ -1,13 +1,13 @@
 """Resuming an interrupted campaign reuses completed runs and only re-runs the
 missing/interrupted slots, so a long plan survives an interruption."""
+
 import clousight_bench.core.runplan as rp
 from clousight_bench.core.runplan import RunPlan, execute_plan
 from clousight_bench.core.schema import RunSpec
 
 
 def _spec():
-    return RunSpec("agent-runtime", "T1.3", "local-sim",
-                   target={"recovery": {"mode": "auto-retry"}})
+    return RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
 
 def _count_executes(monkeypatch) -> dict[str, int]:

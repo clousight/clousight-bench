@@ -4,6 +4,7 @@ Mock mode makes the deploy/teardown observable deterministically with no
 account (create->ready knob, clean/residual knobs); real mode without a wired
 provider surfaces a clear not-wired error, never a false "not supported".
 """
+
 import pytest
 
 from clousight_bench.core.orchestrator import execute
@@ -79,7 +80,9 @@ def test_real_mode_provision_is_not_wired():
 def _mock_run(task_id, tmp_path, **provision):
     return execute(
         RunSpec(
-            "agent-runtime", task_id, "aliyun-agentrun",
+            "agent-runtime",
+            task_id,
+            "aliyun-agentrun",
             target={"mode": "mock", "provision": provision},
         ),
         results_dir=tmp_path,

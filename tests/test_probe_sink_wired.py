@@ -13,13 +13,19 @@ class _FakeAgent(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         n = int(self.headers.get("Content-Length", 0))
         self.rfile.read(n)
-        out = json.dumps({"choices": [{"message": {"role": "assistant",
-              "content": json.dumps({"ok": True, "status": 200})}}]}).encode()
+        out = json.dumps(
+            {
+                "choices": [
+                    {"message": {"role": "assistant", "content": json.dumps({"ok": True, "status": 200})}}
+                ]
+            }
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(out)))
         self.end_headers()
         self.wfile.write(out)
+
     def log_message(self, *a):
         pass
 
@@ -32,6 +38,7 @@ def _serve():
 
 def _poll_terminal(runner, job_id, tries=200):
     import time
+
     for _ in range(tries):
         rec = runner.get(job_id)
         if rec is not None and rec.status in ("completed", "failed"):
@@ -47,9 +54,13 @@ def test_soak_flushes_raw_chunks_to_oss_and_reports_chunk_refs():
     factory = lambda spec: OssChunkSink(oss, spec.oss_prefix, chunk_max_records=5)
     runner = build_default_runner(sink_factory=factory)
     try:
-        spec = JobSpec(probe="soak", params={"duration_s": 0.4},
-                       target_endpoint=base, mock_base_url="http://mock",
-                       oss_prefix="campaign-x/job-y/")
+        spec = JobSpec(
+            probe="soak",
+            params={"duration_s": 0.4},
+            target_endpoint=base,
+            mock_base_url="http://mock",
+            oss_prefix="campaign-x/job-y/",
+        )
         job_id = runner.submit(spec)
         rec = _poll_terminal(runner, job_id)
     finally:
@@ -67,8 +78,13 @@ def test_no_sink_factory_keeps_plan2_behavior():
     srv, base = _serve()
     runner = build_default_runner()  # no sink_factory
     try:
-        spec = JobSpec(probe="soak", params={"duration_s": 0.2}, target_endpoint=base,
-                       mock_base_url="http://mock", oss_prefix="")
+        spec = JobSpec(
+            probe="soak",
+            params={"duration_s": 0.2},
+            target_endpoint=base,
+            mock_base_url="http://mock",
+            oss_prefix="",
+        )
         job_id = runner.submit(spec)
         rec = _poll_terminal(runner, job_id)
     finally:

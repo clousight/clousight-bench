@@ -32,6 +32,7 @@ v1 dimensions (precisely reproducible tests):
     T5.4 concurrency ceiling      (implemented: admitted max in-flight)
     T6.1 tenant isolation         (implemented: tenant / egress / filesystem sandbox)
 """
+
 from __future__ import annotations
 
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
@@ -49,15 +50,15 @@ from clousight_bench.domains.agent_runtime.tasks.t0_2_teardown_cleanliness impor
 from clousight_bench.domains.agent_runtime.tasks.t1_1_startup_latency import StartupLatencyTask
 from clousight_bench.domains.agent_runtime.tasks.t1_2_state_persistence import StatePersistenceTask
 from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
-from clousight_bench.domains.agent_runtime.tasks.t1_10_retry_storm import RetryStormTask
-from clousight_bench.domains.agent_runtime.tasks.t1_11_concurrent_writes import ConcurrentWritesTask
-from clousight_bench.domains.agent_runtime.tasks.t1_12_head_of_line import HOLBlockingTask
 from clousight_bench.domains.agent_runtime.tasks.t1_4_sustained_load import SustainedLoadTask
 from clousight_bench.domains.agent_runtime.tasks.t1_5_warm_retention import WarmRetentionTask
 from clousight_bench.domains.agent_runtime.tasks.t1_6_soak import SoakTask
 from clousight_bench.domains.agent_runtime.tasks.t1_7_rate_limit import RateLimitTask
 from clousight_bench.domains.agent_runtime.tasks.t1_8_cancellation import CancellationTask
 from clousight_bench.domains.agent_runtime.tasks.t1_9_ttft import TTFTTask
+from clousight_bench.domains.agent_runtime.tasks.t1_10_retry_storm import RetryStormTask
+from clousight_bench.domains.agent_runtime.tasks.t1_11_concurrent_writes import ConcurrentWritesTask
+from clousight_bench.domains.agent_runtime.tasks.t1_12_head_of_line import HOLBlockingTask
 from clousight_bench.domains.agent_runtime.tasks.t2_1_tool_registration import ToolRegistrationTask
 from clousight_bench.domains.agent_runtime.tasks.t4_1_trace_completeness import TraceCompletenessTask
 from clousight_bench.domains.agent_runtime.tasks.t4_2_otel_export import OtelExportTask

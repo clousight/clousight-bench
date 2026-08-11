@@ -1,4 +1,5 @@
 """Canonical JSON: the single encoding every fingerprint and digest agrees on."""
+
 import pytest
 
 from clousight_bench.core.canonical import CanonicalJSONError, canonical_json, digest

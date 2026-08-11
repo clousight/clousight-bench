@@ -1,5 +1,6 @@
 """Job data model for the probe protocol: what csbench sends, what the probe
 reports back. Pure data + serialization; no I/O, no cloud."""
+
 from __future__ import annotations
 
 import uuid

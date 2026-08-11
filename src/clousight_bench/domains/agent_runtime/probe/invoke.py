@@ -5,19 +5,20 @@ primitives run inside the in-region probe with no Aliyun SDK, no control
 credentials, and no lazy provisioning — the runtime-under-test's public
 data-plane endpoint (spec.target_endpoint) is all it needs.
 """
+
 from __future__ import annotations
 
 import time
 import uuid
 from typing import Any
 
+from clousight_bench.domains.agent_runtime import protocol
 from clousight_bench.domains.agent_runtime.adapters.base import (
     Attempt,
     InvocationTrace,
     ToolCall,
 )
 
-from clousight_bench.domains.agent_runtime import protocol
 from .jobs import JobSpec
 
 
@@ -182,6 +183,7 @@ class ProbeInvoker:
 
         # Reassemble full response from all chunks by merging content deltas.
         import json as _json
+
         merged_content = ""
         for chunk_str in chunks:
             try:
@@ -192,9 +194,7 @@ class ProbeInvoker:
                 pass
 
         # Build a response that looks like a normal (non-streaming) chat completion.
-        full_resp = {
-            "choices": [{"message": {"role": "assistant", "content": merged_content}}]
-        }
+        full_resp = {"choices": [{"message": {"role": "assistant", "content": merged_content}}]}
         return round(ttft_ms, 3), full_resp
 
     def run_tool_plan(self, session_id: str, plan: list[ToolCall]) -> InvocationTrace:
@@ -213,20 +213,16 @@ class ProbeInvoker:
         completed = True
         final_state = "completed"
         for call_index, call in enumerate(plan, start=1):
-            tool = {"target": call.target, "method": call.method,
-                    "params": call.params, "body": call.body}
+            tool = {"target": call.target, "method": call.method, "params": call.params, "body": call.body}
             if call_index == 1:
                 # First invoke: measure TTFT with a streaming request.
-                stream_body = protocol.encode_invoke_stream(
-                    tool, base, mock_token=mock_token or None
-                )
+                stream_body = protocol.encode_invoke_stream(tool, base, mock_token=mock_token or None)
                 start = time.perf_counter()
                 ttft_ms, resp = self.measure_ttft(session_id, stream_body)
                 latency = (time.perf_counter() - start) * 1000
                 self.last_ttft_ms = ttft_ms
             else:
-                body = protocol.encode_invoke(tool, base, mock_token=mock_token or None,
-                                              arms_config=arms_cfg)
+                body = protocol.encode_invoke(tool, base, mock_token=mock_token or None, arms_config=arms_cfg)
                 start = time.perf_counter()
                 resp = self.invoke(session_id, body)
                 latency = (time.perf_counter() - start) * 1000
@@ -256,6 +252,7 @@ class ProbeInvoker:
           'runtime'   — runtime returned a non-2xx or tool call failed
         """
         import time as _time
+
         plan = [ToolCall(target="prices", params={"provider": "aliyun"})]
         session = self.create_session()
         t0 = _time.perf_counter()
@@ -264,14 +261,14 @@ class ProbeInvoker:
             trace = self.run_tool_plan(session, plan)
             ok = trace.completed
             if not ok:
-                error_type = "tool"   # AgentRun OK, mock tool failed
+                error_type = "tool"  # AgentRun OK, mock tool failed
         except Exception as exc:
             ok = False
             err_str = str(exc).lower()
             if any(k in err_str for k in ("ssl", "connection", "eof", "timeout", "connect")):
                 error_type = "transport"
             else:
-                error_type = "runtime"   # AgentRun data-plane returned non-2xx
+                error_type = "runtime"  # AgentRun data-plane returned non-2xx
         finally:
             self.destroy_session(session)
         return ok, (_time.perf_counter() - t0) * 1000, error_type

@@ -5,6 +5,7 @@ by syncing the OSS prefix into the results tree so the existing query/trace/
 rollup tooling works against local files, mid-run or after. This module is pure
 control-plane: it only reads OSS and writes local files.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,7 @@ def sync_prefix(client: OssClient, prefix: str, dest_dir: str | Path) -> list[Pa
     dest = Path(dest_dir)
     written: list[Path] = []
     for key in client.list_prefix(prefix):
-        rel = key[len(prefix):] if key.startswith(prefix) else key
+        rel = key[len(prefix) :] if key.startswith(prefix) else key
         if not rel:
             continue
         target = dest / rel
@@ -32,12 +33,14 @@ def chunks_to_artifacts(manifest: dict, bucket: str) -> list[dict]:
     """Map a sink manifest to ObservationBundle.artifacts entries (oss:// uris)."""
     out: list[dict] = []
     for ch in manifest.get("chunks", []):
-        out.append({
-            "kind": f"probe-{ch['stream']}",
-            "media": ch["media"],
-            "sha256": ch["sha256"],
-            "uri": f"oss://{bucket}/{ch['key']}",
-        })
+        out.append(
+            {
+                "kind": f"probe-{ch['stream']}",
+                "media": ch["media"],
+                "sha256": ch["sha256"],
+                "uri": f"oss://{bucket}/{ch['key']}",
+            }
+        )
     return out
 
 

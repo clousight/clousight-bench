@@ -30,5 +30,6 @@ def test_execution_changes_environment_fingerprint():
 
 
 def test_fingerprint_default_execution_backwards_compatible():
-    assert environment_fingerprint(region="r", mode="cloud", facts={}) == \
-        environment_fingerprint(region="r", mode="cloud", facts={}, execution="unknown")
+    assert environment_fingerprint(region="r", mode="cloud", facts={}) == environment_fingerprint(
+        region="r", mode="cloud", facts={}, execution="unknown"
+    )

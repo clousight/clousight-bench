@@ -1,8 +1,8 @@
 # packages/cb-adapters-enterprise/tests/test_probe_oss_artifacts.py
+from clousight_bench.core.observation import ObservationBundle, validate_observation_bundle
 from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 from clousight_bench.domains.agent_runtime.probe.oss_sink import OssChunkSink
 from clousight_bench.domains.agent_runtime.probe.oss_sync import chunks_to_artifacts
-from clousight_bench.core.observation import ObservationBundle, validate_observation_bundle
 
 
 def test_chunks_to_artifacts_pass_bundle_validation():
@@ -18,5 +18,4 @@ def test_chunks_to_artifacts_pass_bundle_validation():
         assert a["uri"].startswith("oss://clousight-bench-8388a7e6/campaign-x/job-y/")
         assert a["sha256"].startswith("sha256:") and a["media"] == "application/x-ndjson"
     # The whole point: these attach to a bundle and survive COLLECT validation.
-    validate_observation_bundle(ObservationBundle(observations={"capability": "supported"},
-                                                  artifacts=arts))
+    validate_observation_bundle(ObservationBundle(observations={"capability": "supported"}, artifacts=arts))

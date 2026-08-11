@@ -1,8 +1,8 @@
 import time
 
-from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec, JobProgress, TERMINAL_STATUSES
-from clousight_bench.domains.agent_runtime.probe.runner import JobRunner
 from clousight_bench.core.observation import ObservationBundle
+from clousight_bench.domains.agent_runtime.probe.jobs import TERMINAL_STATUSES, JobProgress, JobSpec
+from clousight_bench.domains.agent_runtime.probe.runner import JobRunner
 
 
 def _wait_terminal(runner, job_id, timeout=5.0):

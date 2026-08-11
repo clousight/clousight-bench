@@ -1,5 +1,6 @@
 """`csbench trace list` / `trace show` read and render the local execution
 traces without any external tool."""
+
 from clousight_bench.cli import main
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.schema import RunSpec
@@ -8,8 +9,7 @@ from clousight_bench.core.traceview import find_trace, render_show, trace_summar
 
 def _run(tmp_path):
     return execute(
-        RunSpec("agent-runtime", "T1.3", "local-sim",
-                target={"recovery": {"mode": "auto-retry"}}),
+        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
         results_dir=tmp_path,
     )
 

@@ -7,6 +7,7 @@ and emits the events directly. A Python workload that runs inside an environment
 with clousight-bench installed can instead reuse
 `clousight_bench.core.sampling.HighFreqSampler`, which owns the same protocol.
 """
+
 import json
 import random
 import sys
@@ -25,8 +26,7 @@ def main() -> int:
             params = json.load(fh)
         count = int(params.get("count", 20))
     for _ in range(count):
-        emit({"type": "sample", "series": "latency_ms", "t": time.time(),
-              "value": random.uniform(50, 150)})
+        emit({"type": "sample", "series": "latency_ms", "t": time.time(), "value": random.uniform(50, 150)})
     emit({"type": "result", "ok": True})
     return 0
 

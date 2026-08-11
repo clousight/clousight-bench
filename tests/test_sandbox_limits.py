@@ -35,6 +35,7 @@ def test_preexec_none_on_non_posix(monkeypatch):
 
 def test_preexec_callable_on_posix():
     import os
+
     if os.name != "posix":
         pytest.skip("posix only")
     assert callable(posix_rlimit_preexec(ResourceLimits()))

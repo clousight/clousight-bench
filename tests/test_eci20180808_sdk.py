@@ -7,6 +7,7 @@ from clousight_bench.domains.agent_runtime.eci_carrier import Eci20180808Sdk
 
 class _FakeEciClient:
     """Stands in for alibabacloud_eci20180808.Client; records requests."""
+
     def __init__(self):
         self.create_req = None
         self.describe_req = None
@@ -14,14 +15,12 @@ class _FakeEciClient:
 
     def create_container_group(self, req):
         self.create_req = req
-        return types.SimpleNamespace(
-            body=types.SimpleNamespace(container_group_id="eci-abc"))
+        return types.SimpleNamespace(body=types.SimpleNamespace(container_group_id="eci-abc"))
 
     def describe_container_groups(self, req):
         self.describe_req = req
         cg = types.SimpleNamespace(status="Running", internet_ip="1.2.3.4")
-        return types.SimpleNamespace(
-            body=types.SimpleNamespace(container_groups=[cg]))
+        return types.SimpleNamespace(body=types.SimpleNamespace(container_groups=[cg]))
 
     def delete_container_group(self, req):
         self.delete_req = req
@@ -33,19 +32,25 @@ def _carrier_req():
     return {
         "region_id": "cn-hangzhou",
         "container_group_name": "cb-probe-run-xy",
-        "cpu": 2.0, "memory": 4.0,
-        "v_switch_id": "vsw-1", "security_group_id": "sg-1",
+        "cpu": 2.0,
+        "memory": 4.0,
+        "v_switch_id": "vsw-1",
+        "security_group_id": "sg-1",
         "ram_role_name": "clousight-bench-eci-probe",
         "restart_policy": "Never",
-        "tags": [{"key": "clousight-bench:managed", "value": "true"},
-                 {"key": "clousight-bench:run-id", "value": "run-xy"}],
-        "container": [{
-            "name": "cb-probe",
-            "image": "registry.cn-hangzhou.aliyuncs.com/library/python:3.12",
-            "port": [{"port": 9000, "protocol": "TCP"}],
-            "command": ["/bin/sh", "-c", "echo boot"],
-            "environment_var": [{"key": "PORT", "value": "9000"}],
-        }],
+        "tags": [
+            {"key": "clousight-bench:managed", "value": "true"},
+            {"key": "clousight-bench:run-id", "value": "run-xy"},
+        ],
+        "container": [
+            {
+                "name": "cb-probe",
+                "image": "registry.cn-hangzhou.aliyuncs.com/library/python:3.12",
+                "port": [{"port": 9000, "protocol": "TCP"}],
+                "command": ["/bin/sh", "-c", "echo boot"],
+                "environment_var": [{"key": "PORT", "value": "9000"}],
+            }
+        ],
     }
 
 
@@ -88,8 +93,8 @@ def test_describe_uses_ids_filter_and_normalizes_status_and_ip():
 def test_describe_missing_group_returns_pending_empty():
     class _Empty(_FakeEciClient):
         def describe_container_groups(self, req):
-            return types.SimpleNamespace(
-                body=types.SimpleNamespace(container_groups=[]))
+            return types.SimpleNamespace(body=types.SimpleNamespace(container_groups=[]))
+
     sdk = Eci20180808Sdk(region="cn-hangzhou", client=_Empty())
     assert sdk.describe_container_group("eci-x") == {"status": "", "public_ip": ""}
 

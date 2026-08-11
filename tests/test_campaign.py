@@ -1,5 +1,6 @@
 """A campaign manifest tracks a run-plan's task list through its states and is
 written atomically on every transition."""
+
 import json
 
 import pytest
@@ -38,8 +39,7 @@ def test_running_then_done_records_outcome():
     assert m._task("T1.1").status == "running"
     assert m._task("T1.1").started_at is not None
 
-    m.mark_done("T1.1", status="completed", plan_id="plan-1",
-                status_counts={"completed": 3})
+    m.mark_done("T1.1", status="completed", plan_id="plan-1", status_counts={"completed": 3})
     t = m._task("T1.1")
     assert t.status == "completed"
     assert t.plan_id == "plan-1"

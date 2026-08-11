@@ -1,4 +1,5 @@
 """The report renders 0.2 measurements and derives red flags from findings."""
+
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.report import generate_report
 from clousight_bench.core.schema import RunSpec
@@ -11,8 +12,10 @@ def test_empty_directory_says_so(tmp_path):
 
 
 def test_report_renders_measurements_with_evidence_and_status(tmp_path):
-    execute(RunSpec("agent-runtime", "T1.3", "local-sim",
-                    target={"recovery": {"mode": "auto-retry"}}), results_dir=tmp_path)
+    execute(
+        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
+        results_dir=tmp_path,
+    )
     report = generate_report(tmp_path)
     assert "## agent-runtime · T1.3" in report
     assert "recovery_mode=auto-retry [C]" in report
@@ -21,8 +24,10 @@ def test_report_renders_measurements_with_evidence_and_status(tmp_path):
 
 
 def test_warning_findings_become_red_flags(tmp_path):
-    execute(RunSpec("agent-runtime", "T1.3", "local-sim",
-                    target={"recovery": {"mode": "fail-fast"}}), results_dir=tmp_path)
+    execute(
+        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "fail-fast"}}),
+        results_dir=tmp_path,
+    )
     report = generate_report(tmp_path)
     assert "agent_runtime.recovery_fail_fast" in report
     assert "warning" in report
@@ -42,8 +47,10 @@ def test_report_surfaces_cost_column_and_partial_flag(tmp_path):
 def test_report_shows_dash_cost_for_non_usage_task(tmp_path):
     # T1.3 carries no usage measurements, so the enricher never prices it: the
     # cost cell stays a dash and no pricing red flag appears.
-    execute(RunSpec("agent-runtime", "T1.3", "local-sim",
-                    target={"recovery": {"mode": "auto-retry"}}), results_dir=tmp_path)
+    execute(
+        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
+        results_dir=tmp_path,
+    )
     report = generate_report(tmp_path)
     assert "| cost |" in report
     assert "USD" not in report
@@ -65,8 +72,10 @@ def test_cost_summary_totals_across_runs_with_detail(tmp_path):
 
 def test_no_cost_summary_when_nothing_priced(tmp_path):
     # A task with no usage measurements -> no pricing extension -> no cost summary.
-    execute(RunSpec("agent-runtime", "T1.3", "local-sim",
-                    target={"recovery": {"mode": "auto-retry"}}), results_dir=tmp_path)
+    execute(
+        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
+        results_dir=tmp_path,
+    )
     report = generate_report(tmp_path)
     assert "## Cost summary" not in report
 

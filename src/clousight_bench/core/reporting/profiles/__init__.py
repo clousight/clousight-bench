@@ -1,4 +1,5 @@
 """Per-category report profiles: which panels/charts a domain shows."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,51 +11,130 @@ from clousight_bench.core.reporting.bundle import Cell, ChartSpec, Panel, _metri
 _PanelSpec = tuple[str, str, str, list[str], list[str], str]
 
 _AGENT_RUNTIME: list[_PanelSpec] = [
-    ("Performance", "provisioning", "Provisioning lifecycle", ["T0.1", "T0.2"],
-     ["provision_ready_ms", "teardown_ms", "residual_count"], "grouped_bar"),
-    ("Performance", "latency", "Startup latency", ["T1.1"],
-     ["cold_start_ms", "warm_start_p50_ms", "warm_start_p95_ms", "cold_warm_ratio"],
-     "grouped_bar"),
-    ("Performance", "sustained", "Sustained load & tail latency", ["T1.4"],
-     ["throughput_rps", "p50_ms", "p99_ms", "jitter_ms", "error_rate_under_load"],
-     "grouped_bar"),
-    ("Performance", "warmpool", "Warm-pool retention", ["T1.5"],
-     ["warm_retention_ms", "keeps_warm"], ""),
-    ("Reliability", "state", "State persistence", ["T1.2"],
-     ["state_persisted", "persistence_mode"], ""),
-    ("Reliability", "recovery", "Fault recovery", ["T1.3"],
-     ["recovery_mode", "total_attempts", "time_to_recovery_ms", "fault_hits",
-      "budgeted_success"], ""),
-    ("Reliability", "soak", "Soak availability", ["T1.6"],
-     ["availability", "soak_error_rate", "soak_requests"], "bar"),
-    ("Reliability", "ratelimit", "Rate limiting", ["T1.7"],
-     ["throttle_onset_rps", "retry_after_ms", "honors_429"], ""),
-    ("Reliability", "cancellation", "Timeout & cancellation", ["T1.8"],
-     ["cancellation_honored", "teardown_on_cancel", "residual_on_cancel"], ""),
-    ("Observability", "trace", "Tracing", ["T4.1", "T4.2"],
-     ["span_completeness", "spans_present", "spans_expected", "otel_valid",
-      "span_count"], "bar"),
-    ("Observability", "signals", "Metrics & logs", ["T4.3"],
-     ["metrics_completeness", "logs_completeness", "structured_logs"], "bar"),
-    ("Observability", "propagation", "Span propagation", ["T4.4"],
-     ["parent_correctness", "orphan_spans", "root_count"], ""),
-    ("Observability", "export_latency", "Export latency", ["T4.5"],
-     ["export_latency_ms", "dropped_ratio"], ""),
-    ("Cost", "cost", "Cost (list / discount / net)", ["T5.1"],
-     ["invocations", "vcpu_hours", "list_cost_usd", "discount_usd", "cost_usd"],
-     "grouped_bar"),
-    ("Cost", "idle_cost", "Idle / scale-to-zero", ["T5.3"],
-     ["scales_to_zero", "idle_cost_per_hour"], ""),
-    ("Capability", "elasticity", "Elasticity", ["T5.2"],
-     ["scales_cleanly", "concurrency_knee", "success_rate_at_peak", "p95_ms_at_peak"],
-     "bar"),
-    ("Capability", "tools", "Tool registration", ["T2.1"],
-     ["mcp", "openapi", "native", "supported_count"], ""),
-    ("Capability", "ceiling", "Concurrency ceiling", ["T5.4"],
-     ["max_in_flight", "hard_limit"], ""),
-    ("Capability", "isolation", "Tenant isolation", ["T6.1"],
-     ["isolation_score", "tenant_isolated", "network_egress_controlled",
-      "filesystem_isolated"], ""),
+    (
+        "Performance",
+        "provisioning",
+        "Provisioning lifecycle",
+        ["T0.1", "T0.2"],
+        ["provision_ready_ms", "teardown_ms", "residual_count"],
+        "grouped_bar",
+    ),
+    (
+        "Performance",
+        "latency",
+        "Startup latency",
+        ["T1.1"],
+        ["cold_start_ms", "warm_start_p50_ms", "warm_start_p95_ms", "cold_warm_ratio"],
+        "grouped_bar",
+    ),
+    (
+        "Performance",
+        "sustained",
+        "Sustained load & tail latency",
+        ["T1.4"],
+        ["throughput_rps", "p50_ms", "p99_ms", "jitter_ms", "error_rate_under_load"],
+        "grouped_bar",
+    ),
+    ("Performance", "warmpool", "Warm-pool retention", ["T1.5"], ["warm_retention_ms", "keeps_warm"], ""),
+    ("Reliability", "state", "State persistence", ["T1.2"], ["state_persisted", "persistence_mode"], ""),
+    (
+        "Reliability",
+        "recovery",
+        "Fault recovery",
+        ["T1.3"],
+        ["recovery_mode", "total_attempts", "time_to_recovery_ms", "fault_hits", "budgeted_success"],
+        "",
+    ),
+    (
+        "Reliability",
+        "soak",
+        "Soak availability",
+        ["T1.6"],
+        ["availability", "soak_error_rate", "soak_requests"],
+        "bar",
+    ),
+    (
+        "Reliability",
+        "ratelimit",
+        "Rate limiting",
+        ["T1.7"],
+        ["throttle_onset_rps", "retry_after_ms", "honors_429"],
+        "",
+    ),
+    (
+        "Reliability",
+        "cancellation",
+        "Timeout & cancellation",
+        ["T1.8"],
+        ["cancellation_honored", "teardown_on_cancel", "residual_on_cancel"],
+        "",
+    ),
+    (
+        "Observability",
+        "trace",
+        "Tracing",
+        ["T4.1", "T4.2"],
+        ["span_completeness", "spans_present", "spans_expected", "otel_valid", "span_count"],
+        "bar",
+    ),
+    (
+        "Observability",
+        "signals",
+        "Metrics & logs",
+        ["T4.3"],
+        ["metrics_completeness", "logs_completeness", "structured_logs"],
+        "bar",
+    ),
+    (
+        "Observability",
+        "propagation",
+        "Span propagation",
+        ["T4.4"],
+        ["parent_correctness", "orphan_spans", "root_count"],
+        "",
+    ),
+    (
+        "Observability",
+        "export_latency",
+        "Export latency",
+        ["T4.5"],
+        ["export_latency_ms", "dropped_ratio"],
+        "",
+    ),
+    (
+        "Cost",
+        "cost",
+        "Cost (list / discount / net)",
+        ["T5.1"],
+        ["invocations", "vcpu_hours", "list_cost_usd", "discount_usd", "cost_usd"],
+        "grouped_bar",
+    ),
+    ("Cost", "idle_cost", "Idle / scale-to-zero", ["T5.3"], ["scales_to_zero", "idle_cost_per_hour"], ""),
+    (
+        "Capability",
+        "elasticity",
+        "Elasticity",
+        ["T5.2"],
+        ["scales_cleanly", "concurrency_knee", "success_rate_at_peak", "p95_ms_at_peak"],
+        "bar",
+    ),
+    (
+        "Capability",
+        "tools",
+        "Tool registration",
+        ["T2.1"],
+        ["mcp", "openapi", "native", "supported_count"],
+        "",
+    ),
+    ("Capability", "ceiling", "Concurrency ceiling", ["T5.4"], ["max_in_flight", "hard_limit"], ""),
+    (
+        "Capability",
+        "isolation",
+        "Tenant isolation",
+        ["T6.1"],
+        ["isolation_score", "tenant_isolated", "network_egress_controlled", "filesystem_isolated"],
+        "",
+    ),
 ]
 
 _COST_KEYS = ("list_cost_usd", "discount_usd", "cost_usd")
@@ -63,9 +143,11 @@ _COST_KEYS = ("list_cost_usd", "discount_usd", "cost_usd")
 def _chart(kind: str, metric_keys: list[str], cells: list[Cell]) -> ChartSpec | None:
     if not kind:
         return None
-    numeric = [k for k in metric_keys
-               if any(m["name"] == k and m["value_num"] is not None
-                      for c in cells for m in c.metrics)]
+    numeric = [
+        k
+        for k in metric_keys
+        if any(m["name"] == k and m["value_num"] is not None for c in cells for m in c.metrics)
+    ]
     if not numeric:
         return None
     series = []
@@ -106,8 +188,9 @@ class Profile:
                 by_exec.setdefault(execu, []).append(cell)
             for _execu, cells in by_exec.items():
                 chart = _chart(chart_kind, metric_keys, cells)
-                panels.append(Panel(key, title, "B", task_ids, cells, chart,
-                                    comparison=len(cells) > 1, tab=tab))
+                panels.append(
+                    Panel(key, title, "B", task_ids, cells, chart, comparison=len(cells) > 1, tab=tab)
+                )
         return panels
 
     def _metrics(self, rec, metric_keys) -> list[dict[str, Any]]:
@@ -116,8 +199,15 @@ class Profile:
         currency = pricing.get("currency", "USD") if isinstance(pricing, dict) else "USD"
         for name in metric_keys:
             if name in _COST_KEYS and isinstance(pricing, dict) and name in pricing:
-                out.append({"name": name, "value_num": pricing[name], "value_str": None,
-                            "unit": currency, "aggregation": ""})
+                out.append(
+                    {
+                        "name": name,
+                        "value_num": pricing[name],
+                        "value_str": None,
+                        "unit": currency,
+                        "aggregation": "",
+                    }
+                )
                 continue
             m = _metric(rec, name)
             if m is not None:

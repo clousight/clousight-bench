@@ -3,6 +3,7 @@
 No network: _build_vendor_dir is monkeypatched to a stub that writes one fake
 file, so we can assert the rebuild-vs-reuse decision without a real pip install.
 """
+
 import zipfile
 
 from clousight_bench.domains.agent_runtime import artifact as A
@@ -13,6 +14,7 @@ def _fake_build(calls):
         vendor_path.mkdir(parents=True, exist_ok=True)
         (vendor_path / "fake_pkg.py").write_text("# vendored\n")
         calls.append(1)
+
     return _build
 
 
@@ -26,9 +28,15 @@ def test_vendor_cache_rebuilds_when_deps_change(tmp_path, monkeypatch):
     monkeypatch.setattr(A, "_build_vendor_dir", _fake_build(calls))
     # Avoid packing real agent/protocol sources — only exercise the vendor path.
     monkeypatch.setattr(A, "_INCLUDE", ())
-    monkeypatch.setattr(A.resources, "files",
-                        lambda pkg: type("F", (), {"joinpath": lambda self, n: type(
-                            "J", (), {"read_text": lambda self, **k: "# stub\n"})()})())
+    monkeypatch.setattr(
+        A.resources,
+        "files",
+        lambda pkg: type(
+            "F",
+            (),
+            {"joinpath": lambda self, n: type("J", (), {"read_text": lambda self, **k: "# stub\n"})()},
+        )(),
+    )
 
     A.build_agent_zip_bytes(with_langchain=True)
     assert len(calls) == 1, "first build must install vendor deps"

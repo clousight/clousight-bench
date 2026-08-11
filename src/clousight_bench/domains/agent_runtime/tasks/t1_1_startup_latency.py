@@ -19,6 +19,7 @@ environment-dependent (region, network, load). On local-sim the penalty is a
 deterministic knob (``target.startup = {cold_ms, warm_ms}``) so scoring can be
 exercised on a fast and a slow-cold-start runtime with no account.
 """
+
 from __future__ import annotations
 
 import time
@@ -54,14 +55,10 @@ class StartupLatencyTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id, "warm_samples": WARM_SAMPLES}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.1 needs an AgentRuntimeAdapter")
-        cold_start_via_provision = bool(
-            getattr(adapter, "session_cold_start_is_provision", False)
-        )
+        cold_start_via_provision = bool(getattr(adapter, "session_cold_start_is_provision", False))
         # first session -> cold (runtime spin-up); the rest -> warm (reuse)
         cold_session, cold_ms = _timed(adapter.create_session)
         adapter.destroy_session(cold_session)
@@ -89,33 +86,33 @@ class StartupLatencyTask(Task):
         ratio = round(cold_ms / warm_p50, 2) if warm_p50 > 0 else None
         warm_measurements: dict = {
             "warm_start_p50_ms": Measurement(
-                value=warm_p50, unit="ms", evidence="B",
-                aggregation="p50", sample_count=len(warm_ms)),
+                value=warm_p50, unit="ms", evidence="B", aggregation="p50", sample_count=len(warm_ms)
+            ),
             "warm_start_p95_ms": Measurement(
-                value=warm_p95, unit="ms", evidence="B",
-                aggregation="p95", sample_count=len(warm_ms)),
+                value=warm_p95, unit="ms", evidence="B", aggregation="p95", sample_count=len(warm_ms)
+            ),
         }
         findings: list[Finding] = []
         if cold_start_via_provision:
             # create_session is a local UUID operation on this platform.
             # The cold-start cost (container spin-up) is in T0.1 (provision latency).
             measurements: dict = {
-                "session_create_ms": Measurement(
-                    value=cold_ms, unit="ms", evidence="B"),
-                "cold_start_via_provision": Measurement(
-                    value=True, unit="", evidence="B"),
+                "session_create_ms": Measurement(value=cold_ms, unit="ms", evidence="B"),
+                "cold_start_via_provision": Measurement(value=True, unit="", evidence="B"),
                 **warm_measurements,
             }
-            findings.append(Finding(
-                code="agent_runtime.cold_start_at_provision",
-                severity="info",
-                summary=(
-                    "session creation is a local operation (~0ms); real cold-start "
-                    "cost is at provision (T0.1). cold_warm_ratio is not meaningful here."
-                ),
-                evidence="B",
-                details={"session_create_ms": cold_ms},
-            ))
+            findings.append(
+                Finding(
+                    code="agent_runtime.cold_start_at_provision",
+                    severity="info",
+                    summary=(
+                        "session creation is a local operation (~0ms); real cold-start "
+                        "cost is at provision (T0.1). cold_warm_ratio is not meaningful here."
+                    ),
+                    evidence="B",
+                    details={"session_create_ms": cold_ms},
+                )
+            )
             notes = (
                 f"session_create={cold_ms}ms (client-local UUID); "
                 f"warm_p50={warm_p50}ms; cold-start cost is in T0.1 (provision)"

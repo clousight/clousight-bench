@@ -14,16 +14,19 @@ def test_parse_version_rejects_garbage(bad):
         parse_version(bad)
 
 
-@pytest.mark.parametrize("rng,ver,ok", [
-    (">=1.0,<2.0", "1.0", True),
-    (">=1.0,<2.0", "1.9", True),
-    (">=1.0,<2.0", "2.0", False),     # upper bound exclusive
-    (">=1.0,<2.0", "0.9", False),
-    ("==1.0", "1.0", True),
-    ("==1.0", "1.1", False),
-    (">1.0", "1.0", False),
-    ("<=1.0", "1.0", True),
-])
+@pytest.mark.parametrize(
+    "rng,ver,ok",
+    [
+        (">=1.0,<2.0", "1.0", True),
+        (">=1.0,<2.0", "1.9", True),
+        (">=1.0,<2.0", "2.0", False),  # upper bound exclusive
+        (">=1.0,<2.0", "0.9", False),
+        ("==1.0", "1.0", True),
+        ("==1.0", "1.1", False),
+        (">1.0", "1.0", False),
+        ("<=1.0", "1.0", True),
+    ],
+)
 def test_range_contains(rng, ver, ok):
     assert range_contains(rng, ver) is ok
 

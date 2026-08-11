@@ -8,6 +8,7 @@ surface. CapabilityNotSupported on a path = that path is unavailable.
 Evidence layer B: this observes a platform capability; the exact set is
 environment-dependent (region / plan), but the probe method is reproducible.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -41,14 +42,10 @@ class ToolRegistrationTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id, "paths": list(_PATHS), "tool_spec": _TOOL_SPEC}
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
         return {"probed_paths": list(_PATHS)}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T2.1 needs an AgentRuntimeAdapter")
         session = adapter.create_session()
@@ -61,9 +58,7 @@ class ToolRegistrationTask(Task):
                     support[path] = False
         finally:
             adapter.destroy_session(session)
-        return ObservationBundle(
-            observations={"support": support, "tool_spec": dict(_TOOL_SPEC)}
-        )
+        return ObservationBundle(observations={"support": support, "tool_spec": dict(_TOOL_SPEC)})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         support = dict(observations.observations.get("support", {}))
@@ -82,16 +77,10 @@ class ToolRegistrationTask(Task):
         return TaskResult(
             measurements={
                 "supported_paths": Measurement(value=supported, unit="", evidence="B"),
-                "supported_count": Measurement(
-                    value=len(supported), unit="count", evidence="B"
-                ),
+                "supported_count": Measurement(value=len(supported), unit="count", evidence="B"),
                 "mcp": Measurement(value=bool(support.get("mcp")), unit="", evidence="B"),
-                "openapi": Measurement(
-                    value=bool(support.get("openapi")), unit="", evidence="B"
-                ),
-                "native": Measurement(
-                    value=bool(support.get("native")), unit="", evidence="B"
-                ),
+                "openapi": Measurement(value=bool(support.get("openapi")), unit="", evidence="B"),
+                "native": Measurement(value=bool(support.get("native")), unit="", evidence="B"),
             },
             findings=findings,
             notes=f"registration paths supported: {', '.join(supported) or 'none'}",

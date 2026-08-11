@@ -8,6 +8,7 @@ itself is the callback; this class only owns the protocol, so richer probes
 (GPU utilisation, token-level cost, cold-start decomposition) plug in without
 forking it.
 """
+
 from __future__ import annotations
 
 import json

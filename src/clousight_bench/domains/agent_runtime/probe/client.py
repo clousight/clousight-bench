@@ -4,6 +4,7 @@ Async by design — POST /run-job returns a job_id, then short GET /job/<id>
 polls carry live progress and, at the terminal poll, the full ObservationBundle.
 No long-lived/streaming connection over the remote path (spec §5).
 """
+
 from __future__ import annotations
 
 import time
@@ -26,8 +27,9 @@ class ProbeJobFailed(RuntimeError):
 
 
 class RemoteProbeClient:
-    def __init__(self, base_url: str, poll_interval_s: float = 2.0,
-                 timeout_s: float = 300.0, token: str | None = None) -> None:
+    def __init__(
+        self, base_url: str, poll_interval_s: float = 2.0, timeout_s: float = 300.0, token: str | None = None
+    ) -> None:
         self._base = base_url.rstrip("/")
         self._poll = poll_interval_s
         self._timeout = timeout_s

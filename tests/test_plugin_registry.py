@@ -1,4 +1,5 @@
 """Both built-in domain packs load via entry points and expose their tasks/adapters."""
+
 import pytest
 
 from clousight_bench.core.errors import AdapterNotRunnableError
@@ -125,7 +126,8 @@ def test_wired_provider_flips_real_mode_runnable(tmp_path, monkeypatch):
     import clousight_bench.core.registry as reg
 
     monkeypatch.setattr(
-        reg, "get_runtime_provider",
+        reg,
+        "get_runtime_provider",
         lambda provider: _FakeAliyunProvider() if provider == "aliyun" else None,
     )
     # Default (real) mode, previously refused as skeleton, now runs on the wired

@@ -4,6 +4,7 @@
 says what happened; it is re-exported here so plugins keep one stable import
 path across the 1.0 -> 0.2 schema change.
 """
+
 from __future__ import annotations
 
 import time

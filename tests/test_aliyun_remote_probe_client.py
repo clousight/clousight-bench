@@ -21,18 +21,23 @@ def test_probe_url_builds_remote_client_and_routes_run_job(monkeypatch):
     class _FakeRemote:
         def __init__(self, base_url, *a, **k):
             captured["base_url"] = base_url
+
         def run_job(self, spec):
             captured["spec"] = spec
             return ObservationBundle(observations={"capability": "supported", "availability": 1.0})
 
     monkeypatch.setattr("clousight_bench.domains.agent_runtime.probe.client.RemoteProbeClient", _FakeRemote)
-    t = AliyunAgentRunTransport(_Adapter({
-        "region": "cn-hangzhou",
-        "probe_url": "http://1.2.3.4:9000",
-        "probe_oss_prefix": "campaign-1/job-1/",
-        "probe_in_vpc": False,
-        "endpoint_url": "http://runtime-under-test",
-    }))
+    t = AliyunAgentRunTransport(
+        _Adapter(
+            {
+                "region": "cn-hangzhou",
+                "probe_url": "http://1.2.3.4:9000",
+                "probe_oss_prefix": "campaign-1/job-1/",
+                "probe_in_vpc": False,
+                "endpoint_url": "http://runtime-under-test",
+            }
+        )
+    )
     assert captured["base_url"] == "http://1.2.3.4:9000"
     b = t.run_data_plane_probe("soak", {"duration_s": 0.1})
     # routed to the remote client, not run in-process

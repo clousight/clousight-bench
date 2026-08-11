@@ -4,6 +4,7 @@ Turns records into a JSON-serializable bundle of panels + chart specs. Renderer-
 agnostic (carries chart DATA, never SVG). Execution-isolated: simulated and live
 never share a comparison.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -24,8 +25,12 @@ class ChartSpec:
     series: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
-        return {"kind": self.kind, "x_label": self.x_label,
-                "y_label": self.y_label, "series": list(self.series)}
+        return {
+            "kind": self.kind,
+            "x_label": self.x_label,
+            "y_label": self.y_label,
+            "series": list(self.series),
+        }
 
 
 @dataclass
@@ -37,8 +42,12 @@ class Cell:
     agg_stats: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        d = {"platform": self.platform, "status": self.status,
-             "execution": self.execution, "metrics": list(self.metrics)}
+        d = {
+            "platform": self.platform,
+            "status": self.status,
+            "execution": self.execution,
+            "metrics": list(self.metrics),
+        }
         if self.agg_stats is not None:
             d["agg_stats"] = self.agg_stats
         return d
@@ -56,10 +65,16 @@ class Panel:
     tab: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {"key": self.key, "title": self.title, "evidence": self.evidence,
-                "task_ids": list(self.task_ids), "cells": [c.to_dict() for c in self.cells],
-                "chart": self.chart.to_dict() if self.chart else None,
-                "comparison": self.comparison, "tab": self.tab}
+        return {
+            "key": self.key,
+            "title": self.title,
+            "evidence": self.evidence,
+            "task_ids": list(self.task_ids),
+            "cells": [c.to_dict() for c in self.cells],
+            "chart": self.chart.to_dict() if self.chart else None,
+            "comparison": self.comparison,
+            "tab": self.tab,
+        }
 
 
 @dataclass
@@ -72,11 +87,14 @@ class DomainReport:
     red_flags: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"domain": self.domain, "profile": self.profile,
-                "platforms": list(self.platforms),
-                "capability_matrix": self.capability_matrix,
-                "panels": [p.to_dict() for p in self.panels],
-                "red_flags": list(self.red_flags)}
+        return {
+            "domain": self.domain,
+            "profile": self.profile,
+            "platforms": list(self.platforms),
+            "capability_matrix": self.capability_matrix,
+            "panels": [p.to_dict() for p in self.panels],
+            "red_flags": list(self.red_flags),
+        }
 
 
 @dataclass
@@ -87,9 +105,12 @@ class ReportBundle:
     domains: list[DomainReport]
 
     def to_dict(self) -> dict[str, Any]:
-        return {"schema": self.schema, "results_dir": self.results_dir,
-                "generated_at": self.generated_at,
-                "domains": [d.to_dict() for d in self.domains]}
+        return {
+            "schema": self.schema,
+            "results_dir": self.results_dir,
+            "generated_at": self.generated_at,
+            "domains": [d.to_dict() for d in self.domains],
+        }
 
 
 def _metric(rec: ResultRecord, name: str) -> dict[str, Any] | None:
@@ -99,10 +120,8 @@ def _metric(rec: ResultRecord, name: str) -> dict[str, Any] | None:
     value = m.get("value")
     unit, agg = m.get("unit", ""), m.get("aggregation", "")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return {"name": name, "value_num": float(value), "value_str": None,
-                "unit": unit, "aggregation": agg}
-    return {"name": name, "value_num": None, "value_str": str(value),
-            "unit": unit, "aggregation": agg}
+        return {"name": name, "value_num": float(value), "value_str": None, "unit": unit, "aggregation": agg}
+    return {"name": name, "value_num": None, "value_str": str(value), "unit": unit, "aggregation": agg}
 
 
 def _capability_matrix(latest: dict) -> dict[str, dict[str, str]]:
@@ -123,8 +142,7 @@ def _agg_cell(agg: dict[str, Any], metric_keys: list[str]) -> Cell:
     platform = agg.get("identity", {}).get("adapter", "")
     n = agg.get("plan", {}).get("repeat", 0)
     per_metric: dict[str, Any] = {
-        name: stats for name, stats in measurements.items()
-        if isinstance(stats, dict)
+        name: stats for name, stats in measurements.items() if isinstance(stats, dict)
     }
     metrics: list[dict[str, Any]] = []
     for name in metric_keys:
@@ -132,13 +150,26 @@ def _agg_cell(agg: dict[str, Any], metric_keys: list[str]) -> Cell:
         if not isinstance(stats, dict):
             continue
         if stats.get("kind") == "numeric":
-            metrics.append({"name": name, "value_num": stats.get("mean"),
-                             "value_str": None, "unit": "", "aggregation": "mean"})
+            metrics.append(
+                {
+                    "name": name,
+                    "value_num": stats.get("mean"),
+                    "value_str": None,
+                    "unit": "",
+                    "aggregation": "mean",
+                }
+            )
         else:
             mode = stats.get("mode")
-            metrics.append({"name": name, "value_num": None,
-                             "value_str": str(mode) if mode is not None else None,
-                             "unit": "", "aggregation": "mode"})
+            metrics.append(
+                {
+                    "name": name,
+                    "value_num": None,
+                    "value_str": str(mode) if mode is not None else None,
+                    "unit": "",
+                    "aggregation": "mode",
+                }
+            )
     agg_stats = {
         "n": n,
         "plan_id": agg.get("plan_id", ""),
@@ -146,12 +177,12 @@ def _agg_cell(agg: dict[str, Any], metric_keys: list[str]) -> Cell:
         "warnings": list(agg.get("notes", [])),
         "per_metric": per_metric,
     }
-    return Cell(platform=platform, status="aggregate", execution="",
-                metrics=metrics, agg_stats=agg_stats)
+    return Cell(platform=platform, status="aggregate", execution="", metrics=metrics, agg_stats=agg_stats)
 
 
-def _build_agg_cells(domain: str, panel: Panel,
-                     agg_lookup: dict[tuple[str, str, str], dict[str, Any]]) -> list[Cell]:
+def _build_agg_cells(
+    domain: str, panel: Panel, agg_lookup: dict[tuple[str, str, str], dict[str, Any]]
+) -> list[Cell]:
     """Append one aggregate Cell per platform that has aggregate data for this panel."""
     # Collect metric_keys from existing individual cells (preserves display order)
     metric_keys: list[str] = []
@@ -197,22 +228,22 @@ def _build_agg_cells(domain: str, panel: Panel,
     return result
 
 
-def build_bundle(records, *, results_dir: str, generated_at: str, profiles,
-                 aggregates=None) -> ReportBundle:
+def build_bundle(records, *, results_dir: str, generated_at: str, profiles, aggregates=None) -> ReportBundle:
     from clousight_bench.core.report import _is_warmup
 
     # Build aggregate lookup: {(domain, task_id, platform): agg_dict}
     # Deduplicate: highest n wins; tie-break by plan_id lexicographic descending.
     agg_lookup: dict[tuple[str, str, str], dict[str, Any]] = {}
-    for agg in (aggregates or []):
+    for agg in aggregates or []:
         identity = agg.get("identity", {})
-        key = (identity.get("domain", ""), identity.get("task_id", ""),
-               identity.get("adapter", ""))
+        key = (identity.get("domain", ""), identity.get("task_id", ""), identity.get("adapter", ""))
         existing = agg_lookup.get(key)
         this_n = agg.get("plan", {}).get("repeat", 0)
         ex_n = existing.get("plan", {}).get("repeat", 0) if existing else -1
-        if existing is None or this_n > ex_n or (
-            this_n == ex_n and agg.get("plan_id", "") > existing.get("plan_id", "")
+        if (
+            existing is None
+            or this_n > ex_n
+            or (this_n == ex_n and agg.get("plan_id", "") > existing.get("plan_id", ""))
         ):
             agg_lookup[key] = agg
 
@@ -233,7 +264,8 @@ def build_bundle(records, *, results_dir: str, generated_at: str, profiles,
         if "simulated" in executions and "live" in executions:
             red_flags.append(
                 "This domain mixes simulated and live data — they are shown "
-                "separately and must not be compared.")
+                "separately and must not be compared."
+            )
         cap = _capability_matrix(latest)
         panels = profile.build_panels(latest)
         if agg_lookup:

@@ -2,26 +2,46 @@ import argparse
 import json
 from pathlib import Path
 
-from clousight_bench.core.fingerprints import record_digest
 from clousight_bench.cli import _cmd_verify
+from clousight_bench.core.fingerprints import record_digest
 
 
 def _write_record(path: Path, measurements: dict, tamper: bool = False) -> None:
     payload = {
         "schema_version": "0.2",
-        "run": {"run_id": "run-test", "started_at": "2026-01-01T00:00:00Z",
-                "finished_at": "2026-01-01T00:00:01Z", "stages": {}},
-        "identity": {"domain": "agent-runtime", "task_id": "T1.1", "adapter": "local-sim",
-                     "task_revision": "1", "scorer_revision": "1", "core_version": "0.2.0",
-                     "adapter_status": "reference", "plugin_versions": {}},
-        "environment": {"region": "", "mode": "local", "python_version": "3.12.0",
-                        "os_name": "Linux", "facts": {}, "execution": "simulated"},
-        "fingerprints": {"benchmark": "sha256:b", "environment": "sha256:e",
-                         "implementation": "sha256:i"},
-        "measurements": {k: {"value": v, "unit": "ms", "evidence": "B"}
-                         for k, v in measurements.items()},
-        "findings": [], "observations": {}, "series": {}, "artifacts": [],
-        "extensions": {}, "errors": [], "status": "completed",
+        "run": {
+            "run_id": "run-test",
+            "started_at": "2026-01-01T00:00:00Z",
+            "finished_at": "2026-01-01T00:00:01Z",
+            "stages": {},
+        },
+        "identity": {
+            "domain": "agent-runtime",
+            "task_id": "T1.1",
+            "adapter": "local-sim",
+            "task_revision": "1",
+            "scorer_revision": "1",
+            "core_version": "0.2.0",
+            "adapter_status": "reference",
+            "plugin_versions": {},
+        },
+        "environment": {
+            "region": "",
+            "mode": "local",
+            "python_version": "3.12.0",
+            "os_name": "Linux",
+            "facts": {},
+            "execution": "simulated",
+        },
+        "fingerprints": {"benchmark": "sha256:b", "environment": "sha256:e", "implementation": "sha256:i"},
+        "measurements": {k: {"value": v, "unit": "ms", "evidence": "B"} for k, v in measurements.items()},
+        "findings": [],
+        "observations": {},
+        "series": {},
+        "artifacts": [],
+        "extensions": {},
+        "errors": [],
+        "status": "completed",
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     if tamper:
@@ -72,8 +92,7 @@ def test_unreadable_json_counts_as_failure(tmp_path, capsys):
 def test_aggregate_files_are_skipped_not_failed(tmp_path, capsys):
     agg_dir = tmp_path / "aggregates" / "agent-runtime" / "local-sim"
     agg_dir.mkdir(parents=True)
-    (agg_dir / "T1.1-plan-abc.json").write_text(
-        json.dumps({"kind": "run_plan_aggregate"}), encoding="utf-8")
+    (agg_dir / "T1.1-plan-abc.json").write_text(json.dumps({"kind": "run_plan_aggregate"}), encoding="utf-8")
     rc = _cmd_verify(_args(str(tmp_path)))
     out = capsys.readouterr().out
     assert rc == 0

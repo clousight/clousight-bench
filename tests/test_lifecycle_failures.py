@@ -4,6 +4,7 @@ The lifecycle owns three kinds of failure: a bad *request* (raised, no record),
 broken *plugin* code (recorded, nothing provisioned) and a failing *platform*
 (recorded, provisioned and torn down). None of them may lose the record.
 """
+
 import getpass
 import json
 from copy import deepcopy
@@ -56,9 +57,7 @@ class _Task(Task):
     def score(self, observations):
         return TaskResult(
             measurements={
-                "hits": Measurement(
-                    value=observations.observations["hits"], unit="count", evidence="C"
-                )
+                "hits": Measurement(value=observations.observations["hits"], unit="count", evidence="C")
             },
             notes="ok",
         )
@@ -82,9 +81,7 @@ def _reset(monkeypatch):
 
 
 def _run(tmp_path, **kwargs):
-    return orch.execute(
-        RunSpec("fake-domain", "TX", "fake"), results_dir=tmp_path, **kwargs
-    )
+    return orch.execute(RunSpec("fake-domain", "TX", "fake"), results_dir=tmp_path, **kwargs)
 
 
 def _persisted(tmp_path) -> dict:
@@ -103,9 +100,8 @@ class _Tagger(ResultEnricher):
 
 # --- C1: a third-party enricher may never silently swallow a result ----------
 
-def test_an_enricher_that_raises_is_recorded_and_the_record_still_persists(
-    tmp_path, monkeypatch
-):
+
+def test_an_enricher_that_raises_is_recorded_and_the_record_still_persists(tmp_path, monkeypatch):
     class Boom(ResultEnricher):
         name = "boom"
 
@@ -191,9 +187,7 @@ def test_a_mutating_enricher_cannot_corrupt_core_fields(tmp_path, monkeypatch):
     assert record.errors[-1]["code"] == "enricher_invalid_record:malicious"
 
 
-def test_each_enricher_gets_a_copy_and_a_bad_candidate_is_discarded(
-    tmp_path, monkeypatch
-):
+def test_each_enricher_gets_a_copy_and_a_bad_candidate_is_discarded(tmp_path, monkeypatch):
     seen = {}
 
     class Bad(ResultEnricher):
@@ -261,9 +255,8 @@ def test_enricher_cannot_rewrite_core_scoring(tmp_path, monkeypatch, target):
 
 # --- I1: plugin code that crashes before provisioning is recorded, not raised -
 
-def test_environment_facts_failure_is_recorded_and_nothing_is_provisioned(
-    tmp_path, monkeypatch
-):
+
+def test_environment_facts_failure_is_recorded_and_nothing_is_provisioned(tmp_path, monkeypatch):
     monkeypatch.setattr(
         _Task,
         "environment_facts",
@@ -327,9 +320,7 @@ def test_preflight_crash_is_recorded_as_a_preflight_failure(tmp_path, monkeypatc
     assert record.errors[0]["retryable"] is True
 
 
-def test_environment_facts_are_not_collected_before_preflight_passes(
-    tmp_path, monkeypatch
-):
+def test_environment_facts_are_not_collected_before_preflight_passes(tmp_path, monkeypatch):
     calls = []
 
     class FailedReport:
@@ -357,9 +348,7 @@ def test_environment_facts_are_not_collected_before_preflight_passes(
     assert record.environment.facts == {}
 
 
-def test_a_task_rejecting_params_stays_a_user_input_error_without_a_record(
-    tmp_path, monkeypatch
-):
+def test_a_task_rejecting_params_stays_a_user_input_error_without_a_record(tmp_path, monkeypatch):
     from clousight_bench.core.errors import UserInputError
 
     monkeypatch.setattr(
@@ -373,6 +362,7 @@ def test_a_task_rejecting_params_stays_a_user_input_error_without_a_record(
 
 
 # --- M7 / M2: one config() call, and stage states that mean what they say -----
+
 
 def test_task_config_is_called_exactly_once_per_run(tmp_path):
     _run(tmp_path)
@@ -389,16 +379,13 @@ def test_skipped_means_deliberately_not_run_and_absent_means_never_reached(tmp_p
 
 # --- I6: a TaskExecutionError is attributed to the stage that was running -----
 
-def test_a_task_execution_error_during_setup_is_attributed_to_setup(
-    tmp_path, monkeypatch
-):
+
+def test_a_task_execution_error_during_setup_is_attributed_to_setup(tmp_path, monkeypatch):
     partial = ObservationBundle(observations={"provisioned": False})
 
     def _boom(self):
         CALLS.append("setup")
-        raise TaskExecutionError(
-            "cluster never came up", observations=partial, code="setup_timeout"
-        )
+        raise TaskExecutionError("cluster never came up", observations=partial, code="setup_timeout")
 
     monkeypatch.setattr(_Adapter, "setup", _boom)
     record = _run(tmp_path)
@@ -413,15 +400,12 @@ def test_a_task_execution_error_during_setup_is_attributed_to_setup(
 
 # --- non-canonical evidence: recorded, degraded, never crashed ---------------
 
-def test_non_canonical_observations_fail_collect_and_are_still_persisted(
-    tmp_path, monkeypatch
-):
+
+def test_non_canonical_observations_fail_collect_and_are_still_persisted(tmp_path, monkeypatch):
     monkeypatch.setattr(
         _Task,
         "execute",
-        lambda self, adapter, params: ObservationBundle(
-            observations={"ratio": float("nan")}
-        ),
+        lambda self, adapter, params: ObservationBundle(observations={"ratio": float("nan")}),
     )
     record = _run(tmp_path)
 
@@ -449,9 +433,7 @@ def test_a_datetime_observation_is_reported_at_collect(tmp_path, monkeypatch):
     monkeypatch.setattr(
         _Task,
         "execute",
-        lambda self, adapter, params: ObservationBundle(
-            observations={"when": datetime(2026, 7, 26)}
-        ),
+        lambda self, adapter, params: ObservationBundle(observations={"when": datetime(2026, 7, 26)}),
     )
     record = _run(tmp_path)
 
@@ -488,9 +470,7 @@ def test_invalid_observation_bundle_container_fails_collect_and_still_persists(
     assert _persisted(tmp_path)["status"] == "failed"
 
 
-def test_malformed_partial_bundle_from_collect_error_cannot_escape_record_build(
-    tmp_path, monkeypatch
-):
+def test_malformed_partial_bundle_from_collect_error_cannot_escape_record_build(tmp_path, monkeypatch):
     malformed = ObservationBundle()
     malformed.observations = {"ratio": float("nan")}
     malformed.series = {"latency_ms": [[1, float("nan")]]}
@@ -527,9 +507,7 @@ def test_non_canonical_scored_measurement_fails_score_and_keeps_observations(
         _Task,
         "score",
         lambda self, observations: TaskResult(
-            measurements={
-                "bad": Measurement(value=bad_value, unit="", evidence="C")
-            }
+            measurements={"bad": Measurement(value=bad_value, unit="", evidence="C")}
         ),
     )
     record = _run(tmp_path)
@@ -550,9 +528,7 @@ def test_numpy_like_scored_measurement_fails_score(tmp_path, monkeypatch):
         _Task,
         "score",
         lambda self, observations: TaskResult(
-            measurements={
-                "bad": Measurement(value=NumpyLike(), unit="", evidence="C")
-            }
+            measurements={"bad": Measurement(value=NumpyLike(), unit="", evidence="C")}
         ),
     )
     record = _run(tmp_path)
@@ -564,13 +540,12 @@ def test_numpy_like_scored_measurement_fails_score(tmp_path, monkeypatch):
 
 # --- M3: a debug-log failure must never mask the error it was logging --------
 
+
 def test_a_debug_log_failure_does_not_mask_the_stage_error(tmp_path, monkeypatch):
     monkeypatch.setattr(
         _Task,
         "execute",
-        lambda self, adapter, params: (_ for _ in ()).throw(
-            ConnectionError("session dropped")
-        ),
+        lambda self, adapter, params: (_ for _ in ()).throw(ConnectionError("session dropped")),
     )
     (tmp_path / "debug").write_text("not a directory", encoding="utf-8")
 
@@ -583,9 +558,8 @@ def test_a_debug_log_failure_does_not_mask_the_stage_error(tmp_path, monkeypatch
 
 # --- I9: a stage message must not carry the operator's machine identity ------
 
-def test_stage_error_messages_are_scrubbed_of_the_operator_identity(
-    tmp_path, monkeypatch
-):
+
+def test_stage_error_messages_are_scrubbed_of_the_operator_identity(tmp_path, monkeypatch):
     user = getpass.getuser()
     monkeypatch.setattr(
         _Task,

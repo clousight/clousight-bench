@@ -12,6 +12,7 @@ self-contained run you may pass an inline price
 also emits ``cost_usd``. Prices are a documentation input (evidence A); the
 usage is measured (evidence B), which is the load-bearing part.
 """
+
 from __future__ import annotations
 
 import json
@@ -49,12 +50,9 @@ class CostAttributionTask(Task):
     capability_tags = ("cost/attribution",)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
-        return {"task_id": self.task_id,
-                "plan": [{"target": c.target, "params": c.params} for c in PLAN]}
+        return {"task_id": self.task_id, "plan": [{"target": c.target, "params": c.params} for c in PLAN]}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T5.1 needs an AgentRuntimeAdapter")
         mock = adapter.mock_base_url.rstrip("/")
@@ -77,9 +75,7 @@ class CostAttributionTask(Task):
         if pricing:
             per_inv = float(pricing.get("per_invocation_usd") or 0)
             per_vcpu = float(pricing.get("per_vcpu_hour_usd") or 0)
-            cost_usd = round(
-                len(trace.attempts) * per_inv + vcpu_hours_val * per_vcpu, 9
-            )
+            cost_usd = round(len(trace.attempts) * per_inv + vcpu_hours_val * per_vcpu, 9)
         obs: dict = {
             "invocations": len(trace.attempts),
             "vcpu_hours": vcpu_hours_val,
@@ -99,20 +95,23 @@ class CostAttributionTask(Task):
         measurements = {
             "invocations": Measurement(value=invocations, unit="", evidence="B"),
             "vcpu_hours": Measurement(value=vcpu_hours, unit="vcpu_hours", evidence="B"),
-            "duration_ms": Measurement(
-                value=raw.get("duration_ms", 0.0), unit="ms", evidence="B"),
+            "duration_ms": Measurement(value=raw.get("duration_ms", 0.0), unit="ms", evidence="B"),
         }
         # Cost is the pricing enricher's job (single cost authority): this task
         # reports usage only, in the shared USAGE_METRIC_KEYS vocabulary.
         assert set(measurements) & set(USAGE_METRIC_KEYS)  # usage is present for pricing
         # If an inline cost_usd was computed in execute() (from target.pricing),
         # also emit cost_per_successful_call_usd for a normalized cost view.
-        notes = f"{invocations} invocations, {vcpu_hours} vcpu_hours; usage only; cost from the pricing enricher"
+        notes = (
+            f"{invocations} invocations, {vcpu_hours} vcpu_hours; usage only; cost from the pricing enricher"
+        )
         cost_usd = raw.get("cost_usd")
         if cost_usd is not None and successful_calls > 0:
             cost_per_call = round(cost_usd / successful_calls, 9)
             measurements["cost_per_successful_call_usd"] = Measurement(
-                value=cost_per_call, unit="USD", evidence="A",
+                value=cost_per_call,
+                unit="USD",
+                evidence="A",
             )
             notes += f"; cost_per_call={cost_per_call:.6f} USD (inline pricing)"
         return TaskResult(

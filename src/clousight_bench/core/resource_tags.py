@@ -6,6 +6,7 @@ network) leaves orphans that are *findable* -- and therefore reap-able -- rather
 than silent, billing forever. This module owns the tag keys so all four clouds
 tag identically; ``csbench sweep`` (via a ``ResourceReaper`` plugin) reads them.
 """
+
 from __future__ import annotations
 
 from collections.abc import Mapping

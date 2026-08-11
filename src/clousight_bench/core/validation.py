@@ -32,9 +32,7 @@ def _require_encodable(label: str, value: Mapping[str, Any]) -> None:
     try:
         canonical_json(redact(payload))
     except CanonicalJSONError as exc:
-        raise InvalidRunSpecError(
-            f"{label} is not canonically encodable: {exc}"
-        ) from exc
+        raise InvalidRunSpecError(f"{label} is not canonically encodable: {exc}") from exc
 
 
 def validate_run_spec(spec: RunSpec, task: Task) -> dict[str, Any]:
@@ -47,16 +45,12 @@ def validate_run_spec(spec: RunSpec, task: Task) -> dict[str, Any]:
     for field in ("domain", "task_id", "platform"):
         value = getattr(spec, field, None)
         if not isinstance(value, str) or not value.strip():
-            raise InvalidRunSpecError(
-                f"{field} must be a non-empty string, got {value!r}"
-            )
+            raise InvalidRunSpecError(f"{field} must be a non-empty string, got {value!r}")
 
     for field in ("target", "params"):
         value = getattr(spec, field, None)
         if not isinstance(value, Mapping):
-            raise InvalidRunSpecError(
-                f"{field} must be a mapping, got {type(value).__name__}"
-            )
+            raise InvalidRunSpecError(f"{field} must be a mapping, got {type(value).__name__}")
         _require_encodable(field, value)
 
     # Full JSON-Schema pass on top of the hand-written checks above (which are
@@ -82,14 +76,12 @@ def validate_run_spec(spec: RunSpec, task: Task) -> dict[str, Any]:
         config = task.config(spec.params)
     except Exception as exc:  # noqa: BLE001 - a task rejecting params is user input
         raise InvalidRunSpecError(
-            f"task {spec.task_id!r} rejected these params in config(): "
-            f"{type(exc).__name__}: {exc}"
+            f"task {spec.task_id!r} rejected these params in config(): {type(exc).__name__}: {exc}"
         ) from exc
 
     if not isinstance(config, Mapping):
         raise InvalidRunSpecError(
-            f"task {spec.task_id!r} config() must return a mapping, "
-            f"got {type(config).__name__}"
+            f"task {spec.task_id!r} config() must return a mapping, got {type(config).__name__}"
         )
     _require_encodable("task config", config)
     return dict(config)

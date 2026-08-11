@@ -9,13 +9,19 @@ class _FakeAgent(BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         n = int(self.headers.get("Content-Length", 0))
         self.rfile.read(n)
-        out = json.dumps({"choices": [{"message": {"role": "assistant",
-              "content": json.dumps({"ok": True, "status": 200})}}]}).encode()
+        out = json.dumps(
+            {
+                "choices": [
+                    {"message": {"role": "assistant", "content": json.dumps({"ok": True, "status": 200})}}
+                ]
+            }
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(out)))
         self.end_headers()
         self.wfile.write(out)
+
     def log_message(self, *a):
         pass
 
@@ -38,6 +44,7 @@ def _transport(endpoint):
         target = {"mock_token": "t", "region": "cn-hangzhou"}
         mock_base_url = "http://mock"
         run_id = None
+
     t = AliyunAgentRunTransport(_Adapter())
     t._endpoint_public_url = endpoint
     return t

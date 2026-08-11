@@ -33,7 +33,7 @@ def test_multiple_streams_have_independent_counters():
     sink = OssChunkSink(c, "p/", chunk_max_records=2)
     sink.append("series", {"t": 1, "v": 1.0})
     sink.append("spans", {"span_id": "s1"})
-    sink.append("series", {"t": 2, "v": 2.0})   # series hits 2 → rolls series-0000
+    sink.append("series", {"t": 2, "v": 2.0})  # series hits 2 → rolls series-0000
     m = sink.close()
     streams = sorted({ch["stream"] for ch in m["chunks"]})
     assert streams == ["series", "spans"]
@@ -44,7 +44,7 @@ def test_multiple_streams_have_independent_counters():
 def test_flush_noop_when_empty():
     c = InMemoryOssClient()
     sink = OssChunkSink(c, "p/")
-    sink.flush()                      # nothing buffered
+    sink.flush()  # nothing buffered
     m = sink.close()
     assert m["chunks"] == []
     assert c.list_prefix("p/") == ["p/manifest.json"]
@@ -77,9 +77,7 @@ def test_concurrent_appends_no_loss_no_key_collision():
     # (a) No records lost: sum of all chunk record counts == total appended.
     raw_chunks = [ch for ch in manifest["chunks"] if ch["stream"] == "raw"]
     total_in_chunks = sum(ch["records"] for ch in raw_chunks)
-    assert total_in_chunks == total_expected, (
-        f"Record loss: expected {total_expected}, got {total_in_chunks}"
-    )
+    assert total_in_chunks == total_expected, f"Record loss: expected {total_expected}, got {total_in_chunks}"
 
     # (b) No chunk key collision: each key in the manifest must be unique,
     # and each key must correspond to exactly one OSS object (no overwrite).
@@ -88,14 +86,10 @@ def test_concurrent_appends_no_loss_no_key_collision():
 
     # Cross-check: every manifest key is present in OSS and vice-versa (no phantom writes).
     oss_raw_keys = c.list_prefix("concurrent/raw-")
-    assert sorted(chunk_keys) == sorted(oss_raw_keys), (
-        "Manifest keys don't match OSS keys"
-    )
+    assert sorted(chunk_keys) == sorted(oss_raw_keys), "Manifest keys don't match OSS keys"
 
     # Verify total records accessible from OSS objects match expected.
-    oss_total = sum(
-        len(c.get_object(key).decode().splitlines()) for key in oss_raw_keys
-    )
+    oss_total = sum(len(c.get_object(key).decode().splitlines()) for key in oss_raw_keys)
     assert oss_total == total_expected, (
         f"OSS record count mismatch: expected {total_expected}, got {oss_total}"
     )

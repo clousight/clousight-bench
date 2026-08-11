@@ -1,5 +1,6 @@
 """A run plan repeats a benchmark, discards warmups, and aggregates only
 records that are the same benchmark in the same environment."""
+
 import json
 
 import pytest
@@ -20,17 +21,21 @@ from clousight_bench.core.runplan import (
 )
 from clousight_bench.core.schema import RunSpec
 
-_SPEC = RunSpec("agent-runtime", "T1.3", "local-sim",
-                target={"recovery": {"mode": "auto-retry"}})
+_SPEC = RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
 
-def _record(run_id, *, benchmark="sha256:b", environment="sha256:e",
-            implementation="sha256:i", status="completed", measurements=None):
+def _record(
+    run_id,
+    *,
+    benchmark="sha256:b",
+    environment="sha256:e",
+    implementation="sha256:i",
+    status="completed",
+    measurements=None,
+):
     return ResultRecord(
-        run=RunInfo(run_id, "2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z",
-                    {"PERSIST": "ok"}),
-        identity=Identity("agent-runtime", "T1.3", "1", "1", "local-sim",
-                          "reference", "0.2.0"),
+        run=RunInfo(run_id, "2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z", {"PERSIST": "ok"}),
+        identity=Identity("agent-runtime", "T1.3", "1", "1", "local-sim", "reference", "0.2.0"),
         environment=Environment("", "local", "3.12.0", "Linux"),
         fingerprints=Fingerprints(benchmark, environment, implementation, "sha256:d"),
         status=status,
@@ -61,8 +66,7 @@ def test_execute_plan_persists_every_run_and_excludes_warmups(tmp_path):
 
 
 def test_each_run_is_tagged_with_its_plan_role(tmp_path):
-    execute_plan(RunPlan(_SPEC, repeat=1, warmup=1), results_dir=tmp_path,
-                 plan_id="plan-fixed")
+    execute_plan(RunPlan(_SPEC, repeat=1, warmup=1), results_dir=tmp_path, plan_id="plan-fixed")
     roles = []
     for path in (tmp_path / "agent-runtime" / "local-sim").glob("*.json"):
         plan = json.loads(path.read_text())["extensions"]["core"]["run_plan"]
@@ -80,10 +84,8 @@ def test_warmup_and_measured_share_the_same_benchmark_fingerprint(tmp_path):
 
 
 def test_the_aggregate_is_persisted_with_its_own_digest(tmp_path):
-    aggregate = execute_plan(RunPlan(_SPEC, repeat=2), results_dir=tmp_path,
-                             plan_id="plan-agg")
-    path = (tmp_path / AGGREGATES_DIRNAME / "agent-runtime" / "local-sim"
-            / "T1.3-plan-agg.json")
+    aggregate = execute_plan(RunPlan(_SPEC, repeat=2), results_dir=tmp_path, plan_id="plan-agg")
+    path = tmp_path / AGGREGATES_DIRNAME / "agent-runtime" / "local-sim" / "T1.3-plan-agg.json"
     assert path.is_file()
     payload = json.loads(path.read_text())
     assert payload["kind"] == "run_plan_aggregate"

@@ -4,9 +4,12 @@ from clousight_bench.core.reporting.renderers.charts_js import CHART_JS
 
 
 def test_grouped_bar_svg_is_wellformed_and_contains_values():
-    chart = ChartSpec("grouped_bar", "metric", "value",
-                      [{"name": "aliyun", "points": [900.0, 40.0]},
-                       {"name": "aws", "points": [700.0, 30.0]}])
+    chart = ChartSpec(
+        "grouped_bar",
+        "metric",
+        "value",
+        [{"name": "aliyun", "points": [900.0, 40.0]}, {"name": "aws", "points": [700.0, 30.0]}],
+    )
     out = svg.grouped_bar_svg(chart, ["cold", "warm"])
     assert out.startswith("<svg") and out.rstrip().endswith("</svg>")
     assert "aliyun" in out and "900" in out
@@ -14,8 +17,7 @@ def test_grouped_bar_svg_is_wellformed_and_contains_values():
 
 
 def test_premium_svg_has_gridlines_ticks_and_data_hooks():
-    chart = ChartSpec("grouped_bar", "metric", "value",
-                      [{"name": "aliyun", "points": [900.0, 40.0]}])
+    chart = ChartSpec("grouped_bar", "metric", "value", [{"name": "aliyun", "points": [900.0, 40.0]}])
     out = svg.grouped_bar_svg(chart, ["cold", "warm"])
     assert "linearGradient" in out and "data-value=" in out
     assert "class='grid'" in out

@@ -11,6 +11,7 @@ when the cold penalty returns; local-sim reports the configured
 ``target.warm = {retention_ms, keeps_warm}``. A platform with no retention probe
 yields an ``unsupported`` measurement, never a crash.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -38,9 +39,7 @@ class WarmRetentionTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.5 needs an AgentRuntimeAdapter")
         return adapter.run_data_plane_probe("warm_retention", {})
@@ -50,8 +49,7 @@ class WarmRetentionTask(Task):
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "retention_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
+                    "retention_capability": Measurement(value="unsupported", unit="", evidence="B")
                 },
                 findings=[
                     Finding(
@@ -81,10 +79,8 @@ class WarmRetentionTask(Task):
             )
         return TaskResult(
             measurements={
-                "retention_capability": Measurement(
-                    value="supported", unit="", evidence="B"),
-                "warm_retention_ms": Measurement(
-                    value=raw["retention_ms"], unit="ms", evidence="B"),
+                "retention_capability": Measurement(value="supported", unit="", evidence="B"),
+                "warm_retention_ms": Measurement(value=raw["retention_ms"], unit="ms", evidence="B"),
                 "keeps_warm": Measurement(value=keeps_warm, unit="", evidence="B"),
             },
             findings=findings,

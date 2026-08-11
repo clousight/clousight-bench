@@ -161,8 +161,7 @@ class Environment:
         if self.mode not in MODES:
             raise RecordError(f"mode must be one of {MODES}, got {self.mode!r}")
         if self.execution not in EXECUTIONS:
-            raise RecordError(
-                f"execution must be one of {EXECUTIONS}, got {self.execution!r}")
+            raise RecordError(f"execution must be one of {EXECUTIONS}, got {self.execution!r}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -240,9 +239,7 @@ class ResultRecord:
         if self.status not in STATUSES:
             raise RecordError(f"status must be one of {STATUSES}, got {self.status!r}")
         if self.schema_version != SCHEMA_VERSION:
-            raise RecordError(
-                f"schema_version must be {SCHEMA_VERSION!r}, got {self.schema_version!r}"
-            )
+            raise RecordError(f"schema_version must be {SCHEMA_VERSION!r}, got {self.schema_version!r}")
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -10,6 +10,7 @@ adapter issues a cancel mid-flight and inspects the outcome; local-sim reports
 the configured ``target.cancellation = {honors_cancel, teardown_on_cancel,
 residual_on_cancel}``. No cancel probe -> ``unsupported``, never a crash.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -37,9 +38,7 @@ class CancellationTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.8 needs an AgentRuntimeAdapter")
         return adapter.run_data_plane_probe("cancellation", {})
@@ -49,8 +48,7 @@ class CancellationTask(Task):
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "cancellation_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
+                    "cancellation_capability": Measurement(value="unsupported", unit="", evidence="B")
                 },
                 findings=[
                     Finding(
@@ -71,25 +69,31 @@ class CancellationTask(Task):
         residual = list(raw["residual"])
         findings = []
         if not honored:
-            findings.append(Finding(
-                code="agent_runtime.cancel_not_honored", severity="warning",
-                summary="cancel/timeout did not stop the work", evidence="B",
-                details={}))
+            findings.append(
+                Finding(
+                    code="agent_runtime.cancel_not_honored",
+                    severity="warning",
+                    summary="cancel/timeout did not stop the work",
+                    evidence="B",
+                    details={},
+                )
+            )
         if not teardown or residual:
-            findings.append(Finding(
-                code="agent_runtime.cancel_teardown_leak", severity="warning",
-                summary="teardown skipped or resources leaked on cancel", evidence="B",
-                details={"teardown_ran": teardown, "residual": residual}))
+            findings.append(
+                Finding(
+                    code="agent_runtime.cancel_teardown_leak",
+                    severity="warning",
+                    summary="teardown skipped or resources leaked on cancel",
+                    evidence="B",
+                    details={"teardown_ran": teardown, "residual": residual},
+                )
+            )
         return TaskResult(
             measurements={
-                "cancellation_capability": Measurement(
-                    value="supported", unit="", evidence="B"),
-                "cancellation_honored": Measurement(
-                    value=honored, unit="", evidence="B"),
-                "teardown_on_cancel": Measurement(
-                    value=teardown, unit="", evidence="B"),
-                "residual_on_cancel": Measurement(
-                    value=len(residual), unit="", evidence="B"),
+                "cancellation_capability": Measurement(value="supported", unit="", evidence="B"),
+                "cancellation_honored": Measurement(value=honored, unit="", evidence="B"),
+                "teardown_on_cancel": Measurement(value=teardown, unit="", evidence="B"),
+                "residual_on_cancel": Measurement(value=len(residual), unit="", evidence="B"),
             },
             findings=findings,
             notes=(f"honored={honored} teardown={teardown} residual={len(residual)}"),

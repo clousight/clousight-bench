@@ -1,5 +1,6 @@
 """`csbench run --repeat/--warmup` runs a plan and prints an aggregate; a plain
 run is byte-for-byte unchanged."""
+
 import json
 
 from clousight_bench.cli import main
@@ -11,8 +12,19 @@ def _run(argv):
 
 
 def test_a_plain_run_still_prints_one_record(tmp_path, capsys):
-    rc = _run(["run", "--domain", "agent-runtime", "--task", "T1.3",
-               "--platform", "local-sim", "--results", str(tmp_path)])
+    rc = _run(
+        [
+            "run",
+            "--domain",
+            "agent-runtime",
+            "--task",
+            "T1.3",
+            "--platform",
+            "local-sim",
+            "--results",
+            str(tmp_path),
+        ]
+    )
     out = json.loads(capsys.readouterr().out)
     assert rc == 0
     assert out["schema_version"] == "0.2"
@@ -20,9 +32,23 @@ def test_a_plain_run_still_prints_one_record(tmp_path, capsys):
 
 
 def test_repeat_prints_an_aggregate_and_persists_it(tmp_path, capsys):
-    rc = _run(["run", "--domain", "agent-runtime", "--task", "T1.3",
-               "--platform", "local-sim", "--results", str(tmp_path),
-               "--repeat", "3", "--warmup", "1"])
+    rc = _run(
+        [
+            "run",
+            "--domain",
+            "agent-runtime",
+            "--task",
+            "T1.3",
+            "--platform",
+            "local-sim",
+            "--results",
+            str(tmp_path),
+            "--repeat",
+            "3",
+            "--warmup",
+            "1",
+        ]
+    )
     out = json.loads(capsys.readouterr().out)
     assert rc == 0
     assert out["kind"] == "run_plan_aggregate"
@@ -33,8 +59,20 @@ def test_repeat_prints_an_aggregate_and_persists_it(tmp_path, capsys):
 
 
 def test_a_bad_repeat_is_a_user_input_error(tmp_path, capsys):
-    rc = _run(["run", "--domain", "agent-runtime", "--task", "T1.3",
-               "--platform", "local-sim", "--results", str(tmp_path),
-               "--repeat", "0"])
+    rc = _run(
+        [
+            "run",
+            "--domain",
+            "agent-runtime",
+            "--task",
+            "T1.3",
+            "--platform",
+            "local-sim",
+            "--results",
+            str(tmp_path),
+            "--repeat",
+            "0",
+        ]
+    )
     assert rc == 2
     assert "repeat" in capsys.readouterr().err

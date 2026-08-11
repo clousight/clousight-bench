@@ -42,9 +42,7 @@ class _Good(Task):
     def score(self, observations):
         hits = observations.observations["hits"]
         return TaskResult(
-            measurements={
-                "hits": Measurement(value=hits, unit="count", evidence="C")
-            },
+            measurements={"hits": Measurement(value=hits, unit="count", evidence="C")},
             findings=[]
             if hits
             else [

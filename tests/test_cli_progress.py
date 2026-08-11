@@ -1,5 +1,6 @@
 """`csbench run-plan` writes a campaign manifest; `csbench progress` reads it.
 The manifest never leaks into the record loaders (report/query)."""
+
 import json
 
 import yaml
@@ -13,8 +14,7 @@ def _plan(tmp_path):
         "version": "1",
         "domain": "agent-runtime",
         "platform": "local-sim",
-        "target": {"startup": {"cold_ms": 50, "warm_ms": 5},
-                   "recovery": {"mode": "auto-retry"}},
+        "target": {"startup": {"cold_ms": 50, "warm_ms": 5}, "recovery": {"mode": "auto-retry"}},
         "tasks": [{"task": "T1.1", "repeat": 1}, {"task": "T1.3", "repeat": 1}],
     }
     p = tmp_path / "plan.yaml"
@@ -67,6 +67,7 @@ def test_manifest_does_not_pollute_the_report_loader(tmp_path, capsys):
     capsys.readouterr()
 
     from clousight_bench.core.report import _load_results
+
     records = _load_results(results)
     # Two tasks -> two terminal records; the manifest must not appear as one,
     # nor be reported as a skipped/broken record on stderr.

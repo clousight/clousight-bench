@@ -9,6 +9,7 @@ Evidence layer B: method reproducible, numbers environment-dependent. A real
 adapter enumerates the exported signals; local-sim reports the configured
 ``target.signals``. No signals probe -> ``unsupported``, never a crash.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -43,17 +44,13 @@ class SignalCompletenessTask(Task):
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T4.3 needs an AgentRuntimeAdapter")
         try:
             r = adapter.probe_signals()
         except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
+            return ObservationBundle(observations={"capability": "unsupported", "reason": str(exc)})
         return ObservationBundle(
             observations={
                 "capability": "supported",
@@ -69,10 +66,7 @@ class SignalCompletenessTask(Task):
         raw = observations.observations
         if raw.get("capability") != "supported":
             return TaskResult(
-                measurements={
-                    "signals_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
-                },
+                measurements={"signals_capability": Measurement(value="unsupported", unit="", evidence="B")},
                 findings=[
                     Finding(
                         code="agent_runtime.signals_probe_absent",
@@ -92,27 +86,39 @@ class SignalCompletenessTask(Task):
         structured = bool(raw["structured_logs"])
         findings = []
         if metrics_completeness < 1.0 or logs_completeness < 1.0:
-            findings.append(Finding(
-                code="agent_runtime.signals_incomplete", severity="warning",
-                summary="metrics or logs are incomplete", evidence="B",
-                details={"metrics_completeness": metrics_completeness,
-                         "logs_completeness": logs_completeness}))
+            findings.append(
+                Finding(
+                    code="agent_runtime.signals_incomplete",
+                    severity="warning",
+                    summary="metrics or logs are incomplete",
+                    evidence="B",
+                    details={
+                        "metrics_completeness": metrics_completeness,
+                        "logs_completeness": logs_completeness,
+                    },
+                )
+            )
         if not structured:
-            findings.append(Finding(
-                code="agent_runtime.logs_unstructured", severity="info",
-                summary="logs are unstructured (free text)", evidence="B", details={}))
+            findings.append(
+                Finding(
+                    code="agent_runtime.logs_unstructured",
+                    severity="info",
+                    summary="logs are unstructured (free text)",
+                    evidence="B",
+                    details={},
+                )
+            )
         return TaskResult(
             measurements={
                 "signals_capability": Measurement(value="supported", unit="", evidence="B"),
-                "metrics_completeness": Measurement(
-                    value=metrics_completeness, unit="", evidence="B"),
-                "logs_completeness": Measurement(
-                    value=logs_completeness, unit="", evidence="B"),
+                "metrics_completeness": Measurement(value=metrics_completeness, unit="", evidence="B"),
+                "logs_completeness": Measurement(value=logs_completeness, unit="", evidence="B"),
                 "structured_logs": Measurement(value=structured, unit="", evidence="B"),
             },
             findings=findings,
-            notes=(f"metrics={metrics_completeness:.0%} logs={logs_completeness:.0%} "
-                   f"structured={structured}"),
+            notes=(
+                f"metrics={metrics_completeness:.0%} logs={logs_completeness:.0%} structured={structured}"
+            ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )
