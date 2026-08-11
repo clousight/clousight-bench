@@ -888,11 +888,10 @@ def run_retry_storm(
     try:
         inv.invoke(session, body)
         # Invoke completed (agent exhausted retries or succeeded)
-    except Exception as exc:
-        err_str = str(exc).lower()
-        if any(k in err_str for k in ("timeout", "connection", "ssl", "eof", "connect")):
-            storm_bounded_by = "platform"
-        # On any exception: platform bounded the storm
+    except requests.exceptions.Timeout:
+        storm_bounded_by = "platform"
+    except Exception:
+        raise
     finally:
         inv.destroy_session(session)
 
