@@ -41,6 +41,10 @@ dev = [
     "mypy>=1.10",
     "types-PyYAML",
 ]
+# In-region data-plane probe (cb-probe server + OSS telemetry sink). The core
+# and CLI never import the probe subpackage, so a bare install stays minimal;
+# these are only needed to run/host a probe.
+probe = ["requests>=2.28", "oss2>=2.18"]
 store = ["duckdb>=1.0", "pyarrow>=16"]
 validate = ["jsonschema>=4.20"]
 report = ["jinja2>=3.1"]
