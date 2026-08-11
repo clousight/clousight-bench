@@ -189,10 +189,20 @@ class DeprovisionResult:
 
 @dataclass
 class RetryStormResult:
-    """Whether all-call-failure triggers abort-on-first or infinite retry (T1.10)."""
+    """Mock-counted total attempts + storm-bounded-by attribution (T1.10).
 
-    storm_behavior: str  # "abort_on_first_failure" | "timeout_loop" | "unexpected_success"
-    calls_attempted: int  # physical tool call attempts before abort/timeout
+    capability:       always "supported"
+    total_attempts:   how many times the agent hit the tool (per mock corr-bucket counter)
+    storm_bounded_by: attribution —
+        "agent"    : total_attempts <= 3 and no invoke timeout (agent retry contract held)
+        "platform" : invoke raised Timeout (platform cut it before agent could exhaust)
+        "none"     : total_attempts > 3 (anomaly — retry leaked past the contract)
+    duration_ms:      wall time of the probe window
+    """
+
+    capability: str  # always "supported"
+    total_attempts: int  # tool hits observed in the corr bucket
+    storm_bounded_by: str  # "agent" | "platform" | "none"
     duration_ms: float  # wall time of the probe window
 
 

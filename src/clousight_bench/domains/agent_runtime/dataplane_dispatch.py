@@ -195,8 +195,9 @@ def _pack_retry_storm(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> O
     result = adapter.probe_retry_storm(max_window_s=max_window_s)
     return ObservationBundle(
         observations={
-            "storm_behavior": result.storm_behavior,
-            "calls_attempted": result.calls_attempted,
+            "capability": result.capability,
+            "total_attempts": result.total_attempts,
+            "storm_bounded_by": result.storm_bounded_by,
             "duration_ms": result.duration_ms,
         }
     )

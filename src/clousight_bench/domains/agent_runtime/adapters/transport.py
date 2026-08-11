@@ -536,55 +536,18 @@ class MockRuntimeTransport(RuntimeTransport):
         )
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
-        """T1.10: run a 5-call plan where every call fails; measure abort behavior.
+        """T1.10 deterministic local-sim: mock-counted total attempts + storm-bounded-by.
 
-        The mock simulates persistent failure by using a non-existent path on the
-        mock server (guaranteed 404/error). The runtime's own recovery policy
-        determines whether it aborts on the first failure or keeps retrying.
+        Models the lc_agent 5xx-retry-2 contract (3 total attempts) against
+        persistent all-fail conditions. The agent retries up to 2 times (3 total)
+        and then gives up — bounded by the agent contract.
+        Deterministic: total_attempts=3, storm_bounded_by="agent", duration_ms=50.0
         """
-        plan = [ToolCall(target="__fail__") for _ in range(5)]
-        start = time.perf_counter()
-        deadline = start + max_window_s
-        attempts: list[Attempt] = []
-        completed = True
-        timed_out = False
-        _final_state = "completed"
-
-        for call_index, call in enumerate(plan, start=1):
-            attempt_no = 0
-            while True:
-                if time.perf_counter() >= deadline:
-                    timed_out = True
-                    break
-                attempt_no += 1
-                status, latency = self._http(call)
-                ok = 200 <= status < 300
-                attempts.append(Attempt(call_index, attempt_no, status, ok, round(latency, 2)))
-                if ok:
-                    break
-                if self.recovery_mode == "fail-fast" or attempt_no > self.max_retries:
-                    completed = False
-                    _final_state = "aborted" if self.recovery_mode == "fail-fast" else "failed"
-                    break
-                backoff = self.backoff_ms[min(attempt_no - 1, len(self.backoff_ms) - 1)]
-                time.sleep(backoff / 1000)
-            if timed_out or not completed:
-                break
-
-        duration_ms = round((time.perf_counter() - start) * 1000, 2)
-        calls_attempted = len(attempts)
-        failures = [a for a in attempts if not a.ok]
-
-        if timed_out:
-            storm_behavior = "timeout_loop"
-        elif completed and not failures:
-            storm_behavior = "unexpected_success"
-        else:
-            storm_behavior = "abort_on_first_failure"
-
+        duration_ms = 50.0  # deterministic local-sim value
         return RetryStormResult(
-            storm_behavior=storm_behavior,
-            calls_attempted=calls_attempted,
+            capability="supported",
+            total_attempts=3,
+            storm_bounded_by="agent",
             duration_ms=duration_ms,
         )
 

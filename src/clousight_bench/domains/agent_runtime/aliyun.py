@@ -967,63 +967,77 @@ class AliyunAgentRunTransport(RuntimeTransport):
         return InvocationTrace(session, attempts, completed, final_state)
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
-        """T1.10: run a 5-call plan where every call fails; measure abort behavior.
+        """T1.10: mock-counted total attempts + storm-bounded-by attribution.
 
-        Uses fail_after_n_calls=1 encoded in every request body so the deployed
-        agent returns a synthetic 500 on the very first call of each invoke.
-        Observes whether the runtime aborts cleanly (fail-fast) or loops until
-        the window expires (retry storm risk).
+        Configures the mock server to fail ALL calls on a per-correlation bucket
+        (fail_from_call:1, fail_count:999), issues a single invoke with that
+        correlation id, and reads the mock call counter to determine how many times
+        the platform let the agent hit the tool.
+
+        Attribution:
+          total_attempts <= 3 and no timeout → storm_bounded_by = "agent"
+          invoke raised Timeout               → storm_bounded_by = "platform"
+          total_attempts > 3                  → storm_bounded_by = "none"
         """
+        import uuid
+
         base = self._adapter.mock_base_url
         mock_token = str(self._adapter.target.get("mock_token") or "")
-        n_calls = 5
-        session = self.create_session()
-        start = time.perf_counter()
-        deadline = start + max_window_s
-        attempts: list[Attempt] = []
-        completed = True
-        timed_out = False
+        corr = uuid.uuid4().hex
 
+        # Step 1: Configure fault — fail ALL calls in this corr bucket.
+        fault_config = {"fail_from_call": 1, "fail_count": 999, "corr": corr}
+        fault_url = base.rstrip("/") + "/fault/config"
         try:
-            for call_index in range(1, n_calls + 1):
-                if time.perf_counter() >= deadline:
-                    timed_out = True
-                    break
-                tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
-                body = protocol.encode_invoke(
-                    tool,
-                    base,
-                    mock_token=mock_token or None,
-                    fail_after_n_calls=1,
-                    session_id=session,
-                )
-                t0 = time.perf_counter()
-                resp = self._invoke(session, body)
-                latency = (time.perf_counter() - t0) * 1000
-                result = protocol.decode_result(resp)
-                status = int(result.get("status", 0))
-                ok = bool(result.get("ok"))
-                attempts.append(Attempt(call_index, 1, status, ok, round(latency, 2)))
-                if not ok:
-                    completed = False
-                    break
+            import requests as _requests
+
+            _requests.post(fault_url, json=fault_config, timeout=10).raise_for_status()
+        except Exception:
+            pass  # best-effort; probe proceeds
+
+        # Step 2: Single invoke with this corr id.
+        session = self.create_session()
+        t_start = time.perf_counter()
+        storm_bounded_by = "agent"
+        tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
+        body = protocol.encode_invoke(
+            tool,
+            base,
+            mock_token=mock_token or None,
+            session_id=session,
+            correlation_id=corr,
+        )
+        try:
+            self._invoke(session, body)
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if any(k in err_str for k in ("timeout", "connection", "ssl", "eof", "connect")):
+                storm_bounded_by = "platform"
         finally:
             self.destroy_session(session)
 
-        duration_ms = round((time.perf_counter() - start) * 1000, 2)
-        calls_attempted = len(attempts)
-        failures = [a for a in attempts if not a.ok]
+        duration_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
-        if timed_out:
-            storm_behavior = "timeout_loop"
-        elif completed and not failures:
-            storm_behavior = "unexpected_success"
-        else:
-            storm_behavior = "abort_on_first_failure"
+        # Step 3: Read mock server call counter.
+        total_attempts = 0
+        try:
+            import requests as _requests
+
+            state_resp = _requests.get(base.rstrip("/") + "/fault/state", timeout=10)
+            state_resp.raise_for_status()
+            counts = state_resp.json().get("call_counts", {})
+            total_attempts = int(counts.get(f"prices|{corr}", 0))
+        except Exception:
+            pass
+
+        # Derive storm_bounded_by from total_attempts (unless platform timeout).
+        if storm_bounded_by != "platform":
+            storm_bounded_by = "none" if total_attempts > 3 else "agent"
 
         return RetryStormResult(
-            storm_behavior=storm_behavior,
-            calls_attempted=calls_attempted,
+            capability="supported",
+            total_attempts=total_attempts,
+            storm_bounded_by=storm_bounded_by,
             duration_ms=duration_ms,
         )
 

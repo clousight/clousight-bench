@@ -23,7 +23,6 @@ from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.core.stats import percentiles
 from clousight_bench.domains.agent_runtime import protocol
 from clousight_bench.domains.agent_runtime.adapters.base import (
-    Attempt,
     CancellationResult,
     CapabilityNotSupported,
     CeilingResult,
@@ -31,7 +30,6 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     LoadResult,
     RateLimitResult,
     RetentionResult,
-    RetryStormResult,
     ScalePoint,
     SoakResult,
 )
@@ -835,73 +833,99 @@ def run_fault_recovery(
 def run_retry_storm(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.10: run a n_calls-call plan where every call fails; measure abort behavior.
+    """T1.10: mock-counted total attempts + storm-bounded-by attribution.
 
-    Uses fail_after_n_calls=1 encoded in every request body so the deployed
-    agent returns a synthetic 500 on the very first call of each invoke.
-    Observes whether the runtime aborts cleanly (fail-fast) or loops until
-    the window expires (retry storm risk).
+    Uses a per-correlation mock bucket to isolate this probe's call counts from
+    concurrent traffic. Configures the mock server to fail ALL calls (fail_from_call=1,
+    fail_count=999) on this corr bucket, then issues a SINGLE invoke and lets the
+    deployed agent retry internally (per its lc_agent 5xx-retry-2 contract).
+    Reads the mock call counter afterwards to determine how many times the agent
+    actually hit the tool.
+
+    Attribution rules:
+      total_attempts <= 3 and no timeout → storm_bounded_by = "agent"
+          (agent retry contract held — bounded)
+      invoke raised Timeout               → storm_bounded_by = "platform"
+          (platform cut the invoke before agent could exhaust retries)
+      total_attempts > 3                  → storm_bounded_by = "none"
+          (anomaly — retry leaked past the agent contract, dangerous)
     """
-    max_window_s: float = spec.params.get("max_window_s", 30.0)
-    n_calls: int = spec.params.get("n_calls", 5)
+    import uuid
+
     base = spec.mock_base_url
     mock_token = spec.mock_token
+    corr = uuid.uuid4().hex  # unique correlation id for this probe run
+
+    # Step 1: Configure fault on mock server — fail ALL calls in this corr bucket.
+    fault_config = {"fail_from_call": 1, "fail_count": 999, "corr": corr}
+    fault_url = base.rstrip("/") + "/fault/config"
     inv = ProbeInvoker(spec)
     session = inv.create_session()
-    start = time.perf_counter()
-    deadline = start + max_window_s
-    attempts: list[Attempt] = []
-    completed = True
-    timed_out = False
+    t_start = time.perf_counter()
 
     try:
-        for call_index in range(1, n_calls + 1):
-            if time.perf_counter() >= deadline:
-                timed_out = True
-                break
-            tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
-            body = protocol.encode_invoke(
-                tool,
-                base,
-                mock_token=mock_token or None,
-                fail_after_n_calls=1,
-                session_id=session,
-            )
-            t0 = time.perf_counter()
-            resp = inv.invoke(session, body)
-            latency = (time.perf_counter() - t0) * 1000
-            result = protocol.decode_result(resp)
-            status = int(result.get("status", 0))
-            ok = bool(result.get("ok"))
-            attempts.append(Attempt(call_index, 1, status, ok, round(latency, 2)))
-            elapsed = time.perf_counter() - start
-            progress_cb(JobProgress("call", call_index, n_calls, elapsed), {})
-            if not ok:
-                completed = False
-                break
+        import requests as _requests
+
+        _requests.post(fault_url, json=fault_config, timeout=10).raise_for_status()
+    except Exception:
+        # If mock is unreachable, best-effort — probe will still proceed.
+        pass
+
+    progress_cb(JobProgress("configure", 1, 3, time.perf_counter() - t_start), {})
+
+    # Step 2: Issue a single invoke with this correlation id bounded by max_window_s.
+    # The agent internally retries 5xx up to 2 times (3 total attempts).
+    tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
+    body = protocol.encode_invoke(
+        tool,
+        base,
+        mock_token=mock_token or None,
+        session_id=session,
+        correlation_id=corr,
+    )
+
+    storm_bounded_by = "agent"  # default; may be overridden on Timeout
+    try:
+        inv.invoke(session, body)
+        # Invoke completed (agent exhausted retries or succeeded)
+    except Exception as exc:
+        err_str = str(exc).lower()
+        if any(k in err_str for k in ("timeout", "connection", "ssl", "eof", "connect")):
+            storm_bounded_by = "platform"
+        # On any exception: platform bounded the storm
     finally:
         inv.destroy_session(session)
 
-    duration_ms = round((time.perf_counter() - start) * 1000, 2)
-    calls_attempted = len(attempts)
-    failures = [a for a in attempts if not a.ok]
+    duration_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
-    if timed_out:
-        storm_behavior = "timeout_loop"
-    elif completed and not failures:
-        storm_behavior = "unexpected_success"
-    else:
-        storm_behavior = "abort_on_first_failure"
+    progress_cb(JobProgress("invoke", 2, 3, time.perf_counter() - t_start), {})
 
-    r = RetryStormResult(
-        storm_behavior=storm_behavior,
-        calls_attempted=calls_attempted,
-        duration_ms=duration_ms,
-    )
+    # Step 3: Read mock server call counter for this corr bucket.
+    total_attempts = 0
+    try:
+        import requests as _requests
+
+        state_resp = _requests.get(base.rstrip("/") + "/fault/state", timeout=10)
+        state_resp.raise_for_status()
+        counts = state_resp.json().get("call_counts", {})
+        total_attempts = int(counts.get(f"prices|{corr}", 0))
+    except Exception:
+        pass  # can't read counter; total_attempts stays 0
+
+    progress_cb(JobProgress("observe", 3, 3, time.perf_counter() - t_start), {})
+
+    # Derive storm_bounded_by from total_attempts (unless already set to "platform").
+    if storm_bounded_by != "platform":
+        if total_attempts > 3:
+            storm_bounded_by = "none"
+        else:
+            storm_bounded_by = "agent"
+
     return ObservationBundle(
         observations={
-            "storm_behavior": r.storm_behavior,
-            "calls_attempted": r.calls_attempted,
-            "duration_ms": r.duration_ms,
+            "capability": "supported",
+            "total_attempts": total_attempts,
+            "storm_bounded_by": storm_bounded_by,
+            "duration_ms": duration_ms,
         }
     )

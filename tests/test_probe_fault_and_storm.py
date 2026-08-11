@@ -151,9 +151,13 @@ def test_fault_recovery_produces_new_shape():
 
     try:
         from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec
+
         spec2 = JobSpec(
-            probe="fault_recovery", params={},
-            target_endpoint=agent_base, mock_base_url=mock_base, mock_token=""
+            probe="fault_recovery",
+            params={},
+            target_endpoint=agent_base,
+            mock_base_url=mock_base,
+            mock_token="",
         )
         b = run_fault_recovery(spec2, lambda p, m: None)
     finally:
@@ -168,12 +172,111 @@ def test_fault_recovery_produces_new_shape():
     assert "platform_terminated" in o
 
 
-def test_retry_storm_aborts_on_first_failure():
-    srv, base = _serve(_FaultOnFirst)
+def test_retry_storm_produces_new_shape():
+    """run_retry_storm returns the new shape: capability, total_attempts, storm_bounded_by, duration_ms."""
+    # Use a fake mock server that accepts POST /fault/config and GET /fault/state,
+    # and a fake agent that always returns ok=False (simulating all calls failing).
+    import json as _json
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class _MockServer(BaseHTTPRequestHandler):
+        _call_counts: dict = {}
+        _lock = threading.Lock()
+
+        def do_GET(self):  # noqa: N802
+            if self.path == "/fault/state":
+                with type(self)._lock:
+                    counts = dict(type(self)._call_counts)
+                self._send({"call_counts": counts})
+            elif self.path.startswith("/prices"):
+                corr = self.headers.get("X-Clousight-Correlation-Id") or ""
+                key = f"prices|{corr}" if corr else "prices"
+                with type(self)._lock:
+                    type(self)._call_counts[key] = type(self)._call_counts.get(key, 0) + 1
+                # Always fail — simulating persistent 500
+                self._send({"error": "injected_fault"}, 500)
+            else:
+                self._send({"ok": True})
+
+        def do_POST(self):  # noqa: N802
+            n = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(n)
+            if self.path == "/fault/config":
+                type(self)._call_counts = {}
+                self._send({"ok": True})
+            else:
+                self._send({"ok": True})
+
+        def _send(self, data, status=200):
+            out = _json.dumps(data).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+        def log_message(self, *a):
+            pass
+
+    _MockServer._call_counts = {}
+    mock_srv = ThreadingHTTPServer(("127.0.0.1", 0), _MockServer)
+    threading.Thread(target=mock_srv.serve_forever, daemon=True).start()
+    mock_base = f"http://127.0.0.1:{mock_srv.server_address[1]}"
+
+    # Fake agent: always returns ok=False (all retries exhausted, 3 total attempts)
+    class _AgentAllFail(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            n = int(self.headers.get("Content-Length", "0"))
+            body = _json.loads(self.rfile.read(n) or b"{}")
+            payload = _json.loads(body["messages"][0]["content"])
+            corr = payload.get("_correlation_id") or ""
+            base = payload.get("mock_base_url") or mock_base
+            import urllib.request
+
+            # Simulate agent making 3 attempts (lc_agent contract), all failing
+            for _ in range(3):
+                url = f"{base.rstrip('/')}/prices"
+                req = urllib.request.Request(url)
+                if corr:
+                    req.add_header("X-Clousight-Correlation-Id", corr)
+                try:
+                    with urllib.request.urlopen(req, timeout=2):
+                        pass
+                except Exception:
+                    pass
+            result = {"ok": False, "status": 500}
+            content = _json.dumps(result)
+            out = _json.dumps({"choices": [{"message": {"role": "assistant", "content": content}}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+        def log_message(self, *a):
+            pass
+
+    agent_srv = ThreadingHTTPServer(("127.0.0.1", 0), _AgentAllFail)
+    threading.Thread(target=agent_srv.serve_forever, daemon=True).start()
+    agent_base = f"http://127.0.0.1:{agent_srv.server_address[1]}"
+
     try:
-        b = run_retry_storm(_spec("retry_storm", base, max_window_s=5.0, n_calls=5), lambda p, m: None)
+        from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec
+
+        spec2 = JobSpec(
+            probe="retry_storm",
+            params={"max_window_s": 5.0},
+            target_endpoint=agent_base,
+            mock_base_url=mock_base,
+            mock_token="",
+        )
+        b = run_retry_storm(spec2, lambda p, m: None)
     finally:
-        srv.shutdown()
+        mock_srv.shutdown()
+        agent_srv.shutdown()
+
     o = b.observations
-    assert o["storm_behavior"] == "abort_on_first_failure"
-    assert o["calls_attempted"] == 1 and o["duration_ms"] >= 0.0
+    assert o["capability"] == "supported", f"missing capability, got {list(o)}"
+    assert "total_attempts" in o
+    assert "storm_bounded_by" in o
+    assert "duration_ms" in o

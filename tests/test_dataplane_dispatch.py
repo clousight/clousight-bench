@@ -55,8 +55,9 @@ class _FakeAdapter(AgentRuntimeAdapter):
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
         return RetryStormResult(
-            storm_behavior="abort_on_first_failure",
-            calls_attempted=1,
+            capability="supported",
+            total_attempts=3,
+            storm_bounded_by="agent",
             duration_ms=42.0,
         )
 
@@ -141,12 +142,12 @@ def test_fault_recovery_happy_path_new_shape():
     assert isinstance(o["platform_terminated"], bool)
 
 
-def test_retry_storm_happy_path_no_capability_key():
+def test_retry_storm_happy_path_new_shape():
     b = run_data_plane_probe(_FakeAdapter(), "retry_storm", {"max_window_s": 30.0})
     o = b.observations
-    assert "capability" not in o, "retry_storm must NOT include a 'capability' key"
-    assert isinstance(o["storm_behavior"], str)
-    assert isinstance(o["calls_attempted"], int)
+    assert o["capability"] == "supported"
+    assert isinstance(o["total_attempts"], int)
+    assert isinstance(o["storm_bounded_by"], str)
     assert isinstance(o["duration_ms"], float)
 
 

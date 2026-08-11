@@ -1,16 +1,18 @@
 """T1.10 retry storm.
 
-When ALL tool calls fail persistently, does the runtime abort cleanly
-(fail-fast) or loop indefinitely, amplifying failures into a retry storm?
+Evidence layer B — mock-counted total attempts + storm-bounded-by attribution:
+  - configure the mock server to fail ALL calls on a per-correlation bucket
+    (POST /fault/config {fail_from_call:1, fail_count:999, corr:<uuid>})
+  - issue a single invoke with that correlation id
+  - the deployed agent retries internally per its lc_agent 5xx-retry-2 contract
+    (up to 3 total attempts: 1 original + 2 retries)
+  - read the mock server's call counter (GET /fault/state) to observe how many
+    times the platform actually let the agent hit the tool
 
-Evidence layer C: deterministic, replayable.
-  - Run a 5-call plan with every call guaranteed to fail (non-existent path).
-  - Observe whether the runtime aborts on the first failure or keeps retrying
-    until the 30-second window expires.
-  - Classify:
-      "abort_on_first_failure" -- no retry amplification, good
-      "timeout_loop"           -- runtime looped until the window expired (bad)
-      "unexpected_success"     -- calls unexpectedly succeeded (probe invalid)
+Storm-bounded-by attribution:
+  total_attempts <= 3 and no timeout → "agent"   (agent contract bounded the storm)
+  invoke raised Timeout               → "platform" (platform cut it before exhaustion)
+  total_attempts > 3                  → "none"    (anomaly — unbounded retry storm risk)
 """
 
 from __future__ import annotations
@@ -34,18 +36,18 @@ MAX_WINDOW_S = 30.0
 class RetryStormTask(Task):
     task_id = "T1.10"
     title = "Retry storm"
-    evidence_layer = "C"
+    evidence_layer = "B"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
     capability_tags = ("reliability/retry-storm",)
-    task_revision = "1"
-    scorer_revision = "1"
+    task_revision = "2"
+    scorer_revision = "2"
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {
             "task_id": self.task_id,
-            "plan_calls": 5,
-            "fault": "all calls fail (non-existent endpoint)",
+            "fault": "all calls fail (mock corr-bucket fail_from_call:1 fail_count:999)",
             "max_window_s": MAX_WINDOW_S,
+            "injection_method": "mock-server corr-bucket (platform-visible)",
         }
 
     def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
@@ -62,36 +64,60 @@ class RetryStormTask(Task):
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations
-        storm_behavior = str(raw.get("storm_behavior", ""))
-        calls_attempted = int(raw.get("calls_attempted", 0))
-        duration_ms = float(raw.get("duration_ms", 0.0))
+        retry_storm_capability = str(raw.get("capability", "supported"))
+        total_attempts: int = int(raw.get("total_attempts", 0))
+        storm_bounded_by: str = str(raw.get("storm_bounded_by", "agent"))
+        duration_ms: float = float(raw.get("duration_ms", 0.0))
 
         findings: list[Finding] = []
-        if storm_behavior == "timeout_loop":
+
+        if storm_bounded_by == "none":
             findings.append(
                 Finding(
-                    code="agent_runtime.retry_storm_risk",
-                    severity="warning",
-                    summary="runtime looped on persistent tool failures until the window expired",
-                    evidence="C",
+                    code="agent_runtime.retry_storm_unbounded",
+                    severity="critical",
+                    summary=(
+                        "无界重试风暴风险"
+                        " (unbounded retry storm risk — total_attempts exceeded agent contract)"
+                    ),
+                    evidence="B",
                     details={
-                        "calls_attempted": calls_attempted,
+                        "total_attempts": total_attempts,
+                        "storm_bounded_by": storm_bounded_by,
                         "duration_ms": duration_ms,
                         "max_window_s": MAX_WINDOW_S,
+                    },
+                )
+            )
+        elif storm_bounded_by == "platform":
+            findings.append(
+                Finding(
+                    code="agent_runtime.retry_storm_platform_bounded",
+                    severity="info",
+                    summary=(
+                        "平台 timeout 在 agent 耗尽重试前终止 invoke"
+                        " (platform bounded storm via invoke timeout)"
+                    ),
+                    evidence="B",
+                    details={
+                        "total_attempts": total_attempts,
+                        "storm_bounded_by": storm_bounded_by,
+                        "duration_ms": duration_ms,
                     },
                 )
             )
 
         return TaskResult(
             measurements={
-                "storm_behavior": Measurement(value=storm_behavior, unit="", evidence="C"),
-                "calls_attempted": Measurement(value=calls_attempted, unit="count", evidence="C"),
-                "probe_duration_ms": Measurement(value=duration_ms, unit="ms", evidence="C"),
+                "retry_storm_capability": Measurement(value=retry_storm_capability, unit="", evidence="B"),
+                "total_attempts": Measurement(value=total_attempts, unit="count", evidence="B"),
+                "storm_bounded_by": Measurement(value=storm_bounded_by, unit="", evidence="B"),
+                "duration_ms": Measurement(value=duration_ms, unit="ms", evidence="B"),
             },
             findings=findings,
             notes=(
-                f"all-fail plan -> storm_behavior={storm_behavior}, "
-                f"{calls_attempted} attempts in {duration_ms:.0f}ms"
+                f"all-fail probe → storm_bounded_by={storm_bounded_by}, "
+                f"total_attempts={total_attempts} in {duration_ms:.0f}ms"
             ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
