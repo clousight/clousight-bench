@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from typing import Any
 from urllib import request as urlrequest
 
@@ -28,6 +29,16 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import BaseTool
 from pydantic import Field
+
+# ---------------------------------------------------------------------------
+# Pinned retry policy — part of the benchmark agent contract (not parameterised)
+# ---------------------------------------------------------------------------
+
+AGENT_RETRY_POLICY: dict[str, Any] = {
+    "max_retries": 2,
+    "backoff_ms": 200,
+    "retry_on": "5xx",
+}
 
 # ---------------------------------------------------------------------------
 # Deterministic stub LLM
@@ -63,14 +74,21 @@ class BenchmarkChatModel(BaseChatModel):
         run_manager: Any = None,
         **kwargs: Any,
     ) -> ChatResult:
-        # If the conversation already has a ToolMessage (tool result), return the
-        # final answer so AgentExecutor stops after exactly one tool call.
+        """Implement the pinned retry policy.
+
+        LangChain's loop: LLM emits tool_call → executor runs tool → ToolMessage
+        fed back → LLM called again.  We implement retry by re-emitting the same
+        tool_call when the last ToolMessage carries a 5xx status and the retry
+        budget (max_retries=2, i.e. ≤2 retries after the first attempt) is not
+        exhausted.  Otherwise we emit a final answer to stop the loop.
+        """
         from langchain_core.messages import ToolMessage
 
-        has_tool_result = any(isinstance(m, ToolMessage) for m in messages)
-        if has_tool_result:
-            message = AIMessage(content=f"Tool {self.tool_name!r} executed successfully.")
-        else:
+        tool_messages = [m for m in messages if isinstance(m, ToolMessage)]
+        attempt_count = len(tool_messages)  # number of tool calls already made
+
+        if attempt_count == 0:
+            # No tool result yet — first call, emit the tool_call.
             message = AIMessage(
                 content="",
                 tool_calls=[
@@ -82,6 +100,38 @@ class BenchmarkChatModel(BaseChatModel):
                     }
                 ],
             )
+            return ChatResult(generations=[ChatGeneration(message=message)])
+
+        # There is at least one ToolMessage — inspect the last one.
+        last_tool_msg = tool_messages[-1]
+        try:
+            last_content = json.loads(last_tool_msg.content)
+            http_status = int(last_content.get("_tool_http_status", 200))
+        except Exception:
+            http_status = 200  # unparseable → treat as success, stop loop
+
+        should_retry = (
+            500 <= http_status <= 599
+            and http_status != 599  # 599 = connection failure, no retry
+            and attempt_count <= AGENT_RETRY_POLICY["max_retries"]
+        )
+
+        if should_retry:
+            time.sleep(AGENT_RETRY_POLICY["backoff_ms"] / 1000.0)
+            message = AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": self.tool_name,
+                        "args": self.tool_args,
+                        "id": f"call_bench_{attempt_count + 1:03d}",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        else:
+            message = AIMessage(content=f"Tool {self.tool_name!r} executed successfully.")
+
         return ChatResult(generations=[ChatGeneration(message=message)])
 
 
@@ -112,11 +162,17 @@ class MockServerTool(BaseTool):
         if self.mock_token:
             headers["X-Clousight-Token"] = self.mock_token
         req = urlrequest.Request(url, data=data, method=self.http_method, headers=headers)
+        import urllib.error
+
         try:
             with urlrequest.urlopen(req, timeout=10) as resp:
-                return resp.read().decode("utf-8")
+                body = json.loads(resp.read().decode("utf-8"))
+                body["_tool_http_status"] = resp.status
+                return json.dumps(body)
+        except urllib.error.HTTPError as e:
+            return json.dumps({"_tool_http_status": e.code, "error": str(e)})
         except Exception as exc:
-            return f'{{"error": "{exc}"}}'
+            return json.dumps({"_tool_http_status": 599, "error": str(exc)})
 
 
 def make_tools(mock_base_url: str, mock_token: str) -> list[BaseTool]:
@@ -236,7 +292,14 @@ def run(body: dict[str, Any]) -> dict[str, Any]:
     tools = make_tools(mock_base_url, mock_token)
 
     agent = create_tool_calling_agent(llm, tools, _PROMPT)
-    executor = AgentExecutor(agent=agent, tools=tools, verbose=False, return_intermediate_steps=False)
+    # max_iterations must be >= 1 (initial) + max_retries + 1 (final answer) = 4
+    executor = AgentExecutor(
+        agent=agent,
+        tools=tools,
+        verbose=False,
+        return_intermediate_steps=False,
+        max_iterations=AGENT_RETRY_POLICY["max_retries"] + 2,  # 4: enough for retries
+    )
 
     try:
         result = executor.invoke({"input": f"execute {target} tool call"})
