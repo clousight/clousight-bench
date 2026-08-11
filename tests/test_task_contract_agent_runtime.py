@@ -8,6 +8,9 @@ from clousight_bench.domains.agent_runtime.tasks.t1_2_state_persistence import (
 from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import (
     FaultRecoveryTask,
 )
+from clousight_bench.domains.agent_runtime.tasks.t1_11_concurrent_writes import (
+    ConcurrentWritesTask,
+)
 
 
 def _run(task, adapter):
@@ -18,42 +21,83 @@ def _run(task, adapter):
         adapter.teardown()
 
 
-def test_t1_2_execute_returns_raw_observations_without_a_verdict():
+# ---------------------------------------------------------------------------
+# T1.2 state persistence -- AgentRun has no native session state
+# ---------------------------------------------------------------------------
+
+
+def test_t1_2_execute_returns_unsupported_without_calling_state_api():
+    # AgentRun (FC-based) has no native session state; execute must immediately
+    # report unsupported without touching persist_state / resume_session.
     bundle = _run(StatePersistenceTask(), LocalSimAdapter({"state_persistence": "durable"}))
     assert isinstance(bundle, ObservationBundle)
-    assert bundle.observations["capability"] == "supported"
-    assert bundle.observations["recovered"] == bundle.observations["probe"]
-    assert "state_persisted" not in bundle.observations
-    assert "persistence_mode" not in bundle.observations
+    assert bundle.observations["capability"] == "unsupported"
+    assert "reason" in bundle.observations
+    # must NOT contain keys from the old "supported" path
+    assert "recovered" not in bundle.observations
+    assert "probe" not in bundle.observations
 
 
-def test_t1_2_score_is_pure_and_repeatable():
+def test_t1_2_score_unsupported_uses_evidence_A_and_info_finding():
     task = StatePersistenceTask()
-    bundle = _run(task, LocalSimAdapter({"state_persistence": "ephemeral"}))
+    bundle = _run(task, LocalSimAdapter())
     before = bundle.to_dict()
     first = task.score(bundle)
     second = task.score(bundle)
+    # score() must be pure
     assert bundle.to_dict() == before
-    assert first.measurements["persistence_mode"].value == "ephemeral"
-    assert second.measurements["persistence_mode"].value == "ephemeral"
-    assert [f.code for f in first.findings] == ["agent_runtime.state_ephemeral"]
-    assert first.task_revision == "2" and first.scorer_revision == "2"
+    assert first.unsupported is True
+    assert first.measurements["state_capability"].value == "unsupported"
+    assert first.measurements["state_capability"].evidence == "A"
+    assert [f.code for f in first.findings] == ["agent_runtime.no_native_session_state"]
+    assert first.findings[0].severity in ("info", "warning")
+    # revisions bumped
+    assert first.task_revision == "3" and first.scorer_revision == "3"
+    # score is repeatable
+    assert second.measurements["state_capability"].value == "unsupported"
 
 
-def test_t1_2_unsupported_capability_is_a_finding_not_a_crash():
-    class _NoState(LocalSimAdapter):
-        def persist_state(self, session_id, state):
-            from clousight_bench.domains.agent_runtime.adapters.base import (
-                CapabilityNotSupported,
-            )
-
-            raise CapabilityNotSupported("persist_state")
-
+def test_t1_2_score_unsupported_is_a_finding_not_a_crash():
+    # Kept for backward-compat shape: unsupported=True, evidence A (was C)
     task = StatePersistenceTask()
-    result = task.score(_run(task, _NoState()))
+    result = task.score(_run(task, LocalSimAdapter()))
     assert result.unsupported is True
     assert result.measurements["state_capability"].value == "unsupported"
-    assert [f.code for f in result.findings] == ["agent_runtime.state_api_absent"]
+    assert result.measurements["state_capability"].evidence == "A"
+    assert [f.code for f in result.findings] == ["agent_runtime.no_native_session_state"]
+
+
+# ---------------------------------------------------------------------------
+# T1.11 concurrent writes -- AgentRun has no native session state
+# ---------------------------------------------------------------------------
+
+
+def test_t1_11_execute_returns_unsupported_without_calling_probe():
+    # AgentRun has no native session state; execute must report unsupported
+    # immediately without calling probe_concurrent_writes.
+    bundle = _run(ConcurrentWritesTask(), LocalSimAdapter())
+    assert isinstance(bundle, ObservationBundle)
+    assert bundle.observations["capability"] == "unsupported"
+    assert "reason" in bundle.observations
+    # must NOT contain keys from the old "supported" path
+    assert "write_safe" not in bundle.observations
+    assert "winner" not in bundle.observations
+
+
+def test_t1_11_score_unsupported_uses_evidence_A_and_info_finding():
+    task = ConcurrentWritesTask()
+    bundle = _run(task, LocalSimAdapter())
+    before = bundle.to_dict()
+    result = task.score(bundle)
+    # score() must be pure
+    assert bundle.to_dict() == before
+    assert result.unsupported is True
+    assert result.measurements["state_capability"].value == "unsupported"
+    assert result.measurements["state_capability"].evidence == "A"
+    assert [f.code for f in result.findings] == ["agent_runtime.no_native_session_state"]
+    assert result.findings[0].severity in ("info", "warning")
+    # revisions bumped
+    assert result.task_revision == "2" and result.scorer_revision == "2"
 
 
 def test_t1_3_execute_produces_new_shape():
