@@ -56,6 +56,17 @@ agent = [
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp-proto-http",
 ]
+# Live Aliyun AgentRun provider SDKs. Optional: the provider registers and the
+# mock/seam paths work without them; only live cloud calls need them installed.
+aliyun = [
+    "alibabacloud-agentrun20250910",
+    "alibabacloud-tea-openapi",
+    "alibabacloud-credentials",
+    "oss2",
+    "alibabacloud-arms20190808",
+    "alibabacloud-eci20180808",
+    "requests>=2.28",
+]
 store = ["duckdb>=1.0", "pyarrow>=16"]
 validate = ["jsonschema>=4.20"]
 report = ["jinja2>=3.1"]
@@ -76,6 +87,12 @@ pricing = "clousight_bench.enrichers.pricing:PricingEnricher"
 
 [project.entry-points."clousight_bench.span_exporters"]
 local = "clousight_bench.core.tracing:LocalFileSpanExporter"
+
+[project.entry-points."clousight_bench.runtime_providers"]
+aliyun = "clousight_bench.domains.agent_runtime.aliyun:AliyunRuntimeProvider"
+
+[project.entry-points."clousight_bench.resource_reapers"]
+aliyun = "clousight_bench.domains.agent_runtime.reaper:AliyunResourceReaper"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/clousight_bench"]

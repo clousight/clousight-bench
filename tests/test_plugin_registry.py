@@ -58,10 +58,11 @@ def test_adapter_status_distinguishes_reference_from_skeleton():
 
 
 def test_orchestrator_rejects_skeleton_before_preflight(tmp_path):
-    # Default (real) mode: a skeleton cloud is refused up front.
-    with pytest.raises(AdapterNotRunnableError, match="aliyun-agentrun.*skeleton"):
+    # Default (real) mode: a skeleton cloud is refused up front. aliyun-agentrun
+    # is now provider-backed in the open core, so use a still-skeleton platform.
+    with pytest.raises(AdapterNotRunnableError, match="huawei-agentarts.*skeleton"):
         execute(
-            RunSpec("agent-runtime", "T1.3", "aliyun-agentrun"),
+            RunSpec("agent-runtime", "T1.3", "huawei-agentarts"),
             results_dir=tmp_path,
             preflight=False,
         )
@@ -80,12 +81,16 @@ def test_orchestrator_allows_skeleton_cloud_in_mock_mode(tmp_path):
     assert rec.status == "completed"
 
 
-def test_runtime_providers_empty_in_open_core():
-    # Open-core ships no wired runtime provider -> the seam is empty, so skeleton
-    # clouds fall back to not-wired in real mode (previous test asserts the gate).
+def test_aliyun_runtime_provider_registered_in_open_core():
+    # The Aliyun AgentRun provider is open-sourced in clousight-bench itself, so
+    # its runtime provider is registered out of the box (this is what flips the
+    # aliyun-agentrun skeleton to runnable in real mode). Other clouds (huawei /
+    # volcengine) remain skeleton with no provider.
     from clousight_bench.core.registry import load_runtime_providers
 
-    assert load_runtime_providers() == {}
+    providers = load_runtime_providers()
+    assert "aliyun" in providers
+    assert "huawei" not in providers and "volcengine" not in providers
 
 
 class _FakeTransport:

@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import importlib.resources as resources
 import io
+import uuid
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 _BUNDLE = "clousight_bench.domains.agent_runtime.agent_bundle"
 # Agent source files included at the zip root (flat, importable as siblings in FC)
@@ -52,7 +55,8 @@ def _deps_fingerprint() -> str:
 
 def _build_vendor_dir(vendor_path: Path) -> None:
     """Install LangChain + OTel deps into vendor_path using pip/uv."""
-    import subprocess, shutil
+    import shutil
+    import subprocess
 
     if vendor_path.exists():
         shutil.rmtree(vendor_path)
@@ -88,7 +92,6 @@ def build_agent_zip_bytes(with_langchain: bool = True) -> bytes:
 
     Reads source files from package data so this works from an installed wheel.
     """
-    import tempfile
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -136,3 +139,87 @@ def build_agent_zip(dest: Path | str, with_langchain: bool = True) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(build_agent_zip_bytes(with_langchain=with_langchain))
     return dest
+
+
+_OSS_PACKAGE = "oss2"
+
+# The OSS credential bridge is defined once (with the probe's OSS client) and
+# re-exported here so OssArtifactStore and `from ...artifact import
+# _ChainCredentialsProvider` share the single implementation.
+from clousight_bench.domains.agent_runtime.probe.oss_client import (  # noqa: E402
+    _ChainCredentialsProvider,
+)
+
+
+class OssArtifactStore:
+    """Uploads the agent zip to OSS under a unique key and deletes it on teardown.
+
+    Object-level lifecycle only -- it never creates or deletes the bucket, so it
+    is safe against a caller-owned bucket. The endpoint defaults to the region's
+    public OSS endpoint."""
+
+    def __init__(
+        self,
+        bucket: str,
+        region: str,
+        *,
+        endpoint: str | None = None,
+        key_prefix: str = "clousight-bench/",
+        bucket_factory: Callable[[], Any] | None = None,
+        run_id: str | None = None,
+    ) -> None:
+        if not bucket:
+            raise ValueError("an OSS bucket name is required to manage the agent artifact")
+        self._bucket_name = bucket
+        self._region = region
+        self._endpoint = endpoint or f"https://oss-{region}.aliyuncs.com"
+        self._key_prefix = key_prefix
+        self._bucket_factory = bucket_factory
+        self._run_id = run_id
+        self._bucket: Any = None
+
+    def _bucket_client(self) -> Any:
+        if self._bucket is None:
+            self._bucket = (self._bucket_factory or self._default_bucket)()
+        return self._bucket
+
+    def _default_bucket(self) -> Any:
+        # Unify OSS auth on the SAME default credential chain as the AgentRun
+        # client, so every access method works for uploads too and stays
+        # consistent: long-term AccessKeys (env), STS temporary credentials
+        # (security_token carried through), CLI profile, OIDC, and instance RAM
+        # role -- not only static env-var AccessKeys.
+        try:
+            import oss2
+            from alibabacloud_credentials.client import Client as CredClient
+        except ImportError as exc:
+            raise RuntimeError(
+                f"the OSS SDK + credential chain are required to upload the agent "
+                f"artifact but are not installed. Install them with: pip install "
+                f"{_OSS_PACKAGE} alibabacloud-credentials (they ship with the "
+                f"`aliyun` extra). Or upload the zip yourself and pass "
+                f"target.artifact_ref."
+            ) from exc
+        auth = oss2.ProviderAuthV4(_ChainCredentialsProvider(CredClient()))
+        return oss2.Bucket(auth, self._endpoint, self._bucket_name, region=self._region)
+
+    def upload(self, data: bytes | None = None) -> str:
+        """Put the agent zip under a unique key; return its ``oss://`` reference.
+
+        When a run_id is known the key is namespaced under it
+        (``<prefix><run_id>/<uuid>.zip``) so the object is attributable to the run
+        for cost reconciliation and audit; otherwise a bare unique key is used."""
+        payload = build_agent_zip_bytes() if data is None else data
+        stem = f"{self._run_id}/{uuid.uuid4().hex}" if self._run_id else uuid.uuid4().hex
+        key = f"{self._key_prefix}{stem}.zip"
+        self._bucket_client().put_object(key, payload)
+        return f"oss://{self._bucket_name}/{key}"
+
+    def delete(self, ref: str) -> None:
+        """Delete a previously uploaded object. Raises if the delete call fails so
+        the caller can report a failed cleanup; a foreign ref is a no-op."""
+        prefix = f"oss://{self._bucket_name}/"
+        if not ref.startswith(prefix):
+            return
+        key = ref[len(prefix):]
+        self._bucket_client().delete_object(key)
