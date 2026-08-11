@@ -25,6 +25,7 @@ Fault config body (POST /fault/config):
 Run standalone (the runtime under test must be able to reach this address):
     python -m clousight_bench.domains.agent_runtime.mock_tools --port 8770
 """
+
 from __future__ import annotations
 
 import argparse
@@ -106,9 +107,7 @@ class ToolState:
 AUTH_HEADER = "X-Clousight-Token"
 
 
-def make_handler(
-    state: ToolState, token: str | None = None
-) -> type[BaseHTTPRequestHandler]:
+def make_handler(state: ToolState, token: str | None = None) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         server_version = "ClousightBenchMock/0.1"
 
@@ -121,6 +120,7 @@ def make_handler(
             if urlparse(self.path).path == "/health":
                 return True
             import hmac
+
             return hmac.compare_digest(self.headers.get(AUTH_HEADER) or "", token)
 
         def _send(self, payload: Any, status: int = 200) -> None:
@@ -236,9 +236,7 @@ def make_server(
     return server, state
 
 
-def start_in_thread(
-    port: int = 8770, token: str | None = None
-) -> tuple[ThreadingHTTPServer, ToolState]:
+def start_in_thread(port: int = 8770, token: str | None = None) -> tuple[ThreadingHTTPServer, ToolState]:
     server, state = make_server(port, token=token)
     Thread(target=server.serve_forever, daemon=True).start()
     return server, state
@@ -250,10 +248,12 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8770)
     parser.add_argument(
-        "--token", default=os.environ.get("CSBENCH_MOCK_TOKEN"),
+        "--token",
+        default=os.environ.get("CSBENCH_MOCK_TOKEN"),
         help="require this token in the X-Clousight-Token header (default: "
-             "$CSBENCH_MOCK_TOKEN). Strongly recommended when exposing the server "
-             "on a public tunnel for a real-cloud run.")
+        "$CSBENCH_MOCK_TOKEN). Strongly recommended when exposing the server "
+        "on a public tunnel for a real-cloud run.",
+    )
     args = parser.parse_args()
     server, _ = make_server(args.port, token=args.token)
     lock = " (token-locked)" if args.token else " (OPEN -- no token; do not expose publicly)"
