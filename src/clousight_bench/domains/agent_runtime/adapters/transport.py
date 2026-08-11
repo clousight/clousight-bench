@@ -592,37 +592,47 @@ class MockRuntimeTransport(RuntimeTransport):
         return ConcurrentWriteResult(write_safe=write_safe, winner=winner)
 
     def probe_hol_blocking(self) -> HOLResult:
-        """T1.12: 1 slow + 5 fast concurrent requests on the same session.
+        """T1.12: two-phase HOL probe against the MockRuntimeTransport.
 
-        The mock uses the ``reports`` endpoint (configured slower via tool-server
-        sleep) and the ``prices`` endpoint (fast). Since the mock tool server
-        runs in a real HTTP thread, actual per-request latencies are measured.
+        Phase A (baseline): 20 concurrent fast requests (prices) with no slow.
+        Phase B (under-slow): 1 slow (reports, no extra sleep injected in sim)
+            + 20 fast (prices) concurrent.
+
+        The mock transport uses a single ThreadingHTTPServer so all requests run
+        in parallel → serialized=False deterministically, hol_ratio ≈ 1.0.
         """
-        session_id = "hol-probe"
-        slow_call = ToolCall(target="reports")
-        fast_calls = [ToolCall(target="prices") for _ in range(5)]
+        fast_count = 20
+        slow_call = ToolCall(target="reports", method="POST")
+        fast_calls = [ToolCall(target="prices") for _ in range(fast_count)]
 
         def timed_http(call: ToolCall) -> float:
             _, latency_ms = self._http(call)
             return latency_ms
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
-            slow_fut = pool.submit(timed_http, slow_call)
-            fast_futs = [pool.submit(timed_http, c) for c in fast_calls]
-            slow_ms = slow_fut.result()
-            fast_latencies = sorted(f.result() for f in fast_futs)
+        # Phase A: baseline
+        with concurrent.futures.ThreadPoolExecutor(max_workers=fast_count) as pool:
+            futs_a = [pool.submit(timed_http, c) for c in fast_calls]
+            baseline_latencies = [f.result() for f in futs_a]
 
-        self._last_calls[session_id] = 6
-        fast_p50_ms = round(fast_latencies[len(fast_latencies) // 2], 2)
-        fast_p99_ms = round(fast_latencies[-1], 2)
-        slow_p50_ms = round(slow_ms, 2)
-        hol_ratio = round(fast_p99_ms / slow_p50_ms, 4) if slow_p50_ms > 0 else 0.0
-        blocked = hol_ratio > 0.5
+        fast_p50_baseline = percentiles(baseline_latencies, [50])[50]
+
+        # Phase B: under-slow (1 slow + N fast concurrent)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1 + fast_count) as pool:
+            slow_fut = pool.submit(timed_http, slow_call)
+            futs_b = [pool.submit(timed_http, c) for c in fast_calls]
+            slow_fut.result()
+            under_slow_latencies = [f.result() for f in futs_b]
+
+        fast_p50_under_slow = percentiles(under_slow_latencies, [50])[50]
+        hol_ratio = round(fast_p50_under_slow / fast_p50_baseline, 4) if fast_p50_baseline > 0 else 0.0
+        serialized = fast_p50_under_slow > fast_p50_baseline * 2.0
+
+        self._last_calls["hol-probe"] = 1 + fast_count * 2
 
         return HOLResult(
-            blocked=blocked,
-            fast_p50_ms=fast_p50_ms,
-            slow_p50_ms=slow_p50_ms,
+            serialized=serialized,
+            fast_p50_baseline=fast_p50_baseline,
+            fast_p50_under_slow=fast_p50_under_slow,
             hol_ratio=hol_ratio,
         )
 

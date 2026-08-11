@@ -208,10 +208,11 @@ def _pack_hol_blocking(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> 
     result = adapter.probe_hol_blocking()
     return ObservationBundle(
         observations={
-            "blocked": result.blocked,
-            "fast_p50_ms": result.fast_p50_ms,
-            "slow_p50_ms": result.slow_p50_ms,
+            "capability": "supported",
+            "fast_p50_baseline": result.fast_p50_baseline,
+            "fast_p50_under_slow": result.fast_p50_under_slow,
             "hol_ratio": result.hol_ratio,
+            "serialized": result.serialized,
         }
     )
 

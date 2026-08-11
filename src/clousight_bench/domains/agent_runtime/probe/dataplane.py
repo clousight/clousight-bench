@@ -669,27 +669,42 @@ def run_scaling(
 def run_hol_blocking(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.12: 1 slow + fast_count fast concurrent requests on the same session.
+    """T1.12: two-phase HOL blocking probe.
 
-    Fires requests to the ``slow_target`` endpoint (slow) and ``fast_target``
-    endpoint (fast) concurrently via the data plane. If the fast requests'
-    p99 exceeds half the slow request's latency, HOL blocking is present in
-    the session dispatch queue.
+    Phase A (baseline): ``fast_count`` concurrent fast requests (``fast_target``)
+        with NO latency injected — establishes the clean p50 baseline.
+    Phase B (under-slow): 1 slow request (``slow_target``) with real latency
+        injected via POST /latency/config + ``fast_count`` fast requests all on
+        the same session. Each request carries a unique correlation_id so the
+        mock's per-corr bucket counter doesn't cross-count requests.
+
+    ``serialized`` is True iff fast_p50_under_slow > fast_p50_baseline * 2.0,
+    meaning the platform's session queue caused head-of-line blocking.
+    ``hol_ratio`` = fast_p50_under_slow / fast_p50_baseline.
     """
+    import uuid
+
     slow_target: str = spec.params.get("slow_target", "reports")
     fast_target: str = spec.params.get("fast_target", "prices")
-    fast_count: int = spec.params.get("fast_count", 5)
+    fast_count: int = spec.params.get("fast_count", 20)
+    slow_latency_ms: int = int(spec.params.get("slow_latency_ms", 500))
 
     inv = ProbeInvoker(spec)
     base = spec.mock_base_url
     mock_token = spec.mock_token
-    session_id = inv.create_session()
+    latency_url = base.rstrip("/") + "/latency/config"
+    t_start = time.perf_counter()
 
-    def timed_invoke(target: str) -> float:
+    # ---- Phase A: baseline — fast_count concurrent fast requests, no slow ----
+    session_a = inv.create_session()
+
+    def timed_fast(session_id: str, corr: str) -> float:
         body = protocol.encode_invoke(
-            {"target": target, "method": "GET"},
+            {"target": fast_target, "method": "GET"},
             base,
             mock_token=mock_token or None,
+            session_id=session_id,
+            correlation_id=corr,
         )
         t0 = time.perf_counter()
         try:
@@ -698,39 +713,77 @@ def run_hol_blocking(
             pass
         return (time.perf_counter() - t0) * 1000
 
-    t_start = time.perf_counter()
+    try:
+        with ThreadPoolExecutor(max_workers=fast_count) as pool:
+            futs_a = [pool.submit(timed_fast, session_a, uuid.uuid4().hex) for _ in range(fast_count)]
+            baseline_latencies = [f.result() for f in futs_a]
+    finally:
+        inv.destroy_session(session_a)
+
+    fast_p50_baseline = percentiles(baseline_latencies, [50])[50]
+    progress_cb(JobProgress("hol_baseline", 1, 2, time.perf_counter() - t_start), {})
+
+    # ---- Phase B: under-slow — inject real latency, 1 slow + fast_count fast ----
+    # Configure latency on the mock tool server for the slow target.
+    slow_corr = uuid.uuid4().hex
+    latency_cfg = {"target": slow_target, "add_ms": slow_latency_ms, "corr": slow_corr}
+    try:
+        requests.post(latency_url, json=latency_cfg, timeout=10).raise_for_status()
+    except Exception:
+        pass  # best-effort; probe continues even if mock unreachable
+
+    session_b = inv.create_session()
+
+    def timed_slow() -> float:
+        body = protocol.encode_invoke(
+            {"target": slow_target, "method": "POST"},
+            base,
+            mock_token=mock_token or None,
+            session_id=session_b,
+            correlation_id=slow_corr,
+        )
+        t0 = time.perf_counter()
+        try:
+            inv.invoke(session_b, body)
+        except Exception:
+            pass
+        return (time.perf_counter() - t0) * 1000
+
     try:
         with ThreadPoolExecutor(max_workers=1 + fast_count) as pool:
-            slow_fut = pool.submit(timed_invoke, slow_target)
-            fast_futs = [pool.submit(timed_invoke, fast_target) for _ in range(fast_count)]
-            slow_ms = slow_fut.result()
-            fast_latencies = sorted(f.result() for f in fast_futs)
+            slow_fut = pool.submit(timed_slow)
+            fast_futs_b = [pool.submit(timed_fast, session_b, uuid.uuid4().hex) for _ in range(fast_count)]
+            slow_fut.result()
+            under_slow_latencies = [f.result() for f in fast_futs_b]
     finally:
-        inv.destroy_session(session_id)
+        inv.destroy_session(session_b)
+        # Clear latency config so it doesn't affect other probes.
+        try:
+            requests.post(latency_url, json={}, timeout=5)
+        except Exception:
+            pass
 
-    fast_p50_ms = round(fast_latencies[len(fast_latencies) // 2], 2)
-    fast_p99_ms = round(fast_latencies[-1], 2)
-    slow_p50_ms = round(slow_ms, 2)
-    hol_ratio = round(fast_p99_ms / slow_p50_ms, 4) if slow_p50_ms > 0 else 0.0
-    blocked = hol_ratio > 0.5
+    fast_p50_under_slow = percentiles(under_slow_latencies, [50])[50]
+    hol_ratio = round(fast_p50_under_slow / fast_p50_baseline, 4) if fast_p50_baseline > 0 else 0.0
+    serialized = fast_p50_under_slow > fast_p50_baseline * 2.0
 
     elapsed = time.perf_counter() - t_start
+    progress_cb(JobProgress("hol_under_slow", 2, 2, elapsed), {"serialized": serialized})
 
     r = HOLResult(
-        blocked=blocked,
-        fast_p50_ms=fast_p50_ms,
-        slow_p50_ms=slow_p50_ms,
+        serialized=serialized,
+        fast_p50_baseline=fast_p50_baseline,
+        fast_p50_under_slow=fast_p50_under_slow,
         hol_ratio=hol_ratio,
     )
 
-    progress_cb(JobProgress("hol", 1, 1, elapsed), {"blocked": r.blocked})
-
     return ObservationBundle(
         observations={
-            "blocked": r.blocked,
-            "fast_p50_ms": r.fast_p50_ms,
-            "slow_p50_ms": r.slow_p50_ms,
+            "capability": "supported",
+            "fast_p50_baseline": r.fast_p50_baseline,
+            "fast_p50_under_slow": r.fast_p50_under_slow,
             "hol_ratio": r.hol_ratio,
+            "serialized": r.serialized,
         }
     )
 

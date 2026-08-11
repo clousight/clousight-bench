@@ -63,10 +63,10 @@ class _FakeAdapter(AgentRuntimeAdapter):
 
     def probe_hol_blocking(self) -> HOLResult:
         return HOLResult(
-            blocked=False,
-            fast_p50_ms=5.0,
-            slow_p50_ms=200.0,
-            hol_ratio=0.025,
+            serialized=False,
+            fast_p50_baseline=5.0,
+            fast_p50_under_slow=6.0,
+            hol_ratio=1.2,
         )
 
 
@@ -151,14 +151,18 @@ def test_retry_storm_happy_path_new_shape():
     assert isinstance(o["duration_ms"], float)
 
 
-def test_hol_blocking_happy_path_no_capability_key():
+def test_hol_blocking_happy_path_new_shape():
     b = run_data_plane_probe(_FakeAdapter(), "hol_blocking", {})
     o = b.observations
-    assert "capability" not in o, "hol_blocking must NOT include a 'capability' key"
-    assert isinstance(o["blocked"], bool)
-    assert isinstance(o["fast_p50_ms"], float)
-    assert isinstance(o["slow_p50_ms"], float)
+    assert o["capability"] == "supported"
+    assert isinstance(o["fast_p50_baseline"], float)
+    assert isinstance(o["fast_p50_under_slow"], float)
     assert isinstance(o["hol_ratio"], float)
+    assert isinstance(o["serialized"], bool)
+    # Old keys must be absent
+    assert "blocked" not in o, "'blocked' is old shape — must be removed"
+    assert "fast_p50_ms" not in o, "'fast_p50_ms' is old shape — must be removed"
+    assert "slow_p50_ms" not in o, "'slow_p50_ms' is old shape — must be removed"
 
 
 # ---------------------------------------------------------------------------

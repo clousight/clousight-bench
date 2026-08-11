@@ -216,12 +216,23 @@ class ConcurrentWriteResult:
 
 @dataclass
 class HOLResult:
-    """Whether a slow request blocks fast ones sharing the same session queue (T1.12)."""
+    """Two-phase HOL blocking result (T1.12 v2).
 
-    blocked: bool  # True if fast_p99 > slow_p50 * 0.5
-    fast_p50_ms: float  # median latency of the fast requests
-    slow_p50_ms: float  # median latency of the slow request
-    hol_ratio: float  # fast_p99 / slow_p50 (> 0.5 = blocked)
+    Phase A (baseline): N fast requests with no slow → fast_p50_baseline.
+    Phase B (under-slow): 1 slow (real injected latency) + N fast concurrent
+        on the same session → fast_p50_under_slow.
+
+    serialized:          True if fast_p50_under_slow > fast_p50_baseline * 2.0
+                         (platform session queue serialises requests)
+    hol_ratio:           fast_p50_under_slow / fast_p50_baseline
+    fast_p50_baseline:   Phase A median fast latency (ms)
+    fast_p50_under_slow: Phase B median fast latency under slow pressure (ms)
+    """
+
+    serialized: bool
+    fast_p50_baseline: float
+    fast_p50_under_slow: float
+    hol_ratio: float
 
 
 @dataclass
