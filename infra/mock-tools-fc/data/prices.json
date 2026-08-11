@@ -1,0 +1,34 @@
+{
+  "products": [
+    {
+      "provider": "aws",
+      "service": "object-storage",
+      "unit": "GB-month",
+      "price_usd": 0.023
+    },
+    {
+      "provider": "aliyun",
+      "service": "object-storage",
+      "unit": "GB-month",
+      "price_usd": 0.017
+    },
+    {
+      "provider": "tencent",
+      "service": "object-storage",
+      "unit": "GB-month",
+      "price_usd": 0.016
+    },
+    {
+      "provider": "azure",
+      "service": "agent-runtime",
+      "unit": "1k-tokens",
+      "price_usd": 0.002
+    },
+    {
+      "provider": "aws",
+      "service": "agent-runtime",
+      "unit": "vCPU-hour",
+      "price_usd": 0.0895
+    }
+  ]
+}

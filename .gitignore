@@ -24,3 +24,8 @@ site/
 *.tfstate
 *.tfstate.backup
 .worktrees/
+
+# Terraform / infra build artifacts
+*.tfvars
+!*.tfvars.example
+mock-tools-fc.zip
