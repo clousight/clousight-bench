@@ -44,6 +44,15 @@ def load_json(name: str) -> Any:
     return json.loads((DATA / name).read_text(encoding="utf-8"))
 
 
+def _bucket_key(target: str, corr: str | None) -> str:
+    """Return the call_counts dict key for (target, corr).
+
+    corr=None  ->  key == target          (global bucket; backwards-compatible)
+    corr="A"   ->  key == "target|A"      (per-correlation bucket)
+    """
+    return target if corr is None else f"{target}|{corr}"
+
+
 class ToolState:
     """Server-side state: reports, per-target call counters, fault + latency config."""
 
@@ -61,16 +70,25 @@ class ToolState:
             self.fault = None
             self.latency = None
 
-    def next_call_index(self, target: str) -> int:
+    def next_call_index(self, target: str, corr: str | None = None) -> int:
+        key = _bucket_key(target, corr)
         with self.lock:
-            self.call_counts[target] = self.call_counts.get(target, 0) + 1
-            return self.call_counts[target]
+            self.call_counts[key] = self.call_counts.get(key, 0) + 1
+            return self.call_counts[key]
 
-    def fault_status_for(self, target: str, call_index: int) -> int | None:
-        """Return an HTTP status to force, or None to serve normally. Deterministic."""
+    def fault_status_for(self, target: str, call_index: int, corr: str | None = None) -> int | None:
+        """Return an HTTP status to force, or None to serve normally. Deterministic.
+
+        If the fault config contains a "corr" field, it only applies when the
+        request corr matches.  Configs without "corr" apply to all requests
+        (backwards-compatible).
+        """
         with self.lock:
             fault = self.fault
         if not fault or fault.get("target") != target:
+            return None
+        fault_corr = fault.get("corr")
+        if fault_corr is not None and fault_corr != corr:
             return None
         status = int(fault.get("status", 500))
         if "fail_on_calls" in fault:
@@ -81,17 +99,24 @@ class ToolState:
             return status if start <= call_index < start + count else None
         return None
 
-    def latency_for(self, target: str, call_index: int) -> int:
+    def latency_for(self, target: str, call_index: int, corr: str | None = None) -> int:
         """Return extra milliseconds to inject before serving, or 0. Deterministic.
 
         Config mirrors fault injection:
             {"target": "prices", "add_ms": 200}                 -> every call
             {"target": "prices", "add_ms": 200, "on_calls": [1]} -> only 1st call
             {"target": "prices", "add_ms": 200, "from_call": 3, "count": 2}
+
+        If the latency config contains a "corr" field, it only applies when the
+        request corr matches.  Configs without "corr" apply to all requests
+        (backwards-compatible).
         """
         with self.lock:
             lat = self.latency
         if not lat or lat.get("target") != target:
+            return 0
+        lat_corr = lat.get("corr")
+        if lat_corr is not None and lat_corr != corr:
             return 0
         add = int(lat.get("add_ms", 0))
         if "on_calls" in lat:
@@ -139,11 +164,12 @@ def make_handler(state: ToolState, token: str | None = None) -> type[BaseHTTPReq
             latency (sleep), then apply fault injection. Both selectors key off
             the SAME call_index so latency and fault stay aligned per call.
             Returns True if a fault was served (caller should stop)."""
-            call_index = state.next_call_index(target)
-            delay_ms = state.latency_for(target, call_index)
+            corr: str | None = self.headers.get("X-Clousight-Correlation-Id") or None
+            call_index = state.next_call_index(target, corr)
+            delay_ms = state.latency_for(target, call_index, corr)
             if delay_ms:
                 time.sleep(delay_ms / 1000)
-            forced = state.fault_status_for(target, call_index)
+            forced = state.fault_status_for(target, call_index, corr)
             if forced is not None:
                 self._send(
                     {"error": "injected_fault", "target": target, "call_index": call_index, "status": forced},
