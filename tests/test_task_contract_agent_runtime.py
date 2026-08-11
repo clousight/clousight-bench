@@ -56,63 +56,65 @@ def test_t1_2_unsupported_capability_is_a_finding_not_a_crash():
     assert [f.code for f in result.findings] == ["agent_runtime.state_api_absent"]
 
 
-def test_t1_3_execute_records_every_attempt():
+def test_t1_3_execute_produces_new_shape():
+    """execute() returns the new three-state observation shape."""
     task = FaultRecoveryTask()
     bundle = _run(task, LocalSimAdapter({"recovery": {"mode": "auto-retry"}}))
-    assert bundle.observations["plan_calls"] == 5
-    assert len(bundle.observations["attempts"]) >= 5
-    assert set(bundle.observations["attempts"][0]) == {
-        "call_index",
-        "attempt",
-        "status",
-        "ok",
-        "latency_ms",
-    }
-    assert "recovery_mode" not in bundle.observations
+    o = bundle.observations
+    assert o["capability"] == "supported"
+    assert isinstance(o["recovered"], bool)
+    assert isinstance(o["observed_attempts"], int)
+    assert isinstance(o["recovery_ms"], float)
+    assert isinstance(o["platform_terminated"], bool)
+    # Old shape keys must NOT be present
+    assert "plan_calls" not in o
+    assert "attempts" not in o
+    assert "recovery_mode" not in o
 
 
-def test_t1_3_score_classifies_auto_retry():
+def test_t1_3_score_recovered_true_no_findings():
+    """Local-sim auto-retry → recovered=True, no warning findings."""
     task = FaultRecoveryTask()
     result = task.score(_run(task, LocalSimAdapter({"recovery": {"mode": "auto-retry"}})))
-    assert result.measurements["recovery_mode"].value == "auto-retry"
-    assert result.measurements["budgeted_success"].value is True
-    assert result.measurements["time_to_recovery_ms"].unit == "ms"
+    assert result.measurements["recovered"].value is True
+    assert result.measurements["observed_attempts"].value >= 1
+    assert result.measurements["recovery_ms"].unit == "ms"
     assert result.findings == []
 
 
-def test_t1_3_score_classifies_fail_fast_as_a_warning_finding():
-    task = FaultRecoveryTask()
-    result = task.score(_run(task, LocalSimAdapter({"recovery": {"mode": "fail-fast"}})))
-    assert result.measurements["recovery_mode"].value == "fail-fast"
-    assert result.measurements["final_state"].value == "aborted"
-    assert [(f.code, f.severity) for f in result.findings] == [
-        ("agent_runtime.recovery_fail_fast", "warning")
-    ]
-
-
-def test_t1_3_score_flags_a_missing_fault_as_critical():
+def test_t1_3_score_platform_terminated_warning():
+    """platform_terminated=True → warning finding."""
     task = FaultRecoveryTask()
     bundle = ObservationBundle(
         observations={
-            "fault": {},
-            "plan_calls": 5,
-            "completed": True,
-            "final_state": "completed",
-            "attempts": [
-                {
-                    "call_index": 1,
-                    "attempt": 1,
-                    "status": 200,
-                    "ok": True,
-                    "latency_ms": 1.0,
-                }
-            ],
+            "capability": "supported",
+            "recovered": False,
+            "observed_attempts": 1,
+            "recovery_ms": 5000.0,
+            "platform_terminated": True,
         }
     )
     result = task.score(bundle)
-    assert result.measurements["recovery_mode"].value == "no-fault-observed"
     assert [(f.code, f.severity) for f in result.findings] == [
-        ("agent_runtime.fault_not_observed", "critical")
+        ("agent_runtime.platform_timeout_recovery", "warning")
+    ]
+
+
+def test_t1_3_score_platform_blocked_retry_warning():
+    """recovered=False + observed_attempts≤1 + not terminated → platform_blocked_retry warning."""
+    task = FaultRecoveryTask()
+    bundle = ObservationBundle(
+        observations={
+            "capability": "supported",
+            "recovered": False,
+            "observed_attempts": 1,
+            "recovery_ms": 10.0,
+            "platform_terminated": False,
+        }
+    )
+    result = task.score(bundle)
+    assert [(f.code, f.severity) for f in result.findings] == [
+        ("agent_runtime.platform_blocked_retry", "warning")
     ]
 
 

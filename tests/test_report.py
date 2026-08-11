@@ -18,18 +18,35 @@ def test_report_renders_measurements_with_evidence_and_status(tmp_path):
     )
     report = generate_report(tmp_path)
     assert "## agent-runtime · T1.3" in report
-    assert "recovery_mode=auto-retry [C]" in report
-    assert "completed" in report
+    # New shape: recovered=True [B] and observed_attempts [B]
+    assert "recovered=True [B]" in report
+    assert "observed_attempts=" in report
     assert "- none" in report
 
 
 def test_warning_findings_become_red_flags(tmp_path):
-    execute(
-        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "fail-fast"}}),
-        results_dir=tmp_path,
-    )
+    # platform_terminated=True generates agent_runtime.platform_timeout_recovery finding.
+    # Monkeypatch the local-sim probe_fault_recovery to return platform_terminated=True.
+    from unittest.mock import patch
+
+    from clousight_bench.domains.agent_runtime.adapters.base import FaultRecoveryResult
+    from clousight_bench.domains.agent_runtime.adapters.transport import MockRuntimeTransport
+
+    def _terminated(self):
+        return FaultRecoveryResult(
+            recovered=False,
+            observed_attempts=1,
+            recovery_ms=5000.0,
+            platform_terminated=True,
+        )
+
+    with patch.object(MockRuntimeTransport, "probe_fault_recovery", _terminated):
+        execute(
+            RunSpec("agent-runtime", "T1.3", "local-sim"),
+            results_dir=tmp_path,
+        )
     report = generate_report(tmp_path)
-    assert "agent_runtime.recovery_fail_fast" in report
+    assert "agent_runtime.platform_timeout_recovery" in report
     assert "warning" in report
 
 

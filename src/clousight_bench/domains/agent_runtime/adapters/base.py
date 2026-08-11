@@ -214,6 +214,22 @@ class HOLResult:
     hol_ratio: float  # fast_p99 / slow_p50 (> 0.5 = blocked)
 
 
+@dataclass
+class FaultRecoveryResult:
+    """Platform-visible fault + agent retry observation (T1.3 three-state).
+
+    recovered:           invoke completed successfully after agent retried (True = platform allowed recovery)
+    observed_attempts:   how many times the tool was hit (per mock corr-bucket counter)
+    recovery_ms:         total invoke wall time (approximate recovery duration)
+    platform_terminated: True when the invoke raised a timeout/transport error before success
+    """
+
+    recovered: bool
+    observed_attempts: int
+    recovery_ms: float
+    platform_terminated: bool
+
+
 class CapabilityNotSupported(NotImplementedError):
     """A runtime does not offer a capability a task probes for.
 
@@ -477,15 +493,14 @@ class AgentRuntimeAdapter(ProviderAdapter):
         whether it is a hard cap."""
         raise CapabilityNotSupported("probe_concurrency_ceiling")
 
-    def probe_fault_recovery(self, fault_call_index: int = 3) -> InvocationTrace:
-        """Run the T1.3 request-level fault injection probe.
+    def probe_fault_recovery(self) -> FaultRecoveryResult:
+        """Run the T1.3 platform-visible fault + agent retry probe.
 
-        Encodes the fault spec in each request body (fail_after_n_calls=fault_call_index)
-        so the deployed agent returns a synthetic failure on the Nth call without
-        relying on shared mock-server state. Transports that support this method
-        override it; the default raises CapabilityNotSupported so the task can
-        fall back to the legacy mock-server fault path when the transport has not
-        yet implemented this method.
+        Configures the mock server to fail call #1 on a per-correlation bucket,
+        issues a single invoke (with that correlation id), and reads the mock
+        server's call counter to determine how many times the agent actually hit
+        the tool. Transports that support this method override it; the default
+        raises CapabilityNotSupported.
         """
         raise CapabilityNotSupported("probe_fault_recovery")
 

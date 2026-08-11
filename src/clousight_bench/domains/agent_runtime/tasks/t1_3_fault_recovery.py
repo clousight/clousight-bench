@@ -1,15 +1,18 @@
 """T1.3 tool-failure recovery.
 
-Deterministic, replayable, evidence layer C:
-  - encode a fault spec in the request body (fail_after_n_calls=3) so the
-    deployed agent returns a synthetic 500 on the 3rd call, without relying on
-    shared mock-server state (which breaks when the FC function has multiple
-    instances — a different instance receives the fault-arm POST vs. the invoke)
-  - run via adapter.probe_fault_recovery() which delegates to the transport
-  - classify recovery behavior from the observed attempts
+Evidence layer B — real platform-visible fault injection:
+  - configure the mock server to fail call #1 on a per-correlation bucket
+    (POST /fault/config {target:"prices", fail_on_calls:[1], status:500, corr:<uuid>})
+  - issue a single invoke with that correlation id
+  - the deployed agent retries internally per its lc_agent 5xx-retry-2 contract
+    (3 total attempts: 1 original + 2 retries)
+  - read the mock server's call counter (GET /fault/state) to observe how many
+    times the platform actually let the agent hit the tool
 
-An auto-retry recovery means the runtime absorbed the transient fault; a
-fail-fast abort means it surfaced the fault to the caller. Both are findings.
+Three-state platform attribution:
+  recovered=True,  observed_attempts=3 → platform let agent retry until success
+  recovered=False, observed_attempts=3 → platform let agent retry, tool stayed broken
+  platform_terminated=True             → platform killed the invoke during recovery
 """
 
 from __future__ import annotations
@@ -26,28 +29,21 @@ from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
-# Fault fires on the 3rd tool call (1-indexed).
-FAULT_CALL_INDEX = 3
-
-# Deterministic fault description (for config / scorer context only).
-FAULT = {"target": "prices", "fail_on_calls": [FAULT_CALL_INDEX], "status": 500}
-
 
 class FaultRecoveryTask(Task):
     task_id = "T1.3"
     title = "Tool-failure recovery"
-    evidence_layer = "C"
+    evidence_layer = "B"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
     capability_tags = ("reliability/fault-recovery",)
-    task_revision = "3"
-    scorer_revision = "2"
+    task_revision = "4"
+    scorer_revision = "3"
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {
             "task_id": self.task_id,
-            "fault_call_index": FAULT_CALL_INDEX,
-            "fault": FAULT,
-            "injection_method": "request-level (fail_after_n_calls)",
+            "fault": {"target": "prices", "fail_on_calls": [1], "status": 500},
+            "injection_method": "mock-server corr-bucket (platform-visible)",
         }
 
     def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
@@ -60,74 +56,57 @@ class FaultRecoveryTask(Task):
     def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.3 needs an AgentRuntimeAdapter")
-        return adapter.run_data_plane_probe("fault_recovery", {"fault_call_index": FAULT_CALL_INDEX})
+        return adapter.run_data_plane_probe("fault_recovery", {})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations
-        attempts = list(raw.get("attempts", []))
-        failures = [a for a in attempts if not a["ok"]]
-        retried = any(a["attempt"] > 1 for a in attempts)
-        completed = bool(raw.get("completed"))
-        final_state = str(raw.get("final_state", ""))
-
-        if not failures:
-            recovery_mode = "no-fault-observed"  # fault never triggered -> test invalid
-        elif completed and retried:
-            recovery_mode = "auto-retry"
-        elif not completed:
-            # Any non-completion after a fault is fail-fast: the runtime surfaced the
-            # error rather than absorbing it. The exact final_state label ("aborted",
-            # "failed") is platform-specific and must not gate the classification.
-            recovery_mode = "fail-fast"
-        else:
-            recovery_mode = "manual-resume"
-
-        # Latency spent on failed attempts before the run either recovered or gave up.
-        ttr_ms = round(sum(a["latency_ms"] for a in failures), 2)
+        recovered: bool = bool(raw.get("recovered", False))
+        observed_attempts: int = int(raw.get("observed_attempts", 0))
+        recovery_ms: float = float(raw.get("recovery_ms", 0.0))
+        platform_terminated: bool = bool(raw.get("platform_terminated", False))
 
         findings: list[Finding] = []
-        if recovery_mode == "no-fault-observed":
+
+        if platform_terminated:
             findings.append(
                 Finding(
-                    code="agent_runtime.fault_not_observed",
-                    severity="critical",
-                    summary="the injected fault never fired, so this run measures nothing",
-                    evidence="C",
-                    details={
-                        "fault": raw.get("fault", {}),
-                        "attempts": len(attempts),
-                    },
-                )
-            )
-        elif recovery_mode == "fail-fast":
-            findings.append(
-                Finding(
-                    code="agent_runtime.recovery_fail_fast",
+                    code="agent_runtime.platform_timeout_recovery",
                     severity="warning",
-                    summary="runtime aborted on the first tool fault instead of retrying",
-                    evidence="C",
-                    details={"final_state": final_state},
+                    summary=(
+                        "平台 timeout 在 agent 恢复窗口内杀掉 invoke"
+                        " (platform terminated invoke during recovery)"
+                    ),
+                    evidence="B",
+                    details={"recovery_ms": recovery_ms},
                 )
             )
+        elif not recovered and observed_attempts <= 1:
+            findings.append(
+                Finding(
+                    code="agent_runtime.platform_blocked_retry",
+                    severity="warning",
+                    summary="platform did not let the agent retry: observed_attempts<=1 and not recovered",
+                    evidence="B",
+                    details={"observed_attempts": observed_attempts},
+                )
+            )
+
+        # recovery_capability: "supported" when the mock saw ≥ 1 attempt
+        recovery_capability = "supported" if observed_attempts > 0 else "unknown"
 
         return TaskResult(
             measurements={
-                "recovery_mode": Measurement(value=recovery_mode, unit="", evidence="C"),
-                "final_state": Measurement(value=final_state, unit="", evidence="C"),
-                "budgeted_success": Measurement(value=completed, unit="", evidence="C"),
-                "time_to_recovery_ms": Measurement(
-                    value=ttr_ms,
-                    unit="ms",
-                    evidence="C",
-                    aggregation="sum",
-                    sample_count=len(failures),
-                ),
-                "total_attempts": Measurement(value=len(attempts), unit="count", evidence="C"),
-                "fault_hits": Measurement(value=len(failures), unit="count", evidence="C"),
-                "retried": Measurement(value=retried, unit="", evidence="C"),
+                "recovery_capability": Measurement(value=recovery_capability, unit="", evidence="B"),
+                "recovered": Measurement(value=recovered, unit="", evidence="B"),
+                "observed_attempts": Measurement(value=observed_attempts, unit="count", evidence="B"),
+                "recovery_ms": Measurement(value=round(recovery_ms, 2), unit="ms", evidence="B"),
+                "platform_terminated": Measurement(value=platform_terminated, unit="", evidence="B"),
             },
             findings=findings,
-            notes=f"fault on call #{FAULT['fail_on_calls']}; runtime recovery_mode={recovery_mode}",
+            notes=(
+                f"fault on prices call #1 (corr-bucket); "
+                f"recovered={recovered}, observed_attempts={observed_attempts}"
+            ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

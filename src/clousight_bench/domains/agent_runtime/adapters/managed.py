@@ -257,8 +257,8 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_concurrency_ceiling(self) -> Any:
         return self._transport_().probe_concurrency_ceiling()
 
-    def probe_fault_recovery(self, fault_call_index: int = 3) -> Any:
-        return self._transport_().probe_fault_recovery(fault_call_index)  # type: ignore[attr-defined]
+    def probe_fault_recovery(self) -> Any:
+        return self._transport_().probe_fault_recovery()
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> Any:
         return self._transport_().probe_retry_storm(max_window_s)

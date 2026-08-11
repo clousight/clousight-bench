@@ -3,10 +3,9 @@ import pytest
 from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
-    Attempt,
     CapabilityNotSupported,
+    FaultRecoveryResult,
     HOLResult,
-    InvocationTrace,
     LoadResult,
     RetentionResult,
     RetryStormResult,
@@ -46,18 +45,12 @@ class _FakeAdapter(AgentRuntimeAdapter):
         return RetentionResult(retention_ms=1000.0, keeps_warm=True)
 
     # re-raise probes: three probes that do NOT catch CapabilityNotSupported
-    def probe_fault_recovery(self, fault_call_index: int = 3) -> InvocationTrace:
-        return InvocationTrace(
-            session_id="s",
-            attempts=[
-                Attempt(call_index=0, attempt=1, status=200, ok=True, latency_ms=12.0),
-                Attempt(call_index=1, attempt=1, status=200, ok=True, latency_ms=11.0),
-                Attempt(call_index=2, attempt=1, status=500, ok=False, latency_ms=8.0),
-                Attempt(call_index=2, attempt=2, status=200, ok=True, latency_ms=10.0),
-                Attempt(call_index=3, attempt=1, status=200, ok=True, latency_ms=9.0),
-            ],
-            completed=True,
-            final_state="completed",
+    def probe_fault_recovery(self) -> FaultRecoveryResult:
+        return FaultRecoveryResult(
+            recovered=True,
+            observed_attempts=3,
+            recovery_ms=42.0,
+            platform_terminated=False,
         )
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
@@ -79,7 +72,7 @@ class _FakeAdapter(AgentRuntimeAdapter):
 class _IncapableAdapter(_FakeAdapter):
     """Adapter whose re-raise probes raise CapabilityNotSupported."""
 
-    def probe_fault_recovery(self, fault_call_index: int = 3) -> InvocationTrace:  # type: ignore[override]
+    def probe_fault_recovery(self) -> FaultRecoveryResult:  # type: ignore[override]
         raise CapabilityNotSupported("probe_fault_recovery")
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:  # type: ignore[override]
@@ -138,15 +131,14 @@ def test_adapter_method_delegates_to_registry():
 # ---------------------------------------------------------------------------
 
 
-def test_fault_recovery_happy_path_no_capability_key():
-    b = run_data_plane_probe(_FakeAdapter(), "fault_recovery", {"fault_call_index": 3})
+def test_fault_recovery_happy_path_new_shape():
+    b = run_data_plane_probe(_FakeAdapter(), "fault_recovery", {})
     o = b.observations
-    assert "capability" not in o, "fault_recovery must NOT include a 'capability' key"
-    assert isinstance(o["fault"], dict)
-    assert isinstance(o["plan_calls"], int)
-    assert isinstance(o["completed"], bool)
-    assert isinstance(o["final_state"], str)
-    assert isinstance(o["attempts"], list)
+    assert o["capability"] == "supported"
+    assert isinstance(o["recovered"], bool)
+    assert isinstance(o["observed_attempts"], int)
+    assert isinstance(o["recovery_ms"], float)
+    assert isinstance(o["platform_terminated"], bool)
 
 
 def test_retry_storm_happy_path_no_capability_key():

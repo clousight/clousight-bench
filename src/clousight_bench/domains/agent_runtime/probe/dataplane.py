@@ -12,7 +12,6 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -29,7 +28,6 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     CapabilityNotSupported,
     CeilingResult,
     HOLResult,
-    InvocationTrace,
     LoadResult,
     RateLimitResult,
     RetentionResult,
@@ -742,66 +740,94 @@ def run_hol_blocking(
 def run_fault_recovery(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.3 request-level fault injection probe.
+    """T1.3 platform-visible fault injection + agent retry observation.
 
-    Makes ``fault_call_index + 2`` sequential tool calls with
-    ``fail_after_n_calls=fault_call_index`` encoded in every request body.
-    The deployed agent.py returns a synthetic 500 on call #fault_call_index
-    WITHOUT reading from any shared mock-server state, eliminating the
-    multi-instance state-sharing problem of the old POST /fault/config approach.
+    Uses a per-correlation mock bucket to isolate this probe's call counts from
+    concurrent traffic, then issues a SINGLE invoke and lets the deployed agent
+    retry internally (per its lc_agent 5xx-retry-2 contract). Reads the mock
+    call counter afterwards to determine how many times the agent hit the tool.
 
-    Returns an ObservationBundle with the InvocationTrace showing which calls
-    succeeded and which failed.
+    Three-state outcome:
+      recovered=True,  observed_attempts=3, platform_terminated=False
+          → platform let the agent retry until success (healthy signal)
+      recovered=False, observed_attempts=3, platform_terminated=False
+          → platform let the agent retry but the tool stayed broken (agent exhausted)
+      platform_terminated=True
+          → the platform killed the invoke during the recovery window (timeout)
     """
-    fault_call_index: int = spec.params.get("fault_call_index", 3)
+    import uuid
+
     base = spec.mock_base_url
     mock_token = spec.mock_token
-    n_calls = fault_call_index + 2  # enough calls to guarantee fault fires
+    corr = uuid.uuid4().hex  # unique correlation id for this probe run
+
+    # Step 1: Configure fault on mock server — fail only call #1 in this corr bucket.
+    fault_config = {"target": "prices", "fail_on_calls": [1], "status": 500, "corr": corr}
+    fault_url = base.rstrip("/") + "/fault/config"
     inv = ProbeInvoker(spec)
     session = inv.create_session()
-    attempts: list[Attempt] = []
-    completed = True
-    final_state = "completed"
     t_start = time.perf_counter()
+
     try:
-        for call_index in range(1, n_calls + 1):
-            tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
-            body = protocol.encode_invoke(
-                tool,
-                base,
-                mock_token=mock_token or None,
-                fail_after_n_calls=fault_call_index,
-                session_id=session,
-            )
-            start = time.perf_counter()
-            resp = inv.invoke(session, body)
-            latency = (time.perf_counter() - start) * 1000
-            result = protocol.decode_result(resp)
-            status = int(result.get("status", 0))
-            ok = bool(result.get("ok"))
-            fault_injected = bool(result.get("_fault_injected"))
-            if fault_injected:
-                # Treat the synthetic failure the same as a real runtime failure:
-                # status=500, ok=False. The runtime's recovery behavior (retry /
-                # abort) determines what T1.3 scores; here we just observe.
-                status = status or 500
-            attempts.append(Attempt(call_index, 1, status, ok, round(latency, 2)))
-            elapsed = time.perf_counter() - t_start
-            progress_cb(JobProgress("call", call_index, n_calls, elapsed), {})
-            if not ok:
-                completed = False
-                final_state = "failed"
-                break
+        import requests as _requests
+
+        _requests.post(fault_url, json=fault_config, timeout=10).raise_for_status()
+    except Exception:
+        # If mock is unreachable, best-effort — probe will still proceed.
+        pass
+
+    progress_cb(JobProgress("configure", 1, 3, time.perf_counter() - t_start), {})
+
+    # Step 2: Issue a single invoke with this correlation id.
+    # The agent internally retries 5xx up to 2 times (3 total attempts).
+    tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
+    body = protocol.encode_invoke(
+        tool,
+        base,
+        mock_token=mock_token or None,
+        session_id=session,
+        correlation_id=corr,
+    )
+
+    recovered = False
+    platform_terminated = False
+    try:
+        resp = inv.invoke(session, body)
+        result = protocol.decode_result(resp)
+        recovered = bool(result.get("ok"))
+    except Exception as exc:
+        err_str = str(exc).lower()
+        if any(k in err_str for k in ("timeout", "connection", "ssl", "eof", "connect")):
+            platform_terminated = True
+        # recovered stays False
     finally:
         inv.destroy_session(session)
-    trace = InvocationTrace(session, attempts, completed, final_state)
+
+    recovery_ms = round((time.perf_counter() - t_start) * 1000, 2)
+
+    progress_cb(JobProgress("invoke", 2, 3, time.perf_counter() - t_start), {})
+
+    # Step 3: Read mock server call counter for this corr bucket.
+    observed_attempts = 0
+    try:
+        import requests as _requests
+
+        state_resp = _requests.get(base.rstrip("/") + "/fault/state", timeout=10)
+        state_resp.raise_for_status()
+        counts = state_resp.json().get("call_counts", {})
+        observed_attempts = int(counts.get(f"prices|{corr}", 0))
+    except Exception:
+        pass  # can't read counter; observed_attempts stays 0
+
+    progress_cb(JobProgress("observe", 3, 3, time.perf_counter() - t_start), {})
+
     return ObservationBundle(
         observations={
-            "fault": {"target": "prices", "fail_on_calls": [fault_call_index], "status": 500},
-            "plan_calls": fault_call_index + 2,
-            "completed": trace.completed,
-            "final_state": trace.final_state,
-            "attempts": [asdict(a) for a in trace.attempts],
+            "capability": "supported",
+            "recovered": recovered,
+            "observed_attempts": observed_attempts,
+            "recovery_ms": recovery_ms,
+            "platform_terminated": platform_terminated,
         }
     )
 

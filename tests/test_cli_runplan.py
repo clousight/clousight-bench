@@ -54,7 +54,7 @@ def test_repeat_prints_an_aggregate_and_persists_it(tmp_path, capsys):
     assert out["kind"] == "run_plan_aggregate"
     assert len(out["runs"]["measured"]) == 3
     assert len(out["runs"]["warmup"]) == 1
-    assert out["measurements"]["total_attempts"]["n"] == 3
+    assert out["measurements"]["observed_attempts"]["n"] == 3
     assert list((tmp_path / AGGREGATES_DIRNAME).rglob("*.json"))
 
 

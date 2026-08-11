@@ -9,13 +9,13 @@ probe, while local-sim keeps flowing through these packers unchanged.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import asdict
 from typing import Any
 
 from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.domains.agent_runtime.adapters.base import (
     AgentRuntimeAdapter,
     CapabilityNotSupported,
+    FaultRecoveryResult,
 )
 
 Packer = Callable[[AgentRuntimeAdapter, dict[str, Any]], ObservationBundle]
@@ -176,21 +176,15 @@ def _pack_scaling(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> Obser
 
 
 def _pack_fault_recovery(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> ObservationBundle:
-    # Default 3 must stay in sync with t1_3_fault_recovery.FAULT_CALL_INDEX.
-    # Do NOT change one without changing the other or the injected fault index
-    # and the packer's plan_calls computation will silently diverge.
-    fault_call_index = int(params.get("fault_call_index", 3))
-    # Fault description (matches FAULT in t1_3_fault_recovery.py)
-    fault = {"target": "prices", "fail_on_calls": [fault_call_index], "status": 500}
     # Does NOT catch CapabilityNotSupported — re-raises
-    trace = adapter.probe_fault_recovery(fault_call_index=fault_call_index)
+    result: FaultRecoveryResult = adapter.probe_fault_recovery()
     return ObservationBundle(
         observations={
-            "fault": dict(fault),
-            "plan_calls": fault_call_index + 2,
-            "completed": trace.completed,
-            "final_state": trace.final_state,
-            "attempts": [asdict(a) for a in trace.attempts],
+            "capability": "supported",
+            "recovered": result.recovered,
+            "observed_attempts": result.observed_attempts,
+            "recovery_ms": result.recovery_ms,
+            "platform_terminated": result.platform_terminated,
         }
     )
 
