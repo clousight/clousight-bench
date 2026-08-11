@@ -20,6 +20,7 @@ def encode_invoke(
     arms_config: dict[str, Any] | None = None,
     fail_after_n_calls: int = 0,
     session_id: str = "",
+    correlation_id: str = "",
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {"tool": tool, "mock_base_url": mock_base_url}
     if mock_token:
@@ -30,6 +31,8 @@ def encode_invoke(
         payload["fail_after_n_calls"] = fail_after_n_calls
     if session_id:
         payload["_session_id"] = session_id
+    if correlation_id:
+        payload["_correlation_id"] = correlation_id
     return {"model": MODEL, "messages": [{"role": "user", "content": json.dumps(payload)}]}
 
 
@@ -47,6 +50,7 @@ def decode_request(openai_body: dict[str, Any]) -> dict[str, Any]:
         "tool": payload.get("tool") or {},
         "mock_base_url": str(payload.get("mock_base_url") or ""),
         "mock_token": str(payload.get("mock_token") or ""),
+        "_correlation_id": str(payload.get("_correlation_id") or ""),
     }
     if payload.get("arms_config"):
         result["arms_config"] = payload["arms_config"]
@@ -79,6 +83,7 @@ def encode_invoke_stream(
     arms_config: dict[str, Any] | None = None,
     fail_after_n_calls: int = 0,
     session_id: str = "",
+    correlation_id: str = "",
 ) -> dict[str, Any]:
     """Like encode_invoke but sets stream=True so the agent responds with SSE chunks.
 
@@ -92,6 +97,7 @@ def encode_invoke_stream(
         arms_config=arms_config,
         fail_after_n_calls=fail_after_n_calls,
         session_id=session_id,
+        correlation_id=correlation_id,
     )
     body["stream"] = True
     return body

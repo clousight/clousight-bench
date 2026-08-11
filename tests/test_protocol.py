@@ -5,7 +5,12 @@ def test_invoke_request_round_trip():
     tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}, "body": {}}
     body = p.encode_invoke(tool, "https://mock.example.com")
     got = p.decode_request(body)
-    assert got == {"tool": tool, "mock_base_url": "https://mock.example.com", "mock_token": ""}
+    assert got == {
+        "tool": tool,
+        "mock_base_url": "https://mock.example.com",
+        "mock_token": "",
+        "_correlation_id": "",
+    }
 
 
 def test_result_round_trip():
@@ -15,4 +20,16 @@ def test_result_round_trip():
 
 
 def test_decode_request_tolerates_missing():
-    assert p.decode_request({"messages": []}) == {"tool": {}, "mock_base_url": "", "mock_token": ""}
+    assert p.decode_request({"messages": []}) == {
+        "tool": {},
+        "mock_base_url": "",
+        "mock_token": "",
+        "_correlation_id": "",
+    }
+
+
+def test_encode_invoke_round_trips_correlation_id():
+    tool = {"target": "prices", "method": "GET"}
+    body = p.encode_invoke(tool, "https://mock.example.com", correlation_id="corr-abc")
+    got = p.decode_request(body)
+    assert got["_correlation_id"] == "corr-abc"

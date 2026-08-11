@@ -49,16 +49,6 @@ try:
 except ImportError:  # pragma: no cover - the flattened-zip path
     import protocol  # type: ignore[no-redef]
 
-# ---------------------------------------------------------------------------
-# Request-level fault injection state
-# ---------------------------------------------------------------------------
-# Per-session call counter for request-level fault injection (T1.3).
-# Used by handle_invoke() when fail_after_n_calls is set in the request body.
-# State is process-local (single FC instance) — that is exactly the point:
-# by encoding the fault spec in the request, T1.3 avoids the multi-instance
-# state-sharing problem that plagued the old POST /fault/config approach.
-_call_counter: dict[str, int] = {}
-
 
 # ---------------------------------------------------------------------------
 # OpenInference tracing (stdlib-only OTLP/HTTP export to ARMS)
@@ -164,17 +154,7 @@ def handle_invoke(body: dict[str, Any]) -> dict[str, Any]:
     params = tool.get("params") or {}
     payload = tool.get("body") or {}
 
-    # Request-level fault injection: synthetic failure on nth call.
-    # Used by T1.3 to test recovery behavior without relying on FC mock-server state.
-    # When fail_after_n_calls=N is set in the request body, the Nth call from the same
-    # session returns ok=False/_fault_injected=True without touching the mock server.
-    fail_after = int(body.get("fail_after_n_calls") or 0)
-    if fail_after > 0:
-        session_id = str(body.get("_session_id") or "default")
-        _call_counter[session_id] = _call_counter.get(session_id, 0) + 1
-        if _call_counter[session_id] >= fail_after:
-            del _call_counter[session_id]
-            return {"ok": False, "status": 500, "tool_target": target, "_fault_injected": True}
+    corr = str(body.get("_correlation_id") or "")
 
     url = f"{base}/{target}"
     if method == "GET" and params:
@@ -184,6 +164,8 @@ def handle_invoke(body: dict[str, Any]) -> dict[str, Any]:
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if mock_token:
         headers["X-Clousight-Token"] = mock_token
+    if corr:
+        headers["X-Clousight-Correlation-Id"] = corr
     req = urlrequest.Request(url, data=data, method=method, headers=headers)
     try:
         with urlrequest.urlopen(req, timeout=10) as resp:
