@@ -154,7 +154,7 @@ class ProbeInvoker:
                 resp = self.invoke(session_id, non_stream_body)
                 return 0.0, resp
 
-        ttft_ms: float = 0.0
+        ttft_ms = 0.0
         ttft_recorded = False
         chunks: list[str] = []
         try:

@@ -241,14 +241,13 @@ class AliyunAgentRunTransport(RuntimeTransport):
         self._invoke = self._live_invoke
         # Plan 4b hook: when set to a RemoteProbeClient, run_data_plane_probe
         # dispatches to the in-region ECI probe instead of running in-process.
+        self._probe_client = None
         probe_url = str(adapter.target.get("probe_url") or "")
         if probe_url:
             from clousight_bench.domains.agent_runtime.probe.client import RemoteProbeClient
 
             probe_token = str(adapter.target.get("probe_token") or "") or None
             self._probe_client = RemoteProbeClient(probe_url, token=probe_token)
-        else:
-            self._probe_client = None
         self._last_ttft_ms: float | None = None  # set by run_tool_plan on first invoke
         self._last_trace_id: str | None = None  # set by _live_invoke from response headers
         self._collected_spans: list[dict] = []  # spans embedded in agent responses (_spans)
@@ -438,7 +437,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 resp = self._invoke(session_id, non_stream_body)
                 return 0.0, resp
 
-        ttft_ms: float = 0.0
+        ttft_ms = 0.0
         ttft_recorded = False
         chunks: list[str] = []
         try:

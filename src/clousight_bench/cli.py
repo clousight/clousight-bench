@@ -13,6 +13,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from clousight_bench.core.campaign import CampaignManifest
+
 import argparse
 import json
 import logging
@@ -40,7 +45,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
     if args.json:
         import json as _json
 
-        out = {"schema": "list/1.0", "domains": []}
+        out: dict[str, Any] = {"schema": "list/1.0", "domains": []}
         for name, pack in sorted(domains.items()):
             domain_obj = {
                 "domain": name,
@@ -825,10 +830,11 @@ def _cmd_progress(args: argparse.Namespace) -> int:
             print(f"error: no campaign {args.campaign!r} under {results_dir}", file=sys.stderr)
             return 2
     else:
-        path = _latest(results_dir)
-        if path is None:
+        latest = _latest(results_dir)
+        if latest is None:
             print(f"error: no campaigns found under {results_dir} — has a run-plan started?", file=sys.stderr)
             return 2
+        path = latest
 
     def _print_once() -> CampaignManifest:  # noqa: F821
         manifest = load_manifest(path)

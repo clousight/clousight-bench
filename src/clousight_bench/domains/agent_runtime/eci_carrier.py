@@ -225,7 +225,7 @@ class Eci20180808Sdk:
             # Package not installed — only valid when a fake client is injected.
             # Return a proxy that yields None for any attribute (model class name).
             class _NoneProxy:
-                def __getattr__(self, _: str) -> None:  # type: ignore[override]
+                def __getattr__(self, _: str) -> None:
                     return None
 
             return _NoneProxy()

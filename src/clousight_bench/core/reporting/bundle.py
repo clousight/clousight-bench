@@ -42,7 +42,7 @@ class Cell:
     agg_stats: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        d = {
+        d: dict[str, Any] = {
             "platform": self.platform,
             "status": self.status,
             "execution": self.execution,

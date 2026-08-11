@@ -249,6 +249,7 @@ def _panel_html(panel: Panel) -> str:
     # Header row
     head_parts = [f"<th class='vcol'>{_esc(c.platform)} {_badge(c.execution)}</th>" for c in individual]
     for c in agg_cells:
+        assert c.agg_stats is not None  # agg_cells all carry agg_stats
         n = c.agg_stats["n"]
         warn = ""
         if not c.agg_stats.get("comparable", True):

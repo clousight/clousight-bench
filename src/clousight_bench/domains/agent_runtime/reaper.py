@@ -100,7 +100,7 @@ class AliyunResourceReaper(ResourceReaper):
         except ImportError:
 
             class _NoneProxy:
-                def __getattr__(self, _: str) -> None:  # type: ignore[override]
+                def __getattr__(self, _: str) -> None:
                     return None
 
             return _NoneProxy()
@@ -115,7 +115,7 @@ class AliyunResourceReaper(ResourceReaper):
         except ImportError:
 
             class _NoneProxy:
-                def __getattr__(self, _: str) -> None:  # type: ignore[override]
+                def __getattr__(self, _: str) -> None:
                     return None
 
             return _NoneProxy()

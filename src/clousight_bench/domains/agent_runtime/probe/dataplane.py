@@ -80,7 +80,7 @@ def measure_ttft(
     if "text/event-stream" not in str(resp.headers.get("Content-Type") or ""):
         return 0.0
     for raw_line in resp.iter_lines(decode_unicode=True):
-        if raw_line and raw_line.startswith("data:"):
+        if raw_line and str(raw_line).startswith("data:"):
             return (time.perf_counter() - t0) * 1000
     return (time.perf_counter() - t0) * 1000
 

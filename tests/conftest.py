@@ -1,9 +1,25 @@
+import importlib.util
 import json
 from pathlib import Path
 
 import pytest
 
 from clousight_bench.core.fingerprints import record_digest
+
+# Skip optional-dependency tests when their extra isn't installed. The in-region
+# probe + Aliyun provider modules import `requests` (the [probe] / [aliyun]
+# extras); a bare core+[dev] install should skip those tests cleanly instead of
+# erroring at collection, so the no-extras CI floor keeps working.
+collect_ignore_glob: list[str] = []
+if importlib.util.find_spec("requests") is None:
+    collect_ignore_glob += [
+        "test_probe_*.py",
+        "test_aliyun_*.py",
+        "test_eci*.py",
+        "test_dataplane_*.py",
+        "test_reaper*.py",
+        "test_campaign_carrier_lifecycle.py",
+    ]
 
 
 def _write_analytics_record(root: Path, run_id: str = "r1") -> None:
