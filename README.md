@@ -111,7 +111,7 @@ Domains register via the `clousight_bench.domains` entry point — third-party p
 ## Quick start (no cloud account needed)
 
 ```bash
-git clone https://github.com/clousight/bench.git clousight-bench && cd clousight-bench
+git clone https://github.com/clousight/clousight-bench.git && cd clousight-bench
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 # what is installed?

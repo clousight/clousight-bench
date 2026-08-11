@@ -14,7 +14,9 @@ def test_t5_3_scale_to_zero_no_idle_bill(tmp_path):
     assert rec.status == "completed"
     assert rec.measurements["scales_to_zero"]["value"] is True
     assert rec.measurements["idle_cost_per_hour"]["value"] == 0.0
-    assert not rec.findings
+    # idle=0 is an evidence-A platform claim, so the scorer discloses that (info);
+    # what must be absent is any warning/error-level finding.
+    assert all(f["severity"] == "info" for f in rec.findings)
 
 
 def test_t5_3_always_on_idle_bill_flagged(tmp_path):
@@ -41,8 +43,8 @@ def test_t6_1_full_isolation(tmp_path):
                                          "network_egress_controlled": True,
                                          "filesystem_isolated": True}})
     rec = execute(spec, results_dir=tmp_path)
-    assert rec.measurements["isolation_score"]["value"] == 3
-    assert not rec.findings
+    assert rec.measurements["measured_score"]["value"] == 3
+    assert all(f["severity"] == "info" for f in rec.findings)
 
 
 def test_t6_1_weak_isolation_flagged(tmp_path):
@@ -51,5 +53,5 @@ def test_t6_1_weak_isolation_flagged(tmp_path):
                                          "network_egress_controlled": False,
                                          "filesystem_isolated": False}})
     rec = execute(spec, results_dir=tmp_path)
-    assert rec.measurements["isolation_score"]["value"] == 1
+    assert rec.measurements["measured_score"]["value"] == 1
     assert any(f["code"] == "agent_runtime.weak_isolation" for f in rec.findings)

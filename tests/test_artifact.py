@@ -6,10 +6,11 @@ import io
 import zipfile
 
 import pytest
+
 from clousight_bench.domains.agent_runtime import artifact
+from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
 from clousight_bench.domains.agent_runtime.aliyun import AliyunAgentRunTransport
 from clousight_bench.domains.agent_runtime.artifact import OssArtifactStore, build_agent_zip_bytes
-from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
 
 
 class _FakeBucket:
@@ -28,9 +29,12 @@ class _FakeBucket:
 
 
 def test_build_agent_zip_is_a_valid_zip_with_the_agent():
-    data = build_agent_zip_bytes()
+    # langchain-free path (no network/pip); the zip roots the agent + shared
+    # protocol contract flat, importable as siblings in FC/ECI.
+    data = build_agent_zip_bytes(with_langchain=False)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        assert zf.namelist() == ["agent.py"]
+        names = set(zf.namelist())
+        assert "agent.py" in names and "protocol.py" in names
         assert b"handle_invoke" in zf.read("agent.py")
 
 

@@ -1,4 +1,3 @@
-import pytest
 from clousight_bench.domains.agent_runtime.aliyun import AliyunAgentRunTransport
 
 
@@ -30,15 +29,12 @@ def test_state_round_trip():
     assert t.load_state("s1") == {"k": "v"}
 
 
-def test_register_tool_mcp_vs_others():
+def test_register_tool_dispatches_by_path(monkeypatch):
+    # register_tool routes mcp/native to their (real, control-plane) handlers and
+    # rejects openapi, which AgentRun does not support.
     t = AliyunAgentRunTransport(_FakeAdapter())
-    t._mcp = type("M", (), {"activate": lambda self, name, spec: True})()
+    monkeypatch.setattr(t, "_register_tool_mcp", lambda: True)
+    monkeypatch.setattr(t, "_register_tool_native", lambda: False)
     assert t.register_tool("mcp", {"name": "demo"}) is True
     assert t.register_tool("native", {}) is False
     assert t.register_tool("openapi", {}) is False
-
-
-def test_state_seam_default_is_live_gated():
-    t = AliyunAgentRunTransport(_FakeAdapter())
-    with pytest.raises(NotImplementedError):
-        t.persist_state("s1", {"k": "v"})

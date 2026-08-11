@@ -1,11 +1,10 @@
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import pytest
-from clousight_bench.domains.agent_runtime.agent_bundle import agent
 from clousight_bench.domains.agent_runtime import protocol as p
-from clousight_bench.domains.agent_runtime.aliyun import AliyunAgentRunTransport
 from clousight_bench.domains.agent_runtime.adapters.base import ToolCall
+from clousight_bench.domains.agent_runtime.agent_bundle import agent
+from clousight_bench.domains.agent_runtime.aliyun import AliyunAgentRunTransport
 
 
 class _FakeAdapter:
@@ -64,12 +63,6 @@ def test_probe_scaling_against_local_agent():
         assert all(pt.p95_ms >= 0 for pt in points)
     finally:
         srv.shutdown()
-
-
-def test_invoke_seam_default_is_live_gated():
-    t = AliyunAgentRunTransport(_FakeAdapter("http://x"))
-    with pytest.raises(NotImplementedError):
-        t.run_tool_plan(t.create_session(), [ToolCall(target="prices")])
 
 
 def test_run_tool_plan_observes_tool_failure():

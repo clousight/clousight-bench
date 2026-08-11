@@ -8,9 +8,10 @@ plumbing is validated against a real account as a separate step.
 import sys
 
 import pytest
-from clousight_bench.domains.agent_runtime.aliyun import AliyunAgentRunTransport, AliyunRuntimeProvider
+
 from clousight_bench.core.registry import get_runtime_provider
 from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
+from clousight_bench.domains.agent_runtime.aliyun import AliyunAgentRunTransport, AliyunRuntimeProvider
 
 
 def test_provider_registered_via_entry_point():
@@ -56,32 +57,18 @@ def test_control_plane_request_is_a_valid_sdk_model():
 
 
 def test_provision_request_tags_the_run_id():
-    # The orchestrator sets adapter.run_id; the request carries it as a system tag
-    # so a later billing reconciliation can attribute actual cost to the run.
+    # The orchestrator sets adapter.run_id; the request carries it as a runtime
+    # env var (CLOUSIGHT_RUN_ID) so billing reconciliation can attribute cost.
     a = AliyunAgentRunAdapter({"region": "cn-hangzhou"})
     a.run_id = "run-20260730-000000-abcdef"
     req = AliyunAgentRunTransport(a)._create_runtime_request({"artifact_ref": "oss://b/o.zip"})
-    assert req.body.system_tags == ["clousight-run-id:run-20260730-000000-abcdef"]
+    assert req.body.environment_variables == {"CLOUSIGHT_RUN_ID": "run-20260730-000000-abcdef"}
 
 
 def test_provision_request_omits_tag_without_run_id():
     a = AliyunAgentRunAdapter({"region": "cn-hangzhou"})  # no run_id (e.g. outside a run)
     req = AliyunAgentRunTransport(a)._create_runtime_request({"artifact_ref": "oss://b/o.zip"})
-    assert req.body.system_tags is None
-
-
-def test_data_plane_ops_are_gated_until_live():
-    # Until validated on a live account, the data plane's real seams fail loudly
-    # and clearly rather than calling a wrong/absent SDK op. (A non-empty plan is
-    # needed so the invoke seam actually fires.)
-    from clousight_bench.domains.agent_runtime.aliyun import _DataPlaneNotWired
-    from clousight_bench.domains.agent_runtime.adapters.base import ToolCall
-
-    t = AliyunAgentRunTransport(AliyunAgentRunAdapter({"region": "cn-hangzhou"}))
-    with pytest.raises(_DataPlaneNotWired):
-        t.run_tool_plan("s", [ToolCall(target="prices")])
-    with pytest.raises(_DataPlaneNotWired):
-        t.persist_state("s", {"k": "v"})
+    assert req.body.environment_variables is None
 
 
 def test_mock_mode_ignores_wired_provider():
