@@ -238,7 +238,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         probe_url = str(adapter.target.get("probe_url") or "")
         if probe_url:
             from clousight_bench.domains.agent_runtime.probe.client import RemoteProbeClient
-            self._probe_client = RemoteProbeClient(probe_url)
+            probe_token = str(adapter.target.get("probe_token") or "") or None
+            self._probe_client = RemoteProbeClient(probe_url, token=probe_token)
         else:
             self._probe_client = None
         self._last_ttft_ms: float | None = None   # set by run_tool_plan on first invoke
@@ -2076,7 +2077,8 @@ class _AliyunCampaignProbe:
         self._oss = self._oss_factory(target)
         self._carrier = self._carrier_factory(target, self._prefix)
         url = self._carrier.provision()          # raises CarrierError on failure
-        return {"probe_url": url, "probe_oss_prefix": self._prefix}
+        return {"probe_url": url, "probe_oss_prefix": self._prefix,
+                "probe_token": getattr(self._carrier, "token", "") or ""}
 
     def sync_probe_artifacts(self, results_dir: Any) -> None:
         """Mirror the probe's OSS prefix into results_dir (channel ②)."""

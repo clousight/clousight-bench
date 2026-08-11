@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 
 import requests
+
 from clousight_bench.core.observation import ObservationBundle
 
 from .jobs import (
@@ -26,11 +27,13 @@ class ProbeJobFailed(RuntimeError):
 
 class RemoteProbeClient:
     def __init__(self, base_url: str, poll_interval_s: float = 2.0,
-                 timeout_s: float = 300.0) -> None:
+                 timeout_s: float = 300.0, token: str | None = None) -> None:
         self._base = base_url.rstrip("/")
         self._poll = poll_interval_s
         self._timeout = timeout_s
         self._http = requests.Session()
+        if token:
+            self._http.headers["Authorization"] = f"Bearer {token}"
 
     def run_job(
         self,

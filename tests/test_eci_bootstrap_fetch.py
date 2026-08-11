@@ -44,6 +44,28 @@ def test_bootstrap_fetches_from_oss_not_urlretrieve():
     assert "clousight_bench.domains.agent_runtime.probe.server" in boot
 
 
+def test_bootstrap_verifies_sha256_before_run_and_carries_token():
+    cfg = EciCarrierConfig(
+        oss_code_uri="oss://b/clousight-bench/run-x/cb-probe.zip",
+        code_sha256="deadbeefcafe", region="cn-hangzhou", port=9000, run_id="run-x")
+    carrier = EciProbeCarrier(sdk=_NoSdk(), config=cfg, health_check=lambda u: True,
+                              sleep=lambda s: None, now=lambda: 0.0)
+    carrier.provision()  # generates the per-probe bearer token
+    assert carrier.token, "provision must mint a bearer token"
+    req = carrier._build_create_request()
+    c = req["container"][0]
+    boot = c["command"][-1]
+    # integrity check present AND before extraction (fail-closed on mismatch)
+    assert "hashlib.sha256" in boot
+    assert boot.index("sha256") < boot.index("zipfile -e")
+    env_kv = {e["key"]: e["value"] for e in c["environment_var"]}
+    assert env_kv["CB_PROBE_CODE_SHA256"] == "deadbeefcafe"
+    assert env_kv["CB_PROBE_TOKEN"] == carrier.token
+    # still shell-valid with a real token value present
+    result = subprocess.run(["/bin/sh", "-n", "-c", boot], capture_output=True)
+    assert result.returncode == 0, result.stderr.decode()
+
+
 def test_bootstrap_shell_syntax_is_valid():
     """Regression guard: the assembled bootstrap command must parse cleanly under
     /bin/sh -n (parse-only, no execution, no cloud calls).  This catches the class

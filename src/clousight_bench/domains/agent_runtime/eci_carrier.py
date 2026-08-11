@@ -20,6 +20,7 @@ class EciCarrierConfig:
     """Everything the create request needs. Real values pinned in Plan 5."""
     image: str = "registry.cn-hangzhou.aliyuncs.com/library/python:3.12"
     oss_code_uri: str = ""            # oss://bucket/campaign-<id>/cb-probe.zip
+    code_sha256: str = ""             # expected sha256 of cb-probe.zip (fail-closed)
     region: str = "cn-hangzhou"
     vswitch_id: str = ""
     security_group_id: str = ""
@@ -54,10 +55,15 @@ class EciProbeCarrier:
     now: Callable[[], float] = time.monotonic
     instance_id: str | None = field(default=None, init=False)
     probe_url: str | None = field(default=None, init=False)
+    token: str = field(default="", init=False)  # bearer token for the probe HTTP surface
 
     def provision(self) -> str:
         """Create the ECI, wait until Running + /health green; return probe_url.
         Raises CarrierError on timeout (never silently falls back)."""
+        import secrets
+        # Per-probe bearer token: the probe server (0.0.0.0, public IP) requires it
+        # on /run-job and /job so a stranger can't drive it or read job results.
+        self.token = secrets.token_urlsafe(32)
         req = self._build_create_request()
         self.instance_id = self.sdk.create_container_group(req)
         deadline = self.now() + self.config.ready_timeout_s
@@ -101,9 +107,20 @@ class EciProbeCarrier:
             "os.environ['CB_PROBE_CODE_BUCKET'],region=os.environ['CB_PROBE_REGION']);"
             "b.get_object_to_file(os.environ['CB_PROBE_CODE_KEY'],'/tmp/probe.zip')"
         )
+        # Verify the fetched code against the expected sha256 BEFORE extracting or
+        # running it. Fail-closed: an unset/mismatched hash aborts (set -e), so a
+        # tampered or swapped OSS object can never be executed on the ECI (which
+        # holds the instance RAM role). Closes the "fetch == RCE" hole.
+        verify = (
+            "import hashlib,os,sys;"
+            "d=open('/tmp/probe.zip','rb').read();"
+            "w=os.environ.get('CB_PROBE_CODE_SHA256','');"
+            "sys.exit(0 if w and hashlib.sha256(d).hexdigest()==w else 1)"
+        )
         bootstrap = (
             "set -e; pip install oss2 requests >/dev/null; "
             f"python -c \"{fetch}\"; "
+            f"python -c \"{verify}\"; "
             "cd /tmp && python -m zipfile -e probe.zip probe && cd probe && "
             f"PORT={c.port} python -m clousight_bench.domains.agent_runtime.probe.server"
         )
@@ -129,6 +146,8 @@ class EciProbeCarrier:
                     {"key": "CB_PROBE_REGION", "value": c.region},
                     {"key": "CB_PROBE_CODE_BUCKET", "value": code_bucket},
                     {"key": "CB_PROBE_CODE_KEY", "value": code_key},
+                    {"key": "CB_PROBE_CODE_SHA256", "value": c.code_sha256},
+                    {"key": "CB_PROBE_TOKEN", "value": self.token},
                 ],
             }],
         }
