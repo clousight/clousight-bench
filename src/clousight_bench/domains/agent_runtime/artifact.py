@@ -39,7 +39,15 @@ _LC_DEPS = [
     "opentelemetry-exporter-otlp-proto-http",
 ]
 # Patterns to strip from the vendor directory to keep the zip small
-_VENDOR_EXCLUDE = ("__pycache__", ".dist-info", ".pyc", "tests/", "test/", "docs/")
+_VENDOR_EXCLUDE = ("__pycache__", ".dist-info", ".pyc", "tests/", "test/", "docs/",
+                   ".deps-hash")
+
+
+def _deps_fingerprint() -> str:
+    """Stable fingerprint of the pinned vendor deps — the vendor-cache key."""
+    import hashlib
+
+    return hashlib.sha256("\n".join(_LC_DEPS).encode()).hexdigest()
 
 
 def _build_vendor_dir(vendor_path: Path) -> None:
@@ -98,11 +106,22 @@ def build_agent_zip_bytes(with_langchain: bool = True) -> bytes:
 
         # Vendor dependencies (only when requested)
         if with_langchain:
-            # Cache vendor dir next to this file to avoid re-installing on every build
+            # Cache vendor dir next to this file to avoid re-installing on every
+            # build. Invalidate on any change to _LC_DEPS (not just an empty dir),
+            # so bumping a dependency actually triggers a rebuild.
             here = Path(__file__).parent
             vendor_cache = here / "agent_bundle" / "_vendor_cache"
-            if not vendor_cache.exists() or not any(vendor_cache.iterdir()):
+            stamp = vendor_cache / ".deps-hash"
+            want = _deps_fingerprint()
+            fresh = (
+                vendor_cache.exists()
+                and any(vendor_cache.iterdir())
+                and stamp.exists()
+                and stamp.read_text().strip() == want
+            )
+            if not fresh:
                 _build_vendor_dir(vendor_cache)
+                stamp.write_text(want)
             for f in vendor_cache.rglob("*"):
                 if f.is_file() and not _should_exclude(f, vendor_cache):
                     arcname = f"vendor/{f.relative_to(vendor_cache)}"
