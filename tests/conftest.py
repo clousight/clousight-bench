@@ -19,6 +19,9 @@ if importlib.util.find_spec("requests") is None:
         "test_dataplane_*.py",
         "test_reaper*.py",
         "test_campaign_carrier_lifecycle.py",
+        # Reliability probes drive the agent→mock HTTP path (probe/dataplane.py
+        # imports `requests`), so skip them on the bare core+[dev] floor too.
+        "test_reliability_*.py",
     ]
 
 

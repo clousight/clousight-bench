@@ -77,6 +77,7 @@ def test_delete_ignores_a_foreign_reference():
 
 
 def test_oss_auth_bridges_the_default_chain_incl_sts_token():
+    pytest.importorskip("oss2")  # _ChainCredentialsProvider subclasses an oss2 base
     # OSS auth uses the same alibabacloud_credentials default chain as AgentRun,
     # so AK, CLI profile, OIDC, instance role AND STS temporary credentials all
     # work -- the security_token is carried through (that is what makes STS /

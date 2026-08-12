@@ -41,6 +41,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'
+        continue-on-error: true  # coverage upload is best-effort; a Codecov token/outage must never gate merges
         uses: codecov/codecov-action@v7
         with:
           files: coverage.xml
