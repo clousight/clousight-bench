@@ -1143,7 +1143,10 @@ class AliyunAgentRunTransport(RuntimeTransport):
         then attaches vantage metadata.
 
         Remote path (Plan 4b, when self._probe_client is set): delegates to the
-        RemoteProbeClient.run_job() instead of running in-process.
+        configured probe client — OssProbeClient for the OSS/ECI path (when
+        ``probe_control_prefix`` is set) or RemoteProbeClient for the legacy
+        HTTP path (when only ``probe_url`` is set) — instead of running
+        in-process.
 
         Endpoint resolution mirrors _live_invoke's lazy-provision pattern so
         data-plane tasks that skip explicit provision() still work.
