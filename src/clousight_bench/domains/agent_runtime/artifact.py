@@ -62,12 +62,17 @@ def _build_vendor_dir(vendor_path: Path) -> None:
         shutil.rmtree(vendor_path)
     vendor_path.mkdir(parents=True)
 
-    # Try uv first (faster), fall back to pip
+    # Try uv first (faster), fall back to pip. A missing installer raises
+    # FileNotFoundError before returncode is set (e.g. no `uv` on a CI runner),
+    # so catch it and move on to the next candidate rather than aborting.
     for cmd in (["uv", "pip", "install"], ["pip", "install"]):
-        result = subprocess.run(
-            [*cmd, "--target", str(vendor_path), *_LC_DEPS, "-q"],
-            capture_output=True,
-        )
+        try:
+            result = subprocess.run(
+                [*cmd, "--target", str(vendor_path), *_LC_DEPS, "-q"],
+                capture_output=True,
+            )
+        except FileNotFoundError:
+            continue
         if result.returncode == 0:
             return
     raise RuntimeError(

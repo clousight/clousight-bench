@@ -126,3 +126,22 @@ def test_provision_builds_and_uploads_when_bucket_set_and_teardown_deletes(monke
     residual = t._cleanup_artifact()
     assert residual == []
     assert len(fake.objects) == 0
+
+
+def test_build_vendor_dir_falls_back_to_pip_when_uv_missing(tmp_path, monkeypatch):
+    """A missing `uv` (e.g. a CI runner without it) must fall back to pip, not
+    raise FileNotFoundError. Regression: subprocess.run raises before the
+    returncode check, so the loop has to catch it and try the next installer."""
+    import subprocess
+
+    seen: list[str] = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(cmd[0])
+        if cmd[0] == "uv":
+            raise FileNotFoundError(2, "No such file or directory", "uv")
+        return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    artifact._build_vendor_dir(tmp_path / "vendor")
+    assert seen == ["uv", "pip"]  # tried uv, then fell back to pip
