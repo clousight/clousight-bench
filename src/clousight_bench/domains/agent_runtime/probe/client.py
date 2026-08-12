@@ -10,8 +10,10 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-import requests
-
+# NOTE: `requests` is imported lazily inside RemoteProbeClient.__init__ (not at
+# module top) so that `ProbeJobFailed` — reused by the requests-free OSS-mediated
+# client (oss_dispatch_client) — can be imported on installs without the [probe]
+# extra (e.g. the CI no-validate floor).
 from clousight_bench.core.observation import ObservationBundle
 
 from .jobs import (
@@ -30,6 +32,8 @@ class RemoteProbeClient:
     def __init__(
         self, base_url: str, poll_interval_s: float = 2.0, timeout_s: float = 300.0, token: str | None = None
     ) -> None:
+        import requests
+
         self._base = base_url.rstrip("/")
         self._poll = poll_interval_s
         self._timeout = timeout_s
