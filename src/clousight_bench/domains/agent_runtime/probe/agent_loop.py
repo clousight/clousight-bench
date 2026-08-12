@@ -24,7 +24,7 @@ import time as _time
 from collections.abc import Callable
 from typing import Any
 
-from clousight_bench.domains.agent_runtime.probe.jobs import JobRecord, JobSpec
+from clousight_bench.domains.agent_runtime.probe.jobs import JobProgress, JobRecord, JobSpec
 from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
 
 log = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ def run_agent_loop(
                 continue
 
             log.info("agent_loop: running job %s (probe=%s)", job_id, spec.probe)
-            record = _run_job(channel, runner, job_id, spec)
+            record = _run_job(channel, runner, job_id, spec, sleep=sleep, now=now)
 
             log.info("agent_loop: job %s finished status=%s", job_id, record.status)
             channel.write_result(job_id, record)
@@ -102,6 +102,10 @@ def _run_job(
     runner: Any,
     job_id: str,
     spec: JobSpec,
+    *,
+    sleep: Callable[[float], None] = _time.sleep,
+    now: Callable[[], float] = _time.monotonic,
+    max_wait_s: float = 300.0,
 ) -> JobRecord:
     """Submit *spec* to the runner, relay progress to *channel*, return terminal record.
 
@@ -113,6 +117,16 @@ def _run_job(
     If ``runner.submit`` or the subsequent poll raises for any reason, we return a
     synthetic ``JobRecord`` with status="failed" so the control plane always receives
     a terminal object.
+
+    Args:
+        channel: The :class:`OssChannel` used for relaying progress and results.
+        runner: Duck-typed runner with ``submit`` / ``get`` methods.
+        job_id: Channel-level job ID (used to key OSS objects).
+        spec: The probe specification to run.
+        sleep: Replacement for :func:`time.sleep`; injected in tests.
+        now: Replacement for :func:`time.monotonic`; injected in tests.
+        max_wait_s: Give up and return a failed record if the runner's background
+            thread has not reached a terminal status within this many seconds.
     """
     try:
         runner_job_id = runner.submit(spec)
@@ -124,6 +138,9 @@ def _run_job(
         )
 
     # Poll until terminal, relaying progress snapshots.
+    deadline = now() + max_wait_s
+    last_progress_written: JobProgress | None = None
+
     while True:
         record = runner.get(runner_job_id)
         if record is None:
@@ -134,9 +151,12 @@ def _run_job(
                 error="runner.get() returned None for submitted job",
             )
 
-        # Relay progress to the channel (best-effort; never crash the loop).
+        # Relay progress to the channel only when a new snapshot is available
+        # (best-effort; never crash the loop).
         try:
-            channel.write_progress(job_id, record.progress, record.live_metrics)
+            if record.progress is not None and record.progress != last_progress_written:
+                channel.write_progress(job_id, record.progress, record.live_metrics)
+                last_progress_written = record.progress
         except Exception:  # noqa: BLE001
             pass
 
@@ -152,8 +172,17 @@ def _run_job(
                 chunk_refs=list(record.chunk_refs),
             )
 
+        # Timeout guard: if the runner's background thread never reaches a terminal
+        # status, give up rather than looping forever.
+        if now() >= deadline:
+            return JobRecord(
+                job_id=job_id,
+                status="failed",
+                error=f"probe did not complete within {max_wait_s}s",
+            )
+
         # Not terminal yet — runner is still in a background thread.
-        _time.sleep(0.01)
+        sleep(0.01)
 
 
 def main() -> None:

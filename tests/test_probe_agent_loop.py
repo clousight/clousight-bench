@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from clousight_bench.core.observation import ObservationBundle
-from clousight_bench.domains.agent_runtime.probe.agent_loop import run_agent_loop
+from clousight_bench.domains.agent_runtime.probe.agent_loop import _run_job, run_agent_loop
 from clousight_bench.domains.agent_runtime.probe.jobs import (
     JobProgress,
     JobRecord,
@@ -22,7 +22,6 @@ from clousight_bench.domains.agent_runtime.probe.jobs import (
 )
 from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
 from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
-from clousight_bench.domains.agent_runtime.probe.runner import JobRunner
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -33,20 +32,6 @@ def _make_channel(campaign_id: str = "camp-test") -> tuple[OssChannel, InMemoryO
     oss = InMemoryOssClient()
     channel = OssChannel(oss, campaign_id=campaign_id)
     return channel, oss
-
-
-def _make_fake_runner(probe_fn: Callable | None = None) -> JobRunner:
-    """Return a JobRunner with a single fast synchronous 'fake' probe."""
-
-    def _default_probe(spec: JobSpec, progress_cb: Callable, **_kwargs: Any) -> ObservationBundle:
-        progress_cb(
-            JobProgress(phase="running", completed=1, total=1, elapsed_s=0.1),
-            {"latency_ms": 42.0},
-        )
-        return ObservationBundle(observations={"ok": True}, series={})
-
-    fn = probe_fn or _default_probe
-    return JobRunner({"fake": fn})
 
 
 class _FakeRunner:
@@ -358,3 +343,47 @@ def test_progress_is_written_during_job_execution() -> None:
     prog, metrics = prog_result
     assert prog.phase == "loading"
     assert metrics == {"stage": "loading"}
+
+
+# ---------------------------------------------------------------------------
+# I1: _run_job gives up after max_wait_s when runner never reaches terminal status
+# ---------------------------------------------------------------------------
+
+
+class _HangingRunner:
+    """Runner whose get() always returns status='running' — simulates a stuck thread."""
+
+    def submit(self, spec: JobSpec) -> str:
+        return "stuck-job-id"
+
+    def get(self, job_id: str) -> JobRecord:
+        return JobRecord(job_id=job_id, status="running")
+
+
+def test_run_job_times_out_when_runner_never_completes() -> None:
+    """_run_job must give up after max_wait_s and write a failed record."""
+    channel, _ = _make_channel()
+    clock = _MonotonicClock(start=0.0)
+
+    # Each sleep(0.01) call advances the clock past max_wait_s (10.0 s here) so the
+    # timeout path is reached after exactly one poll iteration.  No real time passes.
+    def _timeout_sleep(s: float) -> None:
+        clock.advance(20.0)  # jump past max_wait_s=10.0
+
+    spec = JobSpec(probe="fake", params={}, target_endpoint="https://api.example.com")
+    job_id = "job-timeout-test"
+
+    result = _run_job(
+        channel,
+        _HangingRunner(),
+        job_id,
+        spec,
+        sleep=_timeout_sleep,
+        now=clock,
+        max_wait_s=10.0,
+    )
+
+    assert result.status == "failed"
+    assert result.error is not None
+    assert "10.0" in result.error  # max_wait_s value appears in the message
+    assert "did not complete" in result.error
