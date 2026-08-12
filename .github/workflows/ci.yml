@@ -33,6 +33,9 @@ jobs:
       - name: Type-check (mypy)
         run: mypy
 
+      - name: Docs inventory up to date
+        run: python scripts/gen_docs.py --check
+
       - name: Test (pytest)
         run: pytest -q --cov --cov-report=term-missing --cov-report=xml
 

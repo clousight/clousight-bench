@@ -45,32 +45,9 @@ def _cmd_list(args: argparse.Namespace) -> int:
     if args.json:
         import json as _json
 
-        out: dict[str, Any] = {"schema": "list/1.0", "domains": []}
-        for name, pack in sorted(domains.items()):
-            domain_obj = {
-                "domain": name,
-                "description": pack.description,
-                "tasks": [
-                    {
-                        "task_id": tid,
-                        "title": tcls.title,
-                        "evidence_layer": tcls.evidence_layer,
-                        "capability_tags": list(tcls.capability_tags),
-                    }
-                    for tid, tcls in sorted(pack.tasks().items())
-                ],
-                "platforms": [
-                    {
-                        "platform": pname,
-                        "status": acls.status,
-                        "provider": acls.provider,
-                        "target_example": acls.target_example,
-                    }
-                    for pname, acls in sorted(pack.adapters().items())
-                ],
-            }
-            out["domains"].append(domain_obj)
-        print(_json.dumps(out, indent=2, ensure_ascii=False))
+        from clousight_bench.core.inventory import inventory
+
+        print(_json.dumps(inventory(), indent=2, ensure_ascii=False))
         return 0
     for name, pack in sorted(domains.items()):
         print(f"domain: {name}")
