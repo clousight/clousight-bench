@@ -25,6 +25,7 @@ Common target keys (configs/agent-runtime.*.example.yaml):
                    can reach (real mode only; localhost is NOT reachable from a
                    cloud runtime -- use a tunnel or a tiny cloud function)
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -39,7 +40,7 @@ class AliyunAgentRunAdapter(ManagedAgentRuntimeAdapter):
     name = "aliyun-agentrun"
     status = "skeleton"
     provider = "aliyun"
-    endpoint_service = "agentrun"            # control plane: agentrun.<region>.aliyuncs.com
+    endpoint_service = "agentrun"  # control plane: agentrun.<region>.aliyuncs.com
     data_endpoint_service = "agentrun-data"  # data plane (invoke): agentrun-data.<region>...
     DOCS = "https://help.aliyun.com/zh/functioncompute/fc/what-is-agentrun"
     # Abstract capability token -> real AgentRun RAM action(s), API 2025-09-10.

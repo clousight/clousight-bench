@@ -17,6 +17,7 @@ and declare only that metadata; the behaviour lives here.
   provider's SDK calls are filled in; until then it is a skeleton and the
   orchestrator refuses it up front (see ``is_runnable_instance``).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -51,6 +52,11 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def __init__(self, target: dict[str, Any] | None = None) -> None:
         super().__init__(target)
         self._transport: RuntimeTransport | None = None
+
+    @property
+    def session_cold_start_is_provision(self) -> bool:
+        """Delegates to the transport so the flag survives a mock<->real switch."""
+        return bool(getattr(self._transport_(), "session_cold_start_is_provision", False))
 
     # --- mode / endpoint / client ------------------------------------------
 
@@ -112,8 +118,11 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             return plugin.build_transport(self)
         ep = self.endpoint()
         return NotWiredCloudTransport(
-            self.name, self.provider, ep.url if ep else None,
-            self.client_factory(), self.DOCS,
+            self.name,
+            self.provider,
+            ep.url if ep else None,
+            self.client_factory(),
+            self.DOCS,
         )
 
     def _transport_(self) -> RuntimeTransport:
@@ -171,8 +180,12 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             from clousight_bench.core import preflight as pf
 
             return pf.PreflightReport().add(
-                pf.Check("mode", ok=True, severity=pf.WARNING,
-                         detail="mock: simulated runtime, no cloud prerequisites")
+                pf.Check(
+                    "mode",
+                    ok=True,
+                    severity=pf.WARNING,
+                    detail="mock: simulated runtime, no cloud prerequisites",
+                )
             )
         return super().preflight(task)
 
@@ -220,6 +233,9 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_rate_limit(self) -> Any:
         return self._transport_().probe_rate_limit()
 
+    def probe_ttft(self) -> float:
+        return self._transport_().probe_ttft()
+
     def probe_cancellation(self) -> Any:
         return self._transport_().probe_cancellation()
 
@@ -241,6 +257,25 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_concurrency_ceiling(self) -> Any:
         return self._transport_().probe_concurrency_ceiling()
 
+    def probe_fault_recovery(self) -> Any:
+        return self._transport_().probe_fault_recovery()
+
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> Any:
+        return self._transport_().probe_retry_storm(max_window_s)
+
+    def probe_concurrent_writes(self) -> Any:
+        return self._transport_().probe_concurrent_writes()
+
+    def probe_hol_blocking(self) -> Any:
+        return self._transport_().probe_hol_blocking()
+
+    def run_data_plane_probe(self, name: str, params: dict[str, Any] | None = None):
+        t = self._transport_()
+        fn = getattr(t, "run_data_plane_probe", None)
+        if callable(fn):
+            return fn(name, params or {})
+        return super().run_data_plane_probe(name, params)
+
     def provision(self, spec: dict[str, Any] | None = None) -> Any:
         """Provision through the transport, but first stamp this run's resource
         tags into the spec (so a wired transport tags the real cloud resource)
@@ -254,8 +289,7 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             result.tags = tags
         ledger = self._resource_ledger()
         if ledger is not None and self.run_id:
-            ledger.record_created(
-                self.run_id, self.provider, result.runtime_id, "runtime", result.tags)
+            ledger.record_created(self.run_id, self.provider, result.runtime_id, "runtime", result.tags)
         return result
 
     def provision_status(self, runtime_id: str) -> str:

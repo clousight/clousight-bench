@@ -4,6 +4,7 @@ Every branch here answers the same question: after this failure, where is the
 record, what does it still claim, and does the object we returned match the
 bytes on disk?
 """
+
 import hashlib
 import json
 
@@ -25,13 +26,17 @@ from clousight_bench.core.store import STORE_AVAILABLE, ResultStore
 def _rec(**overrides) -> ResultRecord:
     base = dict(
         run=RunInfo(run_id="run-x", started_at=utc_now(), finished_at=utc_now()),
-        identity=Identity(domain="agent-runtime", task_id="T1.3", task_revision="2",
-                          scorer_revision="2", adapter="local-sim",
-                          adapter_status="reference", core_version="0.2.0"),
-        environment=Environment(region="", mode="local", python_version="3.12.0",
-                                os_name="Linux"),
-        fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b",
-                                  implementation="sha256:c"),
+        identity=Identity(
+            domain="agent-runtime",
+            task_id="T1.3",
+            task_revision="2",
+            scorer_revision="2",
+            adapter="local-sim",
+            adapter_status="reference",
+            core_version="0.2.0",
+        ),
+        environment=Environment(region="", mode="local", python_version="3.12.0", os_name="Linux"),
+        fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b", implementation="sha256:c"),
         status="completed",
         measurements={"p99_ms": {"value": 9, "unit": "ms", "evidence": "C"}},
     )
@@ -44,6 +49,7 @@ def _written(path):
 
 
 # --- I2: the returned record is the record on disk ---------------------------
+
 
 def test_the_returned_record_equals_the_persisted_payload(tmp_path):
     record = _rec(series={"latency_ms": [[1, 10.0], [2, 20.0]]})
@@ -85,6 +91,7 @@ def test_records_are_identical_with_and_without_the_store_extra(tmp_path, monkey
 
 
 # --- I4: the sidecar is validated, hashed and atomic -------------------------
+
 
 @pytest.mark.skipif(not STORE_AVAILABLE, reason="requires [store] extra")
 def test_the_series_sidecar_is_hashed_into_the_record(tmp_path):
@@ -183,18 +190,16 @@ def test_sidecar_leak_check_matches_inline_record_key_policy(tmp_path, monkeypat
 
 # --- C2 / I3: every render failure still produces a trustworthy record -------
 
-def test_an_identity_leak_is_never_written_but_the_record_still_lands(
-    tmp_path, monkeypatch, capsys
-):
+
+def test_an_identity_leak_is_never_written_but_the_record_still_lands(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         "clousight_bench.core.store.find_identity_leaks",
-        lambda payload: (
-            ["$.environment.facts.host"] if payload.get("environment", {}).get("facts") else []
-        ),
+        lambda payload: ["$.environment.facts.host"] if payload.get("environment", {}).get("facts") else [],
     )
     record = _rec(
-        environment=Environment(region="", mode="local", python_version="3.12.0",
-                                os_name="Linux", facts={"host": "build-box"}),
+        environment=Environment(
+            region="", mode="local", python_version="3.12.0", os_name="Linux", facts={"host": "build-box"}
+        ),
     )
     path = ResultStore(tmp_path).persist(record)
     data = _written(path)
@@ -227,11 +232,7 @@ def test_a_non_canonical_payload_degrades_to_a_minimal_record(tmp_path, capsys):
 
 
 def test_drop_scored_level_is_failed_and_keeps_the_core_marker(tmp_path, capsys):
-    record = _rec(
-        measurements={
-            "bad": {"value": object(), "unit": "", "evidence": "C"}
-        }
-    )
+    record = _rec(measurements={"bad": {"value": object(), "unit": "", "evidence": "C"}})
     path = ResultStore(tmp_path).persist(record)
     data = _written(path)
 
@@ -287,9 +288,7 @@ def test_persist_never_reports_ok_before_the_bytes_are_on_disk(tmp_path, monkeyp
     assert record.run.stages["PERSIST"] == "failed"
 
 
-def test_the_emergency_record_inlines_the_series_without_a_dangling_pointer(
-    tmp_path, monkeypatch, capsys
-):
+def test_the_emergency_record_inlines_the_series_without_a_dangling_pointer(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path / "tmp"))
 
     def _boom(path, text):
@@ -309,9 +308,7 @@ def test_the_emergency_record_inlines_the_series_without_a_dangling_pointer(
     assert "emergency" in err
 
 
-def test_sidecar_oserror_keeps_inline_result_and_removes_empty_run_dir(
-    tmp_path, monkeypatch
-):
+def test_sidecar_oserror_keeps_inline_result_and_removes_empty_run_dir(tmp_path, monkeypatch):
     import clousight_bench.core.store as store_mod
 
     run_dir = tmp_path / "agent-runtime" / "local-sim" / "run-x"
@@ -345,9 +342,7 @@ def test_sidecar_write_oserror_retries_inline_in_normal_results(tmp_path, monkey
     assert not (tmp_path / "agent-runtime" / "local-sim" / "run-x").exists()
 
 
-def test_second_emergency_write_for_same_run_uses_a_unique_file(
-    tmp_path, monkeypatch
-):
+def test_second_emergency_write_for_same_run_uses_a_unique_file(tmp_path, monkeypatch):
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path / "tmp"))
 
     def _boom(path, text):
@@ -379,6 +374,7 @@ def test_a_parquet_failure_never_fails_the_run(tmp_path, monkeypatch):
 
 
 # --- I5: the query connection is closed, success or failure ------------------
+
 
 @pytest.mark.skipif(not STORE_AVAILABLE, reason="requires [store] extra")
 def test_query_series_closes_its_connection(tmp_path, monkeypatch):

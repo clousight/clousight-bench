@@ -1,3 +1,4 @@
+import importlib.util
 import json
 from pathlib import Path
 
@@ -5,28 +6,68 @@ import pytest
 
 from clousight_bench.core.fingerprints import record_digest
 
+# Skip optional-dependency tests when their extra isn't installed. The in-region
+# probe + Aliyun provider modules import `requests` (the [probe] / [aliyun]
+# extras); a bare core+[dev] install should skip those tests cleanly instead of
+# erroring at collection, so the no-extras CI floor keeps working.
+collect_ignore_glob: list[str] = []
+if importlib.util.find_spec("requests") is None:
+    collect_ignore_glob += [
+        "test_probe_*.py",
+        "test_aliyun_*.py",
+        "test_eci*.py",
+        "test_dataplane_*.py",
+        "test_reaper*.py",
+        "test_campaign_carrier_lifecycle.py",
+        # Reliability probes drive the agent→mock HTTP path (probe/dataplane.py
+        # imports `requests`), so skip them on the bare core+[dev] floor too.
+        "test_reliability_*.py",
+    ]
+
 
 def _write_analytics_record(root: Path, run_id: str = "r1") -> None:
     """Write one digest-valid 0.2 record for the analytics tests."""
     payload = {
         "schema_version": "0.2",
-        "run": {"run_id": run_id, "started_at": "2026-01-01T00:00:00Z",
-                "finished_at": "2026-01-01T00:00:01Z", "stages": {}},
-        "identity": {"domain": "agent-runtime", "task_id": "T1.3", "adapter": "local-sim",
-                     "task_revision": "2", "scorer_revision": "2"},
+        "run": {
+            "run_id": run_id,
+            "started_at": "2026-01-01T00:00:00Z",
+            "finished_at": "2026-01-01T00:00:01Z",
+            "stages": {},
+        },
+        "identity": {
+            "domain": "agent-runtime",
+            "task_id": "T1.3",
+            "adapter": "local-sim",
+            "task_revision": "2",
+            "scorer_revision": "2",
+        },
         "environment": {"region": "cn-hangzhou", "mode": "mock"},
-        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b",
-                         "implementation": "sha256:c"},
+        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b", "implementation": "sha256:c"},
         "measurements": {
-            "cold_start_ms": {"value": 42.0, "unit": "ms", "evidence": "B",
-                              "aggregation": "p50", "sample_count": 5},
+            "cold_start_ms": {
+                "value": 42.0,
+                "unit": "ms",
+                "evidence": "B",
+                "aggregation": "p50",
+                "sample_count": 5,
+            },
             "recovery_mode": {"value": "auto-retry", "unit": "", "evidence": "C"},
         },
-        "findings": [{"code": "agent_runtime.scaling_knee", "severity": "warning",
-                      "summary": "knee at 8", "evidence": "B"}],
-        "observations": {}, "series": {}, "artifacts": [],
+        "findings": [
+            {
+                "code": "agent_runtime.scaling_knee",
+                "severity": "warning",
+                "summary": "knee at 8",
+                "evidence": "B",
+            }
+        ],
+        "observations": {},
+        "series": {},
+        "artifacts": [],
         "extensions": {"pricing": {"cost_usd": 0.0123}},
-        "errors": [], "status": "completed",
+        "errors": [],
+        "status": "completed",
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     p = root / "agent-runtime" / "local-sim"
@@ -40,25 +81,52 @@ def write_record():
     return _write_analytics_record
 
 
-def _make_report_record(adapter, task_id, *, execution="simulated", measurements=None,
-                        domain="agent-runtime", extensions=None):
+def _make_report_record(
+    adapter, task_id, *, execution="simulated", measurements=None, domain="agent-runtime", extensions=None
+):
     from clousight_bench.core.record import ResultRecord
+
     payload = {
         "schema_version": "0.2",
-        "run": {"run_id": f"{adapter}-{task_id}-{execution}",
-                "started_at": "2026-01-01T00:00:00Z", "finished_at": "2026-01-01T00:00:01Z",
-                "stages": {}},
-        "identity": {"domain": domain, "task_id": task_id, "adapter": adapter,
-                     "task_revision": "1", "scorer_revision": "1", "core_version": "0.2.0",
-                     "adapter_status": "reference", "plugin_versions": {}},
-        "environment": {"region": "", "mode": "cloud", "python_version": "3.12.0",
-                        "os_name": "Linux", "facts": {}, "execution": execution},
-        "fingerprints": {"benchmark": f"sha256:{task_id}", "environment": f"sha256:{execution}",
-                         "implementation": "sha256:c"},
-        "measurements": {k: {"value": v, "unit": "", "evidence": "B"}
-                         for k, v in (measurements or {}).items()},
-        "findings": [], "observations": {}, "series": {}, "artifacts": [],
-        "extensions": extensions or {}, "errors": [], "status": "completed",
+        "run": {
+            "run_id": f"{adapter}-{task_id}-{execution}",
+            "started_at": "2026-01-01T00:00:00Z",
+            "finished_at": "2026-01-01T00:00:01Z",
+            "stages": {},
+        },
+        "identity": {
+            "domain": domain,
+            "task_id": task_id,
+            "adapter": adapter,
+            "task_revision": "1",
+            "scorer_revision": "1",
+            "core_version": "0.2.0",
+            "adapter_status": "reference",
+            "plugin_versions": {},
+        },
+        "environment": {
+            "region": "",
+            "mode": "cloud",
+            "python_version": "3.12.0",
+            "os_name": "Linux",
+            "facts": {},
+            "execution": execution,
+        },
+        "fingerprints": {
+            "benchmark": f"sha256:{task_id}",
+            "environment": f"sha256:{execution}",
+            "implementation": "sha256:c",
+        },
+        "measurements": {
+            k: {"value": v, "unit": "", "evidence": "B"} for k, v in (measurements or {}).items()
+        },
+        "findings": [],
+        "observations": {},
+        "series": {},
+        "artifacts": [],
+        "extensions": extensions or {},
+        "errors": [],
+        "status": "completed",
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     return ResultRecord.from_dict(payload)

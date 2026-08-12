@@ -1,4 +1,5 @@
 """The report renders 0.2 measurements and derives red flags from findings."""
+
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.report import generate_report
 from clousight_bench.core.schema import RunSpec
@@ -11,20 +12,41 @@ def test_empty_directory_says_so(tmp_path):
 
 
 def test_report_renders_measurements_with_evidence_and_status(tmp_path):
-    execute(RunSpec("agent-runtime", "T1.3", "local-sim",
-                    target={"recovery": {"mode": "auto-retry"}}), results_dir=tmp_path)
+    execute(
+        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
+        results_dir=tmp_path,
+    )
     report = generate_report(tmp_path)
     assert "## agent-runtime · T1.3" in report
-    assert "recovery_mode=auto-retry [C]" in report
-    assert "completed" in report
+    # New shape: recovered=True [B] and observed_attempts [B]
+    assert "recovered=True [B]" in report
+    assert "observed_attempts=" in report
     assert "- none" in report
 
 
 def test_warning_findings_become_red_flags(tmp_path):
-    execute(RunSpec("agent-runtime", "T1.3", "local-sim",
-                    target={"recovery": {"mode": "fail-fast"}}), results_dir=tmp_path)
+    # platform_terminated=True generates agent_runtime.platform_timeout_recovery finding.
+    # Monkeypatch the local-sim probe_fault_recovery to return platform_terminated=True.
+    from unittest.mock import patch
+
+    from clousight_bench.domains.agent_runtime.adapters.base import FaultRecoveryResult
+    from clousight_bench.domains.agent_runtime.adapters.transport import MockRuntimeTransport
+
+    def _terminated(self):
+        return FaultRecoveryResult(
+            recovered=False,
+            observed_attempts=1,
+            recovery_ms=5000.0,
+            platform_terminated=True,
+        )
+
+    with patch.object(MockRuntimeTransport, "probe_fault_recovery", _terminated):
+        execute(
+            RunSpec("agent-runtime", "T1.3", "local-sim"),
+            results_dir=tmp_path,
+        )
     report = generate_report(tmp_path)
-    assert "agent_runtime.recovery_fail_fast" in report
+    assert "agent_runtime.platform_timeout_recovery" in report
     assert "warning" in report
 
 
@@ -42,8 +64,10 @@ def test_report_surfaces_cost_column_and_partial_flag(tmp_path):
 def test_report_shows_dash_cost_for_non_usage_task(tmp_path):
     # T1.3 carries no usage measurements, so the enricher never prices it: the
     # cost cell stays a dash and no pricing red flag appears.
-    execute(RunSpec("agent-runtime", "T1.3", "local-sim",
-                    target={"recovery": {"mode": "auto-retry"}}), results_dir=tmp_path)
+    execute(
+        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
+        results_dir=tmp_path,
+    )
     report = generate_report(tmp_path)
     assert "| cost |" in report
     assert "USD" not in report
@@ -65,8 +89,10 @@ def test_cost_summary_totals_across_runs_with_detail(tmp_path):
 
 def test_no_cost_summary_when_nothing_priced(tmp_path):
     # A task with no usage measurements -> no pricing extension -> no cost summary.
-    execute(RunSpec("agent-runtime", "T1.3", "local-sim",
-                    target={"recovery": {"mode": "auto-retry"}}), results_dir=tmp_path)
+    execute(
+        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
+        results_dir=tmp_path,
+    )
     report = generate_report(tmp_path)
     assert "## Cost summary" not in report
 

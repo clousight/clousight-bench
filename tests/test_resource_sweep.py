@@ -14,6 +14,7 @@ from clousight_bench.domains.agent_runtime.adapters.local_sim import LocalSimAda
 
 # --- the tag convention -----------------------------------------------------
 
+
 def test_run_tags_carry_run_id_and_managed_marker():
     tags = run_tags("run-abc123")
     assert tags[TAG_RUN_ID] == "run-abc123"
@@ -42,6 +43,7 @@ def test_adapter_resource_tags_use_its_run_id():
 
 # --- the sweep seam ---------------------------------------------------------
 
+
 def test_sweep_without_a_reaper_fails_clearly(capsys, monkeypatch):
     monkeypatch.setattr(registry, "get_resource_reaper", lambda provider: None)
     code = main(["sweep", "--provider", "aliyun"])
@@ -61,8 +63,9 @@ def test_sweep_defaults_to_dry_run_and_calls_the_reaper(capsys, monkeypatch):
             calls.append({"dry_run": dry_run, "older_than_s": older_than_s})
             return [{"id": "runtime-1", "run_id": "run-old"}]
 
-    monkeypatch.setattr(registry, "get_resource_reaper",
-                        lambda provider: _FakeReaper() if provider == "aliyun" else None)
+    monkeypatch.setattr(
+        registry, "get_resource_reaper", lambda provider: _FakeReaper() if provider == "aliyun" else None
+    )
     code = main(["sweep", "--provider", "aliyun"])
     out = capsys.readouterr().out
     assert code == 0
@@ -80,8 +83,7 @@ def test_sweep_confirm_actually_deletes(capsys, monkeypatch):
             calls.append(dry_run)
             return []
 
-    monkeypatch.setattr(registry, "get_resource_reaper",
-                        lambda provider: _FakeReaper())
+    monkeypatch.setattr(registry, "get_resource_reaper", lambda provider: _FakeReaper())
     code = main(["sweep", "--provider", "aliyun", "--confirm"])
     assert code == 0
     assert calls == [False]  # --confirm turns off dry-run

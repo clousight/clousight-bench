@@ -1,0 +1,32 @@
+# Copy to terraform.tfvars and fill in — never commit real values.
+# Run: cp terraform.tfvars.example terraform.tfvars
+
+# oss_bucket: leave empty to auto-generate (recommended).
+# Auto-generated bucket is deleted on terraform destroy (it's a pure staging area).
+# If you supply an existing bucket name, it will NOT be deleted on destroy.
+# oss_bucket = "clousight-bench-mybucketname"
+
+# retain_bucket: force-keep the bucket on destroy even if auto-generated.
+# retain_bucket = false
+
+region = "cn-hangzhou"
+
+# Products to benchmark — each gets a policy ClousightBench-<name>
+enabled_products = ["AgentRun"]
+
+# false = control-plane only (T0.1/T0.2 smoke)
+# true  = + data-plane (T1–T5, after deploying the agent)
+enable_data_plane = false
+
+# Deploy mock tool server as Aliyun FC function (recommended: no local server needed)
+# The FC HTTP trigger URL is output as mock_base_url and injected into csbench_config.
+enable_mock_tools = true
+
+# ── ECI probe (Phase B — gated; set false until you're ready for live probe runs)
+# enable_probe = false
+# eci_probe_role_name = "clousight-bench-eci-probe"
+
+# ── OSS lifecycle expiry (days) — defaults shown; adjust if needed
+# telemetry_expiry_days = 30
+# session_state_expiry_days = 7
+# abort_incomplete_multipart_days = 1

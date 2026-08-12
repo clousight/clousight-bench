@@ -11,6 +11,7 @@ over ``(provider, region)``; the resolver returns a fully-formed URL (or honours
 an explicit ``target['endpoint']`` override for private-cloud / proprietary
 regions). It never contacts the network -- it only shapes a URL.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -85,16 +86,21 @@ def resolve_endpoint(
     tmpl = _TEMPLATES.get(provider)
     if tmpl is None:
         return Endpoint(
-            provider, service, region, "", "unknown-provider",
-            remediation=(
-                f"no endpoint template for provider {provider!r}; "
-                "set target.endpoint explicitly"
-            ),
+            provider,
+            service,
+            region,
+            "",
+            "unknown-provider",
+            remediation=(f"no endpoint template for provider {provider!r}; set target.endpoint explicitly"),
         )
 
     if tmpl["region_in_host"] and not region:
         return Endpoint(
-            provider, service, region, "", "missing-region",
+            provider,
+            service,
+            region,
+            "",
+            "missing-region",
             remediation=f"set target.region (or an explicit target.endpoint) for {provider}",
         )
 

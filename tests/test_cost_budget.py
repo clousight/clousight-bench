@@ -8,6 +8,7 @@ spent-so-far plus this run's estimate would cross the budget, the run is blocked
 realized cost (priced by the enricher, else ``target.estimated_cost_usd``) is
 added to the ledger.
 """
+
 from clousight_bench.core.cost_budget import (
     CostLedger,
     budget_would_exceed,
@@ -18,6 +19,7 @@ from clousight_bench.core.schema import RunSpec
 from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
 
 # --- unit -------------------------------------------------------------------
+
 
 def test_ledger_accumulates_and_persists(tmp_path):
     led = CostLedger(tmp_path)
@@ -46,6 +48,7 @@ def test_budget_would_exceed():
 
 # --- integration ------------------------------------------------------------
 
+
 def test_second_live_run_is_blocked_when_budget_would_be_crossed(tmp_path, monkeypatch):
     monkeypatch.setattr(AliyunAgentRunAdapter, "execution_mode", lambda self: "live")
     target = {"mode": "mock", "cost_budget": 1.5, "estimated_cost_usd": 1.0}
@@ -64,4 +67,5 @@ def test_second_live_run_is_blocked_when_budget_would_be_crossed(tmp_path, monke
 def _rec_with_pricing(cost):
     class _R:
         extensions = {"pricing": {"cost_usd": cost}} if cost is not None else {}
+
     return _R()

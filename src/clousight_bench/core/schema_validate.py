@@ -6,6 +6,7 @@ The authoritative contracts live as ``.schema.json`` under
 2020-12 validation; otherwise we call the caller-supplied ``fallback`` (the
 existing hand-written validator) so we still reject bad input without the dep.
 """
+
 from __future__ import annotations
 
 import json

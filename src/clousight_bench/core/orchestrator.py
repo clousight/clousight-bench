@@ -23,6 +23,7 @@ Three kinds of failure, three different answers:
 ``skipped`` means it was deliberately not run (a flag, or nothing to do), and an
 absent stage was never reached because an earlier one failed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -239,8 +240,17 @@ def execute(
         stages["VALIDATE"] = "failed"
         errors.extend(prepared.errors)
         record = _build_record(
-            run_id, started_at, stages, prepared, "invalid", None, findings,
-            ObservationBundle(), errors, run_context, timings,
+            run_id,
+            started_at,
+            stages,
+            prepared,
+            "invalid",
+            None,
+            findings,
+            ObservationBundle(),
+            errors,
+            run_context,
+            timings,
         )
         return _finish(
             record,
@@ -276,8 +286,16 @@ def execute(
             if gate_finding is not None:
                 findings.append(gate_finding)
             record = _build_record(
-                run_id, started_at, stages, prepared, "invalid", None, findings,
-                ObservationBundle(), errors, run_context,
+                run_id,
+                started_at,
+                stages,
+                prepared,
+                "invalid",
+                None,
+                findings,
+                ObservationBundle(),
+                errors,
+                run_context,
             )
             return _finish(
                 record,
@@ -292,9 +310,7 @@ def execute(
     else:
         stages["PREFLIGHT"] = "skipped"
 
-    environment_error = _complete_environment(
-        prepared, spec, task, results_dir, run_id, debug
-    )
+    environment_error = _complete_environment(prepared, spec, task, results_dir, run_id, debug)
     if environment_error is not None:
         stages["VALIDATE"] = "failed"
         errors.append(environment_error)
@@ -328,8 +344,7 @@ def execute(
     # provider. Simulated runs and provider-less local adapters are never gated.
     # Blocked -> `invalid`, SETUP never entered.
     billable = adapter.execution_mode() == "live" and getattr(adapter, "provider", None)
-    decision = live_decision(
-        "live" if billable else "simulated", spec.target, allow_live)
+    decision = live_decision("live" if billable else "simulated", spec.target, allow_live)
     live_run: dict[str, Any] | None = None
     if decision.is_live:
         live_run = {"acknowledged": decision.acknowledged, "limits": decision.limits}
@@ -353,12 +368,27 @@ def execute(
             )
         )
         record = _build_record(
-            run_id, started_at, stages, prepared, "invalid", None, findings,
-            ObservationBundle(), errors, run_context, timings, live_run,
+            run_id,
+            started_at,
+            stages,
+            prepared,
+            "invalid",
+            None,
+            findings,
+            ObservationBundle(),
+            errors,
+            run_context,
+            timings,
+            live_run,
         )
         return _finish(
-            record, results_dir, enrich=False, publisher=publisher, debug=debug,
-            trace_id=trace_id, root_start_ns=root_start_ns,
+            record,
+            results_dir,
+            enrich=False,
+            publisher=publisher,
+            debug=debug,
+            trace_id=trace_id,
+            root_start_ns=root_start_ns,
         )
 
     # COST BUDGET -- the live gate stops accidental spend; this stops runaway
@@ -391,12 +421,27 @@ def execute(
                 live_run["budget_usd"] = budget
                 live_run["spent_usd"] = round(spent, 9)
             record = _build_record(
-                run_id, started_at, stages, prepared, "invalid", None, findings,
-                ObservationBundle(), errors, run_context, timings, live_run,
+                run_id,
+                started_at,
+                stages,
+                prepared,
+                "invalid",
+                None,
+                findings,
+                ObservationBundle(),
+                errors,
+                run_context,
+                timings,
+                live_run,
             )
             return _finish(
-                record, results_dir, enrich=False, publisher=publisher, debug=debug,
-                trace_id=trace_id, root_start_ns=root_start_ns,
+                record,
+                results_dir,
+                enrich=False,
+                publisher=publisher,
+                debug=debug,
+                trace_id=trace_id,
+                root_start_ns=root_start_ns,
             )
 
     # SETUP -> EXECUTE -> COLLECT, with TEARDOWN as the mandatory finally boundary.
@@ -466,7 +511,10 @@ def execute(
             try:
                 findings.extend(
                     reconcile_run_resources(
-                        adapter, run_id, getattr(adapter, "provider", None), results_dir,
+                        adapter,
+                        run_id,
+                        getattr(adapter, "provider", None),
+                        results_dir,
                         reaper=get_resource_reaper(getattr(adapter, "provider", None)),
                     )
                 )
@@ -488,11 +536,28 @@ def execute(
         # progress and stage state survive, then propagate the interruption.
         stages.setdefault("SCORE", "skipped")
         record = _build_record(
-            run_id, started_at, stages, prepared, "interrupted", None,
-            findings, bundle, errors, run_context, timings, live_run,
+            run_id,
+            started_at,
+            stages,
+            prepared,
+            "interrupted",
+            None,
+            findings,
+            bundle,
+            errors,
+            run_context,
+            timings,
+            live_run,
         )
-        _finish(record, results_dir, enrich=False, publisher=publisher, debug=debug,
-                       trace_id=trace_id, root_start_ns=root_start_ns)
+        _finish(
+            record,
+            results_dir,
+            enrich=False,
+            publisher=publisher,
+            debug=debug,
+            trace_id=trace_id,
+            root_start_ns=root_start_ns,
+        )
         raise interrupted
 
     # SCORE -- pure; observations already collected survive a scorer failure.
@@ -512,8 +577,18 @@ def execute(
         stages["SCORE"] = "skipped"  # nothing was collected to score
 
     record = _build_record(
-        run_id, started_at, stages, prepared, _status_for(errors, result), result,
-        findings, bundle, errors, run_context, timings, live_run,
+        run_id,
+        started_at,
+        stages,
+        prepared,
+        _status_for(errors, result),
+        result,
+        findings,
+        bundle,
+        errors,
+        run_context,
+        timings,
+        live_run,
     )
     record = _finish(
         record,
@@ -528,8 +603,8 @@ def execute(
     # (realized price if the enricher ran, else the caller's estimate).
     if billable:
         CostLedger(results_dir).add(
-            run_id, getattr(adapter, "provider", None),
-            run_cost_usd(record, spec.target))
+            run_id, getattr(adapter, "provider", None), run_cost_usd(record, spec.target)
+        )
     return record
 
 
@@ -550,14 +625,11 @@ def _resolve(spec: RunSpec) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
     pack = get_domain(spec.domain)
     task_classes = pack.tasks()
     if spec.task_id not in task_classes:
-        raise UnknownTaskError(
-            f"task {spec.task_id!r} not in domain {spec.domain!r}: {sorted(task_classes)}"
-        )
+        raise UnknownTaskError(f"task {spec.task_id!r} not in domain {spec.domain!r}: {sorted(task_classes)}")
     adapter_classes = pack.adapters()
     if spec.platform not in adapter_classes:
         raise UnknownPlatformError(
-            f"platform {spec.platform!r} not in domain {spec.domain!r}: "
-            f"{sorted(adapter_classes)}"
+            f"platform {spec.platform!r} not in domain {spec.domain!r}: {sorted(adapter_classes)}"
         )
     adapter_cls = adapter_classes[spec.platform]
     task = task_classes[spec.task_id]()
@@ -646,8 +718,10 @@ def _prepare(
                 params=config,
             ),
             environment=environment_fingerprint(
-                region=environment.region, mode=environment.mode,
-                facts=environment.facts, execution=environment.execution
+                region=environment.region,
+                mode=environment.mode,
+                facts=environment.facts,
+                execution=environment.execution,
             ),
             implementation=implementation_fingerprint(
                 core_version=RUNNER_VERSION,
@@ -659,9 +733,7 @@ def _prepare(
         )
     except Exception as exc:  # noqa: BLE001 - an unhashable input is still recordable
         record_failure("fingerprint_failed", exc)
-        fingerprints = Fingerprints(
-            benchmark=UNKNOWN, environment=UNKNOWN, implementation=UNKNOWN
-        )
+        fingerprints = Fingerprints(benchmark=UNKNOWN, environment=UNKNOWN, implementation=UNKNOWN)
 
     return _Prepared(
         adapter=adapter,
@@ -685,10 +757,7 @@ def _complete_environment(
     try:
         declared_facts = task.environment_facts(prepared.adapter, spec.params)
         if not isinstance(declared_facts, Mapping):
-            raise TypeError(
-                "environment_facts() must return a mapping, got "
-                f"{type(declared_facts).__name__}"
-            )
+            raise TypeError(f"environment_facts() must return a mapping, got {type(declared_facts).__name__}")
         prepared.environment.facts = redact(dict(declared_facts))
         prepared.fingerprints.environment = environment_fingerprint(
             region=prepared.environment.region,
@@ -744,9 +813,7 @@ def _preflight(
     return error, finding
 
 
-def _plugin_versions(
-    pack: DomainPack, adapter_cls: type[ProviderAdapter]
-) -> dict[str, str]:
+def _plugin_versions(pack: DomainPack, adapter_cls: type[ProviderAdapter]) -> dict[str, str]:
     from importlib.metadata import PackageNotFoundError, version
 
     modules = {
@@ -804,14 +871,9 @@ def _status_for(errors: list[StageError], result: TaskResult | None) -> str:
 def _validate_task_result(result: TaskResult) -> None:
     """SCORE succeeds only when its complete output fits the public contract."""
     if not isinstance(result, TaskResult):
-        raise TypeError(
-            f"score() must return a TaskResult, got {type(result).__name__}"
-        )
+        raise TypeError(f"score() must return a TaskResult, got {type(result).__name__}")
     payload = {
-        "measurements": {
-            name: measurement.to_dict()
-            for name, measurement in result.measurements.items()
-        },
+        "measurements": {name: measurement.to_dict() for name, measurement in result.measurements.items()},
         "findings": [finding.to_dict() for finding in result.findings],
         "notes": result.notes,
         "task_revision": result.task_revision,
@@ -859,14 +921,9 @@ def _build_record(
         environment=prepared.environment,
         fingerprints=prepared.fingerprints,
         status=status,
-        measurements={
-            name: m.to_dict()
-            for name, m in (result.measurements if result else {}).items()
-        },
+        measurements={name: m.to_dict() for name, m in (result.measurements if result else {}).items()},
         findings=[f.to_dict() for f in all_findings],
-        observations=(
-            dict(bundle.observations) if isinstance(bundle.observations, dict) else {}
-        ),
+        observations=(dict(bundle.observations) if isinstance(bundle.observations, dict) else {}),
         series=dict(bundle.series) if isinstance(bundle.series, dict) else {},
         artifacts=list(bundle.artifacts) if isinstance(bundle.artifacts, list) else [],
         extensions=extensions,
@@ -953,10 +1010,7 @@ def _enrich(record: ResultRecord, results_dir: Path, debug: bool) -> ResultRecor
             failed = True
             continue
         if not isinstance(enriched, ResultRecord):
-            exc = TypeError(
-                f"enricher {name!r} returned "
-                f"{type(enriched).__name__}, not a ResultRecord"
-            )
+            exc = TypeError(f"enricher {name!r} returned {type(enriched).__name__}, not a ResultRecord")
             record.errors.append(
                 _scrubbed(
                     StageError(
@@ -1143,9 +1197,7 @@ def _append_publish_receipt(
 def _validate_enriched_record(candidate: Any, baseline: ResultRecord) -> None:
     """Accept canonical records while protecting lifecycle-owned fields."""
     if not isinstance(candidate, ResultRecord):
-        raise TypeError(
-            f"enricher returned {type(candidate).__name__}, not a ResultRecord"
-        )
+        raise TypeError(f"enricher returned {type(candidate).__name__}, not a ResultRecord")
     payload = candidate.to_dict()
     canonical_json(payload)
     ResultRecord.from_dict(payload)
@@ -1194,9 +1246,7 @@ def _validate_enriched_record(candidate: Any, baseline: ResultRecord) -> None:
         raise ValueError(f"enricher changed lifecycle-owned field(s): {changed}")
 
 
-def _log_traceback(
-    results_dir: Path, run_id: str, debug: bool, exc: BaseException
-) -> None:
+def _log_traceback(results_dir: Path, run_id: str, debug: bool, exc: BaseException) -> None:
     """Tracebacks belong in a local log, never in a shareable record."""
     logger.exception("run %s stage failure", run_id, exc_info=exc)
     if not debug:

@@ -22,6 +22,7 @@ Third-party plugins register via the ``clousight_bench.domains`` entry point;
 in-tree domains are registered the same way (see pyproject.toml), so external
 and built-in packs are loaded identically.
 """
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -46,6 +47,9 @@ class ProviderAdapter(ABC):
     name: str = "abstract"
     status: AdapterStatus = "experimental"
     provider: str | None = None
+    # Example target dict shown in `csbench list --verbose` and `--json`.
+    # Adapters that have a non-trivial target override this as a class variable.
+    target_example: dict = {}
     # Set by the orchestrator before setup() to this run's run_id, so an adapter
     # can tag the resources it creates (for cost/billing reconciliation). None
     # outside a run (construction, mock/tests). Not part of any fingerprint.
@@ -158,24 +162,23 @@ class Task(ABC):
     # The adapter maps these to each cloud's concrete minimal permissions and
     # verifies them at preflight. Empty = no special permissions declared.
     required_permissions: tuple[str, ...] = ()
+    # Taxonomy tags describing what capability dimension(s) this task exercises.
+    # Cloud-independent; used for structured listing and LLM-consumable output.
+    capability_tags: tuple[str, ...] = ()
 
     @abstractmethod
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         """The controlled inputs that determine the result -> benchmark fingerprint."""
 
     @abstractmethod
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         """Drive the system under test and return raw observations only."""
 
     @abstractmethod
     def score(self, observations: ObservationBundle) -> TaskResult:
         """Turn observations into measurements and findings. Pure function."""
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
         """Non-sensitive environment facts this benchmark depends on.
 
         Folded into the environment fingerprint. Never return a credential,
@@ -271,6 +274,41 @@ class RuntimeProviderPlugin(ABC):
         """Build a live transport for ``adapter`` (called only in real mode)."""
 
 
+class CampaignProbeHook(ABC):
+    """Optional per-campaign data-plane probe lifecycle (probe-sink §7).
+
+    A provider that supports an in-region probe implements this so the run-plan
+    loop can bring one probe up per campaign, expose it to every task's freshly
+    built transport (via target stamping), sync its OSS telemetry, and reap it —
+    interrupt-safe. Open-core defines only the seam; the aliyun impl lives in the
+    pack. A provider without this returns None from campaign_probe_hook()."""
+
+    @abstractmethod
+    def start_campaign_probe(self, target: dict[str, Any]) -> dict[str, str]:
+        """Provision the probe. Return keys to merge into every task target,
+        e.g. {"probe_url": ..., "probe_oss_prefix": ...}. Raise on failure
+        (spec §9: no silent fallback)."""
+
+    @abstractmethod
+    def sync_probe_artifacts(self, results_dir: Any) -> None:
+        """Mirror the probe's OSS prefix into results_dir (channel ②)."""
+
+    @abstractmethod
+    def stop_campaign_probe(self) -> None:
+        """Reap the probe. Idempotent + best-effort (called from a finally)."""
+
+
+def campaign_probe_hook(provider: str) -> CampaignProbeHook | None:
+    """Look up the CampaignProbeHook for *provider*, or None if unsupported."""
+    from clousight_bench.core.registry import get_runtime_provider
+
+    plugin = get_runtime_provider(provider)
+    if plugin is None:
+        return None
+    fn = getattr(plugin, "campaign_probe_hook", None)
+    return fn() if callable(fn) else None
+
+
 class ResourceReaper(ABC):
     """Reconciles orphaned cloud resources a run left behind (``csbench sweep``).
 
@@ -287,9 +325,7 @@ class ResourceReaper(ABC):
     requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
-    def sweep(
-        self, *, dry_run: bool, older_than_s: float | None = None
-    ) -> list[dict[str, Any]]:
+    def sweep(self, *, dry_run: bool, older_than_s: float | None = None) -> list[dict[str, Any]]:
         """Find harness-tagged resources and, unless ``dry_run``, delete them.
 
         Returns one dict per resource acted on (id + run_id + whatever the cloud

@@ -3,13 +3,13 @@
 No cloud account, no fixed port -- each dimension is exercised through the
 deterministic local-sim knobs so both a healthy and a degraded runtime score.
 """
+
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.schema import RunSpec
 
 
 def test_t1_1_startup_latency_reports_cold_and_warm(tmp_path):
-    spec = RunSpec("agent-runtime", "T1.1", "local-sim",
-                   target={"startup": {"cold_ms": 40, "warm_ms": 2}})
+    spec = RunSpec("agent-runtime", "T1.1", "local-sim", target={"startup": {"cold_ms": 40, "warm_ms": 2}})
     rec = execute(spec, results_dir=tmp_path)
     assert rec.status == "completed"
     m = rec.measurements
@@ -20,8 +20,12 @@ def test_t1_1_startup_latency_reports_cold_and_warm(tmp_path):
 
 
 def test_t1_4_sustained_load_reports_throughput_and_tail(tmp_path):
-    spec = RunSpec("agent-runtime", "T1.4", "local-sim",
-                   target={"load": {"sustained_rps": 40, "base_ms": 35, "tail_ms": 120}})
+    spec = RunSpec(
+        "agent-runtime",
+        "T1.4",
+        "local-sim",
+        target={"load": {"sustained_rps": 40, "base_ms": 35, "tail_ms": 120}},
+    )
     rec = execute(spec, results_dir=tmp_path)
     assert rec.status == "completed"
     m = rec.measurements
@@ -36,16 +40,21 @@ def test_t1_4_sustained_load_reports_throughput_and_tail(tmp_path):
 
 
 def test_t1_4_no_errors_when_runtime_outpaces_demand(tmp_path):
-    spec = RunSpec("agent-runtime", "T1.4", "local-sim",
-                   target={"load": {"sustained_rps": 500, "base_ms": 10, "tail_ms": 5}})
+    spec = RunSpec(
+        "agent-runtime",
+        "T1.4",
+        "local-sim",
+        target={"load": {"sustained_rps": 500, "base_ms": 10, "tail_ms": 5}},
+    )
     rec = execute(spec, results_dir=tmp_path)
     assert rec.measurements["throughput_rps"]["value"] == 50  # capped at target
     assert rec.measurements["error_rate_under_load"]["value"] == 0
 
 
 def test_t1_5_warm_retention_reports_keepalive_window(tmp_path):
-    spec = RunSpec("agent-runtime", "T1.5", "local-sim",
-                   target={"warm": {"retention_ms": 300000, "keeps_warm": True}})
+    spec = RunSpec(
+        "agent-runtime", "T1.5", "local-sim", target={"warm": {"retention_ms": 300000, "keeps_warm": True}}
+    )
     rec = execute(spec, results_dir=tmp_path)
     assert rec.status == "completed"
     assert rec.measurements["warm_retention_ms"]["value"] == 300000
@@ -53,8 +62,9 @@ def test_t1_5_warm_retention_reports_keepalive_window(tmp_path):
 
 
 def test_t1_5_no_warm_pool_is_flagged(tmp_path):
-    spec = RunSpec("agent-runtime", "T1.5", "local-sim",
-                   target={"warm": {"retention_ms": 0, "keeps_warm": False}})
+    spec = RunSpec(
+        "agent-runtime", "T1.5", "local-sim", target={"warm": {"retention_ms": 0, "keeps_warm": False}}
+    )
     rec = execute(spec, results_dir=tmp_path)
     assert rec.measurements["keeps_warm"]["value"] is False
     assert any(f["code"] == "agent_runtime.no_warm_pool" for f in rec.findings)
@@ -86,8 +96,7 @@ def test_t5_1_reports_usage_only_cost_from_enricher(tmp_path):
 
 
 def test_t5_2_scales_cleanly_under_high_limit(tmp_path):
-    spec = RunSpec("agent-runtime", "T5.2", "local-sim",
-                   target={"scaling": {"concurrency_limit": 10_000}})
+    spec = RunSpec("agent-runtime", "T5.2", "local-sim", target={"scaling": {"concurrency_limit": 10_000}})
     rec = execute(spec, results_dir=tmp_path)
     assert rec.status == "completed"
     assert rec.measurements["scaling_capability"]["value"] == "supported"
@@ -96,8 +105,12 @@ def test_t5_2_scales_cleanly_under_high_limit(tmp_path):
 
 
 def test_t5_2_knee_when_limit_is_low(tmp_path):
-    spec = RunSpec("agent-runtime", "T5.2", "local-sim",
-                   target={"scaling": {"concurrency_limit": 2, "overload_penalty_ms": 500}})
+    spec = RunSpec(
+        "agent-runtime",
+        "T5.2",
+        "local-sim",
+        target={"scaling": {"concurrency_limit": 2, "overload_penalty_ms": 500}},
+    )
     rec = execute(spec, results_dir=tmp_path)
     assert rec.measurements["scales_cleanly"]["value"] is False
     knee = rec.measurements["concurrency_knee"]["value"]

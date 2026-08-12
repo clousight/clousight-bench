@@ -6,6 +6,7 @@ is the last line of defence: right before a record is persisted it looks for a
 string that is exactly this machine's username, hostname or FQDN, because those
 identify the operator rather than the benchmark.
 """
+
 from __future__ import annotations
 
 import getpass
@@ -138,9 +139,7 @@ def scrub_identities(value: Any, identities: tuple[str, ...] | None = None) -> A
     return walk(value)
 
 
-def find_identity_leaks(
-    payload: Any, identities: tuple[str, ...] | None = None
-) -> list[str]:
+def find_identity_leaks(payload: Any, identities: tuple[str, ...] | None = None) -> list[str]:
     """Paths whose string value is exactly one of ``identities``."""
     known = identity_values() if identities is None else identities
     if not known:

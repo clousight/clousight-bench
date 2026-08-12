@@ -29,8 +29,9 @@ def _dom(domain_name):
 
 
 def test_duplicate_domain_name_rejected(monkeypatch):
-    monkeypatch.setattr(registry, "entry_points",
-                        lambda group: [_FakeEP("a", _dom("dup")), _FakeEP("b", _dom("dup"))])
+    monkeypatch.setattr(
+        registry, "entry_points", lambda group: [_FakeEP("a", _dom("dup")), _FakeEP("b", _dom("dup"))]
+    )
     with pytest.raises(DuplicatePluginError) as ei:
         registry.load_domains()
     assert "dup" in str(ei.value) and "a" in str(ei.value) and "b" in str(ei.value)
@@ -43,11 +44,9 @@ def test_intra_domain_task_id_conflict():
         def config(self, p):
             return {}
 
-        def execute(self, a, p):
-            ...
+        def execute(self, a, p): ...
 
-        def score(self, o):
-            ...
+        def score(self, o): ...
 
     class _T2(_T1):
         pass

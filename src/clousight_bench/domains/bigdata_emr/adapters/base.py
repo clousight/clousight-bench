@@ -6,6 +6,7 @@ setup()/teardown() hooks are for. Tasks in this domain drive a WorkloadEngine
 (YCSB / TPC-DS / terasort / wordcount) through the cluster's submit interface and
 never care which cloud is underneath.
 """
+
 from __future__ import annotations
 
 from abc import abstractmethod

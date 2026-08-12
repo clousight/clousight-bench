@@ -15,6 +15,7 @@ The mechanism is open; the data is pluggable. Point ``CLOUSIGHT_PRICING_DATA``
 at a JSON file with the same schema to price against a broader / fresher feed --
 the seam a managed pricing-data subscription plugs into without forking this.
 """
+
 from __future__ import annotations
 
 import json
@@ -80,8 +81,11 @@ class PricingEnricher(ResultEnricher):
 
     def _lookup(self, provider: str, service: str, unit: str, region: str | None) -> dict | None:
         matches = [
-            p for p in self._prices
-            if p["provider"] == provider and p["service"] == service and p["unit"] == unit
+            p
+            for p in self._prices
+            if p["provider"] == provider
+            and p["service"] == service
+            and p["unit"] == unit
             and (not region or p["region"] == region)
         ]
         return matches[0] if matches else None
@@ -114,8 +118,7 @@ class PricingEnricher(ResultEnricher):
             qty = self._measurement_value(record, unit)
             if isinstance(qty, bool) or not isinstance(qty, (int, float)):
                 raise TypeError(
-                    f"pricing: usage measurement {unit!r} must be a number, "
-                    f"got {type(qty).__name__}: {qty!r}"
+                    f"pricing: usage measurement {unit!r} must be a number, got {type(qty).__name__}: {qty!r}"
                 )
             price = self._lookup(provider, service, unit, region)
             if price is None:
@@ -127,14 +130,19 @@ class PricingEnricher(ResultEnricher):
             net_subtotal = list_subtotal * (1 - pct / 100.0)
             list_total += list_subtotal
             net_total += net_subtotal
-            breakdown.append({
-                "unit": unit, "qty": qty, "list_unit_price": price["price"],
-                "discount_pct": pct,
-                "list_subtotal": round(list_subtotal, 9),
-                "net_subtotal": round(net_subtotal, 9),
-                "region": price["region"], "price_source": price["source"],
-                "discount_source": f"{provider}/{service}" if pct else "",
-            })
+            breakdown.append(
+                {
+                    "unit": unit,
+                    "qty": qty,
+                    "list_unit_price": price["price"],
+                    "discount_pct": pct,
+                    "list_subtotal": round(list_subtotal, 9),
+                    "net_subtotal": round(net_subtotal, 9),
+                    "region": price["region"],
+                    "price_source": price["source"],
+                    "discount_source": f"{provider}/{service}" if pct else "",
+                }
+            )
         list_cost = round(list_total, 9)
         net_cost = round(net_total, 9)
         record.extensions["pricing"] = {

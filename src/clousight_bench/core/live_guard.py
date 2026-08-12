@@ -14,6 +14,7 @@ This module is pure and side-effect free; the orchestrator turns a ``blocked``
 decision into an ``invalid`` record with a ``live.unconfirmed`` finding, BEFORE
 SETUP, so nothing is ever provisioned.
 """
+
 from __future__ import annotations
 
 import os

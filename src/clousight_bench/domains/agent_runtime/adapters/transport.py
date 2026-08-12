@@ -15,8 +15,10 @@ the transport:
 
 Both satisfy ``RuntimeTransport`` so the adapter delegates uniformly.
 """
+
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import time
 from abc import ABC, abstractmethod
@@ -33,8 +35,11 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     CancellationResult,
     CapabilityNotSupported,
     CeilingResult,
+    ConcurrentWriteResult,
     DeprovisionResult,
     ExportLatencyResult,
+    FaultRecoveryResult,
+    HOLResult,
     IdleCostResult,
     InvocationTrace,
     IsolationResult,
@@ -43,6 +48,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ProvisionResult,
     RateLimitResult,
     RetentionResult,
+    RetryStormResult,
     ScalePoint,
     SignalsResult,
     SoakResult,
@@ -105,6 +111,9 @@ class RuntimeTransport(ABC):
     def probe_rate_limit(self) -> RateLimitResult:
         raise CapabilityNotSupported("probe_rate_limit")
 
+    def probe_ttft(self) -> float:
+        raise CapabilityNotSupported("probe_ttft")
+
     def probe_cancellation(self) -> CancellationResult:
         raise CapabilityNotSupported("probe_cancellation")
 
@@ -125,6 +134,18 @@ class RuntimeTransport(ABC):
 
     def probe_concurrency_ceiling(self) -> CeilingResult:
         raise CapabilityNotSupported("probe_concurrency_ceiling")
+
+    def probe_fault_recovery(self) -> FaultRecoveryResult:
+        raise CapabilityNotSupported("probe_fault_recovery")
+
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
+        raise CapabilityNotSupported("probe_retry_storm")
+
+    def probe_concurrent_writes(self) -> ConcurrentWriteResult:
+        raise CapabilityNotSupported("probe_concurrent_writes")
+
+    def probe_hol_blocking(self) -> HOLResult:
+        raise CapabilityNotSupported("probe_hol_blocking")
 
     # Provisioning lifecycle (T0.1 / T0.2). Optional -> default not supported.
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
@@ -197,8 +218,7 @@ class MockRuntimeTransport(RuntimeTransport):
         # to 1 - error_rate unless set explicitly. Default: perfectly available.
         soak = cfg.get("soak", {})
         self.soak_error_rate: float = float(soak.get("error_rate", 0.0))
-        self.soak_availability: float = float(
-            soak.get("availability", 1.0 - self.soak_error_rate))
+        self.soak_availability: float = float(soak.get("availability", 1.0 - self.soak_error_rate))
         self.soak_rps: float = float(soak.get("rps", 20))
         # T1.7 rate limiting: onset_rps=0 -> no throttle observed. honors_429 =
         # returns a proper 429 + Retry-After rather than silently dropping.
@@ -215,11 +235,9 @@ class MockRuntimeTransport(RuntimeTransport):
         # T4.3 signals: metrics & log completeness beyond traces. Default: complete.
         signals = cfg.get("signals", {})
         self.sig_metrics_expected: int = int(signals.get("metrics_expected", 6))
-        self.sig_metrics_present: int = int(
-            signals.get("metrics_present", self.sig_metrics_expected))
+        self.sig_metrics_present: int = int(signals.get("metrics_present", self.sig_metrics_expected))
         self.sig_logs_expected: int = int(signals.get("logs_expected", 4))
-        self.sig_logs_present: int = int(
-            signals.get("logs_present", self.sig_logs_expected))
+        self.sig_logs_present: int = int(signals.get("logs_present", self.sig_logs_expected))
         self.sig_structured: bool = bool(signals.get("structured_logs", True))
         # T4.4 span propagation: orphaned spans + root count (clean = 0 / 1).
         propagation = cfg.get("span_propagation", {})
@@ -233,8 +251,7 @@ class MockRuntimeTransport(RuntimeTransport):
         # T5.3 idle cost: scales to zero -> no idle bill. Default: scales to zero.
         idle = cfg.get("idle", {})
         self.idle_cost_per_hour: float = float(idle.get("cost_per_hour", 0.0))
-        self.idle_scales_to_zero: bool = bool(
-            idle.get("scales_to_zero", self.idle_cost_per_hour <= 0))
+        self.idle_scales_to_zero: bool = bool(idle.get("scales_to_zero", self.idle_cost_per_hour <= 0))
         # T6.1 isolation: tenant / network-egress / filesystem. Default: all on.
         isolation = cfg.get("isolation", {})
         self.iso_tenant: bool = bool(isolation.get("tenant_isolated", True))
@@ -290,8 +307,9 @@ class MockRuntimeTransport(RuntimeTransport):
             qs = "&".join(f"{k}={v}" for k, v in call.params.items())
             url = f"{url}?{qs}"
         data = json.dumps(call.body).encode("utf-8") if call.method == "POST" else None
-        req = request.Request(url, data=data, method=call.method,
-                              headers={"Content-Type": "application/json"})
+        req = request.Request(
+            url, data=data, method=call.method, headers={"Content-Type": "application/json"}
+        )
         start = time.perf_counter()
         try:
             with request.urlopen(req, timeout=10) as resp:
@@ -381,10 +399,7 @@ class MockRuntimeTransport(RuntimeTransport):
             overload_ratio = max(0.0, (level - self.concurrency_limit) / self.concurrency_limit)
             span = self.overload_penalty_ms * overload_ratio
             # request i (0-based) waits progressively longer as the queue deepens
-            latencies = [
-                self.scale_base_ms + span * (i / max(served - 1, 1))
-                for i in range(served)
-            ]
+            latencies = [self.scale_base_ms + span * (i / max(served - 1, 1)) for i in range(served)]
             p95 = percentiles(latencies, ps=(95,))[95]
             points.append(ScalePoint(level, success, round(p95, 2)))
         return points
@@ -398,8 +413,7 @@ class MockRuntimeTransport(RuntimeTransport):
         (p99); ``jitter`` is that p99-p50 spread — the predictability signal.
         """
         served_rps = min(target_rps, self.load_sustained_rps)
-        overflow = max(0.0, (target_rps - self.load_sustained_rps) / target_rps) \
-            if target_rps > 0 else 0.0
+        overflow = max(0.0, (target_rps - self.load_sustained_rps) / target_rps) if target_rps > 0 else 0.0
         error_rate = min(1.0, self.load_error_rate + overflow)
         p50 = self.load_base_ms
         p99 = self.load_base_ms + self.load_tail_ms
@@ -492,6 +506,141 @@ class MockRuntimeTransport(RuntimeTransport):
         return CeilingResult(
             max_in_flight=self.ceiling_max,
             hard_limit=self.ceiling_hard,
+        )
+
+    def probe_fault_recovery(self) -> FaultRecoveryResult:
+        """T1.3 deterministic local-sim fault + agent retry simulation.
+
+        Models a healthy platform (auto-retry mode): the mock fails call #1,
+        the simulated agent retries to call #3 and succeeds.
+        Default: recovered=True, observed_attempts=3, platform_terminated=False.
+        """
+        t_start = time.perf_counter()
+        # Simulate: call #1 fails (500), calls #2 and #3 succeed.
+        # This models the lc_agent 5xx-retry-2 contract (3 total attempts).
+        attempts_made = 0
+        call = ToolCall(target="prices")
+        for attempt_no in range(1, 4):  # up to 3 attempts
+            attempts_made += 1
+            if attempt_no == 1:
+                # First attempt: injected 500
+                status = 500
+            else:
+                status, _ = self._http(call)
+            if 200 <= status < 300:
+                break
+        recovered = 200 <= status < 300
+        recovery_ms = round((time.perf_counter() - t_start) * 1000, 2)
+        return FaultRecoveryResult(
+            recovered=recovered,
+            observed_attempts=attempts_made,
+            recovery_ms=recovery_ms,
+            platform_terminated=False,
+        )
+
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
+        """T1.10 deterministic local-sim: mock-counted total attempts + storm-bounded-by.
+
+        Models the lc_agent 5xx-retry-2 contract (3 total attempts) against
+        persistent all-fail conditions. The agent retries up to 2 times (3 total)
+        and then gives up — bounded by the agent contract.
+        Deterministic: total_attempts=3, storm_bounded_by="agent", duration_ms=50.0
+        """
+        duration_ms = 50.0  # deterministic local-sim value
+        return RetryStormResult(
+            capability="supported",
+            total_attempts=3,
+            storm_bounded_by="agent",
+            duration_ms=duration_ms,
+        )
+
+    def probe_concurrent_writes(self) -> ConcurrentWriteResult:
+        """T1.11: two sessions write to the same state key simultaneously.
+
+        Uses Python threads to overlap the two writes, then reads the result.
+        A safe runtime yields one of the two written values; corruption yields
+        neither (empty or garbled).
+        """
+        key = "__concurrent_write_probe__"
+        session_a = "cw-session-a"
+        session_b = "cw-session-b"
+
+        def write(session_id: str) -> None:
+            self.persist_state(session_id, {key: session_id})
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            fa = pool.submit(write, session_a)
+            fb = pool.submit(write, session_b)
+            fa.result()
+            fb.result()
+
+        # Both sessions wrote to their own namespaced key; check for corruption
+        # by verifying each session's state matches what it wrote.
+        val_a = self.load_state(session_a).get(key, "")
+        val_b = self.load_state(session_b).get(key, "")
+
+        # Safe if each session's value is intact (no cross-write corruption).
+        write_safe = val_a == session_a and val_b == session_b
+        # The "winner" here is whichever session retained its correct value;
+        # if both are correct there is no conflict (isolated namespaces).
+        if write_safe:
+            winner = "both"
+        elif val_a == session_a:
+            winner = "session_a"
+        elif val_b == session_b:
+            winner = "session_b"
+        else:
+            winner = "unknown"
+
+        return ConcurrentWriteResult(write_safe=write_safe, winner=winner)
+
+    def probe_hol_blocking(self) -> HOLResult:
+        """T1.12: two-phase HOL probe against the MockRuntimeTransport.
+
+        Phase A (baseline): 20 concurrent fast requests (prices) with no slow.
+        Phase B (under-slow): 1 slow (reports, no extra sleep injected in sim)
+            + 20 fast (prices) concurrent.
+
+        The mock transport uses a single ThreadingHTTPServer so all requests run
+        in parallel → serialized=False deterministically, hol_ratio ≈ 1.0.
+
+        NOTE: this is a shape-only smoke path, not a real HOL measurement.
+        The real signal (with actual latency injection) comes from the live
+        latency-injected path in probe/dataplane.py::run_hol_blocking.
+        """
+        fast_count = 20
+        slow_call = ToolCall(target="reports", method="POST")
+        fast_calls = [ToolCall(target="prices") for _ in range(fast_count)]
+
+        def timed_http(call: ToolCall) -> float:
+            _, latency_ms = self._http(call)
+            return latency_ms
+
+        # Phase A: baseline
+        with concurrent.futures.ThreadPoolExecutor(max_workers=fast_count) as pool:
+            futs_a = [pool.submit(timed_http, c) for c in fast_calls]
+            baseline_latencies = [f.result() for f in futs_a]
+
+        fast_p50_baseline = percentiles(baseline_latencies, [50])[50]
+
+        # Phase B: under-slow (1 slow + N fast concurrent)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1 + fast_count) as pool:
+            slow_fut = pool.submit(timed_http, slow_call)
+            futs_b = [pool.submit(timed_http, c) for c in fast_calls]
+            slow_fut.result()
+            under_slow_latencies = [f.result() for f in futs_b]
+
+        fast_p50_under_slow = percentiles(under_slow_latencies, [50])[50]
+        hol_ratio = round(fast_p50_under_slow / fast_p50_baseline, 4) if fast_p50_baseline > 0 else 0.0
+        serialized = fast_p50_under_slow > fast_p50_baseline * 2.0
+
+        self._last_calls["hol-probe"] = 1 + fast_count * 2
+
+        return HOLResult(
+            serialized=serialized,
+            fast_p50_baseline=fast_p50_baseline,
+            fast_p50_under_slow=fast_p50_under_slow,
+            hol_ratio=hol_ratio,
         )
 
     # --- Provisioning (configurable, deterministic) -------------------------
@@ -618,6 +767,15 @@ class NotWiredCloudTransport(RuntimeTransport):
 
     def probe_concurrency_ceiling(self) -> CeilingResult:
         raise self._not_wired("probe_concurrency_ceiling")
+
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
+        raise self._not_wired("probe_retry_storm")
+
+    def probe_concurrent_writes(self) -> ConcurrentWriteResult:
+        raise self._not_wired("probe_concurrent_writes")
+
+    def probe_hol_blocking(self) -> HOLResult:
+        raise self._not_wired("probe_hol_blocking")
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
         raise self._not_wired("provision")

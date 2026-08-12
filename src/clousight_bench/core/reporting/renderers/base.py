@@ -1,4 +1,5 @@
 """ReportRenderer contract: turn a ReportBundle into an output document."""
+
 from __future__ import annotations
 
 from clousight_bench.core.reporting.bundle import ReportBundle

@@ -19,9 +19,7 @@ def test_list_verbose_shows_task_and_adapter_status(capsys):
 
 
 def test_run_unknown_task_returns_usage_error_without_traceback(capsys):
-    rc = main(
-        ["run", "--domain", "agent-runtime", "--task", "NOPE", "--platform", "local-sim"]
-    )
+    rc = main(["run", "--domain", "agent-runtime", "--task", "NOPE", "--platform", "local-sim"])
     captured = capsys.readouterr()
 
     assert rc == 2
@@ -31,6 +29,8 @@ def test_run_unknown_task_returns_usage_error_without_traceback(capsys):
 
 
 def test_run_skeleton_returns_usage_error(capsys):
+    # aliyun-agentrun is now provider-backed in the open core, so use a platform
+    # that is still a pure skeleton (no registered provider) for this gate.
     rc = main(
         [
             "run",
@@ -39,7 +39,7 @@ def test_run_skeleton_returns_usage_error(capsys):
             "--task",
             "T1.3",
             "--platform",
-            "aliyun-agentrun",
+            "huawei-agentarts",
             "--skip-preflight",
         ]
     )

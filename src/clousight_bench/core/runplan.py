@@ -16,6 +16,7 @@ collapsed away. What Phase 1C adds is a *reading* of those records:
 A single failed repeat never aborts the plan: it lands a ``failed`` record like
 any other run and is counted honestly in ``status_counts``.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.campaign import CAMPAIGNS_DIRNAME
 from clousight_bench.core.canonical import canonical_json, digest
 from clousight_bench.core.errors import UserInputError
 from clousight_bench.core.fingerprints import UNKNOWN
@@ -202,13 +204,7 @@ def aggregate_path(results_dir: Path, aggregate: RunPlanAggregate) -> Path:
     domain = str(identity.get("domain", "unknown"))
     adapter = str(identity.get("adapter", "unknown"))
     task_id = str(identity.get("task_id", "unknown"))
-    return (
-        Path(results_dir)
-        / AGGREGATES_DIRNAME
-        / domain
-        / adapter
-        / f"{task_id}-{aggregate.plan_id}.json"
-    )
+    return Path(results_dir) / AGGREGATES_DIRNAME / domain / adapter / f"{task_id}-{aggregate.plan_id}.json"
 
 
 def persist_aggregate(results_dir: Path, aggregate: RunPlanAggregate) -> Path:
@@ -217,15 +213,11 @@ def persist_aggregate(results_dir: Path, aggregate: RunPlanAggregate) -> Path:
     canonical_json(payload)  # reject NaN / non-encodable before writing
     import json
 
-    atomic_write_text(
-        path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    )
+    atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     return path
 
 
-def _completed_slots(
-    results_dir: Path, plan_id: str
-) -> dict[tuple[str, int], ResultRecord]:
+def _completed_slots(results_dir: Path, plan_id: str) -> dict[tuple[str, int], ResultRecord]:
     """Already-finished runs of this plan, keyed by ``(role, index)``.
 
     The persisted records ARE the resume state: each carries its plan membership
@@ -234,7 +226,7 @@ def _completed_slots(
     (or missing) slot is re-run."""
     done: dict[tuple[str, int], ResultRecord] = {}
     for path in Path(results_dir).rglob("*.json"):
-        if AGGREGATES_DIRNAME in path.parts:
+        if AGGREGATES_DIRNAME in path.parts or CAMPAIGNS_DIRNAME in path.parts:
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -319,7 +311,9 @@ def execute_plan(
         total = plan.warmup + plan.repeat
         logger.info(
             "plan %s: resumed %d already-completed run(s), ran %d new",
-            plan_id, resumed, total - resumed,
+            plan_id,
+            resumed,
+            total - resumed,
         )
 
     aggregate = build_aggregate(plan_id, plan, warmup_records, measured_records)

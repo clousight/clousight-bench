@@ -1,4 +1,5 @@
 """WorkloadEngine resolves declared assets and exposes them to the workload."""
+
 import hashlib
 import json
 import stat
@@ -26,9 +27,17 @@ def _make_workload(tmp_path, blob):
     run.write_text(_RUNNER)
     run.chmod(run.stat().st_mode | stat.S_IEXEC)
     manifest = {
-        "name": "asset-wl", "version": "0.1.0", "entrypoint": "./run.py",
-        "assets": [{"name": "corpus", "source": "bundled", "uri": "data/corpus.bin",
-                    "sha256": hashlib.sha256(blob).hexdigest()}],
+        "name": "asset-wl",
+        "version": "0.1.0",
+        "entrypoint": "./run.py",
+        "assets": [
+            {
+                "name": "corpus",
+                "source": "bundled",
+                "uri": "data/corpus.bin",
+                "sha256": hashlib.sha256(blob).hexdigest(),
+            }
+        ],
     }
     (wl / "manifest.yaml").write_text(yaml.safe_dump(manifest))
     return wl

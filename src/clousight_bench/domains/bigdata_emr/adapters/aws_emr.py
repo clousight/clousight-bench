@@ -13,6 +13,7 @@ target keys (see configs/bigdata-emr.aws.example.yaml):
     region, release_label, master_instance_type, core_instance_type,
     core_instance_count, log_uri, subnet_id, auth_env, terraform_dir
 """
+
 from __future__ import annotations
 
 from typing import Any

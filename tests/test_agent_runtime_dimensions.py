@@ -3,27 +3,18 @@
 No cloud account, no fixed port -- exercises each new dimension's scoring under
 both a capable and a degraded runtime configuration.
 """
+
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.schema import RunSpec
 
 
-def test_t1_2_durable_state_persists(tmp_path):
-    spec = RunSpec("agent-runtime", "T1.2", "local-sim",
-                   target={"state_persistence": "durable"})
+def test_t1_2_reports_no_native_session_state(tmp_path):
+    # AgentRun (FC-based) has no native session state; always unsupported (evidence A).
+    spec = RunSpec("agent-runtime", "T1.2", "local-sim")
     rec = execute(spec, results_dir=tmp_path)
-    assert rec.status == "completed"
-    assert rec.measurements["state_capability"]["value"] == "supported"
-    assert rec.measurements["state_persisted"]["value"] is True
-    assert rec.measurements["persistence_mode"]["value"] == "durable"
-
-
-def test_t1_2_ephemeral_state_lost(tmp_path):
-    spec = RunSpec("agent-runtime", "T1.2", "local-sim",
-                   target={"state_persistence": "ephemeral"})
-    rec = execute(spec, results_dir=tmp_path)
-    assert rec.status == "completed"
-    assert rec.measurements["state_persisted"]["value"] is False
-    assert rec.measurements["persistence_mode"]["value"] == "ephemeral"
+    assert rec.status == "unsupported"
+    assert rec.measurements["state_capability"]["value"] == "unsupported"
+    assert rec.measurements["state_capability"]["evidence"] == "A"
 
 
 def test_t2_1_all_paths_supported_by_default(tmp_path):
@@ -34,8 +25,7 @@ def test_t2_1_all_paths_supported_by_default(tmp_path):
 
 
 def test_t2_1_restricted_paths(tmp_path):
-    spec = RunSpec("agent-runtime", "T2.1", "local-sim",
-                   target={"tool_registration": ["mcp"]})
+    spec = RunSpec("agent-runtime", "T2.1", "local-sim", target={"tool_registration": ["mcp"]})
     rec = execute(spec, results_dir=tmp_path)
     assert rec.measurements["mcp"]["value"] is True
     assert rec.measurements["openapi"]["value"] is False
@@ -52,8 +42,7 @@ def test_t4_1_full_trace_is_complete(tmp_path):
 
 
 def test_t4_1_partial_trace_drops_tool_spans(tmp_path):
-    spec = RunSpec("agent-runtime", "T4.1", "local-sim",
-                   target={"trace": {"completeness": "partial"}})
+    spec = RunSpec("agent-runtime", "T4.1", "local-sim", target={"trace": {"completeness": "partial"}})
     rec = execute(spec, results_dir=tmp_path)
     assert rec.measurements["span_completeness"]["value"] < 1.0
     assert "TOOL" in rec.measurements["kinds_missing"]["value"]
@@ -69,8 +58,7 @@ def test_t4_2_otel_export_valid_by_default(tmp_path):
 
 
 def test_t4_2_otel_export_unsupported(tmp_path):
-    spec = RunSpec("agent-runtime", "T4.2", "local-sim",
-                   target={"trace": {"otel_export": False}})
+    spec = RunSpec("agent-runtime", "T4.2", "local-sim", target={"trace": {"otel_export": False}})
     rec = execute(spec, results_dir=tmp_path)
     assert rec.status == "unsupported"
     assert rec.measurements["otel_export_supported"]["value"] is False

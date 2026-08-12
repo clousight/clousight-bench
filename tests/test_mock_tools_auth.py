@@ -6,6 +6,7 @@ i.e. exposed on a public tunnel -- an unauthenticated HTTP surface. An optional
 tool call must present it (health stays open for reachability probes). With no
 token set, the server is open exactly as before, so local-sim is unaffected.
 """
+
 import json
 from urllib import request
 from urllib.error import HTTPError
@@ -21,6 +22,7 @@ def serve():
 
     def _start(token=None):
         from threading import Thread
+
         server, state = make_server(0, token=token)
         Thread(target=server.serve_forever, daemon=True).start()
         servers.append(server)

@@ -11,6 +11,7 @@ when the cold penalty returns; local-sim reports the configured
 ``target.warm = {retention_ms, keeps_warm}``. A platform with no retention probe
 yields an ``unsupported`` measurement, never a crash.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -23,10 +24,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 
 class WarmRetentionTask(Task):
@@ -36,36 +34,22 @@ class WarmRetentionTask(Task):
     task_revision = "1"
     scorer_revision = "1"
     required_permissions = (perm.SESSION_CREATE,)
+    capability_tags = ("performance/warm-pool",)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.5 needs an AgentRuntimeAdapter")
-        try:
-            r = adapter.probe_warm_retention()
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "retention_ms": r.retention_ms,
-                "keeps_warm": r.keeps_warm,
-            }
-        )
+        return adapter.run_data_plane_probe("warm_retention", {})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "retention_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
+                    "retention_capability": Measurement(value="unsupported", unit="", evidence="B")
                 },
                 findings=[
                     Finding(
@@ -95,10 +79,8 @@ class WarmRetentionTask(Task):
             )
         return TaskResult(
             measurements={
-                "retention_capability": Measurement(
-                    value="supported", unit="", evidence="B"),
-                "warm_retention_ms": Measurement(
-                    value=raw["retention_ms"], unit="ms", evidence="B"),
+                "retention_capability": Measurement(value="supported", unit="", evidence="B"),
+                "warm_retention_ms": Measurement(value=raw["retention_ms"], unit="ms", evidence="B"),
                 "keeps_warm": Measurement(value=keeps_warm, unit="", evidence="B"),
             },
             findings=findings,

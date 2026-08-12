@@ -1,4 +1,5 @@
 """PERSIST refuses to write a record that fails the 0.2 schema, dumping it raw."""
+
 import tempfile
 from pathlib import Path
 
@@ -22,13 +23,17 @@ pytest.importorskip("jsonschema")  # the gate only bites with full validation
 def _rec() -> ResultRecord:
     return ResultRecord(
         run=RunInfo(run_id="run-x", started_at=utc_now(), finished_at=utc_now()),
-        identity=Identity(domain="agent-runtime", task_id="T1.3", task_revision="2",
-                          scorer_revision="2", adapter="local-sim",
-                          adapter_status="reference", core_version="0.2.0"),
-        environment=Environment(region="", mode="local", python_version="3.12.0",
-                                os_name="Linux", facts={}),
-        fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b",
-                                  implementation="sha256:c"),
+        identity=Identity(
+            domain="agent-runtime",
+            task_id="T1.3",
+            task_revision="2",
+            scorer_revision="2",
+            adapter="local-sim",
+            adapter_status="reference",
+            core_version="0.2.0",
+        ),
+        environment=Environment(region="", mode="local", python_version="3.12.0", os_name="Linux", facts={}),
+        fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b", implementation="sha256:c"),
         status="completed",
         measurements={"p99_ms": {"value": 9, "unit": "ms", "evidence": "C"}},
         series={},

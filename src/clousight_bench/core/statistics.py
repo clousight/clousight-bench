@@ -14,6 +14,7 @@ Two measurement shapes are summarised differently:
   distribution, its ``mode`` and the ``agreement`` fraction, because "did every
   repeat agree?" is the only honest summary of a label.
 """
+
 from __future__ import annotations
 
 import math

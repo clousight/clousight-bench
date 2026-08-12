@@ -2,11 +2,12 @@
 Clousight-branded document — sticky header, platform overview cards, tabbed
 grouped comparison matrix, summary cards, dark mode — with inline SVG charts and
 a compact interaction script. No third-party library, no external resource."""
+
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
-from clousight_bench.core.reporting.bundle import DomainReport, Panel, ReportBundle
+from clousight_bench.core.reporting.bundle import Cell, DomainReport, Panel, ReportBundle
 from clousight_bench.core.reporting.renderers import brand, svg
 from clousight_bench.core.reporting.renderers.base import ReportRenderer
 from clousight_bench.core.reporting.renderers.charts_js import CHART_JS
@@ -15,15 +16,14 @@ from clousight_bench.core.reporting.renderers.i18n import t, tm
 # Canonical tab order; any panel tab not listed is appended after these.
 _TAB_ORDER = ["Performance", "Reliability", "Observability", "Cost", "Capability"]
 # Headline metrics surfaced on the platform overview cards (first 3 present win).
-_HEADLINE = ["cold_start_ms", "cost_usd", "concurrency_knee", "span_completeness",
-             "provision_ready_ms"]
+_HEADLINE = ["cold_start_ms", "cost_usd", "concurrency_knee", "span_completeness", "provision_ready_ms"]
 
 _B = brand.BRAND_HSL
 _DEFAULT_CSS = f"""
 :root{{
---b50:hsl({_B['50']});--b100:hsl({_B['100']});--b200:hsl({_B['200']});
---b400:hsl({_B['400']});--b500:hsl({_B['500']});--b600:hsl({_B['600']});
---b700:hsl({_B['700']});--b900:hsl({_B['900']});
+--b50:hsl({_B["50"]});--b100:hsl({_B["100"]});--b200:hsl({_B["200"]});
+--b400:hsl({_B["400"]});--b500:hsl({_B["500"]});--b600:hsl({_B["600"]});
+--b700:hsl({_B["700"]});--b900:hsl({_B["900"]});
 --bg:hsl({brand.BG_HSL});--card:hsl(0 0% 100%);--fg:hsl({brand.FG_HSL});
 --muted:hsl(210 28% 96%);--muted-fg:hsl(215 16% 47%);--line:hsl(214 32% 91%);
 --primary:hsl(217 71% 51%);--amber:hsl({brand.AMBER_HSL});--red:hsl({brand.RED_HSL});
@@ -119,6 +119,14 @@ padding:.55rem .8rem;border-radius:.45rem;margin:.4rem 0;font-size:.85rem}}
 svg.chart{{max-width:100%;height:auto;margin-top:.4rem}}
 .chart-tip{{font-family:var(--font)}}
 .summary{{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.9rem}}
+/* aggregate column styles */
+.agg-col{{background:color-mix(in srgb,var(--primary) 6%,var(--card))}}
+.ctable thead th.agg-col{{background:color-mix(in srgb,var(--primary) 10%,var(--card))}}
+.agg-sigma{{font-size:.72rem;font-weight:700;color:var(--primary);
+background:color-mix(in srgb,var(--primary) 12%,transparent);
+border-radius:.3rem;padding:.02rem .35rem;margin-left:.3rem}}
+.agg-p95{{display:block;font-size:.74rem;color:var(--muted-fg)}}
+.agg-warn{{color:var(--amber);cursor:help;margin-left:.35rem;font-size:.88rem}}
 """
 
 
@@ -162,6 +170,26 @@ def _disp(m: dict[str, object] | None) -> str:
     return s
 
 
+def _disp_agg(cell: Cell, name: str) -> str:
+    """Format an aggregate metric: mean ± stdev with p95 on a second line."""
+    if cell.agg_stats is None:
+        return _disp(_cell_metric(cell, name))
+    stats = cell.agg_stats.get("per_metric", {}).get(name)
+    if not stats:
+        return ""
+    if stats.get("kind") == "numeric":
+        mean = stats.get("mean")
+        stdev = stats.get("stdev")
+        p95 = stats.get("p95")
+        mean_s = _fmt(mean) if mean is not None else "·"
+        stdev_s = f"&nbsp;&plusmn;&nbsp;{_fmt(stdev)}" if stdev is not None else ""
+        p95_s = f"<span class='agg-p95'>p95&nbsp;{_fmt(p95)}</span>" if p95 is not None else ""
+        return f"{mean_s}{stdev_s}{p95_s}"
+    mode = stats.get("mode")
+    n_val = stats.get("n", cell.agg_stats.get("n", 0))
+    return f"{_fmt(mode)}&nbsp;({n_val}/{n_val})" if mode is not None else ""
+
+
 def _badge(execution: str) -> str:
     cls = {"simulated": "sim", "live": "live"}.get(execution, "unknown")
     return f"<span class='badge {cls}'>{t(execution)}</span>"
@@ -172,6 +200,8 @@ def _metric_map(panels: list[Panel]) -> dict[tuple[str, str], dict[str, dict]]:
     out: dict[tuple[str, str], dict[str, dict]] = {}
     for panel in panels:
         for c in panel.cells:
+            if c.agg_stats is not None:  # skip aggregate cells
+                continue
             bag = out.setdefault((c.platform, c.execution), {})
             for m in c.metrics:
                 bag.setdefault(m["name"], m)
@@ -184,11 +214,12 @@ def _platform_card(platform: str, execution: str, metrics: dict[str, dict]) -> s
     rows: list[str] = []
     for name in _HEADLINE:
         if name in metrics and len(rows) < 3:
-            rows.append(f"<div class='kv'><span>{tm(name)}</span>"
-                        f"<b>{_disp(metrics[name])}</b></div>")
+            rows.append(f"<div class='kv'><span>{tm(name)}</span><b>{_disp(metrics[name])}</b></div>")
     body = "".join(rows) or f"<div class='kv'><span>{t('no data')}</span><b>·</b></div>"
-    return (f"<div class='pcard'><div class='phead'>{mark}"
-            f"<span class='pname'>{_esc(platform)}</span>{_badge(execution)}</div>{body}</div>")
+    return (
+        f"<div class='pcard'><div class='phead'>{mark}"
+        f"<span class='pname'>{_esc(platform)}</span>{_badge(execution)}</div>{body}</div>"
+    )
 
 
 def _chart_html(panel: Panel, metric_names: list[str]) -> str:
@@ -204,25 +235,46 @@ def _chart_html(panel: Panel, metric_names: list[str]) -> str:
 
 
 def _panel_html(panel: Panel) -> str:
+    individual = [c for c in panel.cells if c.agg_stats is None]
+    agg_cells = [c for c in panel.cells if c.agg_stats is not None]
+
     metric_names: list[str] = []
-    for c in panel.cells:
+    for c in individual:
         for m in c.metrics:
             if m["name"] not in metric_names:
                 metric_names.append(m["name"])
-    platforms = [c.platform for c in panel.cells]
-    ncol = len(platforms) + 1
-    head = "".join(
-        f"<th class='vcol'>{_esc(c.platform)} {_badge(c.execution)}</th>" for c in panel.cells)
+
+    ncol = len(individual) + len(agg_cells) + 1
+
+    # Header row
+    head_parts = [f"<th class='vcol'>{_esc(c.platform)} {_badge(c.execution)}</th>" for c in individual]
+    for c in agg_cells:
+        assert c.agg_stats is not None  # agg_cells all carry agg_stats
+        n = c.agg_stats["n"]
+        warn = ""
+        if not c.agg_stats.get("comparable", True):
+            msgs = c.agg_stats.get("warnings", [])
+            tip = _esc(msgs[0]) if msgs else "fingerprint mismatch"
+            warn = f"<span class='agg-warn' title='{tip}'>⚠</span>"
+        head_parts.append(
+            f"<th class='vcol agg-col'>{_esc(c.platform)}"
+            f"<span class='agg-sigma'>Σ&nbsp;n={n}</span>{warn}</th>"
+        )
+    head = "".join(head_parts)
+
     body = [f"<tr class='group-header'><td colspan='{ncol}'>{t(panel.title)}</td></tr>"]
     for name in metric_names:
-        vals = "".join(
-            f"<td class='vcol num'>{_disp(_cell_metric(c, name))}</td>" for c in panel.cells)
-        body.append(f"<tr><td class='metric'>{tm(name)}</td>{vals}</tr>")
+        ind_vals = "".join(f"<td class='vcol num'>{_disp(_cell_metric(c, name))}</td>" for c in individual)
+        agg_vals = "".join(f"<td class='vcol agg-col num'>{_disp_agg(c, name)}</td>" for c in agg_cells)
+        body.append(f"<tr><td class='metric'>{tm(name)}</td>{ind_vals}{agg_vals}</tr>")
+
     chart = _chart_html(panel, metric_names)
-    return (f"<div class='card'><h3>{t(panel.title)}"
-            f"<small>[{_esc(panel.evidence)}]</small></h3>{chart}"
-            f"<table class='ctable'><thead><tr><th>{t('platform')}</th>{head}</tr></thead>"
-            f"<tbody>{''.join(body)}</tbody></table></div>")
+    return (
+        f"<div class='card'><h3>{t(panel.title)}"
+        f"<small>[{_esc(panel.evidence)}]</small></h3>{chart}"
+        f"<table class='ctable'><thead><tr><th>{t('platform')}</th>{head}</tr></thead>"
+        f"<tbody>{''.join(body)}</tbody></table></div>"
+    )
 
 
 def _cell_metric(cell, name: str) -> dict | None:
@@ -236,25 +288,26 @@ def _capability_card(dom: DomainReport) -> str:
     cols = sorted({p for row in dom.capability_matrix.values() for p in row})
     head = "".join(f"<th class='vcol'>{_esc(p)}</th>" for p in cols)
     ncol = len(cols) + 1
-    rows: list[str] = [
-        f"<tr class='group-header'><td colspan='{ncol}'>{t('Capability matrix')}</td></tr>"]
+    rows: list[str] = [f"<tr class='group-header'><td colspan='{ncol}'>{t('Capability matrix')}</td></tr>"]
     for cap, row in sorted(dom.capability_matrix.items()):
         cells = "".join(f"<td class='vcol'>{_esc(row.get(p, '·'))}</td>" for p in cols)
         rows.append(f"<tr><td class='metric'>{t(cap)}</td>{cells}</tr>")
-    return (f"<div class='card'><h3>{t('Capability matrix')}</h3>"
-            f"<table class='ctable'><thead><tr><th>{t('capability')}</th>{head}</tr></thead>"
-            f"<tbody>{''.join(rows)}</tbody></table></div>")
+    return (
+        f"<div class='card'><h3>{t('Capability matrix')}</h3>"
+        f"<table class='ctable'><thead><tr><th>{t('capability')}</th>{head}</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table></div>"
+    )
 
 
-def _summary_card(platform: str, execution: str, metrics: dict[str, dict],
-                  red_flags: list[str]) -> str:
-    chips = "".join(f"<span class='pill'>{tm(n)}</span>"
-                    for n in _HEADLINE if n in metrics)
+def _summary_card(platform: str, execution: str, metrics: dict[str, dict], red_flags: list[str]) -> str:
+    chips = "".join(f"<span class='pill'>{tm(n)}</span>" for n in _HEADLINE if n in metrics)
     flags = "".join(f"<div class='flag'>{_esc(f)}</div>" for f in red_flags)
-    return (f"<div class='pcard'><div class='phead'>"
-            f"<span class='pname'>{_esc(platform)}</span>{_badge(execution)}</div>"
-            f"<div style='font-size:.82rem;color:var(--muted-fg);margin:.2rem 0'>"
-            f"{t('Summary')}</div>{chips or '·'}{flags}</div>")
+    return (
+        f"<div class='pcard'><div class='phead'>"
+        f"<span class='pname'>{_esc(platform)}</span>{_badge(execution)}</div>"
+        f"<div style='font-size:.82rem;color:var(--muted-fg);margin:.2rem 0'>"
+        f"{t('Summary')}</div>{chips or '·'}{flags}</div>"
+    )
 
 
 class HtmlRenderer(ReportRenderer):
@@ -262,23 +315,29 @@ class HtmlRenderer(ReportRenderer):
     output_suffix = ".html"
 
     def render(self, bundle: ReportBundle, *, css: str = "") -> str:
-        name = (f"<span class='name i18n'><span class='zh'>{_esc(brand.BRAND_NAME_ZH)}</span>"
-                f"<span class='en'>{_esc(brand.BRAND_NAME_EN)}</span></span>")
-        toggle = ("<button class='toggle' onclick=\"document.documentElement.lang="
-                  "document.documentElement.lang=='en'?'zh':'en'\">中 / EN</button>")
-        parts = ["<!DOCTYPE html><html lang='zh'><head><meta charset='utf-8'>",
-                 "<meta name='viewport' content='width=device-width,initial-scale=1'>",
-                 f"<title>{t('Clousight Bench report')}</title>",
-                 f"<style>{_DEFAULT_CSS}{css}</style></head><body>",
-                 f"<div class='topbar'><img src='{brand.logo_data_uri()}' alt='logo'/>"
-                 f"{name}<span class='grow'></span>"
-                 f"<span class='meta i18n'><span class='zh'>{t('Generated')}</span>"
-                 f"<span class='en'>{t('Generated')}</span></span>"
-                 f"<span class='meta'>&nbsp;{_esc(bundle.generated_at)}</span>{toggle}</div>",
-                 "<div class='wrap'>",
-                 f"<p style='color:var(--muted-fg);font-size:.82rem'>{t('Source')}: "
-                 f"<code>{_esc(bundle.results_dir)}</code> · {t('Data: locally collected')} · "
-                 f"<code>{_esc(bundle.schema)}</code></p>"]
+        name = (
+            f"<span class='name i18n'><span class='zh'>{_esc(brand.BRAND_NAME_ZH)}</span>"
+            f"<span class='en'>{_esc(brand.BRAND_NAME_EN)}</span></span>"
+        )
+        toggle = (
+            "<button class='toggle' onclick=\"document.documentElement.lang="
+            "document.documentElement.lang=='en'?'zh':'en'\">中 / EN</button>"
+        )
+        parts = [
+            "<!DOCTYPE html><html lang='zh'><head><meta charset='utf-8'>",
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>",
+            f"<title>{t('Clousight Bench report')}</title>",
+            f"<style>{_DEFAULT_CSS}{css}</style></head><body>",
+            f"<div class='topbar'><img src='{brand.logo_data_uri()}' alt='logo'/>"
+            f"{name}<span class='grow'></span>"
+            f"<span class='meta i18n'><span class='zh'>{t('Generated')}</span>"
+            f"<span class='en'>{t('Generated')}</span></span>"
+            f"<span class='meta'>&nbsp;{_esc(bundle.generated_at)}</span>{toggle}</div>",
+            "<div class='wrap'>",
+            f"<p style='color:var(--muted-fg);font-size:.82rem'>{t('Source')}: "
+            f"<code>{_esc(bundle.results_dir)}</code> · {t('Data: locally collected')} · "
+            f"<code>{_esc(bundle.schema)}</code></p>",
+        ]
         for dom in bundle.domains:
             parts.append(self._domain_html(dom))
         parts.append(f"</div><script>{CHART_JS}</script></body></html>")
@@ -292,15 +351,14 @@ class HtmlRenderer(ReportRenderer):
         # platform overview cards
         overview = "".join(_platform_card(p, e, mmap[(p, e)]) for (p, e) in sorted(mmap))
         if overview:
-            out.append(f"<div class='section-cap'>{t('Overview')}</div>"
-                       f"<div class='pcards'>{overview}</div>")
+            out.append(f"<div class='section-cap'>{t('Overview')}</div><div class='pcards'>{overview}</div>")
         # tabs
         tabs: list[str] = []
         for p in dom.panels:
             tab = p.tab or "Performance"
             if tab not in tabs:
                 tabs.append(tab)
-        tabs.sort(key=lambda x: (_TAB_ORDER.index(x) if x in _TAB_ORDER else len(_TAB_ORDER)))
+        tabs.sort(key=lambda x: _TAB_ORDER.index(x) if x in _TAB_ORDER else len(_TAB_ORDER))
         has_cap = bool(dom.capability_matrix)
         if has_cap and "Capability" not in tabs:
             tabs.append("Capability")
@@ -311,17 +369,17 @@ class HtmlRenderer(ReportRenderer):
             group = [p for p in dom.panels if (p.tab or "Performance") == tab]
             cnt = len(group) + (1 if tab == "Capability" and has_cap else 0)
             active = " active" if i == 0 else ""
-            bar.append(f"<button class='tab{active}' data-tab='{tab}'>{t(tab)}"
-                       f"<span class='cnt'>{cnt}</span></button>")
+            bar.append(
+                f"<button class='tab{active}' data-tab='{tab}'>{t(tab)}"
+                f"<span class='cnt'>{cnt}</span></button>"
+            )
             cards = "".join(_panel_html(p) for p in group)
             if tab == "Capability" and has_cap:
                 cards += _capability_card(dom)
             panels.append(f"<div class='tabpanel{active}' data-tab='{tab}'>{cards}</div>")
         out.append(f"<div class='tabbar'>{''.join(bar)}</div>{''.join(panels)}")
         # summary cards
-        summary = "".join(
-            _summary_card(p, e, mmap[(p, e)], dom.red_flags) for (p, e) in sorted(mmap))
+        summary = "".join(_summary_card(p, e, mmap[(p, e)], dom.red_flags) for (p, e) in sorted(mmap))
         if summary:
-            out.append(f"<div class='section-cap'>{t('Summary')}</div>"
-                       f"<div class='summary'>{summary}</div>")
+            out.append(f"<div class='section-cap'>{t('Summary')}</div><div class='summary'>{summary}</div>")
         return "".join(out)

@@ -10,6 +10,7 @@ Every measurement carries its own evidence layer, so a reader never confuses a
 controlled measurement (C) with a documentation reading (A) or an environment
 observation (B).
 """
+
 from __future__ import annotations
 
 import json
@@ -18,6 +19,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.campaign import CAMPAIGNS_DIRNAME
 from clousight_bench.core.fingerprints import record_digest
 from clousight_bench.core.record import SCHEMA_VERSION, RecordError, ResultRecord
 from clousight_bench.core.runplan import AGGREGATES_DIRNAME
@@ -69,9 +71,12 @@ def _capability_matrix(records: dict[tuple[str, str, str], ResultRecord]) -> lis
     if not grid:
         return []
     cols = sorted(platforms)
-    lines = ["## Capability matrix", "",
-             "Presence/absence only (✅ supported · ✗ absent · · not probed). Not a score.",
-             ""]
+    lines = [
+        "## Capability matrix",
+        "",
+        "Presence/absence only (✅ supported · ✗ absent · · not probed). Not a score.",
+        "",
+    ]
     lines.append("| capability | " + " | ".join(cols) + " |")
     lines.append("|---" * (len(cols) + 1) + "|")
     for label in sorted(grid):
@@ -97,6 +102,9 @@ def _load_results(results_dir: Path) -> list[ResultRecord]:
         # writer owns them and they never parse as a 0.2 ResultRecord.
         if AGGREGATES_DIRNAME in path.relative_to(results_dir).parts:
             continue
+        # Campaign manifests are live progress state, not records; skip wholesale.
+        if CAMPAIGNS_DIRNAME in path.relative_to(results_dir).parts:
+            continue
         reason = None
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -116,10 +124,7 @@ def _load_results(results_dir: Path) -> list[ResultRecord]:
             else:
                 try:
                     expected_digest = data.get("fingerprints", {}).get("record_digest")
-                    if (
-                        not isinstance(expected_digest, str)
-                        or record_digest(data) != expected_digest
-                    ):
+                    if not isinstance(expected_digest, str) or record_digest(data) != expected_digest:
                         reason = "record digest mismatch"
                     else:
                         _, sidecar_error = validate_sidecar(results_dir, data)
@@ -136,8 +141,7 @@ def _load_results(results_dir: Path) -> list[ResultRecord]:
         print(f"clousight-bench: skipped {line}", file=sys.stderr)
     if skipped:
         print(
-            f"clousight-bench: skipped {len(skipped)} result file(s), "
-            f"read {len(records)}",
+            f"clousight-bench: skipped {len(skipped)} result file(s), read {len(records)}",
             file=sys.stderr,
         )
     return records
@@ -261,10 +265,7 @@ def _stats_section(measured: list[ResultRecord]) -> list[str]:
         if not aggregates:
             continue
         short = benchmark.removeprefix("sha256:")[:12]
-        rendered.append(
-            f"- `{domain}/{task}` on **{adapter}** "
-            f"(n={len(recs)}, benchmark `{short}`)"
-        )
+        rendered.append(f"- `{domain}/{task}` on **{adapter}** (n={len(recs)}, benchmark `{short}`)")
         for name, summary in sorted(aggregates.items()):
             rendered.append(f"  - {_fmt_stat(name, summary)}")
 
@@ -313,9 +314,9 @@ def _cost_summary(records: list[ResultRecord]) -> list[str]:
     representative per-cell figure in the matrix. It is a modeled reference cost,
     never a vendor bill."""
     priced = [
-        r for r in records
-        if isinstance(r.extensions.get("pricing"), dict)
-        and "cost_usd" in r.extensions["pricing"]
+        r
+        for r in records
+        if isinstance(r.extensions.get("pricing"), dict) and "cost_usd" in r.extensions["pricing"]
     ]
     if not priced:
         return []
@@ -383,8 +384,7 @@ def _red_flags(records: dict[tuple[str, str, str], ResultRecord]) -> list[str]:
         persist_state = rec.run.stages.get("PERSIST")
         if persist_state != "ok":
             flags.append(
-                f"{where}: PERSIST is `{persist_state or 'absent'}` — result storage "
-                "is not trustworthy"
+                f"{where}: PERSIST is `{persist_state or 'absent'}` — result storage is not trustworthy"
             )
         for error in rec.errors:
             if not isinstance(error, dict):
@@ -405,8 +405,7 @@ def _red_flags(records: dict[tuple[str, str, str], ResultRecord]) -> list[str]:
         if isinstance(pricing, dict) and pricing.get("uncovered"):
             uncovered = ", ".join(str(u) for u in pricing["uncovered"])
             flags.append(
-                f"{where}: cost is partial — no price for {uncovered}; "
-                "the reported cost excludes these units"
+                f"{where}: cost is partial — no price for {uncovered}; the reported cost excludes these units"
             )
     return flags
 
@@ -417,10 +416,7 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
 
     records = _load_results(results_dir)
     if not records:
-        report = (
-            "# Clousight Bench comparison\n\nNo schema 0.2 results found under "
-            f"`{results_dir}`.\n"
-        )
+        report = f"# Clousight Bench comparison\n\nNo schema 0.2 results found under `{results_dir}`.\n"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(report, encoding="utf-8")
         return report
@@ -443,9 +439,7 @@ def generate_report(results_dir: Path, out_path: Path | None = None) -> str:
     for (domain, task), adapters in sorted(by_task.items()):
         lines.append(f"## {domain} · {task}")
         lines.append("")
-        lines.append(
-            "| adapter | status | measurements | cost | benchmark fingerprint | core |"
-        )
+        lines.append("| adapter | status | measurements | cost | benchmark fingerprint | core |")
         lines.append("|---|---|---|---|---|---|")
         for adapter, rec in sorted(adapters.items()):
             mark = _STATUS_MARK.get(rec.status, rec.status)

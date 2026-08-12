@@ -5,6 +5,7 @@ tail is the whole story a mean hides. This is the one place that turns a list of
 per-call latencies into percentiles, so every dimension reports them the same
 way. Stdlib-only (linear interpolation), so the open-core stays numpy-free.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -12,9 +13,7 @@ from collections.abc import Sequence
 DEFAULT_PERCENTILES = (50, 95, 99)
 
 
-def percentiles(
-    values: Sequence[float], ps: Sequence[int] = DEFAULT_PERCENTILES
-) -> dict[int, float]:
+def percentiles(values: Sequence[float], ps: Sequence[int] = DEFAULT_PERCENTILES) -> dict[int, float]:
     """Return ``{p: value}`` for each requested percentile p in 0..100.
 
     Linear interpolation between closest ranks (the "inclusive" method), so p50

@@ -104,24 +104,13 @@ def test_benchmark_fingerprint_never_hashes_a_secret_param():
 
 
 def test_environment_fingerprint_covers_region_mode_and_facts_only():
-    base = environment_fingerprint(
-        region="cn-hangzhou", mode="cloud", facts={"runtime": "agentrun"}
-    )
-    assert base == environment_fingerprint(
-        region="cn-hangzhou", mode="cloud", facts={"runtime": "agentrun"}
-    )
+    base = environment_fingerprint(region="cn-hangzhou", mode="cloud", facts={"runtime": "agentrun"})
+    assert base == environment_fingerprint(region="cn-hangzhou", mode="cloud", facts={"runtime": "agentrun"})
+    assert base != environment_fingerprint(region="cn-beijing", mode="cloud", facts={"runtime": "agentrun"})
+    assert base != environment_fingerprint(region="cn-hangzhou", mode="local", facts={"runtime": "agentrun"})
+    assert base != environment_fingerprint(region="cn-hangzhou", mode="cloud", facts={"runtime": "other"})
     assert base != environment_fingerprint(
-        region="cn-beijing", mode="cloud", facts={"runtime": "agentrun"}
-    )
-    assert base != environment_fingerprint(
-        region="cn-hangzhou", mode="local", facts={"runtime": "agentrun"}
-    )
-    assert base != environment_fingerprint(
-        region="cn-hangzhou", mode="cloud", facts={"runtime": "other"}
-    )
-    assert base != environment_fingerprint(
-        region="cn-hangzhou", mode="cloud", facts={"runtime": "agentrun"},
-        execution="live"
+        region="cn-hangzhou", mode="cloud", facts={"runtime": "agentrun"}, execution="live"
     )
 
 
@@ -152,9 +141,7 @@ def test_implementation_fingerprint_covers_core_domain_adapter_and_plugins():
 def test_all_free_form_maps_exclude_secrets():
     assert environment_fingerprint(
         region="r", mode="cloud", facts={"api_token": "first"}
-    ) == environment_fingerprint(
-        region="r", mode="cloud", facts={"api_token": "second"}
-    )
+    ) == environment_fingerprint(region="r", mode="cloud", facts={"api_token": "second"})
     assert implementation_fingerprint(
         core_version="1",
         domain="d",
@@ -168,9 +155,7 @@ def test_all_free_form_maps_exclude_secrets():
         adapter_status="reference",
         plugin_versions={"credential_plugin": "second"},
     )
-    assert record_digest({"api_token": "first"}) == record_digest(
-        {"api_token": "second"}
-    )
+    assert record_digest({"api_token": "first"}) == record_digest({"api_token": "second"})
 
 
 def test_free_form_maps_exclude_current_machine_identity(monkeypatch):
@@ -179,16 +164,12 @@ def test_free_form_maps_exclude_current_machine_identity(monkeypatch):
     monkeypatch.setattr(redaction.getpass, "getuser", lambda: "machine-user")
     monkeypatch.setattr(redaction.socket, "gethostname", lambda: "machine-host")
     monkeypatch.setattr(redaction.socket, "getfqdn", lambda: "machine-fqdn")
-    first = environment_fingerprint(
-        region="r", mode="cloud", facts={"operator": "machine-user"}
-    )
+    first = environment_fingerprint(region="r", mode="cloud", facts={"operator": "machine-user"})
 
     monkeypatch.setattr(redaction.getpass, "getuser", lambda: "other-user")
     monkeypatch.setattr(redaction.socket, "gethostname", lambda: "other-host")
     monkeypatch.setattr(redaction.socket, "getfqdn", lambda: "other-fqdn")
-    second = environment_fingerprint(
-        region="r", mode="cloud", facts={"operator": "other-user"}
-    )
+    second = environment_fingerprint(region="r", mode="cloud", facts={"operator": "other-user"})
     assert first == second
 
 

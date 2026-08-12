@@ -4,6 +4,7 @@ A run whose numbers come from a REAL cloud (execution_mode == "live") spends
 real money and can trip quota / abuse controls. It must not provision unless the
 operator explicitly acknowledged the cost. Simulated runs are never gated.
 """
+
 from clousight_bench.core.live_guard import ENV_ALLOW_LIVE, live_decision
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.schema import RunSpec
@@ -11,6 +12,7 @@ from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgent
 from clousight_bench.domains.agent_runtime.adapters.local_sim import LocalSimAdapter
 
 # --- unit: the pure decision ------------------------------------------------
+
 
 def test_simulated_run_is_never_gated():
     d = live_decision("simulated", target={}, allow_live=False, env={})
@@ -37,20 +39,20 @@ def test_live_run_with_env_ack_is_allowed():
 
 def test_live_limits_are_carried_from_target():
     d = live_decision(
-        "live", target={"live_limits": {"max_concurrency": 4, "max_duration_s": 30}},
-        allow_live=True, env={})
+        "live", target={"live_limits": {"max_concurrency": 4, "max_duration_s": 30}}, allow_live=True, env={}
+    )
     assert d.limits == {"max_concurrency": 4, "max_duration_s": 30}
 
 
 # --- integration: the orchestrator gate -------------------------------------
+
 
 def test_live_run_blocked_before_setup(tmp_path, monkeypatch):
     # aliyun-agentrun in mode: mock is runnable end-to-end; force it to declare
     # live so the billable-provider gate fires.
     monkeypatch.setattr(AliyunAgentRunAdapter, "execution_mode", lambda self: "live")
     setup_calls: list[int] = []
-    monkeypatch.setattr(AliyunAgentRunAdapter, "setup",
-                        lambda self: setup_calls.append(1))
+    monkeypatch.setattr(AliyunAgentRunAdapter, "setup", lambda self: setup_calls.append(1))
     spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun", target={"mode": "mock"})
     rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=False)
     assert rec.status == "invalid"

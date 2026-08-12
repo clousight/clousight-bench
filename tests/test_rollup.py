@@ -8,18 +8,27 @@ def _write_rows(run_dir, series, t, value):
     run_dir.mkdir(parents=True, exist_ok=True)
     n = len(t)
     rows = {
-        "run_id": ["r"] * n, "domain": ["d"] * n, "task_id": ["t"] * n,
-        "platform": ["p"] * n, "config_hash": ["h"] * n,
-        "series": series, "t": t, "value": value, "unit": [""] * n,
+        "run_id": ["r"] * n,
+        "domain": ["d"] * n,
+        "task_id": ["t"] * n,
+        "platform": ["p"] * n,
+        "config_hash": ["h"] * n,
+        "series": series,
+        "t": t,
+        "value": value,
+        "unit": [""] * n,
     }
     pq.write_table(pa.table(rows), run_dir / "series.parquet")
 
 
 def test_rollup_buckets_reduce_rows(tmp_path):
     run_dir = tmp_path / "run-x"
-    _write_rows(run_dir, series=["latency_ms"] * 6,
-                t=[0.1, 0.2, 0.9, 1.1, 1.2, 1.9],
-                value=[10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
+    _write_rows(
+        run_dir,
+        series=["latency_ms"] * 6,
+        t=[0.1, 0.2, 0.9, 1.1, 1.2, 1.9],
+        value=[10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+    )
     out = rollup(run_dir, bucket_s=1)
     assert out.exists()
     table = pq.read_table(out).to_pydict()

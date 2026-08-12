@@ -1,4 +1,5 @@
 """A report must never crash on a results directory, and never skip in silence."""
+
 import json
 
 import pytest
@@ -22,19 +23,42 @@ _LEGACY = {
 def _record(run_id="run-1", started_at="2026-07-26T00:00:00Z", **overrides):
     payload = {
         "schema_version": "0.2",
-        "run": {"run_id": run_id, "started_at": started_at,
-                "finished_at": started_at, "stages": {"PERSIST": "ok"}},
-        "identity": {"domain": "agent-runtime", "task_id": "T1.3", "task_revision": "2",
-                     "scorer_revision": "2", "adapter": "local-sim",
-                     "adapter_status": "reference", "core_version": "0.2.0"},
-        "environment": {"region": "", "mode": "local", "python_version": "3.12.0",
-                        "os_name": "Linux", "facts": {}},
-        "fingerprints": {"benchmark": "sha256:aaaaaaaaaaaaaa", "environment": "sha256:b",
-                         "implementation": "sha256:c", "record_digest": "sha256:d"},
+        "run": {
+            "run_id": run_id,
+            "started_at": started_at,
+            "finished_at": started_at,
+            "stages": {"PERSIST": "ok"},
+        },
+        "identity": {
+            "domain": "agent-runtime",
+            "task_id": "T1.3",
+            "task_revision": "2",
+            "scorer_revision": "2",
+            "adapter": "local-sim",
+            "adapter_status": "reference",
+            "core_version": "0.2.0",
+        },
+        "environment": {
+            "region": "",
+            "mode": "local",
+            "python_version": "3.12.0",
+            "os_name": "Linux",
+            "facts": {},
+        },
+        "fingerprints": {
+            "benchmark": "sha256:aaaaaaaaaaaaaa",
+            "environment": "sha256:b",
+            "implementation": "sha256:c",
+            "record_digest": "sha256:d",
+        },
         "status": "completed",
         "measurements": {"p99_ms": {"value": 9, "unit": "ms", "evidence": "C"}},
-        "findings": [], "observations": {}, "series": {}, "artifacts": [],
-        "extensions": {}, "errors": [],
+        "findings": [],
+        "observations": {},
+        "series": {},
+        "artifacts": [],
+        "extensions": {},
+        "errors": [],
     }
     payload.update(overrides)
     payload["fingerprints"]["record_digest"] = record_digest(payload)
@@ -100,9 +124,7 @@ def test_tampered_sidecar_is_never_trusted(tmp_path, capsys, tamper):
     record = ResultRecord.from_dict(
         _record(
             series={"latency_ms": [[1, 10.0], [2, 20.0]]},
-            measurements={
-                "latency_ms": {"value": 15, "unit": "ms", "evidence": "C"}
-            },
+            measurements={"latency_ms": {"value": 15, "unit": "ms", "evidence": "C"}},
         )
     )
     path = ResultStore(tmp_path).persist(record)
@@ -124,20 +146,28 @@ def test_tampered_sidecar_is_never_trusted(tmp_path, capsys, tamper):
 
 
 def test_measurements_missing_optional_keys_do_not_crash_the_renderer(tmp_path):
-    _write(tmp_path, "sparse.json", _record(
-        measurements={"weird": {"value": 1}, "labelled": {"value": "x", "evidence": "B"}},
-    ))
+    _write(
+        tmp_path,
+        "sparse.json",
+        _record(
+            measurements={"weird": {"value": 1}, "labelled": {"value": "x", "evidence": "B"}},
+        ),
+    )
     report = generate_report(tmp_path)
     assert "weird=1" in report
     assert "labelled=x [B]" in report
 
 
 def test_malformed_findings_do_not_crash_the_red_flag_list(tmp_path):
-    _write(tmp_path, "f.json", _record(
-        status="failed",
-        errors=[{"stage": "EXECUTE"}],
-        findings=[{"severity": "warning"}, "not-a-dict"],
-    ))
+    _write(
+        tmp_path,
+        "f.json",
+        _record(
+            status="failed",
+            errors=[{"stage": "EXECUTE"}],
+            findings=[{"severity": "warning"}, "not-a-dict"],
+        ),
+    )
     report = generate_report(tmp_path)
     assert "## Red flags" in report
     assert "status `failed`" in report
@@ -185,10 +215,16 @@ def test_any_recorded_error_is_a_red_flag_even_if_status_is_completed(tmp_path):
 
 
 def test_ties_on_started_at_are_broken_deterministically(tmp_path):
-    _write(tmp_path, "a.json", _record(run_id="run-a", measurements={
-        "p99_ms": {"value": 1, "unit": "ms", "evidence": "C"}}))
-    _write(tmp_path, "b.json", _record(run_id="run-b", measurements={
-        "p99_ms": {"value": 2, "unit": "ms", "evidence": "C"}}))
+    _write(
+        tmp_path,
+        "a.json",
+        _record(run_id="run-a", measurements={"p99_ms": {"value": 1, "unit": "ms", "evidence": "C"}}),
+    )
+    _write(
+        tmp_path,
+        "b.json",
+        _record(run_id="run-b", measurements={"p99_ms": {"value": 2, "unit": "ms", "evidence": "C"}}),
+    )
 
     first = generate_report(tmp_path)
     second = generate_report(tmp_path)

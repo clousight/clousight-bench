@@ -16,6 +16,7 @@ Stage span durations are the exact measured ``stage_timings``; their absolute
 starts are laid in lifecycle order from the run start (the pipeline is
 sequential, so this is faithful and needs no extra instrumentation).
 """
+
 from __future__ import annotations
 
 import json
@@ -106,9 +107,7 @@ class LocalFileSpanExporter(SpanExporter):
         path.write_text(body + "\n", encoding="utf-8")
 
 
-def build_run_trace(
-    record: ResultRecord, trace_id: str, root_start_ns: int, root_end_ns: int
-) -> list[Span]:
+def build_run_trace(record: ResultRecord, trace_id: str, root_start_ns: int, root_end_ns: int) -> list[Span]:
     """One root ``csbench.run`` span with a child ``csbench.stage.<STAGE>`` span
     per timed stage, laid end-to-end in lifecycle order using the measured
     ``stage_timings`` for exact durations."""

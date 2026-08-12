@@ -1,4 +1,5 @@
 """Benchmark asset resolution: bundled / remote(+checksum,cache) / private(license)."""
+
 import hashlib
 
 import pytest
@@ -17,6 +18,7 @@ def _sha(b: bytes) -> str:
 
 
 # --- spec parsing / validation ----------------------------------------------
+
 
 def test_spec_requires_name_and_source():
     with pytest.raises(AssetError):
@@ -37,16 +39,19 @@ def test_identity_carries_no_contents():
 
 
 def test_load_asset_specs_from_manifest():
-    manifest = {"assets": [
-        {"name": "a", "source": "bundled", "uri": "data/a.bin"},
-        {"name": "b", "source": "remote", "uri": "http://x/b", "license": "CC-BY", "sha256": "aa"},
-    ]}
+    manifest = {
+        "assets": [
+            {"name": "a", "source": "bundled", "uri": "data/a.bin"},
+            {"name": "b", "source": "remote", "uri": "http://x/b", "license": "CC-BY", "sha256": "aa"},
+        ]
+    }
     specs = load_asset_specs(manifest)
     assert [s.name for s in specs] == ["a", "b"]
     assert specs[1].sha256 == "aa"
 
 
 # --- bundled ----------------------------------------------------------------
+
 
 def test_bundled_resolves_and_verifies(tmp_path):
     blob = b"hello-dataset"
@@ -67,6 +72,7 @@ def test_bundled_sha_mismatch_raises(tmp_path):
 
 # --- remote (https URI; urlopen monkeypatched so no network) ----------------
 
+
 def _serve(monkeypatch, payload: dict[str, bytes]):
     """Make assets.request.urlopen serve bytes for known https URIs, no network."""
     import io
@@ -86,8 +92,7 @@ def test_remote_downloads_verifies_and_caches(tmp_path, monkeypatch):
     uri = "https://datasets.example.com/src.bin"
     _serve(monkeypatch, {uri: blob})
     cache = tmp_path / "cache"
-    spec = AssetSpec("r", "remote", uri=uri, sha256=_sha(blob),
-                     license="CC-BY", version="1")
+    spec = AssetSpec("r", "remote", uri=uri, sha256=_sha(blob), license="CC-BY", version="1")
 
     p1 = resolve_asset(spec, cache_dir=cache)
     assert p1.read_bytes() == blob
@@ -102,13 +107,13 @@ def test_remote_downloads_verifies_and_caches(tmp_path, monkeypatch):
 def test_remote_sha_mismatch_raises(tmp_path, monkeypatch):
     uri = "https://datasets.example.com/src.bin"
     _serve(monkeypatch, {uri: b"data"})
-    spec = AssetSpec("r", "remote", uri=uri, sha256=_sha(b"other"),
-                     license="CC-BY")
+    spec = AssetSpec("r", "remote", uri=uri, sha256=_sha(b"other"), license="CC-BY")
     with pytest.raises(AssetError, match="sha256 mismatch"):
         resolve_asset(spec, cache_dir=tmp_path / "c")
 
 
 # --- private ----------------------------------------------------------------
+
 
 def test_private_without_resolver_raises_need_license(tmp_path):
     spec = AssetSpec("keys", "private", uri="held-out/T4.1", sha256="aa")

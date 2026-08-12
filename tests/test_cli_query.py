@@ -14,8 +14,18 @@ def test_cli_query_table_json(tmp_path, capsys, write_record):
 
 def test_cli_export_csv(tmp_path, write_record):
     write_record(tmp_path)
-    rc = main(["export", "measurements", "--out", str(tmp_path / "m.csv"),
-               "--format", "csv", "--results", str(tmp_path)])
+    rc = main(
+        [
+            "export",
+            "measurements",
+            "--out",
+            str(tmp_path / "m.csv"),
+            "--format",
+            "csv",
+            "--results",
+            str(tmp_path),
+        ]
+    )
     assert rc == 0 and (tmp_path / "m.csv").exists()
 
 

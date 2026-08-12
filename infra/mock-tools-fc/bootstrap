@@ -1,0 +1,4 @@
+#!/bin/bash
+# FC custom runtime bootstrap — starts the mock tool server.
+# FC sets FC_SERVER_PORT; the server must listen on 0.0.0.0 at that port.
+exec python3 /code/entry.py

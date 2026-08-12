@@ -5,6 +5,7 @@ writes ``series_rollup.parquet`` (avg / p99 / max / count per series per time
 bucket) so a chart or report can be rendered without scanning every raw sample.
 Requires the ``[store]`` extra (duckdb + pyarrow).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -37,9 +38,7 @@ def rollup(run_dir: Path | str, bucket_s: int = 1) -> Path:
         import duckdb
         import pyarrow.parquet as pq
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
-        raise ImportError(
-            "rollup needs the [store] extra: pip install clousight-bench[store]"
-        ) from exc
+        raise ImportError("rollup needs the [store] extra: pip install clousight-bench[store]") from exc
 
     out = run_dir / "series_rollup.parquet"
     con = duckdb.connect()

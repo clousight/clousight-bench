@@ -11,6 +11,7 @@ it; this one happens to be Python):
     {"type": "log", "message": "..."}
     {"type": "result", "ok": true}     # final line, required
 """
+
 from __future__ import annotations
 
 import argparse
@@ -51,8 +52,13 @@ def main() -> int:
     emit({"type": "metric", "name": "rows_processed", "value": rows})
     emit({"type": "metric", "name": "distinct_words", "value": len(counts)})
     emit({"type": "metric", "name": "duration_ms", "value": round(duration_ms, 2)})
-    emit({"type": "metric", "name": "throughput_rows_per_s",
-          "value": round(rows / (duration_ms / 1000), 2) if duration_ms else 0})
+    emit(
+        {
+            "type": "metric",
+            "name": "throughput_rows_per_s",
+            "value": round(rows / (duration_ms / 1000), 2) if duration_ms else 0,
+        }
+    )
     emit({"type": "result", "ok": True})
     return 0
 

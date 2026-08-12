@@ -10,6 +10,7 @@ Append-only JSONL so a crash mid-write cannot corrupt earlier entries. Best-effo
 durable, not the source of truth: the authoritative record is the cloud's own
 tag query (a ``ResourceReaper``); this is the fast local view that seeds it.
 """
+
 from __future__ import annotations
 
 import json
@@ -38,21 +39,25 @@ class ResourceLedger:
         kind: str,
         tags: dict[str, Any] | None = None,
     ) -> None:
-        self._append({
-            "event": "created",
-            "run_id": run_id,
-            "provider": provider or "",
-            "resource_id": resource_id,
-            "kind": kind,
-            "tags": dict(tags or {}),
-        })
+        self._append(
+            {
+                "event": "created",
+                "run_id": run_id,
+                "provider": provider or "",
+                "resource_id": resource_id,
+                "kind": kind,
+                "tags": dict(tags or {}),
+            }
+        )
 
     def mark_deleted(self, run_id: str, resource_id: str) -> None:
-        self._append({
-            "event": "deleted",
-            "run_id": run_id,
-            "resource_id": resource_id,
-        })
+        self._append(
+            {
+                "event": "deleted",
+                "run_id": run_id,
+                "resource_id": resource_id,
+            }
+        )
 
     def _events(self) -> list[dict[str, Any]]:
         if not self.path.exists():
@@ -68,9 +73,7 @@ class ResourceLedger:
                 continue
         return events
 
-    def residual(
-        self, run_id: str | None = None, provider: str | None = None
-    ) -> list[dict[str, Any]]:
+    def residual(self, run_id: str | None = None, provider: str | None = None) -> list[dict[str, Any]]:
         """Resources created but not yet deleted, optionally scoped to a run / provider."""
         created: dict[tuple[str, str], dict[str, Any]] = {}
         for ev in self._events():

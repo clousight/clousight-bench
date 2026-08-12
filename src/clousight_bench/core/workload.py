@@ -30,6 +30,7 @@ manifest.yaml:
       workload: {type: string, default: workloada}
     metrics: [throughput_ops, read_p99_ms]
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -190,12 +191,14 @@ class WorkloadEngine:
                 elif etype == "artifact":
                     rel = str(event["path"])
                     blob = resolve_within(self.workload_dir, rel).read_bytes()
-                    artifacts.append({
-                        "kind": str(event.get("kind", "artifact")),
-                        "path": rel,
-                        "media": str(event.get("media", "application/octet-stream")),
-                        "sha256": "sha256:" + hashlib.sha256(blob).hexdigest(),
-                    })
+                    artifacts.append(
+                        {
+                            "kind": str(event.get("kind", "artifact")),
+                            "path": rel,
+                            "media": str(event.get("media", "application/octet-stream")),
+                            "sha256": "sha256:" + hashlib.sha256(blob).hexdigest(),
+                        }
+                    )
                 elif etype == "result":
                     saw_result = True
                     result_ok = bool(event.get("ok", False))
@@ -205,8 +208,12 @@ class WorkloadEngine:
 
             ok = proc.returncode == 0 and saw_result and result_ok
             return WorkloadResult(
-                ok=ok, metrics=metrics, logs=logs, exit_code=proc.returncode,
-                series=series, artifacts=artifacts,
+                ok=ok,
+                metrics=metrics,
+                logs=logs,
+                exit_code=proc.returncode,
+                series=series,
+                artifacts=artifacts,
             )
         finally:
             try:

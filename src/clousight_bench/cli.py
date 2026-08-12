@@ -10,7 +10,13 @@
     csbench init aws [--domain agent-runtime] [--out .]  # scaffold private config + .env.example
     csbench doctor --config x.local.yaml                 # preflight: creds + connectivity
 """
+
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from clousight_bench.core.campaign import CampaignManifest
 
 import argparse
 import json
@@ -36,6 +42,13 @@ def _cmd_list(args: argparse.Namespace) -> int:
     if not domains:
         print("no domain packs installed")
         return 1
+    if args.json:
+        import json as _json
+
+        from clousight_bench.core.inventory import inventory
+
+        print(_json.dumps(inventory(), indent=2, ensure_ascii=False))
+        return 0
     for name, pack in sorted(domains.items()):
         print(f"domain: {name}")
         if pack.description:
@@ -46,17 +59,17 @@ def _cmd_list(args: argparse.Namespace) -> int:
             continue
         print("  tasks:")
         for task_id, task_cls in sorted(pack.tasks().items()):
-            print(
-                f"    {task_id:<8} {task_cls.title} "
-                f"[evidence={task_cls.evidence_layer}]"
-            )
+            tags = ", ".join(task_cls.capability_tags) or "—"
+            print(f"    {task_id:<8} {task_cls.title} [evidence={task_cls.evidence_layer}]")
+            print(f"             tags: {tags}")
         print("  platforms:")
         for platform, adapter_cls in sorted(pack.adapters().items()):
             provider = adapter_cls.provider or "local"
-            print(
-                f"    {platform:<24} status={adapter_cls.status} "
-                f"provider={provider}"
-            )
+            print(f"    {platform:<24} status={adapter_cls.status} provider={provider}")
+            if adapter_cls.target_example:
+                import json as _json
+
+                print(f"             target_example: {_json.dumps(adapter_cls.target_example)}")
     return 0
 
 
@@ -190,6 +203,36 @@ def _cmd_trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_aggregates(results_dir: Path) -> list[dict]:
+    import json
+
+    from clousight_bench.core.runplan import AGGREGATES_DIRNAME
+
+    agg_dir = results_dir / AGGREGATES_DIRNAME
+    if not agg_dir.exists():
+        return []
+    best: dict[tuple[str, str, str], dict] = {}
+    for path in sorted(agg_dir.rglob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(data, dict) or data.get("kind") != "run_plan_aggregate":
+            continue
+        identity = data.get("identity", {})
+        key = (identity.get("domain", ""), identity.get("task_id", ""), identity.get("adapter", ""))
+        existing = best.get(key)
+        this_n = data.get("plan", {}).get("repeat", 0)
+        ex_n = existing.get("plan", {}).get("repeat", 0) if existing else -1
+        if (
+            existing is None
+            or this_n > ex_n
+            or (this_n == ex_n and data.get("plan_id", "") > existing.get("plan_id", ""))
+        ):
+            best[key] = data
+    return list(best.values())
+
+
 def _report_bundle(results_dir: str):
     import datetime as _dt
 
@@ -197,10 +240,16 @@ def _report_bundle(results_dir: str):
     from clousight_bench.core.reporting.bundle import build_bundle
     from clousight_bench.core.reporting.profiles import PROFILES
 
-    records = _load_results(Path(results_dir))
+    results_path = Path(results_dir)
+    records = _load_results(results_path)
+    aggregates = _load_aggregates(results_path)
     return build_bundle(
-        records, results_dir=str(results_dir),
-        generated_at=_dt.datetime.now().isoformat(timespec="seconds"), profiles=PROFILES)
+        records,
+        results_dir=str(results_dir),
+        generated_at=_dt.datetime.now().isoformat(timespec="seconds"),
+        profiles=PROFILES,
+        aggregates=aggregates,
+    )
 
 
 def _render_with_template(bundle: object, template_path: str) -> str:
@@ -209,8 +258,9 @@ def _render_with_template(bundle: object, template_path: str) -> str:
     try:
         import jinja2
     except ImportError as exc:
-        raise UserInputError("--template needs the [report] extra: "
-                             "pip install clousight-bench[report]") from exc
+        raise UserInputError(
+            "--template needs the [report] extra: pip install clousight-bench[report]"
+        ) from exc
     tmpl = jinja2.Template(Path(template_path).read_text(encoding="utf-8"))
     return tmpl.render(bundle=bundle.to_dict())  # type: ignore[attr-defined]
 
@@ -223,7 +273,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
     if getattr(args, "dump_bundle", None):
         bundle = _report_bundle(args.results)
         Path(args.dump_bundle).write_text(
-            _json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
+            _json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         print(f"wrote bundle {args.dump_bundle}")
         return 0
 
@@ -233,8 +284,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
         renderers = load_report_renderers()
         renderer = renderers.get(args.renderer)
         if renderer is None:
-            raise UserInputError(
-                f"unknown renderer {args.renderer!r}; installed: {sorted(renderers)}")
+            raise UserInputError(f"unknown renderer {args.renderer!r}; installed: {sorted(renderers)}")
         bundle = _report_bundle(args.results)
         if args.template:
             html = _render_with_template(bundle, args.template)
@@ -269,10 +319,7 @@ def _cmd_migrate(args: argparse.Namespace) -> int:
     dest = Path(args.output)
     manifest = migrate_tree(Path(args.source), dest, dry_run=args.dry_run)
     prefix = "dry-run: " if args.dry_run else ""
-    print(
-        f"{prefix}migrated={manifest.migrated} "
-        f"skipped={manifest.skipped} failed={manifest.failed}"
-    )
+    print(f"{prefix}migrated={manifest.migrated} skipped={manifest.skipped} failed={manifest.failed}")
     for entry in manifest.entries:
         if entry.status != "migrated":
             print(f"  {entry.status}: {entry.source} — {entry.reason}")
@@ -286,7 +333,7 @@ def _ensure_gitignore(root: Path, patterns: list[str]) -> None:
     existing = gi.read_text(encoding="utf-8").splitlines() if gi.exists() else []
     missing = [p for p in patterns if p not in existing]
     if missing:
-        block = (["", "# clousight-bench private config (never commit secrets)"] + missing)
+        block = ["", "# clousight-bench private config (never commit secrets)"] + missing
         with gi.open("a", encoding="utf-8") as fh:
             fh.write(("\n" if existing and existing[-1] != "" else "") + "\n".join(block) + "\n")
 
@@ -296,10 +343,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
     provider = args.provider
     if provider not in PROVIDER_CREDENTIALS:
-        raise UserInputError(
-            f"unknown provider {provider!r}; "
-            f"choose from: {', '.join(PROVIDER_CREDENTIALS)}"
-        )
+        raise UserInputError(f"unknown provider {provider!r}; choose from: {', '.join(PROVIDER_CREDENTIALS)}")
     spec = PROVIDER_CREDENTIALS[provider]
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -312,9 +356,9 @@ def _cmd_init(args: argparse.Namespace) -> int:
         f"# (env vars / CLI profile / role). Run `csbench doctor --config {cfg_path.name}`.\n"
         "target:\n"
         f"  provider: {provider}\n"
-        "  region: \"\"                 # fill in your region\n"
+        '  region: ""                 # fill in your region\n'
         f"{profile_line}\n"
-        "  mock_base_url: \"\"          # public URL the cloud runtime can reach the mock at\n"
+        '  mock_base_url: ""          # public URL the cloud runtime can reach the mock at\n'
         "params: {}\n"
     )
     if cfg_path.exists() and not args.force:
@@ -373,8 +417,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         adapter_classes = pack.adapters()
         if args.platform not in adapter_classes:
             raise UnknownPlatformError(
-                f"platform {args.platform!r} not in domain {args.domain!r}: "
-                f"{sorted(adapter_classes)}"
+                f"platform {args.platform!r} not in domain {args.domain!r}: {sorted(adapter_classes)}"
             )
         adapter_cls = adapter_classes[args.platform]
         if not adapter_cls.is_runnable():
@@ -393,8 +436,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
             task_classes = pack.tasks()
             if args.task not in task_classes:
                 raise UnknownTaskError(
-                    f"task {args.task!r} not in domain {args.domain!r}: "
-                    f"{sorted(task_classes)}"
+                    f"task {args.task!r} not in domain {args.domain!r}: {sorted(task_classes)}"
                 )
             task = task_classes[args.task]()
         report = adapter.preflight(task)
@@ -404,8 +446,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     # Config/provider-only mode (no adapter): creds + sdk + mock.
     provider = infer_provider(target, args.platform)
     if provider is None:
-        print(f"\u2717 provider — unknown; set target.provider or pass --provider "
-              f"(one of: {', '.join(PROVIDER_CREDENTIALS)})")
+        print(
+            f"\u2717 provider — unknown; set target.provider or pass --provider "
+            f"(one of: {', '.join(PROVIDER_CREDENTIALS)})"
+        )
         return 1
 
     report = pf.PreflightReport()
@@ -501,8 +545,10 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     if not acted:
         print(f"{args.provider}: no orphaned resources found")
         return 0
-    print(f"{args.provider}: {verb} {len(acted)} resource(s)"
-          + ("  (dry-run; pass --confirm to delete)" if dry_run else ""))
+    print(
+        f"{args.provider}: {verb} {len(acted)} resource(s)"
+        + ("  (dry-run; pass --confirm to delete)" if dry_run else "")
+    )
     for res in acted:
         rid = res.get("id", "?")
         run = res.get("run_id", "?")
@@ -527,6 +573,272 @@ def _cmd_conformance(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 1
 
 
+def _cmd_verify(args: argparse.Namespace) -> int:
+    import json
+
+    from clousight_bench.core.fingerprints import record_digest
+    from clousight_bench.core.runplan import AGGREGATES_DIRNAME
+
+    results_dir = Path(args.results)
+    ok = failed = skipped = 0
+    for path in sorted(results_dir.rglob("*.json")):
+        rel = path.relative_to(results_dir)
+        if AGGREGATES_DIRNAME in rel.parts:
+            skipped += 1
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("not a JSON object")
+            stored = data.get("fingerprints", {}).get("record_digest", "")
+            computed = record_digest(data)
+            if stored == computed:
+                print(f"✓  {rel}")
+                ok += 1
+            else:
+                print(f"✗  {rel}")
+                print(f"   stored:   {stored}")
+                print(f"   computed: {computed}")
+                failed += 1
+        except Exception as exc:
+            print(f"✗  {rel}  ({exc})")
+            failed += 1
+    total = ok + failed
+    suffix = f" ({skipped} aggregate file(s) skipped)" if skipped else ""
+    print(f"\nverified {total} file(s) — {ok} ok, {failed} failed{suffix}")
+    return 0 if failed == 0 else 1
+
+
+def _cmd_run_plan(args: argparse.Namespace) -> int:
+    import os
+
+    import yaml as _yaml
+
+    from clousight_bench.core.campaign import (
+        CampaignManifest,
+        TaskProgress,
+        new_campaign_id,
+        write_manifest,
+    )
+    from clousight_bench.core.runplan import RunPlan, execute_plan
+    from clousight_bench.core.schema import RunSpec
+
+    plan_path = Path(args.plan_file)
+    try:
+        spec = _yaml.safe_load(plan_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"error: cannot read plan file {plan_path}: {exc}", file=sys.stderr)
+        return 2
+    if not isinstance(spec, dict):
+        print("error: plan file must be a YAML mapping", file=sys.stderr)
+        return 2
+
+    domain = spec.get("domain")
+    platform = spec.get("platform")
+    if not domain or not platform:
+        print("error: plan must have 'domain' and 'platform'", file=sys.stderr)
+        return 2
+
+    base_target = spec.get("target") or {}
+    if args.config:
+        cfg = _load_config(args.config)
+        base_target = {**cfg.get("target", {}), **base_target}
+
+    task_specs = spec.get("tasks") or []
+    if not task_specs:
+        print("error: plan has no tasks", file=sys.stderr)
+        return 2
+
+    results_dir = Path(args.results)
+    allow_live = args.allow_live or (os.environ.get("CSBENCH_ALLOW_LIVE", "") == "1")
+    cost_budget = args.cost_budget or (
+        float(os.environ["CSBENCH_COST_BUDGET"]) if "CSBENCH_COST_BUDGET" in os.environ else None
+    )
+
+    # Validate task ids up front so the manifest reflects the real work list.
+    task_ids: list[str] = []
+    for t in task_specs:
+        task_id = t.get("task")
+        if not task_id:
+            print("error: task entry missing 'task' key", file=sys.stderr)
+            return 2
+        task_ids.append(task_id)
+
+    manifest = CampaignManifest(
+        campaign_id=new_campaign_id(),
+        plan_file=str(plan_path),
+        domain=domain,
+        platform=platform,
+        tasks=[TaskProgress(task_id=tid) for tid in task_ids],
+    )
+    write_manifest(results_dir, manifest)
+    print(
+        f"campaign {manifest.campaign_id}  ({manifest.total_tasks} task(s))  "
+        f"progress: csbench progress --results {results_dir}"
+    )
+
+    from clousight_bench.core.plugin import campaign_probe_hook  # local import
+
+    hook = None
+    if getattr(args, "probe", "") == "eci":
+        hook = campaign_probe_hook(platform)
+
+    ok = failed = 0
+    try:
+        if hook is not None:
+            base_target.update(hook.start_campaign_probe(dict(base_target)))
+        for t in task_specs:
+            task_id = t.get("task")
+            repeat = int(t.get("repeat", 1))
+            warmup = int(t.get("warmup", 0))
+            params = t.get("params") or {}
+            run_spec = RunSpec(domain, task_id, platform, target=dict(base_target), params=params)
+            plan = RunPlan(run_spec, repeat=repeat, warmup=warmup)
+            print(f"running {task_id}  repeat={repeat}  warmup={warmup} ...")
+            manifest.mark_running(task_id)
+            write_manifest(results_dir, manifest)
+            try:
+                agg = execute_plan(
+                    plan,
+                    results_dir=results_dir,
+                    allow_live=allow_live,
+                    cost_budget=cost_budget,
+                )
+                status_str = "  ".join(f"{s}={n}" for s, n in sorted(agg.status_counts.items()))
+                print(f"  ✓ {task_id}  plan={agg.plan_id}  {status_str}")
+                manifest.mark_done(
+                    task_id, status="completed", plan_id=agg.plan_id, status_counts=agg.status_counts
+                )
+                ok += 1
+            except Exception as exc:
+                print(f"  ✗ {task_id}  {exc}", file=sys.stderr)
+                manifest.mark_done(task_id, status="failed", error=str(exc))
+                failed += 1
+            write_manifest(results_dir, manifest)
+            if hook is not None:
+                try:
+                    hook.sync_probe_artifacts(results_dir)  # cadence: after each task
+                except Exception:  # noqa: BLE001 — a sync hiccup must not fail the campaign
+                    pass
+    finally:
+        if hook is not None:
+            try:
+                hook.sync_probe_artifacts(results_dir)  # final sync for late chunks
+            finally:
+                hook.stop_campaign_probe()  # interrupt-safe reap
+
+    total = ok + failed
+    print(f"\n{total} task(s): {ok} ok, {failed} failed")
+    return 0 if failed == 0 else 1
+
+
+_STATE_ICON = {
+    "completed": "✓",
+    "failed": "✗",
+    "running": "▶",
+    "pending": "·",
+}
+
+
+def _fmt_elapsed(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    return f"{seconds // 60}m{seconds % 60:02d}s"
+
+
+def _render_progress(manifest: CampaignManifest) -> str:  # noqa: F821
+    import time as _time
+
+    from clousight_bench.core.campaign import TERMINAL_STATES
+
+    done = sum(1 for t in manifest.tasks if t.status in TERMINAL_STATES)
+    running = [t for t in manifest.tasks if t.status == "running"]
+    lines = [
+        f"campaign {manifest.campaign_id}  ({manifest.platform})",
+        f"progress: {done}/{manifest.total_tasks} done"
+        + (f"  ·  {len(running)} running" if running else "")
+        + f"  ·  updated {manifest.updated_at}",
+        "",
+    ]
+    for t in manifest.tasks:
+        icon = _STATE_ICON.get(t.status, "?")
+        if t.status == "running" and t.started_at:
+            try:
+                started = _time.mktime(_time.strptime(t.started_at, "%Y-%m-%dT%H:%M:%S%z"))
+                elapsed = f"{_fmt_elapsed(_time.time() - started)} (running)"
+            except (ValueError, OverflowError):
+                elapsed = "running"
+        else:
+            elapsed = _fmt_elapsed(t.elapsed_s)
+        counts = "  ".join(f"{s}={n}" for s, n in sorted(t.status_counts.items()))
+        detail = t.error or counts
+        lines.append(f"  {icon} {t.task_id:<8} {elapsed:>14}   {detail}")
+        jp = t.job_progress or {}
+        if t.status == "running" and jp:
+            completed = int(jp.get("completed", 0))
+            total = int(jp.get("total", 0))
+            phase = str(jp.get("phase", ""))
+            pct = f" ({completed * 100 // total}%)" if total else ""
+            lines.append(f"        └ {phase} {completed}/{total}{pct}")
+        if t.chunk_refs:
+            lines.append(f"        └ {len(t.chunk_refs)} chunk(s) in OSS")
+    return "\n".join(lines)
+
+
+def _cmd_progress(args: argparse.Namespace) -> int:
+    import time as _time
+
+    from clousight_bench.core.campaign import (
+        CampaignManifest,  # noqa: F401  (used by _render_progress annotation)
+        load_manifest,
+        manifest_path,
+    )
+    from clousight_bench.core.campaign import (
+        latest_manifest as _latest,
+    )
+
+    results_dir = Path(args.results)
+    if args.campaign:
+        path = manifest_path(results_dir, args.campaign)
+        if not path.exists():
+            print(f"error: no campaign {args.campaign!r} under {results_dir}", file=sys.stderr)
+            return 2
+    else:
+        latest = _latest(results_dir)
+        if latest is None:
+            print(f"error: no campaigns found under {results_dir} — has a run-plan started?", file=sys.stderr)
+            return 2
+        path = latest
+
+    def _print_once() -> CampaignManifest:  # noqa: F821
+        manifest = load_manifest(path)
+        if args.json:
+            print(json.dumps(manifest.to_dict(), ensure_ascii=False, indent=2))
+        else:
+            print(_render_progress(manifest))
+        return manifest
+
+    if not args.watch:
+        _print_once()
+        return 0
+
+    from clousight_bench.core.campaign import TERMINAL_STATES
+
+    try:
+        while True:
+            print("\033[2J\033[H", end="")  # clear screen, cursor home
+            manifest = _print_once()
+            if all(t.status in TERMINAL_STATES for t in manifest.tasks):
+                break
+            _time.sleep(args.interval)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "list": _cmd_list,
@@ -541,18 +853,23 @@ def _dispatch(args: argparse.Namespace) -> int:
         "conformance": _cmd_conformance,
         "query": _cmd_query,
         "export": _cmd_export,
+        "verify": _cmd_verify,
+        "run-plan": _cmd_run_plan,
+        "progress": _cmd_progress,
     }
     return handlers[args.command](args)
 
 
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    parser = argparse.ArgumentParser(prog="csbench", description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        prog="csbench", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     list_p = sub.add_parser("list", help="list installed domains, tasks and platforms")
     list_p.add_argument("--verbose", action="store_true", help="show task and adapter metadata")
+    list_p.add_argument("--json", action="store_true", help="output as JSON (LLM-friendly)")
 
     run_p = sub.add_parser("run", help="run one task against one platform")
     run_p.add_argument("--domain", required=True)
@@ -562,29 +879,79 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--param", action="append", default=[], help="override a task param, key=value")
     run_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     run_p.add_argument("--no-enrich", action="store_true", help="skip result enrichers")
-    run_p.add_argument("--skip-preflight", action="store_true",
-                       help="skip the preflight prerequisite checks (not recommended)")
-    run_p.add_argument("--debug", action="store_true",
-                       help="write stage tracebacks to <results>/debug/<run_id>.log "
-                            "(never into the record)")
-    run_p.add_argument("--repeat", type=int, default=1,
-                       help="measured repeats to run and aggregate (default: 1)")
-    run_p.add_argument("--warmup", type=int, default=0,
-                       help="warmup runs to execute first and exclude from statistics")
+    run_p.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="skip the preflight prerequisite checks (not recommended)",
+    )
+    run_p.add_argument(
+        "--debug",
+        action="store_true",
+        help="write stage tracebacks to <results>/debug/<run_id>.log (never into the record)",
+    )
+    run_p.add_argument(
+        "--repeat", type=int, default=1, help="measured repeats to run and aggregate (default: 1)"
+    )
+    run_p.add_argument(
+        "--warmup", type=int, default=0, help="warmup runs to execute first and exclude from statistics"
+    )
     run_p.add_argument("--plan-id", help="reuse a plan id (printed in the aggregate) to resume it")
-    run_p.add_argument("--resume", action="store_true",
-                       help="skip repeats already completed under --plan-id; re-run interrupted/missing ones")
-    run_p.add_argument("--timeout", type=float, default=None,
-                       help="per-run deadline in seconds for setup+execute+collect "
-                            "(guards against a hung stage; teardown still runs)")
-    run_p.add_argument("--allow-live", action="store_true",
-                       help="acknowledge real-cloud cost: required to run a live "
-                            "(non-simulated) platform. Simulated runs never need it. "
-                            "Env: CSBENCH_ALLOW_LIVE=1")
-    run_p.add_argument("--cost-budget", type=float, default=None,
-                       help="cumulative USD cap across runs in this --results dir; a "
-                            "billable run that would cross it is stopped before "
-                            "provisioning. Env: CSBENCH_COST_BUDGET")
+    run_p.add_argument(
+        "--resume",
+        action="store_true",
+        help="skip repeats already completed under --plan-id; re-run interrupted/missing ones",
+    )
+    run_p.add_argument(
+        "--timeout",
+        type=float,
+        default=None,
+        help="per-run deadline in seconds for setup+execute+collect "
+        "(guards against a hung stage; teardown still runs)",
+    )
+    run_p.add_argument(
+        "--allow-live",
+        action="store_true",
+        help="acknowledge real-cloud cost: required to run a live "
+        "(non-simulated) platform. Simulated runs never need it. "
+        "Env: CSBENCH_ALLOW_LIVE=1",
+    )
+    run_p.add_argument(
+        "--cost-budget",
+        type=float,
+        default=None,
+        help="cumulative USD cap across runs in this --results dir; a "
+        "billable run that would cross it is stopped before "
+        "provisioning. Env: CSBENCH_COST_BUDGET",
+    )
+
+    rp_p = sub.add_parser("run-plan", help="run a YAML batch plan (multiple tasks with repeat/warmup)")
+    rp_p.add_argument("plan_file", help="YAML plan file (see examples/run-plan-example.yaml)")
+    rp_p.add_argument("--config", help="YAML file with base `target:` and `params:` (merged with plan file)")
+    rp_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
+    rp_p.add_argument(
+        "--allow-live", action="store_true", help="acknowledge real-cloud cost (required for live platforms)"
+    )
+    rp_p.add_argument(
+        "--cost-budget", type=float, default=None, help="cumulative USD cap across all tasks in this plan"
+    )
+    rp_p.add_argument(
+        "--probe",
+        choices=["local", "eci"],
+        default="local",
+        help="probe mode: 'local' keeps in-process behavior (default); "
+        "'eci' brings up a per-campaign ECI probe carrier",
+    )
+
+    prog_p = sub.add_parser("progress", help="show a run-plan campaign's live progress")
+    prog_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
+    prog_p.add_argument("--campaign", help="campaign id (default: the most recently updated one)")
+    prog_p.add_argument("--json", action="store_true", help="print the raw manifest as JSON")
+    prog_p.add_argument(
+        "--watch", action="store_true", help="redraw until every task reaches a terminal state"
+    )
+    prog_p.add_argument(
+        "--interval", type=float, default=2.0, help="seconds between redraws when --watch (default: 2)"
+    )
 
     rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
@@ -599,8 +966,12 @@ def main(argv: list[str] | None = None) -> int:
     trace_sub = trace_p.add_subparsers(dest="trace_cmd", required=True)
     tl = trace_sub.add_parser("list", help="list traces (one row per run)")
     tl.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
-    tl.add_argument("--sort", choices=["started", "duration"], default="started",
-                    help="order by start (default) or total duration")
+    tl.add_argument(
+        "--sort",
+        choices=["started", "duration"],
+        default="started",
+        help="order by start (default) or total duration",
+    )
     tl.add_argument("--status", help="only traces with this run status")
     ts = trace_sub.add_parser("show", help="render one run's trace as a stage tree")
     ts.add_argument("id", help="a run_id or trace_id")
@@ -640,27 +1011,35 @@ def main(argv: list[str] | None = None) -> int:
     doc_p.add_argument("--task", help="task id; check the minimal permissions THIS benchmark needs")
 
     sweep_p = sub.add_parser(
-        "sweep",
-        help="reap orphaned cloud resources a crashed run left behind (needs a reaper plugin)")
-    sweep_p.add_argument("--provider", required=True,
-                         help="cloud provider (aws/aliyun/huawei/volcengine)")
-    sweep_p.add_argument("--confirm", action="store_true",
-                         help="actually delete (default: dry-run, only report)")
-    sweep_p.add_argument("--older-than-s", type=float, default=None,
-                         help="only resources older than this many seconds "
-                              "(protects in-flight runs)")
+        "sweep", help="reap orphaned cloud resources a crashed run left behind (needs a reaper plugin)"
+    )
+    sweep_p.add_argument("--provider", required=True, help="cloud provider (aws/aliyun/huawei/volcengine)")
+    sweep_p.add_argument(
+        "--confirm", action="store_true", help="actually delete (default: dry-run, only report)"
+    )
+    sweep_p.add_argument(
+        "--older-than-s",
+        type=float,
+        default=None,
+        help="only resources older than this many seconds (protects in-flight runs)",
+    )
 
-    conf_p = sub.add_parser("conformance",
-                            help="check an installed domain plugin against the contract")
+    conf_p = sub.add_parser("conformance", help="check an installed domain plugin against the contract")
     conf_p.add_argument("--domain", required=True)
-    conf_p.add_argument("--platform", default=None,
-                        help="also assert this platform's adapter is declared")
+    conf_p.add_argument("--platform", default=None, help="also assert this platform's adapter is declared")
 
-    q_p = sub.add_parser("query",
-                         help="SQL over records/measurements/findings/series (needs [store])")
+    ver_p = sub.add_parser("verify", help="verify record_digest integrity for all result files")
+    ver_p.add_argument(
+        "--results", default=str(DEFAULT_RESULTS_DIR), help="results directory to scan (default: ./results)"
+    )
+
+    q_p = sub.add_parser("query", help="SQL over records/measurements/findings/series (needs [store])")
     q_p.add_argument("sql", nargs="?", help="a SQL query over the four views")
-    q_p.add_argument("--table", choices=["records", "measurements", "findings", "series"],
-                     help="shortcut for SELECT * FROM <table>")
+    q_p.add_argument(
+        "--table",
+        choices=["records", "measurements", "findings", "series"],
+        help="shortcut for SELECT * FROM <table>",
+    )
     q_p.add_argument("--where", help="WHERE clause used with --table")
     q_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     q_p.add_argument("--format", choices=["table", "csv", "json"], default="table")

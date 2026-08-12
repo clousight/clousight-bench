@@ -80,9 +80,7 @@ def test_metrics_become_measurements_carrying_the_legacy_evidence_layer():
 
 
 def test_unknown_fingerprints_are_the_literal_unknown_never_fabricated():
-    fingerprints = migrate_record(
-        _LEGACY, source_path="a", source_sha256="ff"
-    )["fingerprints"]
+    fingerprints = migrate_record(_LEGACY, source_path="a", source_sha256="ff")["fingerprints"]
     assert fingerprints["benchmark"] == "unknown"
     assert fingerprints["environment"] == "unknown"
     assert fingerprints["implementation"] == "unknown"
@@ -90,17 +88,13 @@ def test_unknown_fingerprints_are_the_literal_unknown_never_fabricated():
 
 
 def test_unrecorded_environment_declines_to_guess_local_or_cloud():
-    environment = migrate_record(
-        _LEGACY, source_path="a", source_sha256="ff"
-    )["environment"]
+    environment = migrate_record(_LEGACY, source_path="a", source_sha256="ff")["environment"]
     assert environment["mode"] == "unknown"
     assert environment["region"] == "unknown"
 
 
 def test_legacy_only_fields_land_in_extensions_legacy():
-    legacy = migrate_record(
-        _LEGACY, source_path="a/b.json", source_sha256="ff"
-    )["extensions"]["legacy"]
+    legacy = migrate_record(_LEGACY, source_path="a/b.json", source_sha256="ff")["extensions"]["legacy"]
     assert legacy["config_hash"] == "sha256:0123456789abcdef"
     assert legacy["evidence_layer"] == "C"
     assert legacy["ok"] is True
@@ -165,9 +159,7 @@ def test_missing_legacy_error_uses_a_deterministic_message():
         source_path="a",
         source_sha256="ff",
     )
-    assert out["errors"][0]["message"] == (
-        "legacy run reported ok=false without an error message"
-    )
+    assert out["errors"][0]["message"] == ("legacy run reported ok=false without an error message")
 
 
 def test_migrate_tree_refuses_unsafe_or_existing_destinations(tmp_path):
@@ -190,9 +182,7 @@ def test_migrate_tree_refuses_unsafe_or_existing_destinations(tmp_path):
 def test_migrate_tree_preserves_layout_source_and_manifest(tmp_path):
     source = tmp_path / "old"
     dest = tmp_path / "new"
-    legacy_path = _write(
-        source, "agent-runtime/local-sim/T1.3-run-1.json", _LEGACY
-    )
+    legacy_path = _write(source, "agent-runtime/local-sim/T1.3-run-1.json", _LEGACY)
     original = legacy_path.read_bytes()
     manifest = migrate_tree(source, dest)
 
@@ -216,12 +206,8 @@ def test_migration_is_deterministic_byte_for_byte(tmp_path):
     second = tmp_path / "n2"
     migrate_tree(source, first)
     migrate_tree(source, second)
-    assert (first / "a/T1.3-run-1.json").read_bytes() == (
-        second / "a/T1.3-run-1.json"
-    ).read_bytes()
-    assert (first / MANIFEST_FILE).read_bytes() == (
-        second / MANIFEST_FILE
-    ).read_bytes()
+    assert (first / "a/T1.3-run-1.json").read_bytes() == (second / "a/T1.3-run-1.json").read_bytes()
+    assert (first / MANIFEST_FILE).read_bytes() == (second / MANIFEST_FILE).read_bytes()
 
 
 def test_already_migrated_and_bad_files_are_reported_individually(tmp_path):

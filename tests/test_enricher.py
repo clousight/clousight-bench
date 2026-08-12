@@ -1,4 +1,5 @@
 """ResultEnricher hook: orchestrator applies registered enrichers before persist."""
+
 from clousight_bench.core.plugin import ResultEnricher
 from clousight_bench.core.record import ResultRecord
 
@@ -31,8 +32,6 @@ def test_orchestrator_skips_enrichers_when_disabled(monkeypatch, tmp_path):
         return []
 
     monkeypatch.setattr(orch, "load_enrichers", _boom)
-    rec = orch.execute(
-        RunSpec("agent-runtime", "T1.3", "local-sim"), results_dir=tmp_path, enrich=False
-    )
+    rec = orch.execute(RunSpec("agent-runtime", "T1.3", "local-sim"), results_dir=tmp_path, enrich=False)
     assert called["n"] == 0
     assert rec.run.stages["ENRICH"] == "skipped"

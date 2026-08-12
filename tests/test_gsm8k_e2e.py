@@ -4,6 +4,7 @@ Offline: the workload manifest + asset spec stay valid (no network).
 Online (opt-in): actually download -> checksum-verify -> cache -> consume,
 gated behind CLOUSIGHT_BENCH_NETWORK_TESTS=1 so CI stays fast and offline.
 """
+
 import os
 from pathlib import Path
 

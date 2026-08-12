@@ -1,4 +1,5 @@
 """csbench init / doctor: convenient, secret-free onboarding."""
+
 import yaml
 
 from clousight_bench.cli import main
@@ -59,10 +60,7 @@ def test_doctor_passes_with_profile(tmp_path, monkeypatch, capsys):
 
 def test_doctor_rejects_localhost_mock(tmp_path, monkeypatch, capsys):
     cfg = tmp_path / "x.yaml"
-    cfg.write_text(
-        "target:\n  provider: aws\n  profile: default\n"
-        "  mock_base_url: http://127.0.0.1:8770\n"
-    )
+    cfg.write_text("target:\n  provider: aws\n  profile: default\n  mock_base_url: http://127.0.0.1:8770\n")
     rc = main(["doctor", "--config", str(cfg)])
     out = capsys.readouterr().out
     assert "localhost" in out

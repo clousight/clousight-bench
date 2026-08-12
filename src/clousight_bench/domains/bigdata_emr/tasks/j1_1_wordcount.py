@@ -9,6 +9,7 @@ benchmark (TPC-DS / terasort land later as their own workloads).
 Evidence layer C: the input corpus is pinned by the workload, so the number is a
 controlled-variable measurement of the cluster, reproducible on your own account.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -59,14 +60,10 @@ class WordcountSmokeTask(Task):
             "assets": list(described["assets"]),
         }
 
-    def environment_facts(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> dict[str, Any]:
+    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
         return {"workload": self._workload_dir(params).name}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, BigDataClusterAdapter):
             raise TypeError("J1.1 needs a BigDataClusterAdapter")
         workload_dir = self._workload_dir(params)
@@ -95,9 +92,7 @@ class WordcountSmokeTask(Task):
             for name, value in sorted(raw.get("raw_metrics", {}).items())
         }
         succeeded = bool(raw.get("ok"))
-        measurements["job_succeeded"] = Measurement(
-            value=succeeded, unit="", evidence="C"
-        )
+        measurements["job_succeeded"] = Measurement(value=succeeded, unit="", evidence="C")
         findings: list[Finding] = []
         if not succeeded:
             findings.append(
@@ -115,10 +110,7 @@ class WordcountSmokeTask(Task):
         return TaskResult(
             measurements=measurements,
             findings=findings,
-            notes=(
-                f"wordcount smoke via workload {raw.get('workload', '')}; "
-                f"ok={succeeded}"
-            ),
+            notes=(f"wordcount smoke via workload {raw.get('workload', '')}; ok={succeeded}"),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

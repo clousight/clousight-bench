@@ -10,6 +10,8 @@ venv/
 .ruff_cache/
 .mypy_cache/
 results/
+# Agent-bundle vendored deps (LangChain + OTel) — regenerated at build time, never commit
+_vendor_cache/
 .coverage
 coverage.xml
 htmlcov/
@@ -22,3 +24,8 @@ site/
 *.tfstate
 *.tfstate.backup
 .worktrees/
+
+# Terraform / infra build artifacts
+*.tfvars
+!*.tfvars.example
+mock-tools-fc.zip

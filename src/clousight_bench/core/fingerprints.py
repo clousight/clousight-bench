@@ -61,8 +61,7 @@ def benchmark_fingerprint(
 def environment_fingerprint(
     *, region: str, mode: str, facts: dict[str, Any], execution: str = "unknown"
 ) -> str:
-    return digest(_safe(
-        {"region": region, "mode": mode, "facts": facts, "execution": execution}))
+    return digest(_safe({"region": region, "mode": mode, "facts": facts, "execution": execution}))
 
 
 def implementation_fingerprint(

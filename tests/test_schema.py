@@ -1,4 +1,5 @@
 """The request side of a run, plus the version contract."""
+
 from clousight_bench.core.schema import RunSpec
 
 

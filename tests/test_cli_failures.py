@@ -1,4 +1,5 @@
 """The CLI's contract with a script: exit codes, stderr, and what stdout claims."""
+
 import json
 
 from clousight_bench.cli import main
@@ -6,13 +7,24 @@ from clousight_bench.core.fingerprints import record_digest
 
 
 def _run(tmp_path, *extra):
-    return main([
-        "run", "--domain", "agent-runtime", "--task", "T1.3",
-        "--platform", "local-sim", "--results", str(tmp_path), *extra,
-    ])
+    return main(
+        [
+            "run",
+            "--domain",
+            "agent-runtime",
+            "--task",
+            "T1.3",
+            "--platform",
+            "local-sim",
+            "--results",
+            str(tmp_path),
+            *extra,
+        ]
+    )
 
 
 # --- I7: every bad invocation is exit 2 with a usable message ----------------
+
 
 def test_a_malformed_param_is_a_usage_error(tmp_path, capsys):
     rc = _run(tmp_path, "--param", "oops")
@@ -34,6 +46,7 @@ def test_init_with_an_unknown_provider_is_a_usage_error(tmp_path, capsys):
 
 # --- I2: stdout is the record that was persisted -----------------------------
 
+
 def test_stdout_matches_the_persisted_record_byte_for_byte_in_meaning(tmp_path, capsys):
     rc = _run(tmp_path)
     printed = json.loads(capsys.readouterr().out)
@@ -49,9 +62,8 @@ def test_stdout_matches_the_persisted_record_byte_for_byte_in_meaning(tmp_path, 
 
 # --- M6: an emergency write is never reported as a normal result -------------
 
-def test_a_failed_persist_exits_non_zero_and_says_where_the_record_went(
-    tmp_path, monkeypatch, capsys
-):
+
+def test_a_failed_persist_exits_non_zero_and_says_where_the_record_went(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path / "tmp"))
 
     def _boom(path, text):
@@ -99,11 +111,7 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
             return ObservationBundle(series={"latency_ms": [[1, 10.0], [2, 12.5]]})
 
         def score(self, observations):
-            return TaskResult(
-                measurements={
-                    "latency_ms": Measurement(value=12.5, unit="ms", evidence="C")
-                }
-            )
+            return TaskResult(measurements={"latency_ms": Measurement(value=12.5, unit="ms", evidence="C")})
 
     class _Domain(DomainPack):
         domain = "fake-domain"
@@ -117,10 +125,20 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
     original = orch.get_domain
     orch.get_domain = lambda name: _Domain()
     try:
-        rc = main([
-            "run", "--domain", "fake-domain", "--task", "TS", "--platform", "fake",
-            "--results", str(tmp_path), "--no-enrich",
-        ])
+        rc = main(
+            [
+                "run",
+                "--domain",
+                "fake-domain",
+                "--task",
+                "TS",
+                "--platform",
+                "fake",
+                "--results",
+                str(tmp_path),
+                "--no-enrich",
+            ]
+        )
     finally:
         orch.get_domain = original
 
@@ -131,8 +149,9 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
     assert record_digest(printed) == printed["fingerprints"]["record_digest"]
 
     on_disk = json.loads(
-        (tmp_path / "fake-domain" / "fake" / "TS-{}.json".format(
-            printed["run"]["run_id"])).read_text(encoding="utf-8")
+        (tmp_path / "fake-domain" / "fake" / "TS-{}.json".format(printed["run"]["run_id"])).read_text(
+            encoding="utf-8"
+        )
     )
     assert printed == on_disk
 

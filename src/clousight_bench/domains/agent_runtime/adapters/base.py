@@ -4,12 +4,14 @@ Tasks in this domain are written against this interface, never against a
 specific cloud. A platform's fault-handling / session / trace behavior lives
 entirely in its adapter, so the same task measures the *runtime*, not the model.
 """
+
 from __future__ import annotations
 
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.core.plugin import ProviderAdapter
 
 
@@ -48,7 +50,8 @@ class ScalePoint:
 
     concurrency: int
     success_rate: float  # 0.0..1.0 of invocations that succeeded at this level
-    p95_ms: float        # 95th-percentile latency observed at this level
+    p95_ms: float  # 95th-percentile latency observed at this level
+    observed_instances: int | None = None  # actual instance count post-burst (None if unsupported)
 
 
 @dataclass
@@ -56,12 +59,19 @@ class LoadResult:
     """Behaviour under sustained steady load (the throughput / tail dimension, T1.4)."""
 
     throughput_rps: float  # sustained requests/sec actually served
-    p50_ms: float          # median request latency under load
-    p99_ms: float          # 99th-percentile (tail) latency under load
-    jitter_ms: float       # latency spread (p99 - p50), the predictability signal
-    error_rate: float      # 0.0..1.0 of requests that failed under load
-    requests: int          # total requests issued during the window
-    duration_s: float      # observation window length
+    p50_ms: float  # median request latency under load
+    p99_ms: float  # 99th-percentile (tail) latency under load
+    jitter_ms: float  # latency spread (p99 - p50), the predictability signal
+    error_rate: float  # 0.0..1.0 of requests that failed under load
+    requests: int  # total requests issued during the window
+    duration_s: float  # observation window length
+    # Error breakdown (optional; default=0.0 when adapter doesn't disaggregate).
+    # transport_error_rate: SSL / connection failures before the runtime was reached.
+    # runtime_error_rate: AgentRun data-plane returned non-2xx HTTP (exception with HTTP status 4xx/5xx).
+    # tool_error_rate: AgentRun invoke succeeded, mock tool returned ok=False (mock-server capacity issue).
+    transport_error_rate: float = 0.0
+    runtime_error_rate: float = 0.0
+    tool_error_rate: float = 0.0  # 0..1 mock-tool failures (AgentRun OK, tool returned error)
 
 
 @dataclass
@@ -69,7 +79,7 @@ class RetentionResult:
     """How long an idle instance stays warm before going cold again (T1.5)."""
 
     retention_ms: float  # keep-alive window: idle time before the next start is cold
-    keeps_warm: bool     # whether the runtime keeps any warm instance at all
+    keeps_warm: bool  # whether the runtime keeps any warm instance at all
 
 
 @dataclass
@@ -77,9 +87,9 @@ class SoakResult:
     """Steady-state availability over a soak window (the reliability dimension, T1.6)."""
 
     availability: float  # 0.0..1.0 of the window the runtime served successfully
-    error_rate: float    # 0.0..1.0 of requests that failed during the window
-    requests: int        # total requests issued during the soak
-    window_s: float      # soak window length
+    error_rate: float  # 0.0..1.0 of requests that failed during the window
+    requests: int  # total requests issued during the soak
+    window_s: float  # soak window length
 
 
 @dataclass
@@ -87,16 +97,16 @@ class RateLimitResult:
     """How the runtime throttles once demand exceeds quota (T1.7)."""
 
     throttle_onset_rps: float  # rps at which throttling begins (0 = none observed)
-    retry_after_ms: float      # advertised Retry-After when throttled (0 = none)
-    honors_429: bool           # returns a proper 429 + Retry-After rather than dropping
+    retry_after_ms: float  # advertised Retry-After when throttled (0 = none)
+    honors_429: bool  # returns a proper 429 + Retry-After rather than dropping
 
 
 @dataclass
 class CancellationResult:
     """Whether a timed-out / cancelled request is cleanly torn down (T1.8)."""
 
-    honored: bool         # the cancel/timeout actually stopped the work
-    teardown_ran: bool    # cleanup still ran after the cancel (no orphaned work)
+    honored: bool  # the cancel/timeout actually stopped the work
+    teardown_ran: bool  # cleanup still ran after the cancel (no orphaned work)
     residual: list[str] = field(default_factory=list)  # resources leaked by the cancel
 
 
@@ -104,10 +114,10 @@ class CancellationResult:
 class SignalsResult:
     """Metrics & log completeness beyond traces (the observability dimension, T4.3)."""
 
-    metrics_present: int   # distinct metric signals actually exported
+    metrics_present: int  # distinct metric signals actually exported
     metrics_expected: int  # metric signals a complete runtime should export
-    logs_present: int      # log records actually exported
-    logs_expected: int     # log records a complete runtime should export
+    logs_present: int  # log records actually exported
+    logs_expected: int  # log records a complete runtime should export
     structured_logs: bool  # whether logs are structured (queryable), not free text
 
 
@@ -115,9 +125,9 @@ class SignalsResult:
 class PropagationResult:
     """Trace parent/child correctness across tool calls (T4.4)."""
 
-    spans: int              # total spans in the trace
-    orphan_spans: int       # spans whose parent id points nowhere (broken context)
-    root_count: int         # number of root spans (a clean trace has exactly one)
+    spans: int  # total spans in the trace
+    orphan_spans: int  # spans whose parent id points nowhere (broken context)
+    root_count: int  # number of root spans (a clean trace has exactly one)
 
 
 @dataclass
@@ -125,14 +135,14 @@ class ExportLatencyResult:
     """How fast telemetry lands and whether any is dropped (T4.5)."""
 
     export_latency_ms: float  # emit -> visible-in-backend latency
-    dropped_ratio: float      # 0.0..1.0 of spans/metrics lost on export
+    dropped_ratio: float  # 0.0..1.0 of spans/metrics lost on export
 
 
 @dataclass
 class IdleCostResult:
     """Cost while warm-but-idle and whether the runtime scales to zero (T5.3)."""
 
-    scales_to_zero: bool       # whether an idle runtime bills nothing
+    scales_to_zero: bool  # whether an idle runtime bills nothing
     idle_cost_per_hour: float  # cost per hour of a warm-but-idle instance
 
 
@@ -140,9 +150,13 @@ class IdleCostResult:
 class IsolationResult:
     """Tenant isolation / sandbox strength (the security dimension, T6.1)."""
 
-    tenant_isolated: bool             # workloads of different tenants are isolated
-    network_egress_controlled: bool   # outbound network is restricted by default
-    filesystem_isolated: bool         # the workload filesystem is private/ephemeral
+    tenant_isolated: bool  # workloads of different tenants are isolated
+    network_egress_controlled: bool  # outbound network is restricted by default
+    filesystem_isolated: bool  # the workload filesystem is private/ephemeral
+    # Dimensions whose value comes from platform documentation, not live measurement.
+    # Adapters that hardcode a dimension list its name here so the scorer can apply
+    # evidence="A" instead of evidence="B" and exclude it from measured_score.
+    platform_asserted_dimensions: list = field(default_factory=list)
 
 
 @dataclass
@@ -150,7 +164,7 @@ class CeilingResult:
     """The concurrency ceiling: max in-flight the runtime admits (T5.4)."""
 
     max_in_flight: int  # highest concurrent invocations admitted
-    hard_limit: bool    # whether the ceiling is a hard cap (vs soft/burstable)
+    hard_limit: bool  # whether the ceiling is a hard cap (vs soft/burstable)
 
 
 @dataclass
@@ -160,7 +174,7 @@ class ProvisionResult:
     runtime_id: str
     ready_latency_ms: float  # create -> ready (the cold provisioning cost)
     ready: bool
-    artifact_ref: str = ""   # what was deployed (code package / image ref), for reproducibility
+    artifact_ref: str = ""  # what was deployed (code package / image ref), for reproducibility
     tags: dict[str, Any] = field(default_factory=dict)  # tags stamped on the resource
 
 
@@ -171,6 +185,70 @@ class DeprovisionResult:
     teardown_ms: float
     clean: bool  # True iff nothing was left behind
     residual: list[str] = field(default_factory=list)  # ids of any leaked/residual resources
+
+
+@dataclass
+class RetryStormResult:
+    """Mock-counted total attempts + storm-bounded-by attribution (T1.10).
+
+    capability:       always "supported"
+    total_attempts:   how many times the agent hit the tool (per mock corr-bucket counter)
+    storm_bounded_by: attribution —
+        "agent"    : total_attempts <= 3 and no invoke timeout (agent retry contract held)
+        "platform" : invoke raised Timeout (platform cut it before agent could exhaust)
+        "none"     : total_attempts > 3 (anomaly — retry leaked past the contract)
+    duration_ms:      wall time of the probe window
+    """
+
+    capability: str  # always "supported"
+    total_attempts: int  # tool hits observed in the corr bucket
+    storm_bounded_by: str  # "agent" | "platform" | "none"
+    duration_ms: float  # wall time of the probe window
+
+
+@dataclass
+class ConcurrentWriteResult:
+    """Whether two simultaneous writes to the same state key corrupt it (T1.11)."""
+
+    write_safe: bool  # True if the final value is one of the two written values
+    winner: str  # "session_a" | "session_b" | "unknown"
+
+
+@dataclass
+class HOLResult:
+    """Two-phase HOL blocking result (T1.12 v2).
+
+    Phase A (baseline): N fast requests with no slow → fast_p50_baseline.
+    Phase B (under-slow): 1 slow (real injected latency) + N fast concurrent
+        on the same session → fast_p50_under_slow.
+
+    serialized:          True if fast_p50_under_slow > fast_p50_baseline * 2.0
+                         (platform session queue serialises requests)
+    hol_ratio:           fast_p50_under_slow / fast_p50_baseline
+    fast_p50_baseline:   Phase A median fast latency (ms)
+    fast_p50_under_slow: Phase B median fast latency under slow pressure (ms)
+    """
+
+    serialized: bool
+    fast_p50_baseline: float
+    fast_p50_under_slow: float
+    hol_ratio: float
+
+
+@dataclass
+class FaultRecoveryResult:
+    """Platform-visible fault + agent retry observation (T1.3 three-state).
+
+    recovered:           invoke completed successfully after agent retried (True = platform allowed recovery)
+    observed_attempts:   how many times the tool was hit (per mock corr-bucket counter)
+    recovery_ms:         total invoke wall time (approximate recovery duration)
+    platform_terminated: True when the invoke raised a timeout/transport error before success
+    """
+
+    recovered: bool
+    observed_attempts: int
+    recovery_ms: float
+    platform_terminated: bool
 
 
 class CapabilityNotSupported(NotImplementedError):
@@ -191,6 +269,13 @@ class AgentRuntimeAdapter(ProviderAdapter):
     """
 
     name = "abstract-agent-runtime"
+
+    @property
+    def session_cold_start_is_provision(self) -> bool:
+        """True when ``create_session`` has no cloud round-trip (session ID is
+        client-local). Cold-start cost lives in T0.1 (provision), not T1.1.
+        Override in transports where session creation is a cheap local operation."""
+        return False
 
     @property
     def mock_base_url(self) -> str:
@@ -217,7 +302,8 @@ class AgentRuntimeAdapter(ProviderAdapter):
         report = super().preflight(task)
         provider = infer_provider(self.target, self.name)
         if provider is not None:  # real cloud platform
-            report.add(pf.mock_reachable_check(str(self.target.get("mock_base_url", ""))))
+            if getattr(task, "requires_mock_server", True):
+                report.add(pf.mock_reachable_check(str(self.target.get("mock_base_url", ""))))
             report.add(*self.check_permissions(task))
         return report
 
@@ -251,29 +337,51 @@ class AgentRuntimeAdapter(ProviderAdapter):
         from clousight_bench.core.preflight import CRITICAL, WARNING, Check
 
         if task is None:
-            return [Check("permissions", ok=True, severity=WARNING,
-                          detail="no task context (run-level check only)")]
+            return [
+                Check(
+                    "permissions", ok=True, severity=WARNING, detail="no task context (run-level check only)"
+                )
+            ]
         actions, unmapped = self.required_actions(task)
         checks: list[Any] = []
         if unmapped:
-            checks.append(Check("permissions:mapping", ok=False, severity=WARNING,
-                                detail=f"no {self.name} mapping for tokens {unmapped}",
-                                remediation="add these to the adapter's PERMISSION_MAP"))
+            checks.append(
+                Check(
+                    "permissions:mapping",
+                    ok=False,
+                    severity=WARNING,
+                    detail=f"no {self.name} mapping for tokens {unmapped}",
+                    remediation="add these to the adapter's PERMISSION_MAP",
+                )
+            )
         label = f"permissions[{getattr(task, 'task_id', '?')}]"
         probe = self._probe_permissions(actions)
         if probe is None:  # skeleton: surface the minimal action list, don't block
-            checks.append(Check(label, ok=True, severity=WARNING,
-                                detail=f"needs {actions or 'none'} — not verified by this adapter",
-                                remediation="a wired adapter verifies via dry-run/policy simulation"))
+            checks.append(
+                Check(
+                    label,
+                    ok=True,
+                    severity=WARNING,
+                    detail=f"needs {actions or 'none'} — not verified by this adapter",
+                    remediation="a wired adapter verifies via dry-run/policy simulation",
+                )
+            )
         else:
             ok, missing = probe
             if ok:
-                checks.append(Check(label, ok=True, severity=CRITICAL,
-                                    detail=f"identity holds {actions or 'none'}"))
+                checks.append(
+                    Check(label, ok=True, severity=CRITICAL, detail=f"identity holds {actions or 'none'}")
+                )
             else:
-                checks.append(Check(label, ok=False, severity=CRITICAL,
-                                    detail=f"missing {missing}",
-                                    remediation=f"grant the identity: {', '.join(missing)}"))
+                checks.append(
+                    Check(
+                        label,
+                        ok=False,
+                        severity=CRITICAL,
+                        detail=f"missing {missing}",
+                        remediation=f"grant the identity: {', '.join(missing)}",
+                    )
+                )
         return checks
 
     @abstractmethod
@@ -288,6 +396,18 @@ class AgentRuntimeAdapter(ProviderAdapter):
     @abstractmethod
     def destroy_session(self, session_id: str) -> None:
         """Tear down the session."""
+
+    def run_data_plane_probe(self, name: str, params: dict[str, Any] | None = None) -> ObservationBundle:
+        """Dispatch a data-plane probe by name, returning an ObservationBundle.
+
+        Default: run the shared packer (call probe_<name>, pack). A real adapter
+        may override to route the whole measurement to an in-region probe.
+        """
+        from clousight_bench.domains.agent_runtime.dataplane_dispatch import (
+            run_data_plane_probe as _dispatch,
+        )
+
+        return _dispatch(self, name, params)
 
     # --- Optional capabilities (probed by T1.2 / T2.1 / T4.1 / T4.2) ---------
     # Default = CapabilityNotSupported so an adapter opts in by overriding.
@@ -349,6 +469,16 @@ class AgentRuntimeAdapter(ProviderAdapter):
         rps, advertised Retry-After, and whether a proper 429 is returned."""
         raise CapabilityNotSupported("probe_rate_limit")
 
+    def probe_ttft(self) -> float:
+        """Time-to-first-token via streaming invoke (T1.9).
+
+        Fire a single tool call with ``stream=True`` and return the milliseconds
+        elapsed from sending the request to receiving the first non-empty SSE
+        ``data:`` chunk. A runtime that does not support streaming invoke returns
+        the full round-trip latency (RTT) as a best-effort proxy.
+        CapabilityNotSupported = the transport cannot issue streaming requests at all."""
+        raise CapabilityNotSupported("probe_ttft")
+
     def probe_cancellation(self) -> CancellationResult:
         """Report whether a timed-out / cancelled request is honored and still
         torn down cleanly, leaving nothing orphaned (T1.8)."""
@@ -383,6 +513,43 @@ class AgentRuntimeAdapter(ProviderAdapter):
         """Report the concurrency ceiling (T5.4): max in-flight admitted and
         whether it is a hard cap."""
         raise CapabilityNotSupported("probe_concurrency_ceiling")
+
+    def probe_fault_recovery(self) -> FaultRecoveryResult:
+        """Run the T1.3 platform-visible fault + agent retry probe.
+
+        Configures the mock server to fail call #1 on a per-correlation bucket,
+        issues a single invoke (with that correlation id), and reads the mock
+        server's call counter to determine how many times the agent actually hit
+        the tool. Transports that support this method override it; the default
+        raises CapabilityNotSupported.
+        """
+        raise CapabilityNotSupported("probe_fault_recovery")
+
+    def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
+        """Run the T1.10 retry-storm probe.
+
+        Injects a persistent fault (every call fails) on a 5-call plan and
+        observes whether the runtime aborts cleanly on the first failure or
+        loops indefinitely until the window expires.
+        """
+        raise CapabilityNotSupported("probe_retry_storm")
+
+    def probe_concurrent_writes(self) -> ConcurrentWriteResult:
+        """Run the T1.11 concurrent state-write probe.
+
+        Two sessions simultaneously write to the same state key; the result
+        must be one of the two written values (last-writer-wins, no corruption).
+        """
+        raise CapabilityNotSupported("probe_concurrent_writes")
+
+    def probe_hol_blocking(self) -> HOLResult:
+        """Run the T1.12 head-of-line blocking probe.
+
+        Fires 1 slow request and 5 fast requests concurrently on the same
+        session. If the fast requests are delayed nearly as long as the slow
+        one, the runtime has HOL-blocking in its session queue.
+        """
+        raise CapabilityNotSupported("probe_hol_blocking")
 
     # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
     # An always-on runtime instance is stood up before it can host sessions and

@@ -7,6 +7,7 @@ pricing enricher) agree without a hidden contract. Tasks record whatever subset
 they can measure; the enricher prices what it can and reports the rest in notes
 -- it never invents numbers.
 """
+
 from __future__ import annotations
 
 from typing import Any

@@ -8,6 +8,7 @@ Evidence layer B: method reproducible, numbers environment-dependent. A real
 adapter idles an instance and reads the meter; local-sim reports the configured
 ``target.idle = {scales_to_zero, cost_per_hour}``. No probe -> ``unsupported``.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -30,24 +31,21 @@ class IdleCostTask(Task):
     task_id = "T5.3"
     title = "Idle / scale-to-zero cost"
     evidence_layer = "B"
-    task_revision = "1"
-    scorer_revision = "1"
+    task_revision = "2"
+    scorer_revision = "2"
     required_permissions = (perm.SESSION_CREATE,)
+    capability_tags = ("cost/idle",)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T5.3 needs an AgentRuntimeAdapter")
         try:
             r = adapter.probe_idle_cost()
         except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
+            return ObservationBundle(observations={"capability": "unsupported", "reason": str(exc)})
         return ObservationBundle(
             observations={
                 "capability": "supported",
@@ -61,8 +59,7 @@ class IdleCostTask(Task):
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "idle_cost_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
+                    "idle_cost_capability": Measurement(value="unsupported", unit="", evidence="B")
                 },
                 findings=[
                     Finding(
@@ -81,22 +78,36 @@ class IdleCostTask(Task):
         scales_to_zero = bool(raw["scales_to_zero"])
         findings = []
         if not scales_to_zero:
-            findings.append(Finding(
-                code="agent_runtime.no_scale_to_zero", severity="info",
-                summary="runtime bills while idle (no scale-to-zero)", evidence="B",
-                details={"idle_cost_per_hour": raw["idle_cost_per_hour"]}))
+            findings.append(
+                Finding(
+                    code="agent_runtime.no_scale_to_zero",
+                    severity="info",
+                    summary="runtime bills while idle (no scale-to-zero)",
+                    evidence="B",
+                    details={"idle_cost_per_hour": raw["idle_cost_per_hour"]},
+                )
+            )
+        findings.append(
+            Finding(
+                code="agent_runtime.idle_cost_platform_asserted",
+                severity="info",
+                summary=(
+                    "idle cost=0 (scale-to-zero) is a platform documentation claim for "
+                    "FC-based AgentRun; not independently measured via billing API"
+                ),
+                evidence="A",
+            )
+        )
         return TaskResult(
             measurements={
-                "idle_cost_capability": Measurement(
-                    value="supported", unit="", evidence="B"),
-                "scales_to_zero": Measurement(
-                    value=scales_to_zero, unit="", evidence="B"),
+                "idle_cost_capability": Measurement(value="supported", unit="", evidence="B"),
+                "scales_to_zero": Measurement(value=scales_to_zero, unit="", evidence="A"),
                 "idle_cost_per_hour": Measurement(
-                    value=raw["idle_cost_per_hour"], unit="USD/h", evidence="B"),
+                    value=raw["idle_cost_per_hour"], unit="USD/h", evidence="A"
+                ),
             },
             findings=findings,
-            notes=(f"scales_to_zero={scales_to_zero} "
-                   f"idle_cost_per_hour={raw['idle_cost_per_hour']}"),
+            notes=(f"scales_to_zero={scales_to_zero} idle_cost_per_hour={raw['idle_cost_per_hour']}"),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

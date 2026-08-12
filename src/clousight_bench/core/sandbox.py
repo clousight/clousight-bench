@@ -4,6 +4,7 @@ This does NOT provide strong isolation against a determined adversary (that need
 filesystem/network/process isolation, a later slice). It closes the largest
 exploitation surface: path traversal, SSRF, and runaway processes.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -47,10 +48,7 @@ def _is_blocked_host(host: str) -> bool:
         ip = ipaddress.ip_address(h)
     except ValueError:
         return False
-    return (
-        ip.is_loopback or ip.is_link_local or ip.is_private
-        or ip.is_reserved or ip.is_unspecified
-    )
+    return ip.is_loopback or ip.is_link_local or ip.is_private or ip.is_reserved or ip.is_unspecified
 
 
 def validate_asset_uri(uri: str, *, allow_hosts: tuple[str, ...] = ()) -> None:
@@ -69,10 +67,10 @@ def validate_asset_uri(uri: str, *, allow_hosts: tuple[str, ...] = ()) -> None:
 
 @dataclass
 class ResourceLimits:
-    cpu_s: int | None = 1800          # RLIMIT_CPU seconds
-    mem_bytes: int | None = 2 << 30   # RLIMIT_AS, 2 GiB
+    cpu_s: int | None = 1800  # RLIMIT_CPU seconds
+    mem_bytes: int | None = 2 << 30  # RLIMIT_AS, 2 GiB
     fsize_bytes: int | None = 1 << 30  # RLIMIT_FSIZE, 1 GiB
-    nofile: int | None = 1024         # RLIMIT_NOFILE
+    nofile: int | None = 1024  # RLIMIT_NOFILE
 
     @classmethod
     def from_target(cls, target: dict) -> ResourceLimits:

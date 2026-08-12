@@ -9,13 +9,23 @@ def _write_record(root: Path, run_id: str, tamper: bool = False) -> None:
     payload = {
         "schema_version": "0.2",
         "run": {"run_id": run_id, "stages": {}},
-        "identity": {"domain": "agent-runtime", "task_id": "T1.1", "adapter": "local-sim",
-                     "task_revision": "1", "scorer_revision": "1"},
+        "identity": {
+            "domain": "agent-runtime",
+            "task_id": "T1.1",
+            "adapter": "local-sim",
+            "task_revision": "1",
+            "scorer_revision": "1",
+        },
         "environment": {"region": "", "mode": "local"},
-        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b",
-                         "implementation": "sha256:c"},
-        "measurements": {}, "findings": [], "observations": {}, "series": {},
-        "artifacts": [], "extensions": {}, "errors": [], "status": "completed",
+        "fingerprints": {"benchmark": "sha256:a", "environment": "sha256:b", "implementation": "sha256:c"},
+        "measurements": {},
+        "findings": [],
+        "observations": {},
+        "series": {},
+        "artifacts": [],
+        "extensions": {},
+        "errors": [],
+        "status": "completed",
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     if tamper:

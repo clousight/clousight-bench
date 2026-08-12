@@ -4,6 +4,7 @@ Backs ``csbench trace list`` / ``csbench trace show``: it reads the OTLP-shaped
 JSONL under ``<results>/traces/`` -- a quick built-in look, no external tool
 needed (the same files also load into any OpenTelemetry viewer).
 """
+
 from __future__ import annotations
 
 import json
@@ -57,15 +58,17 @@ def trace_summaries(results_dir: Path) -> list[dict[str, Any]]:
         if not root:
             continue
         attrs = root.get("attributes", {})
-        summaries.append({
-            "trace_id": root.get("trace_id", ""),
-            "run_id": attrs.get("run_id", ""),
-            "task_id": attrs.get("task_id", ""),
-            "adapter": attrs.get("adapter", ""),
-            "status": attrs.get("status", ""),
-            "duration_ms": root.get("duration_ms", 0.0),
-            "spans": len(spans),
-        })
+        summaries.append(
+            {
+                "trace_id": root.get("trace_id", ""),
+                "run_id": attrs.get("run_id", ""),
+                "task_id": attrs.get("task_id", ""),
+                "adapter": attrs.get("adapter", ""),
+                "status": attrs.get("status", ""),
+                "duration_ms": root.get("duration_ms", 0.0),
+                "spans": len(spans),
+            }
+        )
     return summaries
 
 
@@ -86,10 +89,7 @@ def render_list(summaries: list[dict[str, Any]], sort: str = "started") -> str:
     rows = list(summaries)
     if sort == "duration":
         rows.sort(key=lambda r: -r["duration_ms"])
-    header = (
-        f"{'run_id':<26} {'task':<8} {'adapter':<16} {'status':<11} "
-        f"{'total_ms':>10}  trace"
-    )
+    header = f"{'run_id':<26} {'task':<8} {'adapter':<16} {'status':<11} {'total_ms':>10}  trace"
     lines = [header, "-" * len(header)]
     for r in rows:
         lines.append(
@@ -106,10 +106,7 @@ def render_show(spans: list[dict[str, Any]]) -> str:
     if not root:
         return "empty trace"
     attrs = root.get("attributes", {})
-    children = [
-        s for s in spans
-        if s is not root and s.get("parent_span_id") == root.get("span_id")
-    ]
+    children = [s for s in spans if s is not root and s.get("parent_span_id") == root.get("span_id")]
     slowest = max((s.get("duration_ms", 0.0) for s in children), default=0.0)
     lines = [
         f"{root.get('name', 'csbench.run')}  {attrs.get('run_id', '')} "

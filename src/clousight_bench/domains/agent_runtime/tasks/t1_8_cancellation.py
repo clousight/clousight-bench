@@ -10,6 +10,7 @@ adapter issues a cancel mid-flight and inspects the outcome; local-sim reports
 the configured ``target.cancellation = {honors_cancel, teardown_on_cancel,
 residual_on_cancel}``. No cancel probe -> ``unsupported``, never a crash.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,10 +23,7 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
 
 class CancellationTask(Task):
@@ -35,37 +33,22 @@ class CancellationTask(Task):
     task_revision = "1"
     scorer_revision = "1"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
+    capability_tags = ("reliability/cancellation",)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.8 needs an AgentRuntimeAdapter")
-        try:
-            r = adapter.probe_cancellation()
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "honored": r.honored,
-                "teardown_ran": r.teardown_ran,
-                "residual": list(r.residual),
-            }
-        )
+        return adapter.run_data_plane_probe("cancellation", {})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations
         if raw.get("capability") != "supported":
             return TaskResult(
                 measurements={
-                    "cancellation_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
+                    "cancellation_capability": Measurement(value="unsupported", unit="", evidence="B")
                 },
                 findings=[
                     Finding(
@@ -86,25 +69,31 @@ class CancellationTask(Task):
         residual = list(raw["residual"])
         findings = []
         if not honored:
-            findings.append(Finding(
-                code="agent_runtime.cancel_not_honored", severity="warning",
-                summary="cancel/timeout did not stop the work", evidence="B",
-                details={}))
+            findings.append(
+                Finding(
+                    code="agent_runtime.cancel_not_honored",
+                    severity="warning",
+                    summary="cancel/timeout did not stop the work",
+                    evidence="B",
+                    details={},
+                )
+            )
         if not teardown or residual:
-            findings.append(Finding(
-                code="agent_runtime.cancel_teardown_leak", severity="warning",
-                summary="teardown skipped or resources leaked on cancel", evidence="B",
-                details={"teardown_ran": teardown, "residual": residual}))
+            findings.append(
+                Finding(
+                    code="agent_runtime.cancel_teardown_leak",
+                    severity="warning",
+                    summary="teardown skipped or resources leaked on cancel",
+                    evidence="B",
+                    details={"teardown_ran": teardown, "residual": residual},
+                )
+            )
         return TaskResult(
             measurements={
-                "cancellation_capability": Measurement(
-                    value="supported", unit="", evidence="B"),
-                "cancellation_honored": Measurement(
-                    value=honored, unit="", evidence="B"),
-                "teardown_on_cancel": Measurement(
-                    value=teardown, unit="", evidence="B"),
-                "residual_on_cancel": Measurement(
-                    value=len(residual), unit="", evidence="B"),
+                "cancellation_capability": Measurement(value="supported", unit="", evidence="B"),
+                "cancellation_honored": Measurement(value=honored, unit="", evidence="B"),
+                "teardown_on_cancel": Measurement(value=teardown, unit="", evidence="B"),
+                "residual_on_cancel": Measurement(value=len(residual), unit="", evidence="B"),
             },
             findings=findings,
             notes=(f"honored={honored} teardown={teardown} residual={len(residual)}"),

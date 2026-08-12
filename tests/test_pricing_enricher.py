@@ -1,4 +1,5 @@
 """The reference cost enricher prices 0.2 usage measurements into extensions."""
+
 import pytest
 
 from clousight_bench.core.record import (
@@ -13,15 +14,23 @@ from clousight_bench.enrichers.pricing import PricingEnricher
 
 def _record(adapter="local-sim", region="", measurements=None, extensions=None):
     return ResultRecord(
-        run=RunInfo(run_id="r", started_at="2026-07-25T00:00:00Z",
-                    finished_at="2026-07-25T00:00:01Z", stages={"EXECUTE": "ok"}),
-        identity=Identity(domain="agent-runtime", task_id="T5.1", task_revision="1",
-                          scorer_revision="1", adapter=adapter, adapter_status="reference",
-                          core_version="0.2.0"),
-        environment=Environment(region=region, mode="local", python_version="3.12.0",
-                                os_name="Linux"),
-        fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b",
-                                  implementation="sha256:c"),
+        run=RunInfo(
+            run_id="r",
+            started_at="2026-07-25T00:00:00Z",
+            finished_at="2026-07-25T00:00:01Z",
+            stages={"EXECUTE": "ok"},
+        ),
+        identity=Identity(
+            domain="agent-runtime",
+            task_id="T5.1",
+            task_revision="1",
+            scorer_revision="1",
+            adapter=adapter,
+            adapter_status="reference",
+            core_version="0.2.0",
+        ),
+        environment=Environment(region=region, mode="local", python_version="3.12.0", os_name="Linux"),
+        fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b", implementation="sha256:c"),
         status="completed",
         measurements=measurements or {},
         extensions=extensions or {},
@@ -56,8 +65,7 @@ def test_no_usage_leaves_record_untouched():
 
 
 def test_existing_pricing_is_not_overwritten():
-    rec = _record("aws", "us-east-1", _usage(vcpu_hours=10),
-                  extensions={"pricing": {"cost_usd": 999.0}})
+    rec = _record("aws", "us-east-1", _usage(vcpu_hours=10), extensions={"pricing": {"cost_usd": 999.0}})
     out = PricingEnricher().enrich(rec)
     assert out.extensions["pricing"]["cost_usd"] == 999.0
 
@@ -100,6 +108,7 @@ def test_enricher_name():
 
 def _write_discounts(tmp_path, payload):
     import json
+
     p = tmp_path / "discounts.json"
     p.write_text(json.dumps(payload), encoding="utf-8")
     return str(p)
@@ -108,10 +117,12 @@ def _write_discounts(tmp_path, payload):
 def test_list_discount_net(monkeypatch, tmp_path):
     monkeypatch.setenv(
         "CLOUSIGHT_PRICING_DISCOUNTS",
-        _write_discounts(tmp_path, {"default_pct": 0, "discounts": [
-            {"provider": "aliyun", "service": "agent-runtime", "pct": 30}]}))
-    rec = _record(adapter="aliyun-agentrun", region="cn-hangzhou",
-                  measurements=_usage(invocations=8))
+        _write_discounts(
+            tmp_path,
+            {"default_pct": 0, "discounts": [{"provider": "aliyun", "service": "agent-runtime", "pct": 30}]},
+        ),
+    )
+    rec = _record(adapter="aliyun-agentrun", region="cn-hangzhou", measurements=_usage(invocations=8))
     out = PricingEnricher().enrich(rec).extensions["pricing"]
     assert out["list_cost_usd"] == round(8 * 0.0000003, 9)
     assert out["cost_usd"] == round(8 * 0.0000003 * 0.7, 9)
@@ -122,16 +133,14 @@ def test_list_discount_net(monkeypatch, tmp_path):
 
 def test_no_discount_source_net_equals_list(monkeypatch):
     monkeypatch.delenv("CLOUSIGHT_PRICING_DISCOUNTS", raising=False)
-    rec = _record(adapter="aliyun-agentrun", region="cn-hangzhou",
-                  measurements=_usage(invocations=8))
+    rec = _record(adapter="aliyun-agentrun", region="cn-hangzhou", measurements=_usage(invocations=8))
     out = PricingEnricher().enrich(rec).extensions["pricing"]
     assert out["cost_usd"] == out["list_cost_usd"] and out["discount_usd"] == 0.0
 
 
 def test_small_cost_not_rounded_to_zero(monkeypatch):
     monkeypatch.delenv("CLOUSIGHT_PRICING_DISCOUNTS", raising=False)
-    rec = _record(adapter="aliyun-agentrun", region="cn-hangzhou",
-                  measurements=_usage(vcpu_hours=2e-6))
+    rec = _record(adapter="aliyun-agentrun", region="cn-hangzhou", measurements=_usage(vcpu_hours=2e-6))
     out = PricingEnricher().enrich(rec).extensions["pricing"]
     assert out["cost_usd"] > 0.0
 
@@ -139,10 +148,17 @@ def test_small_cost_not_rounded_to_zero(monkeypatch):
 def test_provider_service_discount_beats_provider(monkeypatch, tmp_path):
     monkeypatch.setenv(
         "CLOUSIGHT_PRICING_DISCOUNTS",
-        _write_discounts(tmp_path, {"default_pct": 5, "discounts": [
-            {"provider": "aliyun", "pct": 10},
-            {"provider": "aliyun", "service": "agent-runtime", "pct": 40}]}))
-    rec = _record(adapter="aliyun-agentrun", region="cn-hangzhou",
-                  measurements=_usage(invocations=8))
+        _write_discounts(
+            tmp_path,
+            {
+                "default_pct": 5,
+                "discounts": [
+                    {"provider": "aliyun", "pct": 10},
+                    {"provider": "aliyun", "service": "agent-runtime", "pct": 40},
+                ],
+            },
+        ),
+    )
+    rec = _record(adapter="aliyun-agentrun", region="cn-hangzhou", measurements=_usage(invocations=8))
     out = PricingEnricher().enrich(rec).extensions["pricing"]
     assert out["breakdown"][0]["discount_pct"] == 40

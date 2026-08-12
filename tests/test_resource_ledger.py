@@ -6,11 +6,13 @@ it provisions (all four clouds inherit this) AND books it in a per-results-dir
 ledger keyed by run id, so a resource the harness created but did not delete is
 findable -- the substrate the post-run reconcile (item 3) reverse-looks-up.
 """
+
 from clousight_bench.core.resource_ledger import ResourceLedger
 from clousight_bench.core.resource_tags import TAG_RUN_ID
 from clousight_bench.domains.agent_runtime.adapters.local_sim import LocalSimAdapter
 
 # --- the ledger ------------------------------------------------------------
+
 
 def test_created_resource_is_residual_until_deleted(tmp_path):
     led = ResourceLedger(tmp_path)
@@ -29,6 +31,7 @@ def test_residual_is_scoped_by_run(tmp_path):
 
 
 # --- tagging capability on the shared managed adapter ----------------------
+
 
 def _adapter(tmp_path, **target):
     a = LocalSimAdapter(target)

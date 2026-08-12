@@ -5,6 +5,7 @@ comparison operators a range needs (``>= > <= < ==``) joined by comma-AND, which
 is all ``requires_plugin_api`` declarations need. We deliberately do NOT depend
 on ``packaging`` -- the core stays pyyaml-only.
 """
+
 from __future__ import annotations
 
 
@@ -40,7 +41,7 @@ def _satisfies_clause(clause: str, version: tuple[int, ...]) -> bool:
     clause = clause.strip()
     for op in _OPS:
         if clause.startswith(op):
-            bound = parse_version(clause[len(op):])
+            bound = parse_version(clause[len(op) :])
             c = _compare(version, bound)
             return {
                 "<=": c <= 0,

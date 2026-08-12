@@ -3,6 +3,7 @@
 Parses each template's `assets:` block via load_asset_specs -- no downloads, no
 network. Keeps the copy-paste templates honest (required fields, valid source,
 remote-needs-license, etc.)."""
+
 from pathlib import Path
 
 import yaml

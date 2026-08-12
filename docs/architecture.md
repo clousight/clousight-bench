@@ -120,9 +120,35 @@ CLI (csbench)
 | `ProviderAdapter` | provision / talk to / tear down one system under test | referenced by a DomainPack |
 | `Task` | one benchmark dimension: `config()`, `execute()` (raw observation), `score()` (pure), `task_revision` / `scorer_revision` | referenced by a DomainPack |
 | `WorkloadEngine` | run a manifest-described load generator as a subprocess | `src/clousight_bench/resources/workloads/<name>/manifest.yaml`, resolved via `core/resources.py::reference_workload_path()` |
+| `RuntimeProvider` | supply a wired, SDK-backed transport for a `skeleton` cloud adapter in real mode | `clousight_bench.runtime_providers` entry point, resolved via `registry.get_runtime_provider(provider)` |
+| `CampaignProbeHook` | provision / sync / reap a per-campaign in-region load probe (see "Control plane vs. data plane" below) | looked up by `campaign_probe_hook(provider)` off the registered runtime provider |
+| `ResourceReaper` | find and delete harness-tagged orphaned cloud resources for `csbench sweep` | `clousight_bench.resource_reapers` entry point, resolved via `registry.load_resource_reapers()` |
 
 Built-in and third-party (including closed-source commercial) packs load
 identically — installing a package or dropping in a workload directory is enough.
+A commercial pack wiring a real cloud registers a `RuntimeProvider` (and,
+optionally, a `CampaignProbeHook` and `ResourceReaper`); the open core defines
+only these abstractions and never ships an implementation.
+
+## Control plane vs. data plane
+
+The `execute` (touches the cloud) / `score` (pure) split is also the control
+plane / data plane split. `AgentRuntimeAdapter` carries one extra seam,
+`run_data_plane_probe(name, params) -> ObservationBundle`
+(`domains/agent_runtime/adapters/base.py`): a latency-class "data-plane" task's
+`execute()` collapses to `return adapter.run_data_plane_probe("<probe>", {...})`,
+so the *adapter*, not the task, decides where the measurement runs. The base
+adapter dispatches to an in-process packer registry
+(`domains/agent_runtime/dataplane_dispatch.py`), which is exactly what
+`local-sim` and any not-yet-wired cloud use. A wired cloud can instead override
+the seam to send the whole measurement to a load probe running **inside the
+target region**, keeping the operator's network and system proxy out of the
+numbers, and return the same `ObservationBundle` for scoring. `score()` is
+unchanged either way. The probe lifecycle for a `run-plan` campaign is driven by
+the optional `CampaignProbeHook` (started, synced and reaped in a `try/finally`
+around the task loop; default `--probe local` leaves this path untouched). The
+open core defines the seam and the hook contract; a real probe carrier and its
+cloud transport live in a commercial pack.
 
 ## Evidence layers
 
@@ -131,8 +157,55 @@ Reports never blend dimensions into one score.
 
 ## Current domains
 
-- `agent-runtime` — sessions, tool calling, fault recovery, observability, cost. Eight dimensions implemented (all runnable on `local-sim`): T1.1 cold/warm start latency · T1.2 state persistence · T1.3 tool-failure recovery · T2.1 tool registration paths (MCP/OpenAPI/native) · T4.1 trace span completeness (OpenInference) · T4.2 OTel export compat · T5.1 cost attribution (usage → pricing enricher) · T5.2 elasticity under concurrency. Adapters use a `managed`/`transport`/`mode` split so the same code drives the local simulated runtime or, once wired, a real cloud; capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
+- `agent-runtime` — sessions, tool calling, fault recovery, observability, cost, isolation. All tasks run on `local-sim`; the full task list and adapter statuses are **generated from the registry below** (never hand-maintained — see "Maintaining this document"). It spans provisioning, runtime behaviour, tool registration, observability, cost and tenant isolation. Adapters use a `managed`/`transport`/`mode` split so the same code drives the local simulated runtime or, once a runtime-provider plugin is installed, a real cloud; latency-class tasks route through the `run_data_plane_probe` seam (see "Control plane vs. data plane"); capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
+- **Reliability group — platform-as-agent-host stance.** The unit under test is *the platform as a host for a fixed agent*, not the raw invoke API, so the reliability tasks measure whether the "platform + agent" combination recovers when a downstream tool genuinely fails or stalls. **T1.3 (fault recovery) / T1.10 (retry storm) / T1.12 (head-of-line)** inject faults/latency through the mock tool server's `/fault/config` + `/latency/config` (so they are *platform-visible* on the real agent→tool HTTP hop, authenticated with the mock token like every other call), give the benchmark agent a **pinned retry contract** (`AGENT_RETRY_POLICY` in `agent_bundle/lc_agent.py`: HTTP 5xx → retry twice, 200 ms backoff, 3 attempts total; 4xx / connection failures → no retry — part of the agent fingerprint, not a tunable knob), and **observe by reading the mock's own call counter** (correlation-id bucketed so concurrent requests never cross-count) rather than inferring from the client loop. Each yields a **three-state platform attribution** — e.g. T1.3 → `recovered` vs `platform_terminated` (invoke cut before the agent could recover) vs fail-fast; T1.10 → `storm_bounded_by` agent / platform / none. **T1.2 (state persistence) / T1.11 (concurrent writes)** are *honestly downgraded* to `unsupported` with an evidence-A finding: FC-based AgentRun has no native session state, so a stateful platform legitimately scores a positive result here — a truthful differentiating negative, not a fabricated pass.
 - `bigdata-emr` — minimal domain pack proving the abstraction generalizes: J1.1 wordcount smoke via the cross-language workload protocol. (This is a small task/adapter surface, not the `skeleton` `AdapterStatus` value — its `local-process` adapter is `reference`; only its `aws-emr` adapter is `skeleton`.)
+
+### Task & adapter inventory
+
+<!-- BEGIN generated:task-inventory -->
+<!-- Generated by scripts/gen_docs.py from the domain registry (same source as `csbench list --json`). Do not edit by hand; run `python scripts/gen_docs.py`. -->
+
+### `agent-runtime` — 25 tasks
+
+| Task | Title | Evidence |
+|---|---|---|
+| T0.1 | Provisioning (deploy) latency | B |
+| T0.2 | Teardown cleanliness | C |
+| T1.1 | Cold/warm start latency | B |
+| T1.2 | Session state persistence | A |
+| T1.3 | Tool-failure recovery | B |
+| T1.4 | Sustained load & tail latency | B |
+| T1.5 | Warm-pool retention | B |
+| T1.6 | Soak availability | B |
+| T1.7 | Rate limiting | B |
+| T1.8 | Timeout & cancellation | B |
+| T1.9 | Time-to-first-token (TTFT) | B |
+| T1.10 | Retry storm | B |
+| T1.11 | Concurrent state writes | A |
+| T1.12 | Head-of-line blocking | B |
+| T2.1 | Tool registration paths | B |
+| T4.1 | Trace span completeness (OpenInference) | C |
+| T4.2 | OTel export compatibility | B |
+| T4.3 | Metrics & logs | B |
+| T4.4 | Span propagation | B |
+| T4.5 | Export latency | B |
+| T5.1 | Cost attribution | B |
+| T5.2 | Elasticity under concurrency | B |
+| T5.3 | Idle / scale-to-zero cost | B |
+| T5.4 | Concurrency ceiling | B |
+| T6.1 | Tenant isolation | B |
+
+**Adapters:** `aliyun-agentrun` skeleton · `aws-agentcore` skeleton · `huawei-agentarts` skeleton · `local-sim` reference · `volcengine-agentkit` skeleton
+
+### `bigdata-emr` — 1 task
+
+| Task | Title | Evidence |
+|---|---|---|
+| J1.1 | Batch job smoke (wordcount) | C |
+
+**Adapters:** `aws-emr` skeleton · `local-process` reference
+<!-- END generated:task-inventory -->
 
 ## 0.2 Developer Preview readiness
 
@@ -246,3 +319,25 @@ run_id | domain | task_id | platform | config_hash | series | t | value | unit
 | `ResultEnricher`（`core/plugin.py`） | 对已生成的 `ResultRecord` 追加派生指标（如成本估算） | 已实现：`clousight_bench.enrichers` entry point，`registry.load_enrichers()` 加载 |
 | `PrivateAssetResolver`（`core/plugin.py`） | 解析私有/授权资产（数据集、held-out 判分键） | 已实现：`clousight_bench.asset_resolvers` entry point；`cb-dataservice` 的 `DataServiceAssetResolver` 已注册 |
 | `ResultPublisher` | 可选的结果发布/签名/团队报告 | **保留/计划中的第三边界，Phase 1A 未实现**——仅见于设计文档（`docs/superpowers/specs/2026-07-25-open-source-core-hardening-design.md`），核心未定义该抽象，Pro 也未注册任何实现 |
+
+## Maintaining this document
+
+Some of this document is generated, and the rest is prose you keep current by
+hand — in the *same change* that alters the behaviour.
+
+- **Generated blocks** live between `<!-- BEGIN generated:… -->` /
+  `<!-- END generated:… -->` markers (currently the task & adapter inventory).
+  They are rendered from the domain registry — the same source as
+  `csbench list --json` — by `scripts/gen_docs.py`. Never edit inside the
+  markers by hand. After adding/renaming a task or changing an adapter status,
+  run `python scripts/gen_docs.py` and commit the result. CI runs
+  `python scripts/gen_docs.py --check` and `tests/test_docs_inventory.py`, so a
+  stale block (a hand-typed "28 tasks" that no longer matches the registry)
+  fails the build instead of shipping.
+- **Prose sections** (everything outside the markers) are part of the
+  definition of done for a behaviour change: when a task's measurement shape,
+  an adapter's contract, or a lifecycle rule changes, update the paragraph that
+  describes it in the same PR. A doc that drifts a release behind is worse than
+  no doc — reviewers stop trusting it. Keep each edit small and scoped to what
+  changed; the generated blocks absorb the mechanical facts so the prose only
+  has to carry intent.

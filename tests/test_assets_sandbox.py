@@ -11,15 +11,15 @@ def test_bundled_path_traversal_rejected(tmp_path):
 
 
 def test_remote_non_https_rejected():
-    spec = AssetSpec(name="d", source="remote", uri="http://example.com/x.bin",
-                     sha256="", license="CC0")
+    spec = AssetSpec(name="d", source="remote", uri="http://example.com/x.bin", sha256="", license="CC0")
     with pytest.raises(SandboxViolation):
         resolve_asset(spec)
 
 
 def test_remote_ssrf_rejected():
-    spec = AssetSpec(name="d", source="remote", uri="https://169.254.169.254/latest",
-                     sha256="", license="CC0")
+    spec = AssetSpec(
+        name="d", source="remote", uri="https://169.254.169.254/latest", sha256="", license="CC0"
+    )
     with pytest.raises(SandboxViolation):
         resolve_asset(spec)
 

@@ -73,10 +73,7 @@ class MigrationManifest:
 def _status_and_errors(legacy: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     if legacy.get("ok", True):
         return "completed", []
-    message = str(
-        legacy.get("error")
-        or "legacy run reported ok=false without an error message"
-    )
+    message = str(legacy.get("error") or "legacy run reported ok=false without an error message")
     metrics = legacy.get("metrics") or {}
     if isinstance(metrics, dict) and metrics.get("preflight_ok") is False:
         return "invalid", [
@@ -113,15 +110,12 @@ def _migrated_findings(legacy: dict[str, Any], evidence: str) -> list[dict[str, 
     return migrated
 
 
-def migrate_record(
-    legacy: dict[str, Any], *, source_path: str, source_sha256: str
-) -> dict[str, Any]:
+def migrate_record(legacy: dict[str, Any], *, source_path: str, source_sha256: str) -> dict[str, Any]:
     """Convert one parsed schema 1.0 record into a valid schema 0.2 payload."""
     version = str(legacy.get("schema_version", LEGACY_SCHEMA_VERSION))
     if version != LEGACY_SCHEMA_VERSION:
         raise MigrationError(
-            f"{source_path}: expected schema_version {LEGACY_SCHEMA_VERSION!r}, "
-            f"got {version!r}"
+            f"{source_path}: expected schema_version {LEGACY_SCHEMA_VERSION!r}, got {version!r}"
         )
     metrics = legacy.get("metrics") or {}
     if not isinstance(metrics, dict):
@@ -207,9 +201,7 @@ def _safe_reason(exc: BaseException, source: Path) -> str:
     return f"{type(exc).__name__}: {message}"
 
 
-def migrate_tree(
-    source: Path, dest: Path, *, dry_run: bool = False
-) -> MigrationManifest:
+def migrate_tree(source: Path, dest: Path, *, dry_run: bool = False) -> MigrationManifest:
     """Migrate every JSON file under ``source`` into a fresh destination."""
     source = Path(source).resolve()
     requested_dest = Path(dest)
@@ -217,13 +209,9 @@ def migrate_tree(
     if not source.is_dir():
         raise MigrationError(f"source is not a directory: {source}")
     if dest == source:
-        raise MigrationError(
-            f"refusing to migrate in place: choose an --output outside {source}"
-        )
+        raise MigrationError(f"refusing to migrate in place: choose an --output outside {source}")
     if source in dest.parents:
-        raise MigrationError(
-            f"refusing to write inside the source tree: {dest} is under {source}"
-        )
+        raise MigrationError(f"refusing to write inside the source tree: {dest} is under {source}")
     if requested_dest.exists() or requested_dest.is_symlink():
         raise MigrationError(f"output already exists; refusing to overwrite: {dest}")
 
@@ -260,15 +248,9 @@ def migrate_tree(
                     )
                 )
                 continue
-            payload = migrate_record(
-                legacy, source_path=relative, source_sha256=sha
-            )
+            payload = migrate_record(legacy, source_path=relative, source_sha256=sha)
         except Exception as exc:  # noqa: BLE001 - failures are isolated per file
-            manifest.entries.append(
-                MigrationEntry(
-                    relative, sha, None, "failed", _safe_reason(exc, source)
-                )
-            )
+            manifest.entries.append(MigrationEntry(relative, sha, None, "failed", _safe_reason(exc, source)))
             continue
         entry = MigrationEntry(relative, sha, relative, "migrated")
         manifest.entries.append(entry)

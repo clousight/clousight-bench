@@ -4,6 +4,7 @@ Mock mode makes the deploy/teardown observable deterministically with no
 account (create->ready knob, clean/residual knobs); real mode without a wired
 provider surfaces a clear not-wired error, never a false "not supported".
 """
+
 import pytest
 
 from clousight_bench.core.orchestrator import execute
@@ -12,7 +13,10 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     DeprovisionResult,
     ProvisionResult,
 )
-from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
+from clousight_bench.domains.agent_runtime.adapters.cn_clouds import (
+    AliyunAgentRunAdapter,
+    HuaweiAgentArtsAdapter,
+)
 
 
 def _mock_adapter(**provision):
@@ -59,7 +63,9 @@ def test_mock_deprovision_surfaces_residual_leak():
 def test_real_mode_provision_is_not_wired():
     # real mode (default), no wired provider registered -> the honest not-wired
     # seam, a clear actionable error rather than a false CapabilityNotSupported.
-    a = AliyunAgentRunAdapter({})
+    # aliyun-agentrun is now provider-backed in the open core, so use a platform
+    # that is still a pure skeleton (huawei-agentarts) for this gate.
+    a = HuaweiAgentArtsAdapter({})
     a.setup()
     try:
         with pytest.raises(NotImplementedError, match="not wired"):
@@ -74,7 +80,9 @@ def test_real_mode_provision_is_not_wired():
 def _mock_run(task_id, tmp_path, **provision):
     return execute(
         RunSpec(
-            "agent-runtime", task_id, "aliyun-agentrun",
+            "agent-runtime",
+            task_id,
+            "aliyun-agentrun",
             target={"mode": "mock", "provision": provision},
         ),
         results_dir=tmp_path,

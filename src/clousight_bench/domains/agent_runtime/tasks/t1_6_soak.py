@@ -10,6 +10,7 @@ adapter runs continuous traffic and measures; local-sim reports the configured
 ``target.soak = {availability, error_rate, rps}``. A platform with no soak probe
 yields an ``unsupported`` measurement, never a crash.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,12 +23,9 @@ from clousight_bench.core.observation import (
 )
 from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
-from clousight_bench.domains.agent_runtime.adapters.base import (
-    AgentRuntimeAdapter,
-    CapabilityNotSupported,
-)
+from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
-DURATION_S = 10.0
+DURATION_S = 60.0  # 60s gives enough samples for statistically meaningful availability
 # below this steady-state availability, flag the runtime (a common 3-nines bar).
 _AVAILABILITY_SLA = 0.999
 
@@ -39,39 +37,21 @@ class SoakTask(Task):
     task_revision = "1"
     scorer_revision = "1"
     required_permissions = (perm.SESSION_CREATE, perm.TOOL_INVOKE)
+    capability_tags = ("reliability/soak",)
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
         return {"task_id": self.task_id, "duration_s": DURATION_S}
 
-    def execute(
-        self, adapter: ProviderAdapter, params: dict[str, Any]
-    ) -> ObservationBundle:
+    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.6 needs an AgentRuntimeAdapter")
-        try:
-            r = adapter.probe_soak(DURATION_S)
-        except CapabilityNotSupported as exc:
-            return ObservationBundle(
-                observations={"capability": "unsupported", "reason": str(exc)}
-            )
-        return ObservationBundle(
-            observations={
-                "capability": "supported",
-                "availability": r.availability,
-                "error_rate": r.error_rate,
-                "requests": r.requests,
-                "window_s": r.window_s,
-            }
-        )
+        return adapter.run_data_plane_probe("soak", {"duration_s": DURATION_S})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations
         if raw.get("capability") != "supported":
             return TaskResult(
-                measurements={
-                    "soak_capability": Measurement(
-                        value="unsupported", unit="", evidence="B")
-                },
+                measurements={"soak_capability": Measurement(value="unsupported", unit="", evidence="B")},
                 findings=[
                     Finding(
                         code="agent_runtime.soak_probe_absent",
@@ -95,21 +75,25 @@ class SoakTask(Task):
                     severity="warning",
                     summary=f"availability {availability:.3%} under soak",
                     evidence="B",
-                    details={"availability": availability, "sla": _AVAILABILITY_SLA,
-                             "error_rate": raw["error_rate"]},
+                    details={
+                        "availability": availability,
+                        "sla": _AVAILABILITY_SLA,
+                        "error_rate": raw["error_rate"],
+                    },
                 )
             )
         return TaskResult(
             measurements={
                 "soak_capability": Measurement(value="supported", unit="", evidence="B"),
                 "availability": Measurement(value=availability, unit="", evidence="B"),
-                "soak_error_rate": Measurement(
-                    value=raw["error_rate"], unit="", evidence="B"),
+                "soak_error_rate": Measurement(value=raw["error_rate"], unit="", evidence="B"),
                 "soak_requests": Measurement(value=raw["requests"], unit="", evidence="B"),
             },
             findings=findings,
-            notes=(f"availability={availability:.3%} err={raw['error_rate']:.3%} "
-                   f"over {raw['requests']} req / {raw['window_s']}s"),
+            notes=(
+                f"availability={availability:.3%} err={raw['error_rate']:.3%} "
+                f"over {raw['requests']} req / {raw['window_s']}s"
+            ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

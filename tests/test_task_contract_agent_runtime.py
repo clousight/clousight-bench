@@ -8,6 +8,9 @@ from clousight_bench.domains.agent_runtime.tasks.t1_2_state_persistence import (
 from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import (
     FaultRecoveryTask,
 )
+from clousight_bench.domains.agent_runtime.tasks.t1_11_concurrent_writes import (
+    ConcurrentWritesTask,
+)
 
 
 def _run(task, adapter):
@@ -18,109 +21,150 @@ def _run(task, adapter):
         adapter.teardown()
 
 
-def test_t1_2_execute_returns_raw_observations_without_a_verdict():
+# ---------------------------------------------------------------------------
+# T1.2 state persistence -- AgentRun has no native session state
+# ---------------------------------------------------------------------------
+
+
+def test_t1_2_execute_returns_unsupported_without_calling_state_api():
+    # AgentRun (FC-based) has no native session state; execute must immediately
+    # report unsupported without touching persist_state / resume_session.
     bundle = _run(StatePersistenceTask(), LocalSimAdapter({"state_persistence": "durable"}))
     assert isinstance(bundle, ObservationBundle)
-    assert bundle.observations["capability"] == "supported"
-    assert bundle.observations["recovered"] == bundle.observations["probe"]
-    assert "state_persisted" not in bundle.observations
-    assert "persistence_mode" not in bundle.observations
+    assert bundle.observations["capability"] == "unsupported"
+    assert "reason" in bundle.observations
+    # must NOT contain keys from the old "supported" path
+    assert "recovered" not in bundle.observations
+    assert "probe" not in bundle.observations
 
 
-def test_t1_2_score_is_pure_and_repeatable():
+def test_t1_2_score_unsupported_uses_evidence_A_and_info_finding():
     task = StatePersistenceTask()
-    bundle = _run(task, LocalSimAdapter({"state_persistence": "ephemeral"}))
+    bundle = _run(task, LocalSimAdapter())
     before = bundle.to_dict()
     first = task.score(bundle)
     second = task.score(bundle)
+    # score() must be pure
     assert bundle.to_dict() == before
-    assert first.measurements["persistence_mode"].value == "ephemeral"
-    assert second.measurements["persistence_mode"].value == "ephemeral"
-    assert [f.code for f in first.findings] == ["agent_runtime.state_ephemeral"]
-    assert first.task_revision == "2" and first.scorer_revision == "2"
+    assert first.unsupported is True
+    assert first.measurements["state_capability"].value == "unsupported"
+    assert first.measurements["state_capability"].evidence == "A"
+    assert [f.code for f in first.findings] == ["agent_runtime.no_native_session_state"]
+    assert first.findings[0].severity in ("info", "warning")
+    # revisions bumped
+    assert first.task_revision == "3" and first.scorer_revision == "3"
+    # score is repeatable
+    assert second.measurements["state_capability"].value == "unsupported"
 
 
-def test_t1_2_unsupported_capability_is_a_finding_not_a_crash():
-    class _NoState(LocalSimAdapter):
-        def persist_state(self, session_id, state):
-            from clousight_bench.domains.agent_runtime.adapters.base import (
-                CapabilityNotSupported,
-            )
-
-            raise CapabilityNotSupported("persist_state")
-
+def test_t1_2_score_unsupported_is_a_finding_not_a_crash():
+    # Kept for backward-compat shape: unsupported=True, evidence A (was C)
     task = StatePersistenceTask()
-    result = task.score(_run(task, _NoState()))
+    result = task.score(_run(task, LocalSimAdapter()))
     assert result.unsupported is True
     assert result.measurements["state_capability"].value == "unsupported"
-    assert [f.code for f in result.findings] == ["agent_runtime.state_api_absent"]
+    assert result.measurements["state_capability"].evidence == "A"
+    assert [f.code for f in result.findings] == ["agent_runtime.no_native_session_state"]
 
 
-def test_t1_3_execute_records_every_attempt():
+# ---------------------------------------------------------------------------
+# T1.11 concurrent writes -- AgentRun has no native session state
+# ---------------------------------------------------------------------------
+
+
+def test_t1_11_execute_returns_unsupported_without_calling_probe():
+    # AgentRun has no native session state; execute must report unsupported
+    # immediately without calling probe_concurrent_writes.
+    bundle = _run(ConcurrentWritesTask(), LocalSimAdapter())
+    assert isinstance(bundle, ObservationBundle)
+    assert bundle.observations["capability"] == "unsupported"
+    assert "reason" in bundle.observations
+    # must NOT contain keys from the old "supported" path
+    assert "write_safe" not in bundle.observations
+    assert "winner" not in bundle.observations
+
+
+def test_t1_11_score_unsupported_uses_evidence_A_and_info_finding():
+    task = ConcurrentWritesTask()
+    bundle = _run(task, LocalSimAdapter())
+    before = bundle.to_dict()
+    result = task.score(bundle)
+    # score() must be pure
+    assert bundle.to_dict() == before
+    assert result.unsupported is True
+    assert result.measurements["state_capability"].value == "unsupported"
+    assert result.measurements["state_capability"].evidence == "A"
+    assert [f.code for f in result.findings] == ["agent_runtime.no_native_session_state"]
+    assert result.findings[0].severity in ("info", "warning")
+    # revisions bumped
+    assert result.task_revision == "2" and result.scorer_revision == "2"
+
+
+def test_t1_3_execute_produces_new_shape():
+    """execute() returns the new three-state observation shape."""
     task = FaultRecoveryTask()
     bundle = _run(task, LocalSimAdapter({"recovery": {"mode": "auto-retry"}}))
-    assert bundle.observations["plan_calls"] == 5
-    assert len(bundle.observations["attempts"]) >= 5
-    assert set(bundle.observations["attempts"][0]) == {
-        "call_index",
-        "attempt",
-        "status",
-        "ok",
-        "latency_ms",
-    }
-    assert "recovery_mode" not in bundle.observations
+    o = bundle.observations
+    assert o["capability"] == "supported"
+    assert isinstance(o["recovered"], bool)
+    assert isinstance(o["observed_attempts"], int)
+    assert isinstance(o["recovery_ms"], float)
+    assert isinstance(o["platform_terminated"], bool)
+    # Old shape keys must NOT be present
+    assert "plan_calls" not in o
+    assert "attempts" not in o
+    assert "recovery_mode" not in o
 
 
-def test_t1_3_score_classifies_auto_retry():
+def test_t1_3_score_recovered_true_no_findings():
+    """Local-sim auto-retry → recovered=True, no warning findings."""
     task = FaultRecoveryTask()
     result = task.score(_run(task, LocalSimAdapter({"recovery": {"mode": "auto-retry"}})))
-    assert result.measurements["recovery_mode"].value == "auto-retry"
-    assert result.measurements["budgeted_success"].value is True
-    assert result.measurements["time_to_recovery_ms"].unit == "ms"
+    assert result.measurements["recovered"].value is True
+    assert result.measurements["observed_attempts"].value >= 1
+    assert result.measurements["recovery_ms"].unit == "ms"
     assert result.findings == []
 
 
-def test_t1_3_score_classifies_fail_fast_as_a_warning_finding():
-    task = FaultRecoveryTask()
-    result = task.score(_run(task, LocalSimAdapter({"recovery": {"mode": "fail-fast"}})))
-    assert result.measurements["recovery_mode"].value == "fail-fast"
-    assert result.measurements["final_state"].value == "aborted"
-    assert [(f.code, f.severity) for f in result.findings] == [
-        ("agent_runtime.recovery_fail_fast", "warning")
-    ]
-
-
-def test_t1_3_score_flags_a_missing_fault_as_critical():
+def test_t1_3_score_platform_terminated_warning():
+    """platform_terminated=True → warning finding."""
     task = FaultRecoveryTask()
     bundle = ObservationBundle(
         observations={
-            "fault": {},
-            "plan_calls": 5,
-            "completed": True,
-            "final_state": "completed",
-            "attempts": [
-                {
-                    "call_index": 1,
-                    "attempt": 1,
-                    "status": 200,
-                    "ok": True,
-                    "latency_ms": 1.0,
-                }
-            ],
+            "capability": "supported",
+            "recovered": False,
+            "observed_attempts": 1,
+            "recovery_ms": 5000.0,
+            "platform_terminated": True,
         }
     )
     result = task.score(bundle)
-    assert result.measurements["recovery_mode"].value == "no-fault-observed"
     assert [(f.code, f.severity) for f in result.findings] == [
-        ("agent_runtime.fault_not_observed", "critical")
+        ("agent_runtime.platform_timeout_recovery", "warning")
+    ]
+
+
+def test_t1_3_score_platform_blocked_retry_warning():
+    """recovered=False + observed_attempts≤1 + not terminated → platform_blocked_retry warning."""
+    task = FaultRecoveryTask()
+    bundle = ObservationBundle(
+        observations={
+            "capability": "supported",
+            "recovered": False,
+            "observed_attempts": 1,
+            "recovery_ms": 10.0,
+            "platform_terminated": False,
+        }
+    )
+    result = task.score(bundle)
+    assert [(f.code, f.severity) for f in result.findings] == [
+        ("agent_runtime.platform_blocked_retry", "warning")
     ]
 
 
 def test_environment_facts_are_declared_and_non_sensitive():
     adapter = LocalSimAdapter({"recovery": {"mode": "auto-retry"}})
-    assert StatePersistenceTask().environment_facts(adapter, {}) == {
-        "state_persistence_policy": "durable"
-    }
+    assert StatePersistenceTask().environment_facts(adapter, {}) == {"state_persistence_policy": "durable"}
     assert FaultRecoveryTask().environment_facts(adapter, {}) == {
         "recovery_policy": "auto-retry",
         "max_retries": 3,
@@ -157,9 +201,7 @@ def test_t2_1_score_counts_paths_and_flags_a_runtime_with_none():
 
     none_result = task.score(_run(task, LocalSimAdapter({"tool_registration": []})))
     assert none_result.unsupported is True
-    assert [f.code for f in none_result.findings] == [
-        "agent_runtime.no_tool_registration_path"
-    ]
+    assert [f.code for f in none_result.findings] == ["agent_runtime.no_tool_registration_path"]
 
 
 def test_t4_1_score_flags_missing_span_kinds():
@@ -173,9 +215,7 @@ def test_t4_1_score_flags_missing_span_kinds():
     assert full.measurements["kinds_missing"].value == []
     assert full.findings == []
 
-    partial = task.score(
-        _run(task, LocalSimAdapter({"trace": {"completeness": "partial"}}))
-    )
+    partial = task.score(_run(task, LocalSimAdapter({"trace": {"completeness": "partial"}})))
     assert partial.measurements["span_completeness"].value < 1.0
     assert "TOOL" in partial.measurements["kinds_missing"].value
     assert [(f.code, f.severity) for f in partial.findings] == [
