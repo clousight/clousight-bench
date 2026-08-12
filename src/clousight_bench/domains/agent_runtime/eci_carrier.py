@@ -19,13 +19,18 @@ class EciSdk(Protocol):
 class EciCarrierConfig:
     """Everything the create request needs. Real values pinned in Plan 5."""
 
+    # Stock base image the probe runs on. Vendor-specific (this is the Aliyun
+    # default — a public library mirror); the bootstrap command below is what's
+    # vendor-neutral. No custom/prebuilt image is required.
     image: str = "registry.cn-hangzhou.aliyuncs.com/library/python:3.12"
     # OSS control-plane fields (required for private probe)
     bucket: str = ""  # OSS bucket name for CB_PROBE_BUCKET
     campaign_id: str = ""  # per-campaign id; becomes CB_PROBE_CONTROL_PREFIX
-    # Kept for caller compatibility (accepted but unused — a later task removes them)
-    oss_code_uri: str = ""  # oss://bucket/campaign-<id>/cb-probe.zip
-    code_sha256: str = ""  # expected sha256 of cb-probe.zip (fail-closed)
+    # Boot-time install: the container fetches the probe from the public repo and
+    # runs it (no prebuilt image, no registry). Pin code_ref to a sha for a
+    # reproducible run; a github archive tarball needs no git binary in the image.
+    code_repo: str = "https://github.com/clousight/clousight-bench"
+    code_ref: str = "main"
     region: str = "cn-hangzhou"
     vswitch_id: str = ""
     security_group_id: str = ""
@@ -36,15 +41,6 @@ class EciCarrierConfig:
     ready_timeout_s: float = 180.0
     poll_interval_s: float = 3.0
     run_id: str | None = None
-
-
-def _split_oss_uri(uri: str) -> tuple[str, str]:
-    """``oss://bucket/path/to/obj`` -> ``("bucket", "path/to/obj")``; "" -> ("","")."""
-    if not uri:
-        return "", ""
-    ref = uri.removeprefix("oss://")
-    bucket, _, obj = ref.partition("/")
-    return bucket, obj
 
 
 class CarrierError(RuntimeError):
@@ -104,12 +100,23 @@ class EciProbeCarrier:
         """Build a private ECI create request.
 
         The container is fully private: no EIP is requested, only
-        v_switch_id + security_group_id. The ACR image's ENTRYPOINT already
-        runs ``python -m clousight_bench.domains.agent_runtime.probe.agent_loop``
-        so no ``command`` override is needed. Env vars are wired to the exact
-        names that agent_loop.main() reads.
+        v_switch_id + security_group_id (inbound stays closed; egress is via the
+        VPC NAT). No prebuilt/custom image: a stock base image runs a vendor-neutral
+        bootstrap that installs the probe from the public repo (a github archive
+        tarball — no git binary needed) and execs
+        ``python -m clousight_bench.domains.agent_runtime.probe.agent_loop``.
+        Env vars are wired to the exact names that agent_loop.main() reads.
         """
         c = self.config
+        # Boot-time install of the probe + its two runtime deps (requests, oss2),
+        # then hand off to the OSS-poller loop. `exec` so the loop is PID 1's child
+        # and signals propagate. Pip/tarball fetch go over the NAT egress.
+        tarball = f"{c.code_repo.rstrip('/')}/archive/{c.code_ref}.tar.gz"
+        bootstrap = (
+            "set -e; "
+            f'pip install --no-cache-dir requests oss2 "{tarball}"; '
+            "exec python -m clousight_bench.domains.agent_runtime.probe.agent_loop"
+        )
         return {
             "region_id": c.region,
             "container_group_name": f"cb-probe-{(c.run_id or 'adhoc')[-8:]}",
@@ -127,7 +134,7 @@ class EciProbeCarrier:
                 {
                     "name": "cb-probe",
                     "image": c.image,
-                    # No "command" key: the ACR image ENTRYPOINT runs agent_loop.
+                    "command": ["/bin/sh", "-c", bootstrap],
                     "environment_var": [
                         {"key": "CB_PROBE_BUCKET", "value": c.bucket},
                         {"key": "CB_PROBE_REGION", "value": c.region},

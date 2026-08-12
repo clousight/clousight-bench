@@ -7,9 +7,10 @@ from clousight_bench.domains.agent_runtime.eci_carrier import (
     EciProbeCarrier,
 )
 
-ACR_IMAGE = "registry.cn-hangzhou.aliyuncs.com/myns/cb-probe:latest"
+BASE_IMAGE = "registry.cn-hangzhou.aliyuncs.com/library/python:3.12"
 BUCKET = "my-bench-bucket"
 CAMPAIGN_ID = "campaign-abc123"
+CODE_REF = "abc123sha"
 
 
 class FakeEciSdk:
@@ -37,14 +38,12 @@ class FakeEciSdk:
 def _make_config(**kwargs):
     """Return an EciCarrierConfig with sensible test defaults."""
     defaults = dict(
-        image=ACR_IMAGE,
+        image=BASE_IMAGE,
         bucket=BUCKET,
         campaign_id=CAMPAIGN_ID,
         region="cn-hangzhou",
         run_id="run-abcdef12",
-        # caller-compat fields still accepted
-        oss_code_uri="oss://b/campaign-1/cb-probe.zip",
-        code_sha256="deadbeef",
+        code_ref=CODE_REF,
     )
     defaults.update(kwargs)
     return EciCarrierConfig(**defaults)
@@ -85,7 +84,7 @@ def test_create_request_has_no_eip_or_public_ip_fields():
     assert not eip_keys, f"Unexpected EIP/public-IP keys in create request: {eip_keys}"
 
 
-def test_create_request_uses_acr_image():
+def test_create_request_uses_stock_base_image():
     sdk = FakeEciSdk([{"status": "Running"}])
     carrier = EciProbeCarrier(
         sdk=sdk,
@@ -96,11 +95,13 @@ def test_create_request_uses_acr_image():
     )
     carrier.provision()
     req = sdk.created_req
-    assert req["container"][0]["image"] == ACR_IMAGE
+    assert req["container"][0]["image"] == BASE_IMAGE
 
 
-def test_create_request_has_no_command_or_bootstrap():
-    """No shell command override — the ACR image ENTRYPOINT handles startup."""
+def test_create_request_bootstraps_probe_from_git_tarball():
+    """A stock base image + a vendor-neutral bootstrap: install the probe from the
+    public repo's archive tarball (pinned to code_ref, no git binary needed) and
+    exec the OSS-poller loop. No prebuilt/custom image, no ACR."""
     sdk = FakeEciSdk([{"status": "Running"}])
     carrier = EciProbeCarrier(
         sdk=sdk,
@@ -110,9 +111,17 @@ def test_create_request_has_no_command_or_bootstrap():
         now=lambda: 0.0,
     )
     carrier.provision()
-    req = sdk.created_req
-    container = req["container"][0]
-    assert "command" not in container, "create request must not include a 'command' override"
+    container = sdk.created_req["container"][0]
+    cmd = container["command"]
+    assert cmd[:2] == ["/bin/sh", "-c"]
+    boot = cmd[2]
+    # installs the two runtime deps + the package from the pinned archive tarball
+    assert "pip install" in boot and "requests" in boot and "oss2" in boot
+    assert f"/archive/{CODE_REF}.tar.gz" in boot
+    # no git binary required (tarball, not git+)
+    assert "git+" not in boot
+    # hands off to the OSS-poller loop
+    assert "clousight_bench.domains.agent_runtime.probe.agent_loop" in boot
 
 
 def test_create_request_env_vars_match_agent_loop_contract():
