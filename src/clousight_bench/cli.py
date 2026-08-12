@@ -681,7 +681,19 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
 
     hook = None
     if getattr(args, "probe", "") == "eci":
-        hook = campaign_probe_hook(platform)
+        # Resolve the carrier by the target's PROVIDER (e.g. "aliyun"), NOT the
+        # platform name (e.g. "aliyun-agentrun") — get_runtime_provider keys on
+        # provider. A silent fallback to the in-process probe on a mismatch would
+        # run LOCAL while the operator believes they ran in-region, so fail loudly.
+        provider = str(base_target.get("provider") or platform)
+        hook = campaign_probe_hook(provider)
+        if hook is None:
+            print(
+                f"error: --probe eci requested but no probe carrier is registered "
+                f"for provider '{provider}'",
+                file=sys.stderr,
+            )
+            return 2
 
     ok = failed = 0
     try:

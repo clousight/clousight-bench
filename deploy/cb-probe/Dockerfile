@@ -4,11 +4,19 @@
 # Runtime env:  CB_PROBE_BUCKET, CB_PROBE_REGION, CB_PROBE_CONTROL_PREFIX
 #               (optional: CB_PROBE_TOKEN)
 #
-# The container installs only the probe extra (requests + oss2) — no LangChain,
-# no OTel, no heavy agent bundle. The base package (pyyaml) and the probe
-# subpackage are all that run here.
+# Everything is baked in at BUILD time (base + deps + probe code) so the running
+# ECI container fetches NOTHING from the public internet — docker hub, github and
+# pypi are all throttled from Aliyun cn-hangzhou. Sources default to Aliyun
+# mirrors so this builds cleanly from inside China (e.g. Aliyun Cloud Shell).
+# See deploy/cb-probe/README.md — no CI and no local Docker are required.
 
-FROM python:3.12-slim
+# Base image is pulled only at build time; override for a fully in-region build.
+ARG BASE_IMAGE=python:3.12-slim
+FROM ${BASE_IMAGE}
+
+# PyPI index — Aliyun mirror by default (fast + reachable in-region). Override
+# with --build-arg PIP_INDEX_URL=... when building outside China.
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 
 # Create a non-root user so the process doesn't run as root inside ECI.
 RUN groupadd --system cbprobe && useradd --system --gid cbprobe --no-create-home cbprobe
@@ -20,9 +28,8 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ src/
 
-# Install the package with the probe extra: requests + oss2 + base (pyyaml).
-# --no-cache-dir keeps the layer lean; no build tools needed for these wheels.
-RUN pip install --no-cache-dir ".[probe]"
+# Bake the package + the probe extra (requests + oss2) via the Aliyun mirror.
+RUN pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" ".[probe]"
 
 USER cbprobe
 

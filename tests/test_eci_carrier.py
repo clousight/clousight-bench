@@ -7,10 +7,9 @@ from clousight_bench.domains.agent_runtime.eci_carrier import (
     EciProbeCarrier,
 )
 
-BASE_IMAGE = "registry.cn-hangzhou.aliyuncs.com/library/python:3.12"
+PROBE_IMAGE = "registry-vpc.cn-hangzhou.aliyuncs.com/clousight-bench/cb-probe:abc123"
 BUCKET = "my-bench-bucket"
 CAMPAIGN_ID = "campaign-abc123"
-CODE_REF = "abc123sha"
 
 
 class FakeEciSdk:
@@ -38,12 +37,11 @@ class FakeEciSdk:
 def _make_config(**kwargs):
     """Return an EciCarrierConfig with sensible test defaults."""
     defaults = dict(
-        image=BASE_IMAGE,
+        image=PROBE_IMAGE,
         bucket=BUCKET,
         campaign_id=CAMPAIGN_ID,
         region="cn-hangzhou",
         run_id="run-abcdef12",
-        code_ref=CODE_REF,
     )
     defaults.update(kwargs)
     return EciCarrierConfig(**defaults)
@@ -84,7 +82,7 @@ def test_create_request_has_no_eip_or_public_ip_fields():
     assert not eip_keys, f"Unexpected EIP/public-IP keys in create request: {eip_keys}"
 
 
-def test_create_request_uses_stock_base_image():
+def test_create_request_uses_prebuilt_probe_image():
     sdk = FakeEciSdk([{"status": "Running"}])
     carrier = EciProbeCarrier(
         sdk=sdk,
@@ -95,13 +93,13 @@ def test_create_request_uses_stock_base_image():
     )
     carrier.provision()
     req = sdk.created_req
-    assert req["container"][0]["image"] == BASE_IMAGE
+    assert req["container"][0]["image"] == PROBE_IMAGE
 
 
-def test_create_request_bootstraps_probe_from_git_tarball():
-    """A stock base image + a vendor-neutral bootstrap: install the probe from the
-    public repo's archive tarball (pinned to code_ref, no git binary needed) and
-    exec the OSS-poller loop. No prebuilt/custom image, no ACR."""
+def test_create_request_has_no_command_override():
+    """The prebuilt image bakes the probe + deps, so its ENTRYPOINT runs agent_loop
+    with no `command` override and no runtime fetch (docker hub / github / pypi are
+    throttled from cn-hangzhou)."""
     sdk = FakeEciSdk([{"status": "Running"}])
     carrier = EciProbeCarrier(
         sdk=sdk,
@@ -112,16 +110,26 @@ def test_create_request_bootstraps_probe_from_git_tarball():
     )
     carrier.provision()
     container = sdk.created_req["container"][0]
-    cmd = container["command"]
-    assert cmd[:2] == ["/bin/sh", "-c"]
-    boot = cmd[2]
-    # installs the two runtime deps + the package from the pinned archive tarball
-    assert "pip install" in boot and "requests" in boot and "oss2" in boot
-    assert f"/archive/{CODE_REF}.tar.gz" in boot
-    # no git binary required (tarball, not git+)
-    assert "git+" not in boot
-    # hands off to the OSS-poller loop
-    assert "clousight_bench.domains.agent_runtime.probe.agent_loop" in boot
+    assert "command" not in container
+
+
+def test_provision_without_image_raises_clear_error():
+    """An empty image (operator hasn't built + set eci_image) fails fast with an
+    actionable message rather than launching a broken container group."""
+    import pytest
+
+    from clousight_bench.domains.agent_runtime.eci_carrier import CarrierError
+
+    sdk = FakeEciSdk([{"status": "Running"}])
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=_make_config(image=""),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    with pytest.raises(CarrierError, match="eci_image"):
+        carrier.provision()
 
 
 def test_create_request_env_vars_match_agent_loop_contract():
@@ -216,7 +224,7 @@ def test_provision_times_out_reaps_and_raises():
     sdk = FakeEciSdk([{"status": "Pending"}])
     carrier = EciProbeCarrier(
         sdk=sdk,
-        config=EciCarrierConfig(ready_timeout_s=150.0),
+        config=_make_config(ready_timeout_s=150.0),
         ready_check=lambda: False,
         sleep=lambda s: None,
         now=lambda: next(ticks),
