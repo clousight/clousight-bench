@@ -70,6 +70,7 @@ output "csbench_config" {
       eci_vswitch_id        = local.effective_vswitch_id
       eci_security_group_id = local.effective_sg_id
       eci_probe_role        = var.enable_probe ? alicloud_ram_role.eci_probe[0].role_name : ""
+      eci_image             = var.eci_image
     }
     params = {}
   })
@@ -95,4 +96,19 @@ output "probe_vswitch_id" {
 output "probe_security_group_id" {
   description = "Security Group ID to use for ECI probe container groups (from create_vpc or supplied security_group_id)."
   value       = local.effective_sg_id
+}
+
+output "probe_nat_gateway_id" {
+  description = "NAT Gateway ID providing SNAT egress for ECI probe containers (empty when enable_probe = false)."
+  value       = var.enable_probe ? alicloud_nat_gateway.bench[0].id : ""
+}
+
+output "acr_repo_vpc_domain" {
+  description = <<-EOT
+    VPC pull domain for the cb-probe image repository.
+    The operator appends :<tag> to form the full image reference, e.g.:
+      registry-vpc.cn-hangzhou.aliyuncs.com/clousight-bench/cb-probe:v0.1.0
+    Empty when enable_probe = false.
+  EOT
+  value       = var.enable_probe ? "registry-vpc.${var.region}.aliyuncs.com/${var.acr_namespace}/cb-probe" : ""
 }
