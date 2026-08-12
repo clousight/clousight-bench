@@ -44,6 +44,13 @@ for _candidate in (
         sys.path.insert(0, _candidate)
         break
 
+# Pinned retry policy — part of the benchmark agent contract. Applied on BOTH
+# the stub/reliability path (handle_invoke) and the traced path (lc_agent), so
+# reliability tasks (T1.3/T1.10/T1.12) observe the agent's real retry behavior
+# via the mock's per-correlation call counter. Kept in lock-step with
+# lc_agent.AGENT_RETRY_POLICY (a drift-guard test asserts they are equal).
+AGENT_RETRY_POLICY: dict[str, Any] = {"max_retries": 2, "backoff_ms": 200, "retry_on": "5xx"}
+
 try:
     from clousight_bench.domains.agent_runtime import protocol
 except ImportError:  # pragma: no cover - the flattened-zip path
@@ -144,8 +151,15 @@ def _export_spans(spans: list[_Span], arms_config: dict) -> None:
 
 
 def handle_invoke(body: dict[str, Any]) -> dict[str, Any]:
-    """Make the single requested tool call against the mock universe and report
-    its raw HTTP outcome. No retries, no interpretation -- the runtime owns those."""
+    """Make the requested tool call against the mock universe, applying the pinned
+    agent retry policy, and report the final raw HTTP outcome.
+
+    Per AGENT_RETRY_POLICY: a transient 5xx (500-598) is retried up to
+    ``max_retries`` times with a fixed backoff; 4xx and connection failures (599)
+    are terminal and never retried. Each attempt re-issues the SAME request (same
+    correlation id), so reliability probes (T1.3/T1.10/T1.12) can read the agent's
+    attempt count from the mock's per-correlation call counter -- the agent owns
+    the retry; the platform is measured for whether it lets the retries through."""
     tool = body.get("tool") or {}
     base = str(body.get("mock_base_url") or "").rstrip("/")
     mock_token = str(body.get("mock_token") or "")
@@ -167,12 +181,23 @@ def handle_invoke(body: dict[str, Any]) -> dict[str, Any]:
     if corr:
         headers["X-Clousight-Correlation-Id"] = corr
     req = urlrequest.Request(url, data=data, method=method, headers=headers)
-    try:
-        with urlrequest.urlopen(req, timeout=10) as resp:
-            status = resp.status
-            resp.read()
-    except Exception as exc:  # noqa: BLE001
-        status = int(getattr(exc, "code", 599))
+
+    max_attempts = AGENT_RETRY_POLICY["max_retries"] + 1  # 1 initial + N retries
+    status = 599
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urlrequest.urlopen(req, timeout=10) as resp:
+                status = resp.status
+                resp.read()
+        except Exception as exc:  # noqa: BLE001
+            status = int(getattr(exc, "code", 599))
+        # Retry only transient 5xx (500-598). 599 = connection failure and 4xx
+        # are terminal. Re-issue the SAME request so the mock counts each attempt
+        # under this correlation bucket.
+        if 500 <= status <= 598 and attempt < max_attempts:
+            time.sleep(AGENT_RETRY_POLICY["backoff_ms"] / 1000.0)
+            continue
+        break
     return {"ok": 200 <= status < 300, "status": status, "tool_target": target}
 
 
