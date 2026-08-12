@@ -939,8 +939,16 @@ class AliyunAgentRunTransport(RuntimeTransport):
         mock_token = str(self._adapter.target.get("mock_token") or "")
         corr = uuid.uuid4().hex
 
-        # Step 1: Configure fault — fail ALL calls in this corr bucket.
-        fault_config: dict[str, Any] = {"fail_from_call": 1, "fail_count": 999, "corr": corr}
+        # Step 1: Configure fault — fail ALL calls in this corr bucket. "target" is
+        # REQUIRED: the mock only faults a request whose tool target matches it
+        # (mock_tools.fault_status_for). Omitting it silently injects nothing, so
+        # the storm never forms and total_attempts collapses to 1.
+        fault_config: dict[str, Any] = {
+            "target": "prices",
+            "fail_from_call": 1,
+            "fail_count": 999,
+            "corr": corr,
+        }
         fault_url = base.rstrip("/") + "/fault/config"
         try:
             import requests as _requests

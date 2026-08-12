@@ -55,7 +55,12 @@ class _MockToolState:
     def should_fault(self, target: str, call_index: int, corr: str | None) -> bool:
         with self._lock:
             f = self._fault
-        if not f or f.get("target") and f.get("target") != target:
+        # Mirror the real mock (mock_tools.fault_status_for): a fault applies only
+        # when its "target" matches exactly. An absent target does NOT match all —
+        # the probe MUST scope its fault to a target, or it injects nothing. (The
+        # old match-all-on-absent-target shortcut hid a real probe bug where the
+        # retry-storm fault_config omitted "target" and thus never fired live.)
+        if not f or f.get("target") != target:
             return False
         fault_corr = f.get("corr")
         if fault_corr is not None and fault_corr != corr:

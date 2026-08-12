@@ -927,7 +927,15 @@ def run_retry_storm(
     corr = uuid.uuid4().hex  # unique correlation id for this probe run
 
     # Step 1: Configure fault on mock server — fail ALL calls in this corr bucket.
-    fault_config: dict[str, Any] = {"fail_from_call": 1, "fail_count": 999, "corr": corr}
+    # "target" is REQUIRED — the mock only applies a fault whose target matches the
+    # request's tool target (mock_tools.fault_status_for). Omitting it silently
+    # injects nothing, so the storm never forms and total_attempts collapses to 1.
+    fault_config: dict[str, Any] = {
+        "target": "prices",
+        "fail_from_call": 1,
+        "fail_count": 999,
+        "corr": corr,
+    }
     fault_url = base.rstrip("/") + "/fault/config"
     inv = ProbeInvoker(spec)
     session = inv.create_session()
