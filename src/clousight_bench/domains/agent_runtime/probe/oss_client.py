@@ -63,23 +63,24 @@ class _ChainCredentialsProvider:
         return oss2.credentials.Credentials(c.access_key_id, c.access_key_secret, c.security_token)
 
 
-class Oss2Client(OssClient):
-    """Real OSS client using the alibabacloud default credential chain."""
+def _oss_endpoint(region: str, internal: bool) -> str:
+    """Return the public or VPC-internal OSS endpoint for *region*."""
+    if internal:
+        return f"https://oss-{region}-internal.aliyuncs.com"
+    return f"https://oss-{region}.aliyuncs.com"
 
-    def __init__(self, bucket: str, region: str = "cn-hangzhou", endpoint: str = "") -> None:
-        self._bucket_name = bucket
-        self._region = region
-        self._endpoint = endpoint or f"https://oss-{region}.aliyuncs.com"
-        self._bucket: object | None = None
 
-    def _bucket_handle(self):  # noqa: ANN202 - lazy oss2 type
-        if self._bucket is None:
-            import oss2
-            from alibabacloud_credentials.client import Client as CredClient
+class _Oss2BucketMixin(OssClient):
+    """Shared oss2 Bucket CRUD; subclasses set ``_endpoint``, ``_bucket_name``,
+    ``_region``, and override ``_bucket_handle()`` to inject auth."""
 
-            auth = oss2.ProviderAuthV4(_ChainCredentialsProvider(CredClient()))
-            self._bucket = oss2.Bucket(auth, self._endpoint, self._bucket_name, region=self._region)
-        return self._bucket
+    _bucket_name: str
+    _region: str
+    _endpoint: str
+    _bucket: object | None
+
+    def _bucket_handle(self):  # noqa: ANN202 - lazy oss2 type  # pragma: no cover
+        raise NotImplementedError
 
     def put_object(self, key: str, data: bytes) -> None:
         self._bucket_handle().put_object(key, data)
@@ -94,3 +95,58 @@ class Oss2Client(OssClient):
 
     def delete_object(self, key: str) -> None:
         self._bucket_handle().delete_object(key)
+
+
+class Oss2Client(_Oss2BucketMixin):
+    """Real OSS client using the alibabacloud default credential chain.
+
+    By default uses the **public** OSS endpoint. Pass ``internal=True`` to use
+    the VPC-internal endpoint (``oss-<region>-internal.aliyuncs.com``); an
+    explicit *endpoint* argument always takes precedence over both.
+    """
+
+    def __init__(
+        self,
+        bucket: str,
+        region: str = "cn-hangzhou",
+        endpoint: str = "",
+        *,
+        internal: bool = False,
+    ) -> None:
+        self._bucket_name = bucket
+        self._region = region
+        self._endpoint = endpoint or _oss_endpoint(region, internal)
+        self._bucket: object | None = None
+
+    def _bucket_handle(self):  # noqa: ANN202 - lazy oss2 type
+        if self._bucket is None:
+            import oss2
+            from alibabacloud_credentials.client import Client as CredClient
+
+            auth = oss2.ProviderAuthV4(_ChainCredentialsProvider(CredClient()))
+            self._bucket = oss2.Bucket(auth, self._endpoint, self._bucket_name, region=self._region)
+        return self._bucket
+
+
+class EcsRamRoleOssClient(_Oss2BucketMixin):
+    """OSS client for use inside an ECI/ECS instance.
+
+    Authenticates via the instance's RAM role (``EcsRamRoleCredentialsProvider``)
+    and always uses the **VPC-internal** OSS endpoint — no static keys, no public
+    internet egress required.  Intended for the in-region probe only; the control
+    plane keeps using :class:`Oss2Client`.
+    """
+
+    def __init__(self, bucket: str, region: str = "cn-hangzhou") -> None:
+        self._bucket_name = bucket
+        self._region = region
+        self._endpoint = _oss_endpoint(region, internal=True)
+        self._bucket: object | None = None
+
+    def _bucket_handle(self):  # noqa: ANN202 - lazy oss2 type
+        if self._bucket is None:
+            import oss2
+
+            auth = oss2.ProviderAuthV4(oss2.credentials.EcsRamRoleCredentialsProvider())
+            self._bucket = oss2.Bucket(auth, self._endpoint, self._bucket_name, region=self._region)
+        return self._bucket
