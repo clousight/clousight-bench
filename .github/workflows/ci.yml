@@ -15,14 +15,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
-      # Full Python matrix on pushes to main (the merge gate); a single primary
-      # version (3.12) on PRs for fast feedback. The full matrix still runs on
-      # main after merge, so nothing ships without every version exercised.
+      # Don't cancel the whole matrix when one cell fails — a single flaky cell
+      # shouldn't hide the other versions' results or block the PR by itself.
+      # (The 4 cells run in parallel, so this costs no extra wall-clock.)
+      fail-fast: false
       matrix:
-        python-version: >-
-          ${{ github.event_name == 'pull_request'
-              && fromJSON('["3.12"]')
-              || fromJSON('["3.10", "3.11", "3.12", "3.13"]') }}
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v7
 
