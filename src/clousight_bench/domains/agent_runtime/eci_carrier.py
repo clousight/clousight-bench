@@ -143,13 +143,16 @@ class EciProbeCarrier:
 
         Constructs an OssChannel pointed at config.bucket / config.region /
         config.campaign_id and returns channel.is_ready as the callable.
+        Uses Oss2Client (default credential chain, public endpoint) because the
+        control plane does NOT have an ECI instance RAM role — only the ECI
+        probe itself runs EcsRamRoleOssClient.
         Lazy import so production code that skips OSS doesn't need oss2 at
         import time.
         """
         from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
-        from clousight_bench.domains.agent_runtime.probe.oss_client import EcsRamRoleOssClient
+        from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
-        oss = EcsRamRoleOssClient(bucket=self.config.bucket, region=self.config.region)
+        oss = Oss2Client(bucket=self.config.bucket, region=self.config.region)
         channel = OssChannel(oss, campaign_id=self.config.campaign_id)
         return channel.is_ready
 

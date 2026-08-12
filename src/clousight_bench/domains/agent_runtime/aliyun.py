@@ -245,15 +245,29 @@ class AliyunAgentRunTransport(RuntimeTransport):
         # Data-plane seams: injectable for local tests; real defaults are
         # live-gated (validated on a live account). See docs/agentrun-b-design.md.
         self._invoke = self._live_invoke
-        # Plan 4b hook: when set to a RemoteProbeClient, run_data_plane_probe
+        # Plan 4b hook: when set to a probe client, run_data_plane_probe
         # dispatches to the in-region ECI probe instead of running in-process.
-        self._probe_client = None
-        probe_url = str(adapter.target.get("probe_url") or "")
-        if probe_url:
-            from clousight_bench.domains.agent_runtime.probe.client import RemoteProbeClient
+        # OssProbeClient is preferred when probe_control_prefix is set (OSS-mediated);
+        # RemoteProbeClient is the HTTP fallback when only probe_url is present.
+        self._probe_client: Any = None
+        probe_control_prefix = str(adapter.target.get("probe_control_prefix") or "")
+        if probe_control_prefix:
+            from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+            from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
+            from clousight_bench.domains.agent_runtime.probe.oss_dispatch_client import OssProbeClient
 
-            probe_token = str(adapter.target.get("probe_token") or "") or None
-            self._probe_client = RemoteProbeClient(probe_url, token=probe_token)
+            oss_bucket = str(adapter.target.get("oss_bucket") or "")
+            oss_region = str(adapter.target.get("region") or "cn-hangzhou")
+            oss = Oss2Client(bucket=oss_bucket, region=oss_region)
+            channel = OssChannel(oss, campaign_id=probe_control_prefix)
+            self._probe_client = OssProbeClient(channel)
+        else:
+            probe_url = str(adapter.target.get("probe_url") or "")
+            if probe_url:
+                from clousight_bench.domains.agent_runtime.probe.client import RemoteProbeClient
+
+                probe_token = str(adapter.target.get("probe_token") or "") or None
+                self._probe_client = RemoteProbeClient(probe_url, token=probe_token)
         self._last_ttft_ms: float | None = None  # set by run_tool_plan on first invoke
         self._last_trace_id: str | None = None  # set by _live_invoke from response headers
         self._collected_spans: list[dict] = []  # spans embedded in agent responses (_spans)
@@ -2037,6 +2051,7 @@ class _AliyunCampaignProbe:
         self._oss_factory = oss_factory or self._default_oss
         self._carrier = None
         self._oss = None
+        self._channel = None  # OssChannel built during start_campaign_probe
         self._prefix = ""
         self._bucket = ""
 
@@ -2044,13 +2059,13 @@ class _AliyunCampaignProbe:
     # Default factories (real-cloud paths; wired in Plan 5 Task 3)
     # ------------------------------------------------------------------
     @staticmethod
-    def _default_carrier(target: dict, prefix: str):  # noqa: ANN202
+    def _default_carrier(target: dict, prefix: str, campaign_id: str = "", bucket: str = ""):  # noqa: ANN202
         run_id = str(target.get("run_id") or "")
-        bucket = str(target.get("oss_bucket") or "")
+        _bucket = bucket or str(target.get("oss_bucket") or "")
         region = str(target.get("region") or "cn-hangzhou")
-        oss_code_uri = f"oss://{bucket}/clousight-bench/{run_id}/cb-probe.zip" if bucket else ""
         cfg = EciCarrierConfig(
-            oss_code_uri=oss_code_uri,
+            bucket=_bucket,
+            campaign_id=campaign_id or run_id or "adhoc",
             region=region,
             vswitch_id=str(target.get("eci_vswitch_id") or ""),
             security_group_id=str(target.get("eci_security_group_id") or ""),
@@ -2074,17 +2089,31 @@ class _AliyunCampaignProbe:
     # CampaignProbeHook interface
     # ------------------------------------------------------------------
     def start_campaign_probe(self, target: dict) -> dict:
-        """Provision the probe. Returns {probe_url, probe_oss_prefix} for target stamping."""
+        """Provision the probe.
+
+        Returns ``{probe_control_prefix, probe_oss_prefix, probe_token,
+        probe_in_vpc}`` for target stamping — no ``probe_url`` key (OSS-mediated
+        transport, no HTTP surface required).
+        """
+        from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+
         run_id = str(target.get("run_id") or "")
+        campaign_id = run_id or "adhoc"
         self._bucket = str(target.get("oss_bucket") or "")
-        self._prefix = f"clousight-bench/telemetry/{run_id or 'adhoc'}/"
+        self._prefix = f"clousight-bench/telemetry/{campaign_id}/"
         self._oss = self._oss_factory(target)
-        self._carrier = self._carrier_factory(target, self._prefix)
-        url = self._carrier.provision()  # raises CarrierError on failure
+        # Build the control channel — readiness is polled via OSS, not HTTP.
+        channel = OssChannel(self._oss, campaign_id)
+        self._channel = channel
+        self._carrier = self._carrier_factory(target, self._prefix, campaign_id, self._bucket)
+        # Inject the readiness check so provision() polls OSS (not EcsRamRole).
+        self._carrier.ready_check = channel.is_ready
+        self._carrier.provision()  # raises CarrierError on failure
         return {
-            "probe_url": url,
+            "probe_control_prefix": campaign_id,
             "probe_oss_prefix": self._prefix,
             "probe_token": getattr(self._carrier, "token", "") or "",
+            "probe_in_vpc": True,
         }
 
     def sync_probe_artifacts(self, results_dir: Any) -> None:
@@ -2096,11 +2125,21 @@ class _AliyunCampaignProbe:
         sync_prefix(self._oss, self._prefix, results_dir)
 
     def stop_campaign_probe(self) -> None:
-        """Reap the probe. Idempotent + best-effort (called from a finally)."""
+        """Reap the probe. Idempotent + best-effort (called from a finally).
+
+        Sends the OSS stop sentinel BEFORE tearing down the ECI carrier so the
+        in-region loop gets a chance to drain gracefully.
+        """
+        if self._channel is not None:
+            try:
+                self._channel.signal_stop()
+            except Exception:  # noqa: BLE001
+                pass
+            self._channel = None
         if self._carrier is not None:
             try:
                 self._carrier.teardown()
-            except Exception:
+            except Exception:  # noqa: BLE001
                 pass
             self._carrier = None
 
