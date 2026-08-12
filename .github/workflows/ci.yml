@@ -120,7 +120,7 @@ jobs:
           assert data["kind"] == "run_plan_aggregate"
           assert len(data["runs"]["measured"]) == 3, data["runs"]
           assert len(data["runs"]["warmup"]) == 1, data["runs"]
-          assert data["measurements"]["total_attempts"]["n"] == 3
+          assert data["measurements"]["observed_attempts"]["n"] == 3
           assert data["digest"].startswith("sha256:")
           # Four run records + one aggregate; warmups are excluded from the stats.
           recs = [p for p in pathlib.Path("/tmp/plan-results").rglob("*.json")

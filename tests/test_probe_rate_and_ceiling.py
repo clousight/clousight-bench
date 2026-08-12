@@ -77,7 +77,10 @@ def _serve(handler_cls):
 class _Throttling(_FakeAgent):
     reject_after = 15  # 429 once >15 concurrent in flight
     slow_targets = ("prices",)  # probe bodies use target=prices; slow them so bursts overlap
-    slow_ms = 50  # hold each response 50ms so concurrent bursts accumulate in-flight
+    # Hold each response long enough that a burst of 20 reliably has >15 in flight
+    # at once even on a loaded CI runner. 50ms was too thin a margin and flaked
+    # (fewer than 16 overlapped → no 429 → "assert False is True").
+    slow_ms = 250
 
 
 def _spec(probe, base, **params):
