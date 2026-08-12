@@ -145,3 +145,25 @@ variable "abort_incomplete_multipart_days" {
   type        = number
   default     = 1
 }
+
+variable "acr_namespace" {
+  description = <<-EOT
+    ACR personal edition namespace for the cb-probe image repository.
+    Must be globally unique within the region; default matches the project name.
+    Only used when enable_probe = true.
+  EOT
+  type        = string
+  default     = "clousight-bench"
+}
+
+variable "eci_image" {
+  description = <<-EOT
+    Full registry-vpc image reference for the ECI probe container, e.g.
+    "registry-vpc.cn-hangzhou.aliyuncs.com/clousight-bench/cb-probe:<tag>".
+    Leave empty until the image has been built and pushed via build-push.sh.
+    The operator sets this after the first push; it is written into csbench_config
+    so live probe runs pick up the correct image URI without manual editing.
+  EOT
+  type        = string
+  default     = ""
+}

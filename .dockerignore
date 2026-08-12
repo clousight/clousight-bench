@@ -1,0 +1,37 @@
+# Exclude large/irrelevant paths from the Docker build context.
+# The cb-probe image needs: pyproject.toml, README.md, src/
+# Everything else can be excluded to keep the context small.
+
+.git
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov/
+
+# Benchmark results and run artifacts
+results/
+_vendor_cache/
+
+# Tests (not needed for pip install)
+tests/
+
+# Superpowers / dev tooling
+.superpowers/
+
+# Deploy infra (not needed inside the image)
+deploy/
+
+# Docs
+docs/
+site/
+
+# IDE / OS
+.idea/
+.vscode/
+*.DS_Store

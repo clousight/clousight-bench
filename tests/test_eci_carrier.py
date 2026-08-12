@@ -7,6 +7,10 @@ from clousight_bench.domains.agent_runtime.eci_carrier import (
     EciProbeCarrier,
 )
 
+ACR_IMAGE = "registry.cn-hangzhou.aliyuncs.com/myns/cb-probe:latest"
+BUCKET = "my-bench-bucket"
+CAMPAIGN_ID = "campaign-abc123"
+
 
 class FakeEciSdk:
     """Records the create/describe/delete call sequence; scripts describe()."""
@@ -30,42 +34,181 @@ class FakeEciSdk:
         self.deleted.append(instance_id)
 
 
-def test_provision_waits_for_running_and_health_then_returns_url():
+def _make_config(**kwargs):
+    """Return an EciCarrierConfig with sensible test defaults."""
+    defaults = dict(
+        image=ACR_IMAGE,
+        bucket=BUCKET,
+        campaign_id=CAMPAIGN_ID,
+        region="cn-hangzhou",
+        run_id="run-abcdef12",
+        # caller-compat fields still accepted
+        oss_code_uri="oss://b/campaign-1/cb-probe.zip",
+        code_sha256="deadbeef",
+    )
+    defaults.update(kwargs)
+    return EciCarrierConfig(**defaults)
+
+
+# ---------------------------------------------------------------------------
+# Create-request shape assertions
+# ---------------------------------------------------------------------------
+
+
+def test_create_request_has_no_eip_or_public_ip_fields():
+    """No EIP / public-IP field must appear anywhere in the create request."""
+    sdk = FakeEciSdk([{"status": "Running"}])
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=_make_config(),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    req = sdk.created_req
+
+    # Flatten all keys recursively and check for EIP-related names
+    def all_keys(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                yield k
+                yield from all_keys(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                yield from all_keys(item)
+
+    keys = set(all_keys(req))
+    eip_keys = {
+        k for k in keys if "eip" in k.lower() or "public_ip" in k.lower() or "internet_ip" in k.lower()
+    }
+    assert not eip_keys, f"Unexpected EIP/public-IP keys in create request: {eip_keys}"
+
+
+def test_create_request_uses_acr_image():
+    sdk = FakeEciSdk([{"status": "Running"}])
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=_make_config(),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    req = sdk.created_req
+    assert req["container"][0]["image"] == ACR_IMAGE
+
+
+def test_create_request_has_no_command_or_bootstrap():
+    """No shell command override — the ACR image ENTRYPOINT handles startup."""
+    sdk = FakeEciSdk([{"status": "Running"}])
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=_make_config(),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    req = sdk.created_req
+    container = req["container"][0]
+    assert "command" not in container, "create request must not include a 'command' override"
+
+
+def test_create_request_env_vars_match_agent_loop_contract():
+    """The four CB_PROBE_* env vars must exactly match agent_loop.main()'s reads."""
+    sdk = FakeEciSdk([{"status": "Running"}])
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=_make_config(bucket=BUCKET, campaign_id=CAMPAIGN_ID, region="cn-shenzhen"),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    req = sdk.created_req
+    env = {e["key"]: e["value"] for e in req["container"][0]["environment_var"]}
+
+    assert env["CB_PROBE_BUCKET"] == BUCKET
+    assert env["CB_PROBE_REGION"] == "cn-shenzhen"
+    assert env["CB_PROBE_CONTROL_PREFIX"] == CAMPAIGN_ID
+    # Token is generated per provision; just verify the key exists and is non-empty
+    assert "CB_PROBE_TOKEN" in env and env["CB_PROBE_TOKEN"]
+
+
+def test_create_request_no_legacy_env_keys():
+    """Old bootstrap env keys (CB_PROBE_CODE_BUCKET, CB_PROBE_CODE_KEY, etc.) must be gone."""
+    sdk = FakeEciSdk([{"status": "Running"}])
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=_make_config(),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    req = sdk.created_req
+    env_keys = {e["key"] for e in req["container"][0]["environment_var"]}
+    legacy = {"CB_PROBE_CODE_BUCKET", "CB_PROBE_CODE_KEY", "CB_PROBE_CODE_SHA256", "PORT"}
+    overlap = env_keys & legacy
+    assert not overlap, f"Legacy env keys still present: {overlap}"
+
+
+# ---------------------------------------------------------------------------
+# Provision readiness gate
+# ---------------------------------------------------------------------------
+
+
+def test_provision_returns_campaign_id_when_running_and_ready():
     sdk = FakeEciSdk(
         [
-            {"status": "Pending", "public_ip": ""},
-            {"status": "Running", "public_ip": "1.2.3.4"},
+            {"status": "Pending"},
+            {"status": "Running"},
         ]
     )
     carrier = EciProbeCarrier(
         sdk=sdk,
-        config=EciCarrierConfig(
-            port=9000, run_id="run-abcdef12", oss_code_uri="oss://b/campaign-1/cb-probe.zip"
-        ),
-        health_check=lambda url: True,  # /health green
-        sleep=lambda s: None,  # no real waiting
-        now=lambda: 0.0,  # never times out on this short script
+        config=_make_config(),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
     )
-    url = carrier.provision()
-    assert url == "http://1.2.3.4:9000"
-    assert carrier.probe_url == url and carrier.instance_id == "eci-123"
-    # create request shape: mirrored py3.12 image, port, RAM-role slot, tags, bootstrap
-    req = sdk.created_req
-    assert "python:3.12" in req["container"][0]["image"]
-    assert req["container"][0]["port"][0]["port"] == 9000
-    assert {"key": "clousight-bench:managed", "value": "true"} in req["tags"]
-    assert any(t["key"] == "clousight-bench:run-id" for t in req["tags"])
-    assert "clousight_bench.domains.agent_runtime.probe.server" in req["container"][0]["command"][-1]
+    result = carrier.provision()
+    assert result == CAMPAIGN_ID
+    assert carrier.control_prefix == CAMPAIGN_ID
+    assert carrier.instance_id == "eci-123"
+
+
+def test_provision_waits_until_both_running_and_oss_ready():
+    """provision() must not return until status=Running AND ready_check() is True."""
+    sdk = FakeEciSdk([{"status": "Running"}])
+    calls = {"n": 0}
+
+    def ready():
+        calls["n"] += 1
+        return calls["n"] >= 2  # green only on the 2nd call
+
+    ticks = iter([0.0, 1.0, 2.0, 3.0])
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=_make_config(),
+        ready_check=ready,
+        sleep=lambda s: None,
+        now=lambda: next(ticks),
+    )
+    result = carrier.provision()
+    assert result == CAMPAIGN_ID
+    assert calls["n"] == 2
 
 
 def test_provision_times_out_reaps_and_raises():
-    # never reports Running → must time out, delete the instance, raise CarrierError
+    """Timeout → teardown called, instance reaped, CarrierError raised."""
     ticks = iter([0.0, 100.0, 200.0])
-    sdk = FakeEciSdk([{"status": "Pending", "public_ip": ""}])
+    sdk = FakeEciSdk([{"status": "Pending"}])
     carrier = EciProbeCarrier(
         sdk=sdk,
         config=EciCarrierConfig(ready_timeout_s=150.0),
-        health_check=lambda url: True,
+        ready_check=lambda: False,
         sleep=lambda s: None,
         now=lambda: next(ticks),
     )
@@ -75,20 +218,9 @@ def test_provision_times_out_reaps_and_raises():
     assert carrier.instance_id is None
 
 
-def test_health_gate_blocks_url_until_green():
-    sdk = FakeEciSdk([{"status": "Running", "public_ip": "1.2.3.4"}])
-    calls = {"n": 0}
-
-    def health(url):
-        calls["n"] += 1
-        return calls["n"] >= 2  # green only on the 2nd check
-
-    ticks = iter([0.0, 1.0, 2.0, 3.0])
-    carrier = EciProbeCarrier(
-        sdk=sdk, config=EciCarrierConfig(), health_check=health, sleep=lambda s: None, now=lambda: next(ticks)
-    )
-    assert carrier.provision() == "http://1.2.3.4:9000"
-    assert calls["n"] == 2
+# ---------------------------------------------------------------------------
+# Teardown
+# ---------------------------------------------------------------------------
 
 
 def test_teardown_is_idempotent_and_best_effort():
@@ -96,11 +228,11 @@ def test_teardown_is_idempotent_and_best_effort():
         def delete_container_group(self, instance_id):
             raise RuntimeError("transient")
 
-    sdk = Boom([{"status": "Running", "public_ip": "1.2.3.4"}])
+    sdk = Boom([{"status": "Running"}])
     carrier = EciProbeCarrier(
         sdk=sdk,
-        config=EciCarrierConfig(),
-        health_check=lambda url: True,
+        config=_make_config(),
+        ready_check=lambda: True,
         sleep=lambda s: None,
         now=lambda: 0.0,
     )
@@ -108,20 +240,40 @@ def test_teardown_is_idempotent_and_best_effort():
     carrier.teardown()  # swallows the RuntimeError
     carrier.teardown()  # second call is a no-op
     assert carrier.instance_id is None
+    assert carrier.control_prefix is None
 
 
 def test_teardown_before_provision_is_noop():
-    """teardown() called before provision() (the finally-block scenario where
-    provision raised before create_container_group returned) must not call
-    delete_container_group and must not raise."""
-    sdk = FakeEciSdk([])  # no describe script needed — teardown exits early
+    """teardown() before provision() (finally-block scenario) must not call delete
+    and must not raise."""
+    sdk = FakeEciSdk([])
     carrier = EciProbeCarrier(
         sdk=sdk,
-        config=EciCarrierConfig(),
-        health_check=lambda url: True,
+        config=_make_config(),
+        ready_check=lambda: True,
         sleep=lambda s: None,
         now=lambda: 0.0,
     )
-    carrier.teardown()  # no provision() called first — should be a no-op
-    assert sdk.deleted == []  # delete_container_group never called
+    carrier.teardown()  # no provision() first — should be a no-op
+    assert sdk.deleted == []
     assert carrier.instance_id is None
+
+
+# ---------------------------------------------------------------------------
+# Structural / tag checks
+# ---------------------------------------------------------------------------
+
+
+def test_create_request_has_managed_tag_and_run_id_tag():
+    sdk = FakeEciSdk([{"status": "Running"}])
+    carrier = EciProbeCarrier(
+        sdk=sdk,
+        config=_make_config(run_id="run-abcdef12"),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    req = sdk.created_req
+    assert {"key": "clousight-bench:managed", "value": "true"} in req["tags"]
+    assert any(t["key"] == "clousight-bench:run-id" for t in req["tags"])

@@ -20,12 +20,16 @@ class EciCarrierConfig:
     """Everything the create request needs. Real values pinned in Plan 5."""
 
     image: str = "registry.cn-hangzhou.aliyuncs.com/library/python:3.12"
+    # OSS control-plane fields (required for private probe)
+    bucket: str = ""  # OSS bucket name for CB_PROBE_BUCKET
+    campaign_id: str = ""  # per-campaign id; becomes CB_PROBE_CONTROL_PREFIX
+    # Kept for caller compatibility (accepted but unused — a later task removes them)
     oss_code_uri: str = ""  # oss://bucket/campaign-<id>/cb-probe.zip
     code_sha256: str = ""  # expected sha256 of cb-probe.zip (fail-closed)
     region: str = "cn-hangzhou"
     vswitch_id: str = ""
     security_group_id: str = ""
-    ram_role: str = ""  # instance RAM role granting oss:PutObject
+    ram_role: str = ""  # instance RAM role granting oss:PutObject / oss:GetObject
     cpu: float = 2.0
     memory: float = 4.0
     port: int = 9000
@@ -51,42 +55,44 @@ class CarrierError(RuntimeError):
 class EciProbeCarrier:
     sdk: EciSdk
     config: EciCarrierConfig
-    health_check: Callable[[str], bool] | None = None  # (probe_url) -> ready?
+    # ready_check() -> True once the OSS heartbeat key exists (ECI loop is running).
+    # Defaults to None; provision() builds the default from config if not supplied.
+    ready_check: Callable[[], bool] | None = None
     sleep: Callable[[float], None] = time.sleep
     now: Callable[[], float] = time.monotonic
     instance_id: str | None = field(default=None, init=False)
-    probe_url: str | None = field(default=None, init=False)
-    token: str = field(default="", init=False)  # bearer token for the probe HTTP surface
+    control_prefix: str | None = field(default=None, init=False)  # OSS campaign_id / control prefix
+    token: str = field(default="", init=False)  # bearer token injected into the ECI env
 
     def provision(self) -> str:
-        """Create the ECI, wait until Running + /health green; return probe_url.
-        Raises CarrierError on timeout (never silently falls back)."""
+        """Create the ECI, wait until Running AND the OSS readiness heartbeat fires.
+
+        Returns the control prefix (campaign_id) that both the carrier and the
+        ECI loop use to scope their OSS channel.  Raises CarrierError on timeout
+        (never silently falls back — on timeout, tears down + raises).
+        """
         import secrets
 
-        # Per-probe bearer token: the probe server (0.0.0.0, public IP) requires it
-        # on /run-job and /job so a stranger can't drive it or read job results.
+        # Per-probe token passed to the ECI via CB_PROBE_TOKEN.
         self.token = secrets.token_urlsafe(32)
         req = self._build_create_request()
         self.instance_id = self.sdk.create_container_group(req)
         deadline = self.now() + self.config.ready_timeout_s
-        health = self.health_check or self._default_health
+        ready = self.ready_check if self.ready_check is not None else self._default_ready_check()
         while self.now() < deadline:
             desc = self.sdk.describe_container_group(self.instance_id)
             status = str(desc.get("status") or "")
-            ip = str(desc.get("public_ip") or "")
-            if status == "Running" and ip:
-                url = f"http://{ip}:{self.config.port}"
-                if health(url):
-                    self.probe_url = url
-                    return url
+            if status == "Running" and ready():
+                self.control_prefix = self.config.campaign_id
+                return self.config.campaign_id
             self.sleep(self.config.poll_interval_s)
         self.teardown()  # don't leak a half-booted instance
-        raise CarrierError(f"ECI probe {self.instance_id} not healthy within {self.config.ready_timeout_s}s")
+        raise CarrierError(f"ECI probe {self.instance_id} not ready within {self.config.ready_timeout_s}s")
 
     def teardown(self) -> None:
         """Reap the ECI. Idempotent + best-effort (called from a finally)."""
         iid, self.instance_id = self.instance_id, None
-        self.probe_url = None
+        self.control_prefix = None
         if iid is None:
             return
         try:
@@ -95,35 +101,15 @@ class EciProbeCarrier:
             pass
 
     def _build_create_request(self) -> dict[str, Any]:
+        """Build a private ECI create request.
+
+        The container is fully private: no EIP is requested, only
+        v_switch_id + security_group_id. The ACR image's ENTRYPOINT already
+        runs ``python -m clousight_bench.domains.agent_runtime.probe.agent_loop``
+        so no ``command`` override is needed. Env vars are wired to the exact
+        names that agent_loop.main() reads.
+        """
         c = self.config
-        code_bucket, code_key = _split_oss_uri(c.oss_code_uri)
-        # Real OSS fetch from inside the ECI, authenticated by the instance RAM
-        # role via the ECS-RAM-role credential provider (no static creds).
-        fetch = (
-            "import os,oss2;"
-            "from oss2.credentials import EcsRamRoleCredentialsProvider;"
-            "b=oss2.Bucket(oss2.ProviderAuthV4(EcsRamRoleCredentialsProvider()),"
-            "'https://oss-'+os.environ['CB_PROBE_REGION']+'.aliyuncs.com',"
-            "os.environ['CB_PROBE_CODE_BUCKET'],region=os.environ['CB_PROBE_REGION']);"
-            "b.get_object_to_file(os.environ['CB_PROBE_CODE_KEY'],'/tmp/probe.zip')"
-        )
-        # Verify the fetched code against the expected sha256 BEFORE extracting or
-        # running it. Fail-closed: an unset/mismatched hash aborts (set -e), so a
-        # tampered or swapped OSS object can never be executed on the ECI (which
-        # holds the instance RAM role). Closes the "fetch == RCE" hole.
-        verify = (
-            "import hashlib,os,sys;"
-            "d=open('/tmp/probe.zip','rb').read();"
-            "w=os.environ.get('CB_PROBE_CODE_SHA256','');"
-            "sys.exit(0 if w and hashlib.sha256(d).hexdigest()==w else 1)"
-        )
-        bootstrap = (
-            "set -e; pip install oss2 requests >/dev/null; "
-            f'python -c "{fetch}"; '
-            f'python -c "{verify}"; '
-            "cd /tmp && python -m zipfile -e probe.zip probe && cd probe && "
-            f"PORT={c.port} python -m clousight_bench.domains.agent_runtime.probe.server"
-        )
         return {
             "region_id": c.region,
             "container_group_name": f"cb-probe-{(c.run_id or 'adhoc')[-8:]}",
@@ -141,27 +127,34 @@ class EciProbeCarrier:
                 {
                     "name": "cb-probe",
                     "image": c.image,
-                    "port": [{"port": c.port, "protocol": "TCP"}],
-                    "command": ["/bin/sh", "-c", bootstrap],
+                    # No "command" key: the ACR image ENTRYPOINT runs agent_loop.
                     "environment_var": [
-                        {"key": "PORT", "value": str(c.port)},
+                        {"key": "CB_PROBE_BUCKET", "value": c.bucket},
                         {"key": "CB_PROBE_REGION", "value": c.region},
-                        {"key": "CB_PROBE_CODE_BUCKET", "value": code_bucket},
-                        {"key": "CB_PROBE_CODE_KEY", "value": code_key},
-                        {"key": "CB_PROBE_CODE_SHA256", "value": c.code_sha256},
+                        {"key": "CB_PROBE_CONTROL_PREFIX", "value": c.campaign_id},
                         {"key": "CB_PROBE_TOKEN", "value": self.token},
                     ],
                 }
             ],
         }
 
-    def _default_health(self, probe_url: str) -> bool:
-        import requests
+    def _default_ready_check(self) -> Callable[[], bool]:
+        """Build the default OSS-heartbeat readiness check from config.
 
-        try:
-            return requests.get(f"{probe_url}/health", timeout=5).status_code == 200
-        except Exception:  # noqa: BLE001
-            return False
+        Constructs an OssChannel pointed at config.bucket / config.region /
+        config.campaign_id and returns channel.is_ready as the callable.
+        Uses Oss2Client (default credential chain, public endpoint) because the
+        control plane does NOT have an ECI instance RAM role — only the ECI
+        probe itself runs EcsRamRoleOssClient.
+        Lazy import so production code that skips OSS doesn't need oss2 at
+        import time.
+        """
+        from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+        from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
+
+        oss = Oss2Client(bucket=self.config.bucket, region=self.config.region)
+        channel = OssChannel(oss, campaign_id=self.config.campaign_id)
+        return channel.is_ready
 
 
 class Eci20180808Sdk:

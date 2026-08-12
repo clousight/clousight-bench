@@ -19,8 +19,6 @@ class _FakeSdk:
 
 def test_default_carrier_builds_real_carrier_with_ram_role_and_code_uri(monkeypatch):
     monkeypatch.setattr(al, "Eci20180808Sdk", _FakeSdk)
-    # avoid the default requests-based health check hitting the network
-    monkeypatch.setattr(EciProbeCarrier, "_default_health", lambda self, url: True)
     probe = al._AliyunCampaignProbe()
     target = {
         "run_id": "run-xy",
@@ -36,9 +34,12 @@ def test_default_carrier_builds_real_carrier_with_ram_role_and_code_uri(monkeypa
     assert cfg.ram_role == "clousight-bench-eci-probe"
     assert cfg.vswitch_id == "vsw-1" and cfg.security_group_id == "sg-1"
     assert cfg.region == "cn-hangzhou" and cfg.run_id == "run-xy"
-    assert cfg.oss_code_uri == "oss://bench-bkt/clousight-bench/run-xy/cb-probe.zip"
-    # the carrier provisions end-to-end against the fake SDK (no network)
-    assert carrier.provision() == "http://9.9.9.9:9000"
+    # OSS-mediated carrier: campaign_id + bucket drive the ECI env; no oss_code_uri.
+    assert cfg.campaign_id == "run-xy" and cfg.bucket == "bench-bkt"
+    # Readiness is an injected OSS-heartbeat check (not an HTTP /health call); with
+    # the fake SDK reporting Running, provision returns the campaign_id/control prefix.
+    carrier.ready_check = lambda: True
+    assert carrier.provision() == "run-xy"
 
 
 def test_default_oss_reads_bucket_and_region_from_target():

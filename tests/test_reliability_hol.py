@@ -332,8 +332,14 @@ def test_local_sim_t1_12_orchestrator_produces_new_shape(tmp_path):
     assert "fast_p50_under_slow" in measurements, f"missing 'fast_p50_under_slow' in {list(measurements)}"
     assert "hol_ratio" in measurements, f"missing 'hol_ratio' in {list(measurements)}"
     assert "serialized" in measurements, f"missing 'serialized' in {list(measurements)}"
-    # local-sim uses ThreadingHTTPServer → serialized=False
-    assert measurements["serialized"]["value"] is False
+    # This e2e test verifies the orchestrator emits the new measurement SHAPE.
+    # `serialized` is derived from real ThreadingHTTPServer timing on local-sim
+    # (serialized = fast_p50_under_slow > fast_p50_baseline * 2), so its exact
+    # value is timing-dependent and flakes on a loaded CI runner (a fast-baseline
+    # p50 of a few ms crosses the 2x threshold under scheduling noise). Assert the
+    # type here; the True/False behavior is covered deterministically by the
+    # controlled fake-server tests (a/b/c) above.
+    assert isinstance(measurements["serialized"]["value"], bool)
 
 
 # ---------------------------------------------------------------------------
