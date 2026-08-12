@@ -264,6 +264,15 @@ locals {
           Resource = "acs:oss:*:*:${local.bucket_name}/clousight-bench/*"
         },
         {
+          # Bucket-level ListObjects so the control plane can mirror the probe's OSS
+          # prefix back to results/ (sync_probe_artifacts -> oss_sync.list_prefix).
+          # ListObjects is a bucket action, not object-path scoped.
+          Sid      = "OssArtifactList"
+          Effect   = "Allow"
+          Action   = ["oss:ListObjects"]
+          Resource = "acs:oss:*:*:${local.bucket_name}"
+        },
+        {
           # Read-only VPC/VSW/SG: needed to resolve network config for CreateAgentRuntime.
           # Also grants DescribeSecurityGroups for the harness to pick a valid SG.
           Sid    = "VpcReadOnly"
@@ -468,8 +477,19 @@ resource "alicloud_ram_policy" "eci_probe" {
       {
         Sid      = "EciProbeOss"
         Effect   = "Allow"
-        Action   = ["oss:PutObject", "oss:GetObject"]
+        Action   = ["oss:PutObject", "oss:GetObject", "oss:DeleteObject"]
         Resource = "acs:oss:*:*:${local.bucket_name}/clousight-bench/*"
+      },
+      {
+        # ListObjects is a bucket-level action (not object-path scoped). The ECI's
+        # OSS-mediated job-discovery loop (OssChannel.list_pending_jobs) enumerates
+        # the control prefix, so the instance role MUST be able to list the bucket.
+        # Without this the ECI never discovers dispatched jobs and every live job
+        # times out (burning NAT+ECI spend on a guaranteed failure).
+        Sid      = "EciProbeOssList"
+        Effect   = "Allow"
+        Action   = ["oss:ListObjects"]
+        Resource = "acs:oss:*:*:${local.bucket_name}"
       },
     ]
   })
