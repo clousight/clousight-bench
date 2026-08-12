@@ -103,12 +103,3 @@ output "probe_nat_gateway_id" {
   value       = var.enable_probe ? alicloud_nat_gateway.bench[0].id : ""
 }
 
-output "acr_repo_vpc_domain" {
-  description = <<-EOT
-    VPC pull domain for the cb-probe image repository.
-    The operator appends :<tag> to form the full image reference, e.g.:
-      registry-vpc.cn-hangzhou.aliyuncs.com/clousight-bench/cb-probe:v0.1.0
-    Empty when enable_probe = false.
-  EOT
-  value       = var.enable_probe ? "registry-vpc.${var.region}.aliyuncs.com/${var.acr_namespace}/cb-probe" : ""
-}

@@ -1,60 +1,58 @@
 #!/usr/bin/env bash
-# build-push.sh — build the cb-probe image and push it to Aliyun ACR.
+# build-push.sh — build the OPTIONAL cb-probe image and push it to any registry.
+#
+# You normally do NOT need this: by default the probe installs itself from the
+# public repo at container boot (no build, no registry). Build a pre-baked image
+# only to shave the boot-time pip install off ECI/Fargate cold starts.
+#
+# Registry-agnostic — works for Aliyun ACR, AWS ECR, GHCR, Docker Hub, etc.
 #
 # Required env vars:
-#   CB_ACR_NAMESPACE   ACR namespace (e.g. "clousight")
-#   CB_ACR_USER        ACR username (from terraform output or ACR console)
-#   CB_ACR_PASSWORD    ACR password / access token (never hardcoded)
-#
-# Optional env vars:
-#   CB_ACR_REGION      Aliyun region (default: cn-hangzhou)
+#   CB_REGISTRY           Registry host, e.g. registry.cn-hangzhou.aliyuncs.com | ghcr.io
+#   CB_IMAGE_REPO         Repo path, e.g. <namespace>/cb-probe
+#   CB_REGISTRY_USER      Push username
+#   CB_REGISTRY_PASSWORD  Push password / token (never hardcoded)
 #
 # Usage:
-#   CB_ACR_NAMESPACE=clousight CB_ACR_USER=... CB_ACR_PASSWORD=... ./deploy/cb-probe/build-push.sh
+#   CB_REGISTRY=ghcr.io CB_IMAGE_REPO=clousight/cb-probe \
+#   CB_REGISTRY_USER=... CB_REGISTRY_PASSWORD=... ./deploy/cb-probe/build-push.sh
 #
-# The script prints the registry-vpc image reference at the end — that value
-# goes into the terraform `eci_image` variable (or csbench target `eci_image`).
+# Prints the pull reference at the end — set it as csbench target `eci_image`
+# (or terraform var.eci_image).
 
 set -euo pipefail
 
-# --- Configuration ---
-CB_ACR_REGION="${CB_ACR_REGION:-cn-hangzhou}"
+: "${CB_REGISTRY:?CB_REGISTRY must be set (e.g. ghcr.io or registry.cn-hangzhou.aliyuncs.com)}"
+: "${CB_IMAGE_REPO:?CB_IMAGE_REPO must be set (e.g. <namespace>/cb-probe)}"
+: "${CB_REGISTRY_USER:?CB_REGISTRY_USER must be set}"
+: "${CB_REGISTRY_PASSWORD:?CB_REGISTRY_PASSWORD must be set}"
 
-: "${CB_ACR_NAMESPACE:?CB_ACR_NAMESPACE must be set (ACR namespace)}"
-: "${CB_ACR_USER:?CB_ACR_USER must be set (ACR username)}"
-: "${CB_ACR_PASSWORD:?CB_ACR_PASSWORD must be set (ACR password)}"
-
-REPO="cb-probe"
-PUBLIC_REGISTRY="registry.${CB_ACR_REGION}.aliyuncs.com"
-VPC_REGISTRY="registry-vpc.${CB_ACR_REGION}.aliyuncs.com"
-
-# Derive a deterministic tag from the current git commit SHA (short).
+# Deterministic tag from the current git commit SHA — matches the code_ref a
+# bootstrap run would install, so the image and the from-source path stay in sync.
 GIT_TAG="$(git rev-parse --short HEAD)"
+IMAGE="${CB_REGISTRY}/${CB_IMAGE_REPO}:${GIT_TAG}"
 
-PUBLIC_IMAGE="${PUBLIC_REGISTRY}/${CB_ACR_NAMESPACE}/${REPO}:${GIT_TAG}"
-VPC_IMAGE="${VPC_REGISTRY}/${CB_ACR_NAMESPACE}/${REPO}:${GIT_TAG}"
-
-# Resolve the repo root regardless of where the script is invoked from.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
-echo "[cb-probe] Building image: ${PUBLIC_IMAGE}"
+echo "[cb-probe] Building image: ${IMAGE}"
 echo "[cb-probe] Build context: ${REPO_ROOT}"
-
 docker build \
   --file "${REPO_ROOT}/deploy/cb-probe/Dockerfile" \
-  --tag "${PUBLIC_IMAGE}" \
+  --tag "${IMAGE}" \
   "${REPO_ROOT}"
 
-echo "[cb-probe] Logging in to ${PUBLIC_REGISTRY}"
-echo "${CB_ACR_PASSWORD}" | docker login \
-  --username "${CB_ACR_USER}" \
+echo "[cb-probe] Logging in to ${CB_REGISTRY}"
+echo "${CB_REGISTRY_PASSWORD}" | docker login \
+  --username "${CB_REGISTRY_USER}" \
   --password-stdin \
-  "${PUBLIC_REGISTRY}"
+  "${CB_REGISTRY}"
 
-echo "[cb-probe] Pushing ${PUBLIC_IMAGE}"
-docker push "${PUBLIC_IMAGE}"
+echo "[cb-probe] Pushing ${IMAGE}"
+docker push "${IMAGE}"
 
 echo
 echo "[cb-probe] Build and push complete."
-echo "[cb-probe] ECI image reference (registry-vpc, for eci_image var):"
-echo "  ${VPC_IMAGE}"
+echo "[cb-probe] Set this as csbench target eci_image (or terraform var.eci_image):"
+echo "  ${IMAGE}"
+echo "[cb-probe] For a private Aliyun-internal pull, mirror to ACR and use the"
+echo "           registry-vpc.<region>.aliyuncs.com/... form instead."

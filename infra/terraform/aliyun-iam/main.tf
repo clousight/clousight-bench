@@ -560,53 +560,13 @@ resource "alicloud_ram_user_policy_attachment" "eci_probe_ops" {
   depends_on = [alicloud_ram_user.bench, alicloud_ram_policy.eci_probe_ops]
 }
 
-# ── ACR image-pull permissions for the ECI probe role ────────────────────────
-# Allows ECI containers assuming eci_probe role to pull from ACR personal edition.
-# ACR personal edition does not support fine-grained repo ARNs — Resource = "*" is
-# standard for cr:* actions (same as eci:* above).
-# LIVE-VERIFY: confirm the ECI→ACR private pull auth flow after first probe image
-# push: `docker pull registry-vpc.<region>.aliyuncs.com/<ns>/cb-probe:<tag>` from
-# inside ECI should succeed with no public IP on the container group.
-
-resource "alicloud_ram_policy" "eci_probe_acr_pull" {
-  count       = var.enable_probe ? 1 : 0
-  policy_name = "ClousightBench-EciProbeAcrPull"
-  description = "Allows ECI probe containers to pull images from ACR personal edition."
-  force       = true
-  policy_document = jsonencode({
-    Version = "1"
-    Statement = [
-      {
-        Sid    = "AcrPull"
-        Effect = "Allow"
-        # ACR personal edition does not support fine-grained repo ARNs;
-        # Resource = "*" is the documented pattern for cr:* pull actions.
-        Action = [
-          "cr:PullRepository",
-          "cr:GetRepository",
-          "cr:GetRepositoryAuthorizationToken",
-          "cr:ListRepositoryTag",
-        ]
-        Resource = "*"
-      },
-    ]
-  })
-}
-
-resource "alicloud_ram_role_policy_attachment" "eci_probe_acr_pull" {
-  count       = var.enable_probe ? 1 : 0
-  role_name   = alicloud_ram_role.eci_probe[0].role_name
-  policy_name = alicloud_ram_policy.eci_probe_acr_pull[0].policy_name
-  policy_type = "Custom"
-
-  depends_on = [alicloud_ram_role.eci_probe, alicloud_ram_policy.eci_probe_acr_pull]
-}
-
 # ── NAT Gateway — private ECI egress ─────────────────────────────────────────
 # ECI containers have NO public IP (enforced in the carrier); the NAT gateway
 # provides SNAT-only egress so the probe can reach:
 #   • the AgentRun public endpoint (control-plane API calls),
-#   • ACR / OSS public endpoints if the VPC endpoint is not yet peered.
+#   • PyPI + the public github archive tarball at container boot (the probe
+#     installs itself from source — no prebuilt image / registry),
+#   • the OSS public endpoint if the internal endpoint is not used.
 # Enhanced NAT is required for new Aliyun accounts (Classic NAT is deprecated).
 
 resource "alicloud_nat_gateway" "bench" {
@@ -642,28 +602,9 @@ resource "alicloud_snat_entry" "bench" {
   depends_on = [alicloud_eip_association.nat]
 }
 
-# ── ACR (personal edition) — cb-probe image registry ─────────────────────────
-# Personal edition ACR is provisioned per-namespace; no Enterprise instance fee.
-# The VPC pull domain (registry-vpc.<region>.aliyuncs.com) allows the private ECI
-# to pull without the traffic leaving the Aliyun backbone.
-#
-# NOTE: alicloud_cr_namespace / alicloud_cr_repo are deprecated in provider >= 1.276
-# in favour of alicloud_cr_ee_namespace / alicloud_cr_ee_repo (Enterprise Edition).
-# We intentionally use Personal Edition (cheaper, no per-instance hourly charge) and
-# accept the deprecation warnings. Migrate to EE only if personal edition is sunset.
-
-resource "alicloud_cr_namespace" "bench" {
-  count              = var.enable_probe ? 1 : 0
-  name               = var.acr_namespace
-  auto_create        = false
-  default_visibility = "PRIVATE"
-}
-
-resource "alicloud_cr_repo" "cb_probe" {
-  count     = var.enable_probe ? 1 : 0
-  namespace = alicloud_cr_namespace.bench[0].name
-  name      = "cb-probe"
-  summary   = "Clousight Bench ECI probe container image."
-  repo_type = "PRIVATE"
-}
+# ── Probe container image ─────────────────────────────────────────────────────
+# No registry is managed here: the ECI runs a stock public base image and installs
+# the probe from the public github archive tarball at boot (vendor-neutral — the
+# same bootstrap works on any cloud's container service). ACR is therefore not
+# required; add an ACR mirror only as an optional per-region cold-start speedup.
 
