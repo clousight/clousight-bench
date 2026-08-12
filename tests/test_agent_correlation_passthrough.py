@@ -5,6 +5,7 @@ The mock tool server buckets calls by (target, corr) in ToolState.call_counts wi
 keys of the form "target|corr". This test proves the agent writes the
 X-Clousight-Correlation-Id header so the mock can produce the per-corr bucket.
 """
+
 from threading import Thread
 
 from clousight_bench.domains.agent_runtime.agent_bundle import agent as agent_mod

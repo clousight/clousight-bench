@@ -914,8 +914,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         finally:
             self.destroy_session(session)
 
-    def probe_fault_recovery(self, fault_call_index: int = 3) -> InvocationTrace:
-        """T1.3 request-level fault injection probe.
+    def _probe_fault_injection_trace(self, fault_call_index: int = 3) -> InvocationTrace:
+        """T1.3 request-level fault injection diagnostic (live Aliyun path).
 
         Makes ``fault_call_index + 2`` sequential tool calls with
         ``fail_after_n_calls=fault_call_index`` encoded in every request body.
@@ -927,6 +927,12 @@ class AliyunAgentRunTransport(RuntimeTransport):
         The trace's ``completed`` flag is False when the fault fired (the runtime
         surfaced the error to us; we do not retry here — the task scores
         the runtime's OWN recovery behavior after the fault).
+
+        Note: this is a low-level diagnostic helper used by the data-plane probe
+        job (probe/dataplane.py). The transport-level ``probe_fault_recovery()``
+        (returning ``FaultRecoveryResult``) is inherited from ``RuntimeTransport``
+        and raises ``CapabilityNotSupported`` on the live path (live T1.3 runs
+        via the data-plane probe instead).
         """
         base = self._adapter.mock_base_url
         mock_token = str(self._adapter.target.get("mock_token") or "")
@@ -986,7 +992,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         corr = uuid.uuid4().hex
 
         # Step 1: Configure fault — fail ALL calls in this corr bucket.
-        fault_config = {"fail_from_call": 1, "fail_count": 999, "corr": corr}
+        fault_config: dict[str, Any] = {"fail_from_call": 1, "fail_count": 999, "corr": corr}
         fault_url = base.rstrip("/") + "/fault/config"
         try:
             import requests as _requests
@@ -1088,14 +1094,19 @@ class AliyunAgentRunTransport(RuntimeTransport):
         return ConcurrentWriteResult(write_safe=write_safe, winner=winner)
 
     def probe_hol_blocking(self) -> HOLResult:
-        """T1.12: 1 slow + 5 fast concurrent requests on the same session.
+        """T1.12: two-phase HOL probe (live Aliyun path).
 
-        Fires requests to the ``reports`` endpoint (slow) and ``prices``
-        endpoint (fast) concurrently via the data plane. If the fast
-        requests' p99 exceeds half the slow request's latency, HOL blocking
-        is present in the session dispatch queue.
+        Phase A (baseline): 20 concurrent fast requests (``prices``) with no
+        slow request running — establishes ``fast_p50_baseline``.
+        Phase B (under-slow): 1 slow (``reports``) + 20 fast (``prices``)
+        concurrent on the same session — establishes ``fast_p50_under_slow``.
+
+        serialized = fast_p50_under_slow > fast_p50_baseline * 2.0
+        hol_ratio  = fast_p50_under_slow / fast_p50_baseline
         """
         import concurrent.futures as _cf
+
+        from clousight_bench.core.stats import percentiles
 
         # Ensure runtime is provisioned
         _, _ = self._one_tool_call()
@@ -1117,25 +1128,34 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 pass
             return (time.perf_counter() - t0) * 1000
 
+        fast_count = 20
+        fast_calls = ["prices"] * fast_count
+
         try:
-            with _cf.ThreadPoolExecutor(max_workers=6) as pool:
+            # Phase A: baseline — fast requests only, no slow
+            with _cf.ThreadPoolExecutor(max_workers=fast_count) as pool:
+                futs_a = [pool.submit(timed_invoke, t) for t in fast_calls]
+                baseline_latencies = [f.result() for f in futs_a]
+
+            fast_p50_baseline = percentiles(baseline_latencies, [50])[50]
+
+            # Phase B: under-slow — 1 slow + N fast concurrent
+            with _cf.ThreadPoolExecutor(max_workers=1 + fast_count) as pool:
                 slow_fut = pool.submit(timed_invoke, "reports")
-                fast_futs = [pool.submit(timed_invoke, "prices") for _ in range(5)]
-                slow_ms = slow_fut.result()
-                fast_latencies = sorted(f.result() for f in fast_futs)
+                futs_b = [pool.submit(timed_invoke, t) for t in fast_calls]
+                slow_fut.result()
+                under_slow_latencies = [f.result() for f in futs_b]
         finally:
             self.destroy_session(session_id)
 
-        fast_p50_ms = round(fast_latencies[len(fast_latencies) // 2], 2)
-        fast_p99_ms = round(fast_latencies[-1], 2)
-        slow_p50_ms = round(slow_ms, 2)
-        hol_ratio = round(fast_p99_ms / slow_p50_ms, 4) if slow_p50_ms > 0 else 0.0
-        blocked = hol_ratio > 0.5
+        fast_p50_under_slow = percentiles(under_slow_latencies, [50])[50]
+        hol_ratio = round(fast_p50_under_slow / fast_p50_baseline, 4) if fast_p50_baseline > 0 else 0.0
+        serialized = fast_p50_under_slow > fast_p50_baseline * 2.0
 
         return HOLResult(
-            blocked=blocked,
-            fast_p50_ms=fast_p50_ms,
-            slow_p50_ms=slow_p50_ms,
+            serialized=serialized,
+            fast_p50_baseline=fast_p50_baseline,
+            fast_p50_under_slow=fast_p50_under_slow,
             hol_ratio=hol_ratio,
         )
 

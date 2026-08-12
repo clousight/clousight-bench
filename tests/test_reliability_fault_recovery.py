@@ -292,6 +292,7 @@ def test_fault_recovery_recovered_false_when_agent_exhausts_retries():
 
         def _exhausted_invoke(self, session_id, body):
             import json as _json
+
             result = {"ok": False, "_tool_http_status": 500, "status": 500}
             return {"choices": [{"message": {"role": "assistant", "content": _json.dumps(result)}}]}
 
@@ -414,13 +415,15 @@ def test_t1_3_score_recovered_true_no_warning():
     from clousight_bench.core.observation import ObservationBundle
     from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
 
-    obs = ObservationBundle(observations={
-        "capability": "supported",
-        "recovered": True,
-        "observed_attempts": 3,
-        "recovery_ms": 55.0,
-        "platform_terminated": False,
-    })
+    obs = ObservationBundle(
+        observations={
+            "capability": "supported",
+            "recovered": True,
+            "observed_attempts": 3,
+            "recovery_ms": 55.0,
+            "platform_terminated": False,
+        }
+    )
     result = FaultRecoveryTask().score(obs)
     # TaskResult.measurements has Measurement objects; access .value directly
     assert result.measurements["recovered"].value is True
@@ -434,13 +437,15 @@ def test_t1_3_score_platform_terminated_adds_warning():
     from clousight_bench.core.observation import ObservationBundle
     from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
 
-    obs = ObservationBundle(observations={
-        "capability": "supported",
-        "recovered": False,
-        "observed_attempts": 1,
-        "recovery_ms": 5000.0,
-        "platform_terminated": True,
-    })
+    obs = ObservationBundle(
+        observations={
+            "capability": "supported",
+            "recovered": False,
+            "observed_attempts": 1,
+            "recovery_ms": 5000.0,
+            "platform_terminated": True,
+        }
+    )
     result = FaultRecoveryTask().score(obs)
     codes = [f.code for f in result.findings]
     assert "agent_runtime.platform_timeout_recovery" in codes
@@ -451,13 +456,15 @@ def test_t1_3_score_not_retried_adds_warning():
     from clousight_bench.core.observation import ObservationBundle
     from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
 
-    obs = ObservationBundle(observations={
-        "capability": "supported",
-        "recovered": False,
-        "observed_attempts": 1,
-        "recovery_ms": 10.0,
-        "platform_terminated": False,
-    })
+    obs = ObservationBundle(
+        observations={
+            "capability": "supported",
+            "recovered": False,
+            "observed_attempts": 1,
+            "recovery_ms": 10.0,
+            "platform_terminated": False,
+        }
+    )
     result = FaultRecoveryTask().score(obs)
     codes = [f.code for f in result.findings]
     assert "agent_runtime.platform_blocked_retry" in codes

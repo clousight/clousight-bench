@@ -12,7 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .oss_sink import OssChunkSink
@@ -726,7 +726,7 @@ def run_hol_blocking(
     # ---- Phase B: under-slow — inject real latency, 1 slow + fast_count fast ----
     # Configure latency on the mock tool server for the slow target.
     slow_corr = uuid.uuid4().hex
-    latency_cfg = {"target": slow_target, "add_ms": slow_latency_ms, "corr": slow_corr}
+    latency_cfg: dict[str, Any] = {"target": slow_target, "add_ms": slow_latency_ms, "corr": slow_corr}
     try:
         requests.post(latency_url, json=latency_cfg, timeout=10).raise_for_status()
     except Exception:
@@ -813,7 +813,7 @@ def run_fault_recovery(
     corr = uuid.uuid4().hex  # unique correlation id for this probe run
 
     # Step 1: Configure fault on mock server — fail only call #1 in this corr bucket.
-    fault_config = {"target": "prices", "fail_on_calls": [1], "status": 500, "corr": corr}
+    fault_config: dict[str, Any] = {"target": "prices", "fail_on_calls": [1], "status": 500, "corr": corr}
     fault_url = base.rstrip("/") + "/fault/config"
     inv = ProbeInvoker(spec)
     session = inv.create_session()
@@ -910,7 +910,7 @@ def run_retry_storm(
     corr = uuid.uuid4().hex  # unique correlation id for this probe run
 
     # Step 1: Configure fault on mock server — fail ALL calls in this corr bucket.
-    fault_config = {"fail_from_call": 1, "fail_count": 999, "corr": corr}
+    fault_config: dict[str, Any] = {"fail_from_call": 1, "fail_count": 999, "corr": corr}
     fault_url = base.rstrip("/") + "/fault/config"
     inv = ProbeInvoker(spec)
     session = inv.create_session()

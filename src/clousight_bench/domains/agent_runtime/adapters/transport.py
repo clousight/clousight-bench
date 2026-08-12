@@ -135,6 +135,9 @@ class RuntimeTransport(ABC):
     def probe_concurrency_ceiling(self) -> CeilingResult:
         raise CapabilityNotSupported("probe_concurrency_ceiling")
 
+    def probe_fault_recovery(self) -> FaultRecoveryResult:
+        raise CapabilityNotSupported("probe_fault_recovery")
+
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
         raise CapabilityNotSupported("probe_retry_storm")
 

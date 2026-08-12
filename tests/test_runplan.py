@@ -60,7 +60,7 @@ def test_execute_plan_persists_every_run_and_excludes_warmups(tmp_path):
     assert len(aggregate.runs["warmup"]) == 2
     assert len(aggregate.runs["measured"]) == 3
     # Statistics pool only the 3 measured runs.
-    assert aggregate.measurements["total_attempts"]["n"] == 3
+    assert aggregate.measurements["observed_attempts"]["n"] == 3
     assert aggregate.status_counts == {"completed": 3}
     assert aggregate.comparable is True
 
