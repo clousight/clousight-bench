@@ -33,9 +33,20 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ScalePoint,
     SoakResult,
 )
+from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
 
 from .invoke import ProbeInvoker
 from .jobs import JobProgress, JobSpec
+
+
+def _auth_headers(mock_token: str) -> dict[str, str]:
+    """Return the auth header dict for direct control-plane calls to the mock server.
+
+    An empty token means the mock is open (local-sim / no token configured) — return
+    an empty dict so callers can unconditionally merge the result.
+    """
+    return {AUTH_HEADER: mock_token} if mock_token else {}
+
 
 TTFT_WARMUP = 1
 TTFT_SAMPLES = 5
@@ -728,7 +739,9 @@ def run_hol_blocking(
     slow_corr = uuid.uuid4().hex
     latency_cfg: dict[str, Any] = {"target": slow_target, "add_ms": slow_latency_ms, "corr": slow_corr}
     try:
-        requests.post(latency_url, json=latency_cfg, timeout=10).raise_for_status()
+        requests.post(
+            latency_url, json=latency_cfg, headers=_auth_headers(mock_token), timeout=10
+        ).raise_for_status()
     except Exception:
         pass  # best-effort; probe continues even if mock unreachable
 
@@ -759,7 +772,7 @@ def run_hol_blocking(
         inv.destroy_session(session_b)
         # Clear latency config so it doesn't affect other probes.
         try:
-            requests.post(latency_url, json={}, timeout=5)
+            requests.post(latency_url, json={}, headers=_auth_headers(mock_token), timeout=5)
         except Exception:
             pass
 
@@ -822,7 +835,9 @@ def run_fault_recovery(
     try:
         import requests as _requests
 
-        _requests.post(fault_url, json=fault_config, timeout=10).raise_for_status()
+        _requests.post(
+            fault_url, json=fault_config, headers=_auth_headers(mock_token), timeout=10
+        ).raise_for_status()
     except Exception:
         # If mock is unreachable, best-effort — probe will still proceed.
         pass
@@ -863,7 +878,9 @@ def run_fault_recovery(
     try:
         import requests as _requests
 
-        state_resp = _requests.get(base.rstrip("/") + "/fault/state", timeout=10)
+        state_resp = _requests.get(
+            base.rstrip("/") + "/fault/state", headers=_auth_headers(mock_token), timeout=10
+        )
         state_resp.raise_for_status()
         counts = state_resp.json().get("call_counts", {})
         observed_attempts = int(counts.get(f"prices|{corr}", 0))
@@ -919,7 +936,9 @@ def run_retry_storm(
     try:
         import requests as _requests
 
-        _requests.post(fault_url, json=fault_config, timeout=10).raise_for_status()
+        _requests.post(
+            fault_url, json=fault_config, headers=_auth_headers(mock_token), timeout=10
+        ).raise_for_status()
     except Exception:
         # If mock is unreachable, best-effort — probe will still proceed.
         pass
@@ -957,7 +976,9 @@ def run_retry_storm(
     try:
         import requests as _requests
 
-        state_resp = _requests.get(base.rstrip("/") + "/fault/state", timeout=10)
+        state_resp = _requests.get(
+            base.rstrip("/") + "/fault/state", headers=_auth_headers(mock_token), timeout=10
+        )
         state_resp.raise_for_status()
         counts = state_resp.json().get("call_counts", {})
         total_attempts = int(counts.get(f"prices|{corr}", 0))

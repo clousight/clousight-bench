@@ -603,6 +603,10 @@ class MockRuntimeTransport(RuntimeTransport):
 
         The mock transport uses a single ThreadingHTTPServer so all requests run
         in parallel → serialized=False deterministically, hol_ratio ≈ 1.0.
+
+        NOTE: this is a shape-only smoke path, not a real HOL measurement.
+        The real signal (with actual latency injection) comes from the live
+        latency-injected path in probe/dataplane.py::run_hol_blocking.
         """
         fast_count = 20
         slow_call = ToolCall(target="reports", method="POST")

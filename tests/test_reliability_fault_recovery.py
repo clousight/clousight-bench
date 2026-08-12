@@ -388,7 +388,7 @@ def test_pack_fault_recovery_produces_new_shape():
         def destroy_session(self, session_id):
             pass
 
-        def probe_fault_recovery(self, fault_call_index: int = 3):
+        def probe_fault_recovery(self):
             return FaultRecoveryResult(
                 recovered=True,
                 observed_attempts=3,

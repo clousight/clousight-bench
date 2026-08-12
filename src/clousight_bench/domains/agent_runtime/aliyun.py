@@ -63,6 +63,7 @@ from clousight_bench.domains.agent_runtime.eci_carrier import (
     EciCarrierConfig,
     EciProbeCarrier,
 )
+from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
 
 _SDK_PACKAGE = "alibabacloud-agentrun20250910"
 _READY_TIMEOUT_S = 300.0
@@ -71,6 +72,11 @@ _READY_POLL_S = 3.0
 # Module-level cache: built once at first use, not at import, to avoid the
 # import-time cost of building the runner when this module is merely loaded.
 _PROBE_FNS: dict | None = None
+
+
+def _auth_headers(mock_token: str) -> dict[str, str]:
+    """Return the auth header dict for direct control-plane calls to the mock server."""
+    return {AUTH_HEADER: mock_token} if mock_token else {}
 
 
 def _get_probe_fns() -> dict:
@@ -914,64 +920,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
         finally:
             self.destroy_session(session)
 
-    def _probe_fault_injection_trace(self, fault_call_index: int = 3) -> InvocationTrace:
-        """T1.3 request-level fault injection diagnostic (live Aliyun path).
-
-        Makes ``fault_call_index + 2`` sequential tool calls with
-        ``fail_after_n_calls=fault_call_index`` encoded in every request body.
-        The deployed agent.py returns a synthetic 500 on call #fault_call_index
-        WITHOUT reading from any shared mock-server state, eliminating the
-        multi-instance state-sharing problem of the old POST /fault/config approach.
-
-        Returns an InvocationTrace showing which calls succeeded and which failed.
-        The trace's ``completed`` flag is False when the fault fired (the runtime
-        surfaced the error to us; we do not retry here — the task scores
-        the runtime's OWN recovery behavior after the fault).
-
-        Note: this is a low-level diagnostic helper used by the data-plane probe
-        job (probe/dataplane.py). The transport-level ``probe_fault_recovery()``
-        (returning ``FaultRecoveryResult``) is inherited from ``RuntimeTransport``
-        and raises ``CapabilityNotSupported`` on the live path (live T1.3 runs
-        via the data-plane probe instead).
-        """
-        base = self._adapter.mock_base_url
-        mock_token = str(self._adapter.target.get("mock_token") or "")
-        n_calls = fault_call_index + 2  # enough calls to guarantee fault fires
-        session = self.create_session()
-        attempts: list[Attempt] = []
-        completed = True
-        final_state = "completed"
-        try:
-            for call_index in range(1, n_calls + 1):
-                tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
-                body = protocol.encode_invoke(
-                    tool,
-                    base,
-                    mock_token=mock_token or None,
-                    fail_after_n_calls=fault_call_index,
-                    session_id=session,
-                )
-                start = time.perf_counter()
-                resp = self._invoke(session, body)
-                latency = (time.perf_counter() - start) * 1000
-                result = protocol.decode_result(resp)
-                status = int(result.get("status", 0))
-                ok = bool(result.get("ok"))
-                fault_injected = bool(result.get("_fault_injected"))
-                if fault_injected:
-                    # Treat the synthetic failure the same as a real runtime failure:
-                    # status=500, ok=False. The runtime's recovery behavior (retry /
-                    # abort) determines what T1.3 scores; here we just observe.
-                    status = status or 500
-                attempts.append(Attempt(call_index, 1, status, ok, round(latency, 2)))
-                if not ok:
-                    completed = False
-                    final_state = "failed"
-                    break
-        finally:
-            self.destroy_session(session)
-        return InvocationTrace(session, attempts, completed, final_state)
-
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
         """T1.10: mock-counted total attempts + storm-bounded-by attribution.
 
@@ -997,7 +945,9 @@ class AliyunAgentRunTransport(RuntimeTransport):
         try:
             import requests as _requests
 
-            _requests.post(fault_url, json=fault_config, timeout=10).raise_for_status()
+            _requests.post(
+                fault_url, json=fault_config, headers=_auth_headers(mock_token), timeout=10
+            ).raise_for_status()
         except Exception:
             pass  # best-effort; probe proceeds
 
@@ -1029,7 +979,9 @@ class AliyunAgentRunTransport(RuntimeTransport):
         try:
             import requests as _requests
 
-            state_resp = _requests.get(base.rstrip("/") + "/fault/state", timeout=10)
+            state_resp = _requests.get(
+                base.rstrip("/") + "/fault/state", headers=_auth_headers(mock_token), timeout=10
+            )
             state_resp.raise_for_status()
             counts = state_resp.json().get("call_counts", {})
             total_attempts = int(counts.get(f"prices|{corr}", 0))
