@@ -689,8 +689,7 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
         hook = campaign_probe_hook(provider)
         if hook is None:
             print(
-                f"error: --probe eci requested but no probe carrier is registered "
-                f"for provider '{provider}'",
+                f"error: --probe eci requested but no probe carrier is registered for provider '{provider}'",
                 file=sys.stderr,
             )
             return 2
