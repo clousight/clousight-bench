@@ -72,6 +72,14 @@ output "csbench_config" {
       eci_probe_role        = var.enable_probe ? alicloud_ram_role.eci_probe[0].role_name : ""
       ecs_image_id          = var.ecs_image_id
       ecs_instance_type     = var.ecs_instance_type
+      # AgentRuntime VPC network mode. Without these the runtime deploys in PUBLIC
+      # mode, whose egress to the public mock endpoint is ~86s (verified live
+      # 2026-08-14: VPC->NAT->mock is 60ms, PUBLIC-mode AgentRuntime->mock is 86s,
+      # a fixed-timeout artifact). Setting vpc_id flips the adapter to VPC mode so
+      # the agent's outbound tool calls take the fast VPC/NAT path.
+      vpc_id            = local.effective_vpc_id
+      security_group_id = local.effective_sg_id
+      vswitch_id        = local.effective_vswitch_id
     }
     params = {}
   })
