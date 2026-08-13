@@ -96,6 +96,20 @@ class _Oss2BucketMixin(OssClient):
     def delete_object(self, key: str) -> None:
         self._bucket_handle().delete_object(key)
 
+    def sign_url(self, key: str, expires: int = 3600, method: str = "GET") -> str:
+        """Return a presigned URL for *key* (valid for up to *expires* seconds).
+
+        The URL host is this client's endpoint, so signing on an ``internal=True``
+        client yields a VPC-internal URL an in-region ECS instance can fetch. This
+        is a local HMAC computation — no network call, so it works even when the
+        internal endpoint is unreachable from where the control plane runs.
+
+        With a STATIC AK the URL is valid for the full *expires* window; with a
+        TEMPORARY credential (STS/instance role) the V4 signature also carries the
+        security token, so validity is additionally capped by that token's expiry.
+        """
+        return str(self._bucket_handle().sign_url(method, key, expires, slash_safe=True))
+
 
 class Oss2Client(_Oss2BucketMixin):
     """Real OSS client using the alibabacloud default credential chain.

@@ -151,6 +151,15 @@ variable "session_state_expiry_days" {
   default     = 7
 }
 
+variable "dev_wheel_expiry_days" {
+  description = <<-EOT
+    Days before objects under the dev-wheels/ prefix are automatically deleted.
+    Dev-wheel fallback artifacts are ephemeral (rebuilt per campaign); default 1.
+  EOT
+  type        = number
+  default     = 1
+}
+
 variable "abort_incomplete_multipart_days" {
   description = "Days before incomplete multipart uploads are automatically aborted."
   type        = number

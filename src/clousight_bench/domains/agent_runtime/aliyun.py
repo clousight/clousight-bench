@@ -2040,6 +2040,26 @@ def _split_artifact(artifact_ref: str) -> tuple[str, str]:
     return bucket, obj
 
 
+def _truthy(v: object) -> bool:
+    """Interpret a target flag that may arrive as a bool or a YAML string."""
+    return v is True or str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _published_code_spec() -> str:
+    """The published-package ``code_spec`` pinned to the control plane's own version.
+
+    Pinning avoids control-plane↔probe version skew: the probe installs the SAME
+    version that is driving the campaign (protocol/token/OSS-prefix contract).
+    Falls back to the bare name if the version can't be read (e.g. odd install).
+    """
+    try:
+        from importlib.metadata import version
+
+        return f"clousight-bench[probe]=={version('clousight-bench')}"
+    except Exception:  # noqa: BLE001 - metadata absent → bare name still installs
+        return "clousight-bench[probe]"
+
+
 class _AliyunCampaignProbe:
     """Per-campaign probe lifecycle: ECS carrier + OSS sync (probe-sink §7).
 
@@ -2066,19 +2086,43 @@ class _AliyunCampaignProbe:
         run_id = str(target.get("run_id") or "")
         _bucket = bucket or str(target.get("oss_bucket") or "")
         region = str(target.get("region") or "cn-hangzhou")
+        cid = campaign_id or run_id or "adhoc"
+        code_spec, extra_deps = _AliyunCampaignProbe._resolve_code_spec(target, _bucket, region, cid)
         cfg = EcsCarrierConfig(
             bucket=_bucket,
-            campaign_id=campaign_id or run_id or "adhoc",
+            campaign_id=cid,
             region=region,
             vswitch_id=str(target.get("eci_vswitch_id") or ""),
             security_group_id=str(target.get("eci_security_group_id") or ""),
             ram_role=str(target.get("eci_probe_role") or ""),
             image_id=str(target.get("ecs_image_id") or ""),  # stock Aliyun OS image
             instance_type=str(target.get("ecs_instance_type") or "ecs.e-c1m2.large"),
-            code_spec=str(target.get("probe_code_spec") or "clousight-bench[probe]"),
+            code_spec=code_spec,
+            extra_deps=extra_deps,
             run_id=run_id or None,
         )
         return EcsProbeCarrier(sdk=Ecs20140526Sdk(region=region), config=cfg)
+
+    @staticmethod
+    def _resolve_code_spec(target: dict, bucket: str, region: str, campaign_id: str) -> tuple[str, list[str]]:
+        """Resolve the carrier's ``(code_spec, extra_deps)``.
+
+        Default: install the published ``clousight-bench[probe]`` (or an explicit
+        ``probe_code_spec``) from the mirror — no extra_deps needed.
+
+        Dev-wheel fallback (``probe_dev_wheel`` truthy): build a wheel of the
+        current source, upload it to OSS, and use a presigned internal URL as the
+        code_spec. A wheel URL can't carry the ``[probe]`` extra, so the extra's
+        deps are returned separately for the cloud-init to install from the mirror.
+        """
+        if _truthy(target.get("probe_dev_wheel")):
+            from clousight_bench.domains.agent_runtime.dev_wheel import probe_extra_deps, upload_dev_wheel
+            from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
+
+            upload = Oss2Client(bucket=bucket, region=region)  # public endpoint → PUT
+            signer = Oss2Client(bucket=bucket, region=region, internal=True)  # internal host → URL
+            return upload_dev_wheel(upload, signer, campaign_id), probe_extra_deps()
+        return str(target.get("probe_code_spec") or _published_code_spec()), []
 
     @staticmethod
     def _default_oss(target: dict):  # noqa: ANN202

@@ -116,6 +116,17 @@ resource "alicloud_oss_bucket" "bench_auto" {
     }
   }
 
+  # Dev-wheel fallback artifacts (unreleased-version bring-ups) are ephemeral —
+  # a fresh wheel is built + uploaded per campaign, so expire them quickly.
+  lifecycle_rule {
+    id      = "expire-dev-wheels"
+    prefix  = "clousight-bench/dev-wheels/"
+    enabled = true
+    expiration {
+      days = var.dev_wheel_expiry_days
+    }
+  }
+
   lifecycle_rule {
     id      = "abort-multipart"
     prefix  = "clousight-bench/"
@@ -146,6 +157,17 @@ resource "alicloud_oss_bucket" "bench_auto_retained" {
     enabled = true
     expiration {
       days = var.session_state_expiry_days
+    }
+  }
+
+  # Dev-wheel fallback artifacts (unreleased-version bring-ups) are ephemeral —
+  # a fresh wheel is built + uploaded per campaign, so expire them quickly.
+  lifecycle_rule {
+    id      = "expire-dev-wheels"
+    prefix  = "clousight-bench/dev-wheels/"
+    enabled = true
+    expiration {
+      days = var.dev_wheel_expiry_days
     }
   }
 
@@ -192,6 +214,17 @@ resource "alicloud_oss_bucket" "bench_user" {
     enabled = true
     expiration {
       days = var.session_state_expiry_days
+    }
+  }
+
+  # Dev-wheel fallback artifacts (unreleased-version bring-ups) are ephemeral —
+  # a fresh wheel is built + uploaded per campaign, so expire them quickly.
+  lifecycle_rule {
+    id      = "expire-dev-wheels"
+    prefix  = "clousight-bench/dev-wheels/"
+    enabled = true
+    expiration {
+      days = var.dev_wheel_expiry_days
     }
   }
 

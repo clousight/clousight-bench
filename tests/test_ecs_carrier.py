@@ -266,6 +266,46 @@ def test_user_data_is_posix_sh():
     assert script.startswith("#!/bin/sh")
 
 
+def test_user_data_installs_extra_deps_before_code_spec():
+    """Dev-wheel path: probe extra's deps install from the mirror BEFORE the
+    presigned wheel URL (a URL code_spec can't carry an [extra])."""
+    sdk = FakeEcsSdk([{"status": "Running"}])
+    carrier = EcsProbeCarrier(
+        sdk=sdk,
+        config=_make_config(
+            code_spec="https://oss-internal.example/w.whl?sig=x",
+            extra_deps=["requests>=2.28", "oss2>=2.18"],
+        ),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    script = _decode_user_data(sdk)
+    assert "requests>=2.28" in script and "oss2>=2.18" in script
+    # both extra deps are installed before the wheel URL
+    wheel_at = script.index("https://oss-internal.example/w.whl")
+    assert script.index("requests>=2.28") < wheel_at
+    assert script.index("oss2>=2.18") < wheel_at
+    # extra deps are single-quoted and use the mirror
+    assert "pip install -i 'https://mirrors.cloud.aliyuncs.com/pypi/simple/' 'requests>=2.28'" in script
+
+
+def test_user_data_no_extra_deps_by_default():
+    """Default (published-package) path emits a single pip install, no pre-steps."""
+    sdk = FakeEcsSdk([{"status": "Running"}])
+    carrier = EcsProbeCarrier(
+        sdk=sdk,
+        config=_make_config(),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    script = _decode_user_data(sdk)
+    assert script.count("pip install") == 1
+
+
 # ---------------------------------------------------------------------------
 # Provision readiness gate
 # ---------------------------------------------------------------------------
