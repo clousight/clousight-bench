@@ -99,8 +99,8 @@ output "probe_security_group_id" {
 }
 
 output "probe_nat_gateway_id" {
-  description = "NAT Gateway ID providing SNAT egress for ECI probe containers (empty when enable_probe = false)."
-  value       = var.enable_probe ? alicloud_nat_gateway.bench[0].id : ""
+  description = "NAT Gateway ID providing SNAT egress for ECI probe containers (empty when enable_nat = false)."
+  value       = var.enable_nat ? alicloud_nat_gateway.bench[0].id : ""
 }
 
 output "acr_repo_vpc_domain" {

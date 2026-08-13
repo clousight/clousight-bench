@@ -564,15 +564,19 @@ resource "alicloud_ram_user_policy_attachment" "eci_probe_ops" {
 
 # ── NAT Gateway — private ECI egress ─────────────────────────────────────────
 # ECI containers have NO public IP (enforced in the carrier); the NAT gateway
-# provides SNAT-only egress so the probe can reach:
-#   • the AgentRun public endpoint (control-plane API calls),
-#   • PyPI + the public github archive tarball at container boot (the probe
-#     installs itself from source — no prebuilt image / registry),
-#   • the OSS public endpoint if the internal endpoint is not used.
+# provides SNAT-only egress so the probe can reach the AgentRun public endpoint
+# at runtime (the image comes from ACR over the VPC-internal endpoint, and OSS
+# uses its internal endpoint — only the AgentRun hop needs egress).
+#
+# The NAT + EIP bill hourly, so they are gated by a SEPARATE `enable_nat` flag,
+# NOT enable_probe: bring the NAT up only for the duration of an --probe eci
+# session and tear it down after (`terraform apply -var enable_nat=true` before,
+# `terraform destroy -target=...nat... -var enable_nat=false` after — or just
+# flip the var). The rest of the probe infra (RAM role, IAM) is free and stays.
 # Enhanced NAT is required for new Aliyun accounts (Classic NAT is deprecated).
 
 resource "alicloud_nat_gateway" "bench" {
-  count            = var.enable_probe ? 1 : 0
+  count            = var.enable_nat ? 1 : 0
   vpc_id           = alicloud_vpc.bench[0].id
   nat_gateway_name = "clousight-bench-nat"
   nat_type         = "Enhanced"
@@ -582,20 +586,20 @@ resource "alicloud_nat_gateway" "bench" {
 }
 
 resource "alicloud_eip_address" "nat" {
-  count        = var.enable_probe ? 1 : 0
+  count        = var.enable_nat ? 1 : 0
   address_name = "clousight-bench-nat-eip"
   payment_type = "PayAsYouGo"
 }
 
 resource "alicloud_eip_association" "nat" {
-  count         = var.enable_probe ? 1 : 0
+  count         = var.enable_nat ? 1 : 0
   allocation_id = alicloud_eip_address.nat[0].id
   instance_id   = alicloud_nat_gateway.bench[0].id
   instance_type = "Nat"
 }
 
 resource "alicloud_snat_entry" "bench" {
-  count             = var.enable_probe ? 1 : 0
+  count             = var.enable_nat ? 1 : 0
   snat_table_id     = alicloud_nat_gateway.bench[0].snat_table_ids
   source_vswitch_id = alicloud_vswitch.bench[0].id
   snat_ip           = alicloud_eip_address.nat[0].ip_address
