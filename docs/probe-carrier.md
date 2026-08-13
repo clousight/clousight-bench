@@ -104,3 +104,95 @@ launch layer:
 
 Adding a cloud means writing that cloud's carrier launcher pointing at the same
 package + object-store channel — not a new image pipeline.
+
+## Live bring-up runbook (Aliyun ECS carrier)
+
+A one-time-per-run live checklist. Two identities are in play: the **main
+account AK** runs `terraform apply` (it creates RAM/NAT); the **benchmark RAM
+user's static AK** runs the campaign. Use static AK for the campaign — a dev-wheel
+presigned URL signed with a temporary/STS credential is capped by that token's
+expiry and can fail mid-boot.
+
+**0. Find a stock OS image id** (no private image needed):
+
+```bash
+aliyun ecs DescribeImages --RegionId cn-hangzhou --OSType linux \
+  --ImageOwnerAlias system --Architecture x86_64 \
+  | jq -r '.Images.Image[].ImageId' | grep '^aliyun_3' | head
+```
+
+**1. Apply terraform** (probe RAM + NAT + image), with the main account AK:
+
+```bash
+cd infra/terraform/aliyun-iam
+terraform apply \
+  -var enable_probe=true \
+  -var enable_nat=true \
+  -var ecs_image_id=aliyun_3_x64_20G_alibase_XXXX.vhd
+```
+
+Expect: NAT gateway + EIP + SNAT, the probe RAM role, and the benchmark user's
+`ecs:RunInstances/DescribeInstances/DeleteInstances` ops policy. NAT/EIP are the
+only hourly-billed resources — tear them down when done (step 8).
+
+**2. Export the run config** and enable the dev-wheel fallback (until the running
+version is published to the Aliyun PyPI mirror):
+
+```bash
+terraform output -raw csbench_config > /tmp/agent-runtime-aliyun.local.yaml
+# then add one line under `target:` in that file →   probe_dev_wheel: true
+```
+
+The config already carries `oss_bucket`, `region`, `eci_vswitch_id`,
+`eci_security_group_id`, `eci_probe_role`, `ecs_image_id`, `ecs_instance_type`.
+
+**3. Credentials** (benchmark RAM user, static AK):
+
+```bash
+export ALIBABA_CLOUD_ACCESS_KEY_ID=<ram-user-ak>
+export ALIBABA_CLOUD_ACCESS_KEY_SECRET=<secret>
+```
+
+**4. Preflight** (optional but cheap):
+
+```bash
+csbench doctor --config /tmp/agent-runtime-aliyun.local.yaml --provider aliyun
+```
+
+**5. Single-task live verify first** (small cost) — a plan with one task (e.g. the
+TTFT probe), `--probe ecs`:
+
+```bash
+csbench run-plan single-task-plan.yaml \
+  --config /tmp/agent-runtime-aliyun.local.yaml \
+  --probe ecs --allow-live --cost-budget 5
+```
+
+**6. Watch progress** in another terminal:
+
+```bash
+csbench progress --watch          # most-recent campaign; --campaign <id> to pin
+```
+
+**7. Verify** the result: `observations.vantage.carrier == "ecs"` and
+`in_vpc == true`, no `CarrierError`, and the probe's OSS telemetry synced into the
+results dir.
+
+**8. Reap + tear down:**
+
+```bash
+csbench sweep --provider aliyun                    # dry-run: list orphans
+csbench sweep --provider aliyun --confirm          # delete stray ECS/AgentRun
+terraform apply -var enable_probe=true -var enable_nat=false \
+  -var ecs_image_id=aliyun_3_x64_20G_alibase_XXXX.vhd   # stop NAT/EIP billing
+```
+
+**Troubleshooting (live-only unknowns to confirm):**
+
+- `Forbidden.RamRoleNotExist` / PassRole 403 on first launch → usually RAM
+  propagation (2–5 min); the role must trust `ecs.aliyuncs.com`.
+- Instance stuck / pip can't fetch the wheel → the instance has **no public IP**;
+  egress is via NAT only. Confirm the presigned URL uses the VPC-internal OSS host
+  and the NAT reaches both the PyPI mirror and the AgentRun endpoint.
+- `DescribeInstances` field shapes (`status`, `creation_time`, `instance_id`) —
+  confirm against the live response the carrier/reaper assume.
