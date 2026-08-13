@@ -14,6 +14,10 @@ from typing import Any
 
 import pytest
 
+# The transport's invoke path lazy-imports requests (the aws extra). The
+# no-validate CI job runs on a bare install without it, so skip this module there.
+pytest.importorskip("requests")
+
 from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.domains.agent_runtime.aws.transport import (
     _SESSION_HEADER,
