@@ -324,7 +324,9 @@ def test_user_data_exports_idle_timeout():
         now=lambda: 0.0,
     )
     carrier.provision()
-    assert "export CB_PROBE_IDLE_TIMEOUT='1800.0'" in _decode_user_data(sdk)
+    script = _decode_user_data(sdk)
+    assert "export CB_PROBE_IDLE_TIMEOUT='1800.0'" in script
+    assert "export CB_PROBE_JOB_MAX_WAIT='900.0'" in script  # default per-job cap
 
 
 def test_user_data_no_extra_deps_by_default():

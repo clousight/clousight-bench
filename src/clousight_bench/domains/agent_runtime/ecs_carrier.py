@@ -79,6 +79,10 @@ class EcsCarrierConfig:
     # control-plane stretches (T0.x provisioning) with no data-plane job, so the
     # control plane sets this to span the whole campaign. Default 1h.
     idle_timeout_s: float = 3600.0
+    # Per-job execution cap on the probe side; should match the control plane's
+    # OssProbeClient timeout so a slow AgentRuntime doesn't trip the probe's own
+    # 300s default before the control plane would give up. Default 900s.
+    job_max_wait_s: float = 900.0
     run_id: str | None = None
 
 
@@ -209,6 +213,7 @@ class EcsProbeCarrier:
             f"export CB_PROBE_CONTROL_PREFIX='{c.campaign_id}'",
             f"export CB_PROBE_TOKEN='{self.token}'",
             f"export CB_PROBE_IDLE_TIMEOUT='{c.idle_timeout_s}'",
+            f"export CB_PROBE_JOB_MAX_WAIT='{c.job_max_wait_s}'",
             # Stock Aliyun Linux 3 has Python 3.6 and no `pip`; install a >=3.10
             # interpreter and bootstrap its pip, then use `python -m pip` throughout.
             f"yum install -y '{py}'",

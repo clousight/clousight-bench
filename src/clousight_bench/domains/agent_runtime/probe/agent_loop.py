@@ -38,6 +38,7 @@ def run_agent_loop(
     poll_interval_s: float = 2.0,
     sleep: Callable[[float], None] = _time.sleep,
     now: Callable[[], float] = _time.monotonic,
+    job_max_wait_s: float = 300.0,
 ) -> None:
     """Run the ECI poller until stopped or idle beyond *idle_timeout_s*.
 
@@ -86,7 +87,7 @@ def run_agent_loop(
                 continue
 
             log.info("agent_loop: running job %s (probe=%s)", job_id, spec.probe)
-            record = _run_job(channel, runner, job_id, spec, sleep=sleep, now=now)
+            record = _run_job(channel, runner, job_id, spec, sleep=sleep, now=now, max_wait_s=job_max_wait_s)
 
             log.info("agent_loop: job %s finished status=%s", job_id, record.status)
             channel.write_result(job_id, record)
@@ -206,6 +207,10 @@ def main() -> None:
     # (control-plane tasks like T0.x provisioning dispatch none). The control
     # plane sets this to span the campaign; default stays short for one-shot use.
     idle_timeout_s = float(os.environ.get("CB_PROBE_IDLE_TIMEOUT", "120"))
+    # Per-job execution cap. Long probes (warm-keepalive, elasticity, sustained
+    # load) with a slow AgentRuntime blow past the 300s default — the control
+    # plane sets this to match its own OssProbeClient timeout.
+    job_max_wait_s = float(os.environ.get("CB_PROBE_JOB_MAX_WAIT", "300"))
 
     from clousight_bench.domains.agent_runtime.probe.oss_client import EcsRamRoleOssClient
 
@@ -216,7 +221,7 @@ def main() -> None:
 
     runner = build_default_runner()
 
-    run_agent_loop(channel, runner, idle_timeout_s=idle_timeout_s)
+    run_agent_loop(channel, runner, idle_timeout_s=idle_timeout_s, job_max_wait_s=job_max_wait_s)
 
 
 if __name__ == "__main__":
