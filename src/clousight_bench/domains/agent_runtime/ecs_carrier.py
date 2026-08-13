@@ -58,6 +58,11 @@ class EcsCarrierConfig:
     # Dev: a presigned OSS wheel URL.  Goes verbatim into the cloud-init script.
     code_spec: str = "clousight-bench[probe]"
 
+    # Extra requirement specs pip-installed from the mirror BEFORE code_spec.
+    # The dev-wheel path uses this: a presigned wheel URL can't carry an [extra],
+    # so the probe extra's own deps (requests/oss2) are installed separately.
+    extra_deps: list[str] = field(default_factory=list)
+
     # Aliyun VPC-internal PyPI mirror — no public egress needed.
     pip_index_url: str = "https://mirrors.cloud.aliyuncs.com/pypi/simple/"
 
@@ -184,16 +189,20 @@ class EcsProbeCarrier:
         OSS URL's ``&``/``?``/``;``).
         """
         c = self.config
-        script = (
-            "#!/bin/sh\n"
-            "set -e\n"
-            f"export CB_PROBE_BUCKET='{c.bucket}'\n"
-            f"export CB_PROBE_REGION='{c.region}'\n"
-            f"export CB_PROBE_CONTROL_PREFIX='{c.campaign_id}'\n"
-            f"export CB_PROBE_TOKEN='{self.token}'\n"
-            f"pip install -i '{c.pip_index_url}' '{c.code_spec}'\n"
-            "exec cb-probe\n"
-        )
+        lines = [
+            "#!/bin/sh",
+            "set -e",
+            f"export CB_PROBE_BUCKET='{c.bucket}'",
+            f"export CB_PROBE_REGION='{c.region}'",
+            f"export CB_PROBE_CONTROL_PREFIX='{c.campaign_id}'",
+            f"export CB_PROBE_TOKEN='{self.token}'",
+        ]
+        # Dev-wheel path: install the probe extra's deps from the mirror first,
+        # since a presigned wheel URL code_spec can't carry an [extra].
+        lines += [f"pip install -i '{c.pip_index_url}' '{dep}'" for dep in c.extra_deps]
+        lines.append(f"pip install -i '{c.pip_index_url}' '{c.code_spec}'")
+        lines.append("exec cb-probe")
+        script = "\n".join(lines) + "\n"
         return base64.b64encode(script.encode()).decode()
 
 
