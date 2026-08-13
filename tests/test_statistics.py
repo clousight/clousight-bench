@@ -96,3 +96,21 @@ def test_a_measurement_absent_from_some_records_pools_only_where_present():
 
 def test_no_measurements_yields_no_aggregates():
     assert aggregate_measurements([{}, {}]) == {}
+
+
+def test_summarize_categorical_handles_unhashable_list_values():
+    # Some measurements carry a list value (e.g. tool-registration paths).
+    # Grouping must not raise "unhashable type: 'list'"; the original value is
+    # preserved in the mode/distribution output.
+    out = summarize_categorical([["a", "b"], ["a", "b"], ["c"]])
+    assert out["n"] == 3
+    assert out["distinct"] == 2
+    assert out["mode"] == ["a", "b"]  # original list value kept
+    assert out["agreement"] == pytest.approx(2 / 3)
+    assert [count for _, count in out["values"]] == [2, 1]
+
+
+def test_aggregate_measurements_tolerates_list_valued_label():
+    out = aggregate_measurements([{"paths": _m(["x", "y"])}, {"paths": _m(["x", "y"])}])
+    assert out["paths"]["mode"] == ["x", "y"]
+    assert out["paths"]["n"] == 2

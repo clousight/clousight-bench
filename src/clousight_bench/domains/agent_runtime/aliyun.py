@@ -260,7 +260,11 @@ class AliyunAgentRunTransport(RuntimeTransport):
             oss_region = str(adapter.target.get("region") or "cn-hangzhou")
             oss = Oss2Client(bucket=oss_bucket, region=oss_region)
             channel = OssChannel(oss, campaign_id=probe_control_prefix)
-            self._probe_client = OssProbeClient(channel)
+            # Some data-plane probes run long (warm-keepalive windows, multi-round
+            # elasticity, sustained load): the default 300s cap times them out on a
+            # live platform. Configurable via target; default 900s.
+            job_timeout_s = float(adapter.target.get("probe_job_timeout_s") or 900.0)
+            self._probe_client = OssProbeClient(channel, timeout_s=job_timeout_s)
         else:
             probe_url = str(adapter.target.get("probe_url") or "")
             if probe_url:
