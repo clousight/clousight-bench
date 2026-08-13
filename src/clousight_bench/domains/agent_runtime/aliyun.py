@@ -2152,6 +2152,9 @@ class _AliyunCampaignProbe:
         # Build the control channel — readiness is polled via OSS, not HTTP.
         channel = OssChannel(self._oss, campaign_id)
         self._channel = channel
+        # Clear any residue from a prior run on this (possibly reused) campaign
+        # prefix — a stale `stop` sentinel would make the fresh probe exit at once.
+        channel.reset()
         self._carrier = self._carrier_factory(target, self._prefix, campaign_id, self._bucket)
         # Inject the readiness check so provision() polls OSS (not EcsRamRole).
         self._carrier.ready_check = channel.is_ready

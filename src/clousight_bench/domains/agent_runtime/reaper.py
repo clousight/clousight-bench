@@ -89,7 +89,9 @@ class AliyunResourceReaper(ResourceReaper):
             from alibabacloud_credentials.client import Client as CredClient
             from alibabacloud_tea_openapi import models as open_api_models
 
-            self._agentrun_client = AgentRunClient(open_api_models.Config(credential=CredClient()))
+            cfg = open_api_models.Config(credential=CredClient())
+            cfg.region_id = self._region  # without this the SDK raises "RegionId is empty"
+            self._agentrun_client = AgentRunClient(cfg)
         return self._agentrun_client
 
     def _default_list_fns(self) -> list[Callable[[], list[dict[str, Any]]]]:

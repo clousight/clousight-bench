@@ -259,6 +259,18 @@ class OssChannel:
         except KeyError:
             return False
 
+    def reset(self) -> None:
+        """Delete every control key for this campaign (stop / ready / jobs).
+
+        Campaign prefixes are reused when the target has no run_id (they fall back
+        to ``adhoc``), so a previous run's ``stop`` sentinel — or a stale ready /
+        job — would otherwise linger and make a freshly booted probe exit on its
+        first poll. The control plane calls this before provisioning a carrier so
+        each campaign starts from a clean prefix.
+        """
+        for key in self._oss.list_prefix(self.prefix):
+            self._oss.delete_object(key)
+
     # ------------------------------------------------------------------
     # Best-effort claim (ECI)
     # ------------------------------------------------------------------

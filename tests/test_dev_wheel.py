@@ -111,3 +111,39 @@ def test_repo_root_raises_when_no_pyproject(monkeypatch):
     monkeypatch.setattr(dev_wheel, "__file__", str(fake))
     with pytest.raises(CarrierError, match="source tree"):
         dev_wheel._repo_root()
+
+
+def test_ecs_metadata_provider_reads_instance_role_creds(monkeypatch):
+    """The probe reads its instance RAM role from the ECS metadata service using
+    only requests (no alibabacloud_credentials, which isn't in the probe extra)."""
+    pytest.importorskip("oss2")  # get_credentials() builds an oss2 Credentials
+    requests = pytest.importorskip("requests")  # probe extra dep, absent in bare install
+
+    from clousight_bench.domains.agent_runtime.probe import oss_client
+
+    calls: list[str] = []
+
+    class _Resp:
+        def __init__(self, text="", data=None):
+            self._t, self._d = text, data
+
+        @property
+        def text(self):
+            return self._t
+
+        def json(self):
+            return self._d
+
+    def fake_get(url, timeout=None):
+        calls.append(url)
+        if url.endswith("security-credentials/"):
+            return _Resp(text="my-role\n")  # auto-discover the role name
+        return _Resp(data={"AccessKeyId": "AK", "AccessKeySecret": "SK", "SecurityToken": "TOK"})
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    cred = oss_client._EcsMetadataCredentialsProvider().get_credentials()
+    assert cred.get_access_key_id() == "AK"
+    assert cred.get_access_key_secret() == "SK"
+    assert cred.get_security_token() == "TOK"
+    assert calls[0].endswith("security-credentials/")  # discovery call first
+    assert calls[1].endswith("security-credentials/my-role")

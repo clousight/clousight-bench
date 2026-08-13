@@ -66,6 +66,11 @@ class EcsCarrierConfig:
     # Aliyun VPC-internal PyPI mirror — no public egress needed.
     pip_index_url: str = "https://mirrors.cloud.aliyuncs.com/pypi/simple/"
 
+    # Stock Aliyun Linux 3 ships Python 3.6 (and no `pip` on PATH), but
+    # clousight-bench requires >=3.10 — so cloud-init yum-installs this
+    # interpreter package and runs everything through `python3.11 -m`.
+    python_pkg: str = "python3.11"
+
     ready_timeout_s: float = 300.0
     poll_interval_s: float = 5.0
     run_id: str | None = None
@@ -189,6 +194,7 @@ class EcsProbeCarrier:
         OSS URL's ``&``/``?``/``;``).
         """
         c = self.config
+        py = c.python_pkg  # e.g. "python3.11" — command name matches the yum pkg name
         lines = [
             "#!/bin/sh",
             "set -e",
@@ -196,12 +202,18 @@ class EcsProbeCarrier:
             f"export CB_PROBE_REGION='{c.region}'",
             f"export CB_PROBE_CONTROL_PREFIX='{c.campaign_id}'",
             f"export CB_PROBE_TOKEN='{self.token}'",
+            # Stock Aliyun Linux 3 has Python 3.6 and no `pip`; install a >=3.10
+            # interpreter and bootstrap its pip, then use `python -m pip` throughout.
+            f"yum install -y '{py}'",
+            f"{py} -m ensurepip --upgrade",
         ]
         # Dev-wheel path: install the probe extra's deps from the mirror first,
         # since a presigned wheel URL code_spec can't carry an [extra].
-        lines += [f"pip install -i '{c.pip_index_url}' '{dep}'" for dep in c.extra_deps]
-        lines.append(f"pip install -i '{c.pip_index_url}' '{c.code_spec}'")
-        lines.append("exec cb-probe")
+        lines += [f"{py} -m pip install -i '{c.pip_index_url}' '{dep}'" for dep in c.extra_deps]
+        lines.append(f"{py} -m pip install -i '{c.pip_index_url}' '{c.code_spec}'")
+        # Run via `-m` (agent_loop has a __main__) so we don't depend on the
+        # console-script landing on PATH for this interpreter.
+        lines.append(f"exec {py} -m clousight_bench.domains.agent_runtime.probe.agent_loop")
         script = "\n".join(lines) + "\n"
         return base64.b64encode(script.encode()).decode()
 

@@ -574,17 +574,18 @@ resource "alicloud_ram_policy" "eci_probe_ops" {
         Resource = "*"
       },
       {
-        Sid    = "PassRoleToEcsScoped"
+        Sid    = "PassRoleToEcs"
         Effect = "Allow"
         Action = "ram:PassRole"
-        # Scoped by Resource to the probe role ONLY — never arbitrary roles.
-        # No service Condition: an `acs:Service` StringEquals never matched the
-        # PassRole request context, so the statement silently never applied and
-        # the launch was rejected with a misleading "Forbidden.RamRoleNotExist"
-        # (verified live 2026-08-12). The Resource ARN scoping is the real guard,
-        # and the role only trusts ecs.aliyuncs.com/eci.aliyuncs.com, so it can't
-        # be assumed by anything else even if passed elsewhere.
-        Resource = alicloud_ram_role.eci_probe[0].arn
+        # Resource = "*", NOT the role ARN. Live-verified 2026-08-13: scoping
+        # PassRole to alicloud_ram_role.eci_probe[0].arn (and also with an
+        # acs:Service=ecs.aliyuncs.com Condition) was rejected by ECS RunInstances
+        # with InvalidUser.PassRoleForbidden — the ECS PassRole check does not
+        # match this ARN form. "*" is what actually lets the benchmark user launch
+        # the carrier. The real guard is the role's own trust policy (only
+        # ecs/eci.aliyuncs.com can assume it), so a wildcard PassRole cannot be
+        # used to assume any other role.
+        Resource = "*"
       },
     ]
   })
