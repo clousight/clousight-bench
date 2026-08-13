@@ -66,22 +66,39 @@ def summarize_numeric(values: list[float]) -> dict[str, Any]:
     }
 
 
+def _group_key(value: Any) -> Any:
+    """A hashable stand-in for grouping. Some measurements carry a non-hashable
+    value (e.g. a list of tool-registration paths); grouping on it directly would
+    raise ``unhashable type``. We key on a stable serialisation but keep the
+    original value for the mode/distribution output."""
+    from collections.abc import Hashable
+
+    if isinstance(value, Hashable):
+        return value
+    import json
+
+    return json.dumps(value, sort_keys=True, default=str)
+
+
 def summarize_categorical(values: list[Any]) -> dict[str, Any]:
     """Distribution of a label measurement across repeats."""
     if not values:
         raise ValueError("cannot summarise an empty categorical sample")
     counts: dict[Any, int] = {}
+    original: dict[Any, Any] = {}  # group key -> first original value seen
     for value in values:
-        counts[value] = counts.get(value, 0) + 1
+        key = _group_key(value)
+        counts[key] = counts.get(key, 0) + 1
+        original.setdefault(key, value)
     ordered = sorted(counts.items(), key=lambda kv: (-kv[1], str(kv[0])))
-    mode, mode_count = ordered[0]
+    mode_key, mode_count = ordered[0]
     return {
         "kind": CategoricalKind,
         "n": len(values),
         "distinct": len(counts),
-        "mode": mode,
+        "mode": original[mode_key],
         "agreement": mode_count / len(values),
-        "values": [[value, count] for value, count in ordered],
+        "values": [[original[key], count] for key, count in ordered],
     }
 
 
