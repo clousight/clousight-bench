@@ -163,7 +163,7 @@ def _make_probe(call_log=None):
     oss = InMemoryOssClient()
 
     class _FakeCarrier:
-        """Minimal EciProbeCarrier stand-in."""
+        """Minimal probe carrier stand-in."""
 
         def __init__(self):
             self.ready_check = None

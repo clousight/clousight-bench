@@ -6,7 +6,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from clousight_bench.domains.agent_runtime.eci_carrier import CarrierError
+
+class CarrierError(RuntimeError):
+    """Probe carrier provisioning failed (no silent fallback)."""
 
 
 class EcsSdk(Protocol):
@@ -68,14 +70,13 @@ class EcsCarrierConfig:
 class EcsProbeCarrier:
     """Ephemeral ECS instance that runs the OSS-mediated probe loop.
 
-    Mirrors the shape of EciProbeCarrier: provision() / teardown() /
-    ready_check / _default_ready_check / injectable sleep+now.
-    The control channel is UNCHANGED — same OssChannel / agent_loop
-    contract as the ECI carrier.
+    provision() / teardown() / ready_check / _default_ready_check /
+    injectable sleep+now. The control channel is the OSS-mediated
+    OssChannel / agent_loop contract shared by every probe carrier.
 
-    Key difference: instead of launching a container (which requires a private
-    image), this carrier launches a stock ECS instance whose cloud-init
-    user-data installs and runs the public ``clousight-bench[probe]`` package.
+    Instead of launching a container (which requires a private image), this
+    carrier launches a stock ECS instance whose cloud-init user-data installs
+    and runs the public ``clousight-bench[probe]`` package.
     """
 
     sdk: EcsSdk
@@ -176,8 +177,11 @@ class EcsProbeCarrier:
     def _build_user_data(self) -> str:
         """Return base64-encoded cloud-init user-data that installs + starts the probe.
 
-        Single-quotes env values for POSIX /bin/sh safety.  code_spec is inserted
-        unquoted (assumed shell-safe: package name or presigned URL with no spaces).
+        Single-quotes every interpolated value for POSIX /bin/sh safety, including
+        code_spec: pip parses ``'clousight-bench[probe]'`` and ``'https://…wheel'``
+        identically to the unquoted forms, so quoting costs nothing while it
+        neutralises shell globbing (``[probe]``) and metacharacters (a presigned
+        OSS URL's ``&``/``?``/``;``).
         """
         c = self.config
         script = (
@@ -187,7 +191,7 @@ class EcsProbeCarrier:
             f"export CB_PROBE_REGION='{c.region}'\n"
             f"export CB_PROBE_CONTROL_PREFIX='{c.campaign_id}'\n"
             f"export CB_PROBE_TOKEN='{self.token}'\n"
-            f"pip install -i '{c.pip_index_url}' {c.code_spec}\n"
+            f"pip install -i '{c.pip_index_url}' '{c.code_spec}'\n"
             "exec cb-probe\n"
         )
         return base64.b64encode(script.encode()).decode()

@@ -46,7 +46,7 @@ def test_probe_url_builds_remote_client_and_routes_run_job(monkeypatch):
     assert captured["spec"].oss_prefix == "campaign-1/job-1/"
     assert captured["spec"].target_endpoint == "http://runtime-under-test"
     # vantage flipped to eci because a remote client is active
-    assert b.observations["vantage"]["carrier"] == "eci"
+    assert b.observations["vantage"]["carrier"] == "ecs"
     assert b.observations["vantage"]["in_vpc"] is False
 
 
@@ -117,5 +117,5 @@ def test_probe_control_prefix_vantage_in_vpc(monkeypatch):
     t._probe_client.run_job = _fake_run_job
 
     b = t.run_data_plane_probe("soak", {"duration_s": 0.1})
-    assert b.observations["vantage"]["carrier"] == "eci"
+    assert b.observations["vantage"]["carrier"] == "ecs"
     assert b.observations["vantage"]["in_vpc"] is True

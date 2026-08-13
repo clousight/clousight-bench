@@ -58,10 +58,10 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ToolCall,
 )
 from clousight_bench.domains.agent_runtime.adapters.transport import RuntimeTransport
-from clousight_bench.domains.agent_runtime.eci_carrier import (
-    Eci20180808Sdk,
-    EciCarrierConfig,
-    EciProbeCarrier,
+from clousight_bench.domains.agent_runtime.ecs_carrier import (
+    Ecs20140526Sdk,
+    EcsCarrierConfig,
+    EcsProbeCarrier,
 )
 from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
 
@@ -1187,7 +1187,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         bundle.observations.setdefault(
             "vantage",
             {
-                "carrier": "eci" if remote else "local",
+                "carrier": "ecs" if remote else "local",
                 "region": str(self._adapter.target.get("region") or "cn-hangzhou"),
                 "in_vpc": bool(self._adapter.target.get("probe_in_vpc", False)) if remote else False,
                 "probe_version": 1,
@@ -2041,12 +2041,12 @@ def _split_artifact(artifact_ref: str) -> tuple[str, str]:
 
 
 class _AliyunCampaignProbe:
-    """Per-campaign probe lifecycle: ECI carrier + OSS sync (probe-sink §7).
+    """Per-campaign probe lifecycle: ECS carrier + OSS sync (probe-sink §7).
 
-    Constructor factories are injectable so tests run account-free.
-    The real ECI SDK path (``_default_carrier``) is fully wired (Plan 5,
-    Task 3) and creates an :class:`EciProbeCarrier` backed by the
-    Eci20180808 SDK.
+    Constructor factories are injectable so tests run account-free. The real
+    path (``_default_carrier``) creates an :class:`EcsProbeCarrier` — a stock-OS
+    ECS instance whose cloud-init user-data ``pip install``s the public
+    ``clousight-bench[probe]`` package (no container image, see docs/probe-carrier.md).
     """
 
     def __init__(self, carrier_factory=None, oss_factory=None):
@@ -2066,19 +2066,19 @@ class _AliyunCampaignProbe:
         run_id = str(target.get("run_id") or "")
         _bucket = bucket or str(target.get("oss_bucket") or "")
         region = str(target.get("region") or "cn-hangzhou")
-        cfg = EciCarrierConfig(
+        cfg = EcsCarrierConfig(
             bucket=_bucket,
             campaign_id=campaign_id or run_id or "adhoc",
             region=region,
             vswitch_id=str(target.get("eci_vswitch_id") or ""),
             security_group_id=str(target.get("eci_security_group_id") or ""),
             ram_role=str(target.get("eci_probe_role") or ""),
-            cpu=float(target.get("eci_cpu") or 2.0),
-            memory=float(target.get("eci_memory") or 4.0),
-            image=str(target.get("eci_image") or ""),  # ACR prebuilt cb-probe image
+            image_id=str(target.get("ecs_image_id") or ""),  # stock Aliyun OS image
+            instance_type=str(target.get("ecs_instance_type") or "ecs.e-c1m2.large"),
+            code_spec=str(target.get("probe_code_spec") or "clousight-bench[probe]"),
             run_id=run_id or None,
         )
-        return EciProbeCarrier(sdk=Eci20180808Sdk(region=region), config=cfg)
+        return EcsProbeCarrier(sdk=Ecs20140526Sdk(region=region), config=cfg)
 
     @staticmethod
     def _default_oss(target: dict):  # noqa: ANN202

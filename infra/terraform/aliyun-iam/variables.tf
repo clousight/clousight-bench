@@ -157,23 +157,25 @@ variable "abort_incomplete_multipart_days" {
   default     = 1
 }
 
-variable "acr_namespace" {
+variable "ecs_image_id" {
   description = <<-EOT
-    ACR personal-edition namespace for the cb-probe image repository.
-    Globally unique within the region; default matches the project name.
-    Only used when enable_probe = true.
-  EOT
-  type        = string
-  default     = "clousight-bench"
-}
-
-variable "eci_image" {
-  description = <<-EOT
-    Full registry-vpc reference of the PREBUILT cb-probe image, e.g.
-    "registry-vpc.cn-hangzhou.aliyuncs.com/clousight-bench/cb-probe:<tag>".
-    Empty until the image has been built + pushed once (deploy/cb-probe/README.md).
-    Required for --probe eci; written into csbench_config so live runs pick it up.
+    Stock Aliyun Linux OS image id used to boot the ECS probe carrier, e.g.
+    "aliyun_3_x64_20G_alibase_image". Find one with:
+      aliyun ecs DescribeImages --RegionId <region> --OSType linux \
+        --ImageOwnerAlias system --Architecture x86_64
+    No private image / ACR needed — cloud-init pip-installs clousight-bench[probe]
+    from the Aliyun VPC-internal PyPI mirror. Empty until set; required for
+    --probe ecs. Written into csbench_config so live runs pick it up.
   EOT
   type        = string
   default     = ""
+}
+
+variable "ecs_instance_type" {
+  description = <<-EOT
+    ECS instance type for the probe carrier (2 vCPU / 4 GiB burstable economy
+    class by default). Written into csbench_config.
+  EOT
+  type        = string
+  default     = "ecs.e-c1m2.large"
 }

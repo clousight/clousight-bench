@@ -1,7 +1,7 @@
-"""AliyunResourceReaper: reap ECI probes + AgentRun runtimes for csbench sweep.
+"""AliyunResourceReaper: reap ECS probe carriers + AgentRun runtimes for csbench sweep.
 
 The list/delete cloud calls are behind injectable seams so the reaper is
-unit-tested account-free; Plan 5 injects real ECI/AgentRun SDK-backed
+unit-tested account-free; the real path injects ECS/AgentRun SDK-backed
 functions. Each seam yields dicts: {"kind","id","run_id","created_ts","tags"}.
 """
 
@@ -14,13 +14,18 @@ from typing import Any
 from clousight_bench.core.plugin import ResourceReaper
 from clousight_bench.core.resource_tags import TAG_MANAGED, TAG_RUN_ID
 
+# Probe carrier ECS instances are named cb-probe-<run-id-suffix> by EcsProbeCarrier;
+# this prefix is how the reaper recognises a managed carrier (instances are not
+# tag-stamped, same as the AgentRun name-prefix convention).
+_PROBE_NAME_PREFIX = "cb-probe"
+
 
 class AliyunResourceReaper(ResourceReaper):
-    """Reap ECI probes + AgentRun runtimes tagged clousight-bench:managed.
+    """Reap ECS probe carriers + AgentRun runtimes for the clousight-bench project.
 
     The list/delete cloud calls are behind injectable seams so the reaper is
-    unit-tested account-free; Plan 5 injects real ECI/AgentRun SDK-backed
-    functions. Each seam yields dicts: {"kind","id","run_id","created_ts","tags"}."""
+    unit-tested account-free. Each seam yields dicts:
+    {"kind","id","run_id","created_ts","tags"}."""
 
     provider = "aliyun"
 
@@ -31,11 +36,11 @@ class AliyunResourceReaper(ResourceReaper):
         now: Callable[[], float] = time.time,
         *,
         region: str = "cn-hangzhou",
-        eci_client: Any | None = None,
+        ecs_client: Any | None = None,
         agentrun_client: Any | None = None,
     ) -> None:
         self._region = region
-        self._eci_client = eci_client
+        self._ecs_client = ecs_client
         self._agentrun_client = agentrun_client
         self._list_fns = list_fns if list_fns is not None else self._default_list_fns()
         self._delete_fn = delete_fn if delete_fn is not None else self._default_delete
@@ -67,16 +72,16 @@ class AliyunResourceReaper(ResourceReaper):
                 )
         return acted
 
-    def _eci(self) -> Any:
-        if self._eci_client is None:
+    def _ecs(self) -> Any:
+        if self._ecs_client is None:
             from alibabacloud_credentials.client import Client as CredClient
-            from alibabacloud_eci20180808.client import Client as EciClient
+            from alibabacloud_ecs20140526.client import Client as EcsClient
             from alibabacloud_tea_openapi import models as open_api_models
 
             cfg = open_api_models.Config(credential=CredClient())
-            cfg.endpoint = f"eci.{self._region}.aliyuncs.com"
-            self._eci_client = EciClient(cfg)
-        return self._eci_client
+            cfg.endpoint = f"ecs.{self._region}.aliyuncs.com"
+            self._ecs_client = EcsClient(cfg)
+        return self._ecs_client
 
     def _agentrun(self) -> Any:
         if self._agentrun_client is None:
@@ -88,13 +93,13 @@ class AliyunResourceReaper(ResourceReaper):
         return self._agentrun_client
 
     def _default_list_fns(self) -> list[Callable[[], list[dict[str, Any]]]]:
-        return [self._list_eci, self._list_agentrun]
+        return [self._list_ecs, self._list_agentrun]
 
     @staticmethod
-    def _eci_models() -> Any:
-        """Return alibabacloud_eci20180808.models, or a None-proxy for test path."""
+    def _ecs_models() -> Any:
+        """Return alibabacloud_ecs20140526.models, or a None-proxy for test path."""
         try:
-            from alibabacloud_eci20180808 import models as m
+            from alibabacloud_ecs20140526 import models as m
 
             return m
         except ImportError:
@@ -129,27 +134,28 @@ class AliyunResourceReaper(ResourceReaper):
             return _types.SimpleNamespace(**kwargs)
         return model_cls(**kwargs)
 
-    def _list_eci(self) -> list[dict[str, Any]]:
+    def _list_ecs(self) -> list[dict[str, Any]]:
         import datetime as _dt
 
-        m = self._eci_models()
-        resp = self._eci().describe_container_groups(
-            self._make(m.DescribeContainerGroupsRequest, region_id=self._region)
-        )
+        m = self._ecs_models()
+        resp = self._ecs().describe_instances(self._make(m.DescribeInstancesRequest, region_id=self._region))
+        instances = getattr(getattr(resp.body, "instances", None), "instance", None) or []
         out: list[dict[str, Any]] = []
-        for g in getattr(resp.body, "container_groups", None) or []:
-            tags = {t.key: t.value for t in (getattr(g, "tags", None) or [])}
-            created = getattr(g, "creation_time", "") or ""
+        for inst in instances:
+            name = str(getattr(inst, "instance_name", "") or "")
+            if not name.startswith(_PROBE_NAME_PREFIX):
+                continue  # name-prefix managed detection (instances aren't tag-stamped)
+            created = getattr(inst, "creation_time", "") or ""
             try:
                 ts = _dt.datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
             except ValueError:
                 ts = 0.0
             out.append(
                 {
-                    "kind": "eci",
-                    "id": str(getattr(g, "container_group_id", "")),
+                    "kind": "ecs",
+                    "id": str(getattr(inst, "instance_id", "")),
                     "created_ts": ts,
-                    "tags": tags,
+                    "tags": {TAG_MANAGED: "true", TAG_RUN_ID: name},
                 }
             )
         return out
@@ -175,11 +181,14 @@ class AliyunResourceReaper(ResourceReaper):
         return out
 
     def _default_delete(self, kind: str, resource_id: str) -> None:
-        if kind == "eci":
-            m = self._eci_models()
-            self._eci().delete_container_group(
+        if kind == "ecs":
+            m = self._ecs_models()
+            self._ecs().delete_instances(
                 self._make(
-                    m.DeleteContainerGroupRequest, region_id=self._region, container_group_id=resource_id
+                    m.DeleteInstancesRequest,
+                    region_id=self._region,
+                    instance_id=[resource_id],
+                    force=True,
                 )
             )
         elif kind == "agentrun":

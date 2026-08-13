@@ -447,19 +447,22 @@ resource "alicloud_fcv3_trigger" "mock_tools_http" {
   depends_on = [alicloud_fcv3_function.mock_tools]
 }
 
-# ── ECI probe RAM role + policy ───────────────────────────────────────────────
+# ── Probe carrier RAM role + policy ───────────────────────────────────────────
 # Mirrors the fc_mock_tools role pattern (count gate via enable_probe).
-# ECI assumes this role so the probe container can write/read telemetry in OSS
-# under the clousight-bench/* prefix.
+# The ECS probe carrier instance assumes this role so the probe can write/read
+# telemetry in OSS under the clousight-bench/* prefix.
+# (Resource names keep the historical `eci_probe` label to avoid a state-churning
+# rename; the carrier itself is now a stock ECS instance, not an ECI container.)
 
 resource "alicloud_ram_role" "eci_probe" {
   count       = var.enable_probe ? 1 : 0
   role_name   = var.eci_probe_role_name
-  description = "Instance RAM role for ECI probe containers — OSS telemetry read/write."
-  # An ECI *instance* RAM role (assumed by the container at runtime via the ECS
-  # metadata service) reuses the ECS instance-role mechanism, so it must trust
-  # ecs.aliyuncs.com — trusting only eci.aliyuncs.com made ECI reject the pass
-  # with "Forbidden.RamRoleNotExist" (verified live 2026-08-12). Keep both.
+  description = "Instance RAM role for the ECS probe carrier — OSS telemetry read/write."
+  # An ECS instance RAM role (assumed by the instance at runtime via the ECS
+  # metadata service) must trust ecs.aliyuncs.com. eci.aliyuncs.com is kept too
+  # so the same role works if a carrier is ever launched as ECI — trusting only
+  # eci.aliyuncs.com made the pass fail with "Forbidden.RamRoleNotExist"
+  # (verified live 2026-08-12). Keep both.
   assume_role_policy_document = jsonencode({
     Version = "1"
     Statement = [{
@@ -473,7 +476,7 @@ resource "alicloud_ram_role" "eci_probe" {
 resource "alicloud_ram_policy" "eci_probe" {
   count       = var.enable_probe ? 1 : 0
   policy_name = "ClousightBench-EciProbe"
-  description = "Allows ECI probe containers to write/read telemetry under clousight-bench/* in OSS."
+  description = "Allows the ECS probe carrier to write/read telemetry under clousight-bench/* in OSS."
   force       = true
   policy_document = jsonencode({
     Version = "1"
@@ -485,11 +488,11 @@ resource "alicloud_ram_policy" "eci_probe" {
         Resource = "acs:oss:*:*:${local.bucket_name}/clousight-bench/*"
       },
       {
-        # ListObjects is a bucket-level action (not object-path scoped). The ECI's
-        # OSS-mediated job-discovery loop (OssChannel.list_pending_jobs) enumerates
-        # the control prefix, so the instance role MUST be able to list the bucket.
-        # Without this the ECI never discovers dispatched jobs and every live job
-        # times out (burning NAT+ECI spend on a guaranteed failure).
+        # ListObjects is a bucket-level action (not object-path scoped). The
+        # carrier's OSS-mediated job-discovery loop (OssChannel.list_pending_jobs)
+        # enumerates the control prefix, so the instance role MUST be able to list
+        # the bucket. Without this the carrier never discovers dispatched jobs and
+        # every live job times out (burning NAT+ECS spend on a guaranteed failure).
         Sid      = "EciProbeOssList"
         Effect   = "Allow"
         Action   = ["oss:ListObjects"]
@@ -508,44 +511,46 @@ resource "alicloud_ram_role_policy_attachment" "eci_probe" {
   depends_on = [alicloud_ram_role.eci_probe, alicloud_ram_policy.eci_probe]
 }
 
-# ── ECI-launch + scoped PassRole permissions for the benchmark RAM user ────────
+# ── ECS-launch + scoped PassRole permissions for the benchmark RAM user ────────
 # Grants alicloud_ram_user.bench the ability to:
-#   1. Create / describe / delete ECI container groups (Phase B probe lifecycle).
-#   2. Pass the eci_probe role to ECI — SCOPED to that role + ECI service only.
-#      Unrestricted ram:PassRole is a privilege-escalation vector; the Condition
-#      ensures the user can only pass this specific role and only to ECI.
+#   1. Run / describe / delete ECS probe carrier instances (Phase B probe lifecycle).
+#   2. Pass the eci_probe role to ECS — SCOPED to that role via Resource ARN.
+#      Unrestricted ram:PassRole is a privilege-escalation vector; the ARN scoping
+#      ensures the user can only pass this specific role.
 # Gated by var.enable_probe so a non-probe apply is completely unaffected.
 
 resource "alicloud_ram_policy" "eci_probe_ops" {
   count       = var.enable_probe ? 1 : 0
   policy_name = "ClousightBench-EciProbeOps"
-  description = "Allows the benchmark user to launch/reap ECI probe containers and pass the eci_probe role to ECI."
+  description = "Allows the benchmark user to launch/reap ECS probe carrier instances and pass the probe role to ECS."
   force       = true
   policy_document = jsonencode({
     Version = "1"
     Statement = [
       {
-        Sid    = "EciContainerGroupLifecycle"
+        Sid    = "EcsProbeInstanceLifecycle"
         Effect = "Allow"
-        # ECI does not support fine-grained resource ARNs for these actions; "*" is standard.
+        # The probe carrier is a stock ECS instance (EcsProbeCarrier) that the
+        # benchmark user launches, polls, and reaps. RunInstances does not accept
+        # fine-grained resource ARNs (the instance does not exist yet); "*" is standard.
         Action = [
-          "eci:CreateContainerGroup",
-          "eci:DescribeContainerGroups",
-          "eci:DeleteContainerGroup",
+          "ecs:RunInstances",
+          "ecs:DescribeInstances",
+          "ecs:DeleteInstances",
         ]
         Resource = "*"
       },
       {
-        Sid    = "PassRoleToEciScoped"
+        Sid    = "PassRoleToEcsScoped"
         Effect = "Allow"
         Action = "ram:PassRole"
-        # Scoped by Resource to the eci_probe role ONLY — never arbitrary roles.
-        # No service Condition: an `acs:Service` StringEquals never matched ECI's
+        # Scoped by Resource to the probe role ONLY — never arbitrary roles.
+        # No service Condition: an `acs:Service` StringEquals never matched the
         # PassRole request context, so the statement silently never applied and
-        # ECI rejected the pass with a misleading "Forbidden.RamRoleNotExist"
+        # the launch was rejected with a misleading "Forbidden.RamRoleNotExist"
         # (verified live 2026-08-12). The Resource ARN scoping is the real guard,
-        # and the role itself only trusts eci.aliyuncs.com, so it can't be assumed
-        # by anything else even if passed elsewhere.
+        # and the role only trusts ecs.aliyuncs.com/eci.aliyuncs.com, so it can't
+        # be assumed by anything else even if passed elsewhere.
         Resource = alicloud_ram_role.eci_probe[0].arn
       },
     ]
@@ -612,53 +617,9 @@ resource "alicloud_snat_entry" "bench" {
 # route table, so no explicit alicloud_route_entry is needed (adding one fails with
 # InvalidCIDRBlock.Duplicate). Verified live 2026-08-12: the route exists Available.
 
-# ── ACR (personal edition) — cb-probe image registry ─────────────────────────
-# The probe runs a PREBUILT image pulled from the account's own ACR over the
-# VPC-internal endpoint. This is required on Aliyun cn-hangzhou: docker hub /
-# github / pypi are throttled from the region, so a stock public base + boot-time
-# install does NOT work (verified live 2026-08-12 — the container never leaves
-# "Pending" on a docker hub image, even with a NAT gateway or an EIP). The image
-# bakes the probe + deps, so the running container fetches nothing from the public
-# internet. Build it once (deploy/cb-probe/README.md — no CI, no local Docker
-# needed; Aliyun Cloud Shell works) and set target `eci_image` to the pushed ref.
-#
-# The ACR namespace + `cb-probe` repo themselves are NOT terraform-managed: they
-# are a one-time operator action in the ACR console (personal-edition namespace
-# creation via the API is unreliable / being sunset), done alongside the one-time
-# image build (deploy/cb-probe/README.md). Terraform only grants the pull
-# permission below; `acr_repo_vpc_domain` (outputs.tf) prints the expected ref.
-
-# ECI instance-role permission to pull the private cb-probe image from ACR.
-# Personal edition ACR has no fine-grained repo ARNs, so Resource = "*".
-resource "alicloud_ram_policy" "eci_probe_acr_pull" {
-  count       = var.enable_probe ? 1 : 0
-  policy_name = "ClousightBench-EciProbeAcrPull"
-  description = "Allows ECI probe containers to pull the cb-probe image from ACR."
-  force       = true
-  policy_document = jsonencode({
-    Version = "1"
-    Statement = [
-      {
-        Sid    = "AcrPull"
-        Effect = "Allow"
-        Action = [
-          "cr:PullRepository",
-          "cr:GetRepository",
-          "cr:GetRepositoryAuthorizationToken",
-          "cr:ListRepositoryTag",
-        ]
-        Resource = "*"
-      },
-    ]
-  })
-}
-
-resource "alicloud_ram_role_policy_attachment" "eci_probe_acr_pull" {
-  count       = var.enable_probe ? 1 : 0
-  role_name   = alicloud_ram_role.eci_probe[0].role_name
-  policy_name = alicloud_ram_policy.eci_probe_acr_pull[0].policy_name
-  policy_type = "Custom"
-
-  depends_on = [alicloud_ram_role.eci_probe, alicloud_ram_policy.eci_probe_acr_pull]
-}
+# NOTE: no ACR / image-pull permissions here. The probe carrier is a stock ECS
+# instance (EcsProbeCarrier) booting a standard Aliyun Linux OS image; cloud-init
+# `pip install`s the published clousight-bench[probe] package from the Aliyun
+# VPC-internal PyPI mirror. There is no private image to pull, so the instance
+# role needs only the OSS control-channel permissions granted above.
 
