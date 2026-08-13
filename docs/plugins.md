@@ -1,0 +1,99 @@
+# Extending Clousight Bench — the plugin architecture
+
+Clousight Bench is a **core engine + entry-point plugins**. The engine knows how
+to run a benchmark, grade evidence, persist schema-0.2 records, and report; it
+knows nothing about any specific cloud, task, or dataset. Everything
+domain-specific — tasks, platform adapters, enrichers, reapers — is a **plugin**
+discovered at runtime through Python entry points.
+
+The guiding principle: **customize by writing a plugin, never by forking the
+core.** The reference domains ship in the package so it works out of the box and
+so you have a canonical example to copy; your own logic lives in your own package.
+
+## The layers
+
+| Layer | What it contains | Distribution |
+|---|---|---|
+| **Core package** (`clousight-bench`) | The engine (orchestrator, schema/record format, CLI, plugin registry), the plugin **contracts** (`Task`, `AgentRuntimeAdapter`, `RuntimeProviderPlugin`, `ResourceReaper`, `Enricher`, `DomainPack`), the report/query/trace/rollup tooling, and the **data-plane probe** runtime. | pip-installable, open source (Apache-2.0) |
+| **Reference domains** | `agent-runtime` (T0–T6), `bigdata-emr` (J*) — the batteries-included benchmarks. | Bundled in the core package, but registered *as plugins* (see below) |
+| **Your plugins** | Your tasks / adapters / domains / enrichers / reapers. | A separate pip package you publish or install locally |
+| **Commercial (pro)** | Curated datasets, managed service, SLA, private adapters. | Private plugins installed on top via the same entry points |
+
+Because the reference domains are themselves registered through the entry-point
+system, there is nothing special about them — your plugins are first-class in
+exactly the same way.
+
+## The entry-point groups
+
+Register a plugin by advertising an entry point in your package's
+`pyproject.toml`. The engine discovers them with `importlib.metadata.entry_points`
+(`clousight_bench.core.registry`):
+
+| Group | Provides | Reference example |
+|---|---|---|
+| `clousight_bench.domains` | A `DomainPack` — a named set of tasks + adapters | `agent-runtime`, `bigdata-emr` |
+| `clousight_bench.runtime_providers` | A `RuntimeProviderPlugin` — real-cloud transport + campaign probe hook for a provider | `aliyun` |
+| `clousight_bench.resource_reapers` | A `ResourceReaper` — finds/deletes orphaned cloud resources for `csbench sweep` | `aliyun` |
+| `clousight_bench.enrichers` | An `Enricher` — post-run enrichment of records (e.g. pricing) | `pricing` |
+| `clousight_bench.span_exporters` | A span exporter for trace export | `local` |
+| `clousight_bench.asset_resolvers` | Resolves workload assets (datasets, scripts) | — |
+
+The adapter's `status` literal (`skeleton` / `reference` / …) is not flipped by
+installing a plugin: a `skeleton` adapter becomes *runnable* in real mode purely
+because `get_runtime_provider(<provider>)` now returns a non-None plugin — i.e.
+installing the provider plugin wires it, without editing the adapter.
+
+## Write your own plugin
+
+A minimal custom domain lives in its own package. Two files plus one entry point:
+
+```python
+# my_bench/domain.py
+from clousight_bench.core.domain import DomainPack
+from clousight_bench.core.task import Task, TaskResult
+
+class MyLatencyTask(Task):
+    task_id = "M1.1"
+    title = "my custom latency probe"
+    evidence_layer = "B"
+    capability_tags = ("latency",)
+
+    def execute(self, adapter, params) -> TaskResult:
+        # adapter is resolved from the platform; return measurements + findings
+        ...
+
+class MyDomain(DomainPack):
+    name = "my-bench"
+    description = "my custom benchmark"
+    def tasks(self): return {MyLatencyTask.task_id: MyLatencyTask}
+    def adapters(self): return {...}   # platform -> adapter class
+```
+
+```toml
+# my_bench/pyproject.toml
+[project.entry-points."clousight_bench.domains"]
+my-bench = "my_bench.domain:MyDomain"
+```
+
+```
+pip install ./my_bench        # or from your index
+csbench list                  # → my-bench shows up next to agent-runtime
+csbench run --domain my-bench --task M1.1 --platform local-sim
+```
+
+You never touched the installed `clousight-bench`. To **customize a reference
+task**, either register a task under the same id from a higher-precedence plugin,
+or copy the reference task's source (it is open on GitHub) into your own plugin
+and adjust it there — the installed core stays pristine either way.
+
+## Why the reference logic is packaged, not download-only
+
+- **Out of the box**: `pip install clousight-bench` and you can run `agent-runtime`
+  immediately — no assembling parts.
+- **It is the template**: the reference domains *are* the best worked example of a
+  well-formed plugin; you copy their shape for your own.
+- **One consistent chain**: the [data-plane probe](probe-carrier.md) ships in the
+  core package too, so an in-region probe carrier just `pip install
+  clousight-bench[probe]` and has the same probe logic the control plane uses.
+- The source is fully open on GitHub for reading, forking, and PRs — but the
+  *primary* customization path is a plugin package, not editing installed source.

@@ -44,6 +44,8 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Architecture: architecture.md
+  - Extending (plugins): plugins.md
+  - Probe carrier: probe-carrier.md
   - Querying results: querying.md
   - Reporting: reporting.md
   - Dataset tiers: dataset-tiers.md
