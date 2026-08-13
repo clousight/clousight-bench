@@ -202,6 +202,10 @@ def main() -> None:
     bucket = os.environ["CB_PROBE_BUCKET"]
     region = os.environ["CB_PROBE_REGION"]
     campaign_id = os.environ["CB_PROBE_CONTROL_PREFIX"]
+    # A whole-campaign carrier must outlive the gaps between data-plane jobs
+    # (control-plane tasks like T0.x provisioning dispatch none). The control
+    # plane sets this to span the campaign; default stays short for one-shot use.
+    idle_timeout_s = float(os.environ.get("CB_PROBE_IDLE_TIMEOUT", "120"))
 
     from clousight_bench.domains.agent_runtime.probe.oss_client import EcsRamRoleOssClient
 
@@ -212,7 +216,7 @@ def main() -> None:
 
     runner = build_default_runner()
 
-    run_agent_loop(channel, runner)
+    run_agent_loop(channel, runner, idle_timeout_s=idle_timeout_s)
 
 
 if __name__ == "__main__":
