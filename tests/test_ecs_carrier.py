@@ -312,6 +312,21 @@ def test_user_data_installs_extra_deps_before_code_spec():
     assert "pip install -i 'https://mirrors.cloud.aliyuncs.com/pypi/simple/' 'requests>=2.28'" in script
 
 
+def test_user_data_exports_idle_timeout():
+    """The carrier passes its idle_timeout to the probe via env so a long
+    whole-campaign sweep doesn't self-exit between data-plane jobs."""
+    sdk = FakeEcsSdk([{"status": "Running"}])
+    carrier = EcsProbeCarrier(
+        sdk=sdk,
+        config=_make_config(idle_timeout_s=1800.0),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    assert "export CB_PROBE_IDLE_TIMEOUT='1800.0'" in _decode_user_data(sdk)
+
+
 def test_user_data_no_extra_deps_by_default():
     """Default (published-package) path emits a single pip install, no pre-steps."""
     sdk = FakeEcsSdk([{"status": "Running"}])

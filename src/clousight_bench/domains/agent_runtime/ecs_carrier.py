@@ -73,6 +73,12 @@ class EcsCarrierConfig:
 
     ready_timeout_s: float = 300.0
     poll_interval_s: float = 5.0
+    # How long the in-region probe stays alive with no dispatched job before it
+    # self-exits (failsafe against a crashed control plane). Must exceed the
+    # longest gap between data-plane jobs in a campaign — a full 25-task sweep has
+    # control-plane stretches (T0.x provisioning) with no data-plane job, so the
+    # control plane sets this to span the whole campaign. Default 1h.
+    idle_timeout_s: float = 3600.0
     run_id: str | None = None
 
 
@@ -202,6 +208,7 @@ class EcsProbeCarrier:
             f"export CB_PROBE_REGION='{c.region}'",
             f"export CB_PROBE_CONTROL_PREFIX='{c.campaign_id}'",
             f"export CB_PROBE_TOKEN='{self.token}'",
+            f"export CB_PROBE_IDLE_TIMEOUT='{c.idle_timeout_s}'",
             # Stock Aliyun Linux 3 has Python 3.6 and no `pip`; install a >=3.10
             # interpreter and bootstrap its pip, then use `python -m pip` throughout.
             f"yum install -y '{py}'",
