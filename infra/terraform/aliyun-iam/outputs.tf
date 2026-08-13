@@ -103,3 +103,13 @@ output "probe_nat_gateway_id" {
   value       = var.enable_probe ? alicloud_nat_gateway.bench[0].id : ""
 }
 
+output "acr_repo_vpc_domain" {
+  description = <<-EOT
+    VPC-internal pull domain for the cb-probe image repository. Build + push the
+    image once (deploy/cb-probe/README.md), then set eci_image to this + ":<tag>":
+      registry-vpc.<region>.aliyuncs.com/<namespace>/cb-probe
+    Empty when enable_probe = false.
+  EOT
+  value       = var.enable_probe ? "registry-vpc.${var.region}.aliyuncs.com/${var.acr_namespace}/cb-probe" : ""
+}
+

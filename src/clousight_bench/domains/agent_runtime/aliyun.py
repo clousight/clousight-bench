@@ -2075,9 +2075,7 @@ class _AliyunCampaignProbe:
             ram_role=str(target.get("eci_probe_role") or ""),
             cpu=float(target.get("eci_cpu") or 2.0),
             memory=float(target.get("eci_memory") or 4.0),
-            image=str(target.get("eci_image") or "registry.cn-hangzhou.aliyuncs.com/library/python:3.12"),
-            # Pin to a git sha/tag for a reproducible run; defaults to main.
-            code_ref=str(target.get("probe_code_ref") or "main"),
+            image=str(target.get("eci_image") or ""),  # ACR prebuilt cb-probe image
             run_id=run_id or None,
         )
         return EciProbeCarrier(sdk=Eci20180808Sdk(region=region), config=cfg)

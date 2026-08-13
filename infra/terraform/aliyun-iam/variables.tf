@@ -146,13 +146,22 @@ variable "abort_incomplete_multipart_days" {
   default     = 1
 }
 
+variable "acr_namespace" {
+  description = <<-EOT
+    ACR personal-edition namespace for the cb-probe image repository.
+    Globally unique within the region; default matches the project name.
+    Only used when enable_probe = true.
+  EOT
+  type        = string
+  default     = "clousight-bench"
+}
+
 variable "eci_image" {
   description = <<-EOT
-    Optional override for the ECI probe's stock BASE image (the probe installs
-    itself from the public repo at boot — this is NOT a prebuilt custom image).
-    Empty → the carrier default (a public python:3.12 library mirror). Set this to
-    pin a specific base image or, later, an ACR-mirrored one for faster cold starts.
-    Written into csbench_config so live probe runs pick it up.
+    Full registry-vpc reference of the PREBUILT cb-probe image, e.g.
+    "registry-vpc.cn-hangzhou.aliyuncs.com/clousight-bench/cb-probe:<tag>".
+    Empty until the image has been built + pushed once (deploy/cb-probe/README.md).
+    Required for --probe eci; written into csbench_config so live runs pick it up.
   EOT
   type        = string
   default     = ""

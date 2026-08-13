@@ -27,6 +27,7 @@ def test_default_carrier_builds_real_carrier_with_ram_role_and_code_uri(monkeypa
         "eci_probe_role": "clousight-bench-eci-probe",
         "eci_vswitch_id": "vsw-1",
         "eci_security_group_id": "sg-1",
+        "eci_image": "registry-vpc.cn-hangzhou.aliyuncs.com/clousight-bench/cb-probe:x",
     }
     carrier = probe._default_carrier(target, "clousight-bench/telemetry/run-xy/")
     assert isinstance(carrier, EciProbeCarrier)
@@ -34,8 +35,9 @@ def test_default_carrier_builds_real_carrier_with_ram_role_and_code_uri(monkeypa
     assert cfg.ram_role == "clousight-bench-eci-probe"
     assert cfg.vswitch_id == "vsw-1" and cfg.security_group_id == "sg-1"
     assert cfg.region == "cn-hangzhou" and cfg.run_id == "run-xy"
-    # OSS-mediated carrier: campaign_id + bucket drive the ECI env; no oss_code_uri.
+    # OSS-mediated carrier: campaign_id + bucket drive the ECI env; image is the ACR prebuilt.
     assert cfg.campaign_id == "run-xy" and cfg.bucket == "bench-bkt"
+    assert cfg.image.endswith("/cb-probe:x")
     # Readiness is an injected OSS-heartbeat check (not an HTTP /health call); with
     # the fake SDK reporting Running, provision returns the campaign_id/control prefix.
     carrier.ready_check = lambda: True

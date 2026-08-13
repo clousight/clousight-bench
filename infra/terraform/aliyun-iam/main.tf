@@ -456,11 +456,15 @@ resource "alicloud_ram_role" "eci_probe" {
   count       = var.enable_probe ? 1 : 0
   role_name   = var.eci_probe_role_name
   description = "Instance RAM role for ECI probe containers — OSS telemetry read/write."
+  # An ECI *instance* RAM role (assumed by the container at runtime via the ECS
+  # metadata service) reuses the ECS instance-role mechanism, so it must trust
+  # ecs.aliyuncs.com — trusting only eci.aliyuncs.com made ECI reject the pass
+  # with "Forbidden.RamRoleNotExist" (verified live 2026-08-12). Keep both.
   assume_role_policy_document = jsonencode({
     Version = "1"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Service = ["eci.aliyuncs.com"] }
+      Principal = { Service = ["ecs.aliyuncs.com", "eci.aliyuncs.com"] }
       Action    = "sts:AssumeRole"
     }]
   })
@@ -535,16 +539,14 @@ resource "alicloud_ram_policy" "eci_probe_ops" {
         Sid    = "PassRoleToEciScoped"
         Effect = "Allow"
         Action = "ram:PassRole"
-        # Scoped to the eci_probe role only — never arbitrary roles.
+        # Scoped by Resource to the eci_probe role ONLY — never arbitrary roles.
+        # No service Condition: an `acs:Service` StringEquals never matched ECI's
+        # PassRole request context, so the statement silently never applied and
+        # ECI rejected the pass with a misleading "Forbidden.RamRoleNotExist"
+        # (verified live 2026-08-12). The Resource ARN scoping is the real guard,
+        # and the role itself only trusts eci.aliyuncs.com, so it can't be assumed
+        # by anything else even if passed elsewhere.
         Resource = alicloud_ram_role.eci_probe[0].arn
-        # PHASE-B-VERIFY: confirm PassRole service-condition key in Aliyun RAM docs.
-        # acs:Service is the documented condition key for restricting PassRole to a
-        # specific service principal; ram:PassedToService is not a recognised Aliyun key.
-        Condition = {
-          StringEquals = {
-            "acs:Service" = "eci.aliyuncs.com"
-          }
-        }
       },
     ]
   })
@@ -602,9 +604,57 @@ resource "alicloud_snat_entry" "bench" {
   depends_on = [alicloud_eip_association.nat]
 }
 
-# ── Probe container image ─────────────────────────────────────────────────────
-# No registry is managed here: the ECI runs a stock public base image and installs
-# the probe from the public github archive tarball at boot (vendor-neutral — the
-# same bootstrap works on any cloud's container service). ACR is therefore not
-# required; add an ACR mirror only as an optional per-region cold-start speedup.
+# NOTE: Enhanced NAT auto-creates the 0.0.0.0/0 -> NAT route in the VPC's default
+# route table, so no explicit alicloud_route_entry is needed (adding one fails with
+# InvalidCIDRBlock.Duplicate). Verified live 2026-08-12: the route exists Available.
+
+# ── ACR (personal edition) — cb-probe image registry ─────────────────────────
+# The probe runs a PREBUILT image pulled from the account's own ACR over the
+# VPC-internal endpoint. This is required on Aliyun cn-hangzhou: docker hub /
+# github / pypi are throttled from the region, so a stock public base + boot-time
+# install does NOT work (verified live 2026-08-12 — the container never leaves
+# "Pending" on a docker hub image, even with a NAT gateway or an EIP). The image
+# bakes the probe + deps, so the running container fetches nothing from the public
+# internet. Build it once (deploy/cb-probe/README.md — no CI, no local Docker
+# needed; Aliyun Cloud Shell works) and set target `eci_image` to the pushed ref.
+#
+# The ACR namespace + `cb-probe` repo themselves are NOT terraform-managed: they
+# are a one-time operator action in the ACR console (personal-edition namespace
+# creation via the API is unreliable / being sunset), done alongside the one-time
+# image build (deploy/cb-probe/README.md). Terraform only grants the pull
+# permission below; `acr_repo_vpc_domain` (outputs.tf) prints the expected ref.
+
+# ECI instance-role permission to pull the private cb-probe image from ACR.
+# Personal edition ACR has no fine-grained repo ARNs, so Resource = "*".
+resource "alicloud_ram_policy" "eci_probe_acr_pull" {
+  count       = var.enable_probe ? 1 : 0
+  policy_name = "ClousightBench-EciProbeAcrPull"
+  description = "Allows ECI probe containers to pull the cb-probe image from ACR."
+  force       = true
+  policy_document = jsonencode({
+    Version = "1"
+    Statement = [
+      {
+        Sid    = "AcrPull"
+        Effect = "Allow"
+        Action = [
+          "cr:PullRepository",
+          "cr:GetRepository",
+          "cr:GetRepositoryAuthorizationToken",
+          "cr:ListRepositoryTag",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+}
+
+resource "alicloud_ram_role_policy_attachment" "eci_probe_acr_pull" {
+  count       = var.enable_probe ? 1 : 0
+  role_name   = alicloud_ram_role.eci_probe[0].role_name
+  policy_name = alicloud_ram_policy.eci_probe_acr_pull[0].policy_name
+  policy_type = "Custom"
+
+  depends_on = [alicloud_ram_role.eci_probe, alicloud_ram_policy.eci_probe_acr_pull]
+}
 
