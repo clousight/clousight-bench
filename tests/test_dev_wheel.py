@@ -116,7 +116,8 @@ def test_repo_root_raises_when_no_pyproject(monkeypatch):
 def test_ecs_metadata_provider_reads_instance_role_creds(monkeypatch):
     """The probe reads its instance RAM role from the ECS metadata service using
     only requests (no alibabacloud_credentials, which isn't in the probe extra)."""
-    import requests
+    pytest.importorskip("oss2")  # get_credentials() builds an oss2 Credentials
+    requests = pytest.importorskip("requests")  # probe extra dep, absent in bare install
 
     from clousight_bench.domains.agent_runtime.probe import oss_client
 
