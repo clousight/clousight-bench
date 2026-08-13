@@ -680,7 +680,9 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
     from clousight_bench.core.plugin import campaign_probe_hook  # local import
 
     hook = None
-    if getattr(args, "probe", "") == "eci":
+    # "eci" is a deprecated alias for "ecs" (the carrier is now a stock ECS
+    # instance); both request the per-campaign in-region probe carrier.
+    if getattr(args, "probe", "") in ("ecs", "eci"):
         # Resolve the carrier by the target's PROVIDER (e.g. "aliyun"), NOT the
         # platform name (e.g. "aliyun-agentrun") — get_runtime_provider keys on
         # provider. A silent fallback to the in-process probe on a mismatch would
@@ -689,7 +691,8 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
         hook = campaign_probe_hook(provider)
         if hook is None:
             print(
-                f"error: --probe eci requested but no probe carrier is registered for provider '{provider}'",
+                f"error: --probe {args.probe} requested but no probe carrier "
+                f"is registered for provider '{provider}'",
                 file=sys.stderr,
             )
             return 2
@@ -947,10 +950,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     rp_p.add_argument(
         "--probe",
-        choices=["local", "eci"],
+        choices=["local", "ecs", "eci"],
         default="local",
         help="probe mode: 'local' keeps in-process behavior (default); "
-        "'eci' brings up a per-campaign ECI probe carrier",
+        "'ecs' brings up a per-campaign in-region ECS probe carrier "
+        "('eci' is a deprecated alias for 'ecs')",
     )
 
     prog_p = sub.add_parser("progress", help="show a run-plan campaign's live progress")

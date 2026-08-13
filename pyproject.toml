@@ -64,7 +64,7 @@ aliyun = [
     "alibabacloud-credentials",
     "oss2",
     "alibabacloud-arms20190808",
-    "alibabacloud-eci20180808",
+    "alibabacloud-ecs20140526",
     "requests>=2.28",
 ]
 store = ["duckdb>=1.0", "pyarrow>=16"]
@@ -77,6 +77,7 @@ docs = [
 
 [project.scripts]
 csbench = "clousight_bench.cli:main"
+cb-probe = "clousight_bench.domains.agent_runtime.probe.agent_loop:main"
 
 [project.entry-points."clousight_bench.domains"]
 agent-runtime = "clousight_bench.domains.agent_runtime:AgentRuntimeDomain"

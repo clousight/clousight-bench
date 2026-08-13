@@ -4,14 +4,14 @@ from clousight_bench.domains.agent_runtime.reaper import AliyunResourceReaper
 
 
 def _fixtures():
-    eci = lambda: [
+    ecs = lambda: [
         {
-            "kind": "eci",
-            "id": "eci-1",
+            "kind": "ecs",
+            "id": "ecs-1",
             "created_ts": 100.0,
             "tags": {"clousight-bench:managed": "true", "clousight-bench:run-id": "run-a"},
         },
-        {"kind": "eci", "id": "eci-untagged", "created_ts": 100.0, "tags": {}},
+        {"kind": "ecs", "id": "ecs-untagged", "created_ts": 100.0, "tags": {}},
     ]
     runtimes = lambda: [
         {
@@ -21,7 +21,7 @@ def _fixtures():
             "tags": {"clousight-bench:managed": "true", "clousight-bench:run-id": "run-b"},
         },
     ]
-    return [eci, runtimes]
+    return [ecs, runtimes]
 
 
 def test_dry_run_lists_managed_only_no_delete():
@@ -29,7 +29,7 @@ def test_dry_run_lists_managed_only_no_delete():
     r = AliyunResourceReaper(list_fns=_fixtures(), delete_fn=lambda k, i: deleted.append((k, i)))
     acted = r.sweep(dry_run=True)
     ids = sorted(a["id"] for a in acted)
-    assert ids == ["eci-1", "rt-1"]  # untagged skipped
+    assert ids == ["ecs-1", "rt-1"]  # untagged skipped
     assert deleted == []  # dry run deletes nothing
     assert {a["run_id"] for a in acted} == {"run-a", "run-b"}
 
@@ -38,13 +38,13 @@ def test_confirm_deletes_managed_resources():
     deleted = []
     r = AliyunResourceReaper(list_fns=_fixtures(), delete_fn=lambda k, i: deleted.append((k, i)))
     r.sweep(dry_run=False)
-    assert sorted(deleted) == [("agentrun", "rt-1"), ("eci", "eci-1")]
+    assert sorted(deleted) == [("agentrun", "rt-1"), ("ecs", "ecs-1")]
 
 
 def test_older_than_filters_young_resources():
     r = AliyunResourceReaper(
         list_fns=_fixtures(), delete_fn=lambda k, i: None, now=lambda: 120.0
-    )  # eci age=20s, rt age=70s
+    )  # ecs age=20s, rt age=70s
     acted = r.sweep(dry_run=True, older_than_s=60.0)
     assert [a["id"] for a in acted] == ["rt-1"]  # only the >60s-old runtime
 
