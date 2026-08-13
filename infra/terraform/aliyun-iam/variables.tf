@@ -116,6 +116,17 @@ variable "enable_probe" {
   default     = false
 }
 
+variable "enable_nat" {
+  description = <<-EOT
+    Create the NAT gateway + EIP that give the private ECI probe egress to the
+    AgentRun public endpoint. Kept SEPARATE from enable_probe because the NAT/EIP
+    bill hourly: turn it on only for the duration of an --probe eci session and
+    tear it down after. Requires enable_probe = true and create_vpc = true.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "eci_probe_role_name" {
   description = "Name for the ECI instance RAM role assumed by probe containers."
   type        = string
