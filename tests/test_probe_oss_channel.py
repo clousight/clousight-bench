@@ -302,3 +302,21 @@ def test_different_campaign_ids_are_isolated(spec: JobSpec) -> None:
     assert ch_b.list_pending_jobs() == []
     assert ch_b.is_ready() is False
     assert ch_b.stop_requested() is False
+
+
+def test_reset_clears_all_control_keys(oss: InMemoryOssClient, channel: OssChannel, spec: JobSpec) -> None:
+    channel.write_ready()
+    channel.signal_stop()
+    channel.write_job(spec)
+    assert oss.list_prefix(channel.prefix)  # non-empty
+    channel.reset()
+    assert oss.list_prefix(channel.prefix) == []
+
+
+def test_reset_lets_fresh_probe_not_see_a_stale_stop(channel: OssChannel) -> None:
+    # A previous run on this (reused) campaign prefix left a stop sentinel.
+    channel.signal_stop()
+    assert channel.stop_requested() is True
+    # The control plane resets before provisioning the next carrier.
+    channel.reset()
+    assert channel.stop_requested() is False  # fresh probe won't exit immediately

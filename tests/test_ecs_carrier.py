@@ -235,7 +235,7 @@ def test_user_data_pip_install_uses_code_spec():
     assert "clousight-bench[probe]==1.2.3" in script
 
 
-def test_user_data_ends_with_exec_cb_probe():
+def test_user_data_ends_with_exec_probe_module():
     sdk = FakeEcsSdk([{"status": "Running"}])
     carrier = EcsProbeCarrier(
         sdk=sdk,
@@ -246,10 +246,31 @@ def test_user_data_ends_with_exec_cb_probe():
     )
     carrier.provision()
     script = _decode_user_data(sdk)
-    assert "cb-probe" in script
-    # The last non-empty line should be the exec
+    # Runs the probe via `python3.11 -m ...agent_loop` (not the console script),
+    # so it works regardless of where the entry point lands on PATH.
     last_line = [line for line in script.splitlines() if line.strip()][-1]
-    assert "cb-probe" in last_line
+    assert last_line.startswith("exec python3.11 -m ")
+    assert "clousight_bench.domains.agent_runtime.probe.agent_loop" in last_line
+
+
+def test_user_data_installs_python311_interpreter():
+    """Stock Aliyun Linux 3 has Python 3.6; user-data must install >=3.10 first."""
+    sdk = FakeEcsSdk([{"status": "Running"}])
+    carrier = EcsProbeCarrier(
+        sdk=sdk,
+        config=_make_config(),
+        ready_check=lambda: True,
+        sleep=lambda s: None,
+        now=lambda: 0.0,
+    )
+    carrier.provision()
+    script = _decode_user_data(sdk)
+    assert "yum install -y 'python3.11'" in script
+    assert "python3.11 -m ensurepip" in script
+    # every pip invocation goes through the 3.11 interpreter, never bare `pip`
+    for line in script.splitlines():
+        if "pip install" in line:
+            assert line.startswith("python3.11 -m pip install")
 
 
 def test_user_data_is_posix_sh():

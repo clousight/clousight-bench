@@ -63,6 +63,31 @@ class _ChainCredentialsProvider:
         return oss2.credentials.Credentials(c.access_key_id, c.access_key_secret, c.security_token)
 
 
+class _EcsMetadataCredentialsProvider:
+    """oss2 CredentialsProvider reading the instance RAM role from the ECS
+    metadata service using only ``requests``.
+
+    The in-region probe installs just ``clousight-bench[probe]`` (requests+oss2)
+    on a stock ECS instance — alibabacloud_credentials is NOT present there, so
+    the control plane's :class:`_ChainCredentialsProvider` can't be used inside
+    the probe. This provider hits the link-local metadata endpoint directly
+    (reachable without NAT), auto-discovers the role name, and refreshes on every
+    ``get_credentials()`` call (the endpoint is local and fast)."""
+
+    _BASE = "http://100.100.100.200/latest/meta-data/ram/security-credentials/"
+
+    def __init__(self, role_name: str = "") -> None:
+        self._role = role_name
+
+    def get_credentials(self):  # noqa: ANN201 - lazy oss2 type
+        import oss2
+        import requests
+
+        role = self._role or requests.get(self._BASE, timeout=5).text.strip()
+        d = requests.get(self._BASE + role, timeout=5).json()
+        return oss2.credentials.Credentials(d["AccessKeyId"], d["AccessKeySecret"], d["SecurityToken"])
+
+
 def _oss_endpoint(region: str, internal: bool) -> str:
     """Return the public or VPC-internal OSS endpoint for *region*."""
     if internal:
@@ -86,7 +111,16 @@ class _Oss2BucketMixin(OssClient):
         self._bucket_handle().put_object(key, data)
 
     def get_object(self, key: str) -> bytes:
-        return self._bucket_handle().get_object(key).read()
+        # Normalise "key absent" to KeyError so callers get the same contract as
+        # InMemoryOssClient (dict-backed → KeyError). oss2 raises NoSuchKey, which
+        # is NOT a KeyError, so without this an is_ready()/get poll on a
+        # not-yet-written key crashes instead of reporting "absent".
+        import oss2
+
+        try:
+            return self._bucket_handle().get_object(key).read()
+        except oss2.exceptions.NoSuchKey as e:
+            raise KeyError(key) from e
 
     def list_prefix(self, prefix: str) -> list[str]:
         import oss2
@@ -145,10 +179,15 @@ class Oss2Client(_Oss2BucketMixin):
 class EcsRamRoleOssClient(_Oss2BucketMixin):
     """OSS client for use inside an ECI/ECS instance.
 
-    Authenticates via the instance's RAM role (``EcsRamRoleCredentialsProvider``)
-    and always uses the **VPC-internal** OSS endpoint — no static keys, no public
-    internet egress required.  Intended for the in-region probe only; the control
-    plane keeps using :class:`Oss2Client`.
+    Authenticates via the instance's RAM role and always uses the **VPC-internal**
+    OSS endpoint — no static keys, no public internet egress required.  Intended
+    for the in-region probe only; the control plane keeps using :class:`Oss2Client`.
+
+    Reads the instance RAM role straight from the ECS metadata service via
+    :class:`_EcsMetadataCredentialsProvider` (requests-only). This avoids both an
+    alibabacloud_credentials dependency (absent in the lean probe install) and
+    oss2's own ``EcsRamRoleCredentialsProvider`` (whose constructor signature
+    varies across versions — 2.19 requires an ``auth_host`` arg).
     """
 
     def __init__(self, bucket: str, region: str = "cn-hangzhou") -> None:
@@ -161,6 +200,6 @@ class EcsRamRoleOssClient(_Oss2BucketMixin):
         if self._bucket is None:
             import oss2
 
-            auth = oss2.ProviderAuthV4(oss2.credentials.EcsRamRoleCredentialsProvider())
+            auth = oss2.ProviderAuthV4(_EcsMetadataCredentialsProvider())
             self._bucket = oss2.Bucket(auth, self._endpoint, self._bucket_name, region=self._region)
         return self._bucket
