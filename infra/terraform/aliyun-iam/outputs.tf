@@ -112,3 +112,8 @@ output "probe_nat_gateway_id" {
   value       = var.enable_nat ? alicloud_nat_gateway.bench[0].id : ""
 }
 
+
+output "controller_instance_id" {
+  description = "Ecs-resident campaign controller instance id (null when disabled)."
+  value       = var.enable_controller ? alicloud_instance.controller[0].id : null
+}

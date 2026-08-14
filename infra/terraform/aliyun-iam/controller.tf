@@ -1,0 +1,127 @@
+# Ephemeral ecs-resident campaign controller (prod profile).
+#
+# Brought up by `csbench submit` (MAIN account, once) alongside the NAT; runs the
+# whole run-plan orchestration loop in-region, then self-destructs via the
+# restricted role below. Gated by enable_controller so dev runs never create it.
+
+variable "enable_controller" {
+  type        = bool
+  default     = false
+  description = "Create the ecs-resident campaign controller (prod profile submit)."
+}
+
+variable "campaign_id" {
+  type        = string
+  default     = ""
+  description = "Campaign id the controller polls for on OSS (stamped into env + tags)."
+}
+
+variable "controller_instance_type" {
+  type        = string
+  default     = "ecs.e-c1m2.large"
+  description = "ECS type for the controller (orchestration is light; probes are serial)."
+}
+
+data "alicloud_images" "controller" {
+  count       = var.enable_controller ? 1 : 0
+  owners      = "system"
+  name_regex  = "^aliyun_3_"
+  most_recent = true
+}
+
+# Restricted delete role: ONLY this run's runtime + NAT/EIP/SNAT + self ECS + the
+# bench OSS bucket. Never the MAIN account. This is what lets the controller reap
+# itself on timeout with no laptop involvement.
+resource "alicloud_ram_role" "controller" {
+  count       = var.enable_controller ? 1 : 0
+  role_name   = "clousight-bench-controller"
+  description = "Restricted self-destruct role for the ecs-resident campaign controller."
+  assume_role_policy_document = jsonencode({
+    Version = "1"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = ["ecs.aliyuncs.com"] }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "alicloud_ram_policy" "controller" {
+  count       = var.enable_controller ? 1 : 0
+  policy_name = "clousight-bench-controller-teardown"
+  policy_document = jsonencode({
+    Version = "1"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "agentrun:CreateAgentRuntime", "agentrun:CreateAgentRuntimeEndpoint",
+          "agentrun:DeleteAgentRuntime", "agentrun:DeleteAgentRuntimeEndpoint",
+          "agentrun:GetAgentRuntime", "agentrun:ListAgentRuntimes",
+          "agentrun:CreateAgentRuntimeVersion", "agentrun:ListAgentRuntimeEndpoints"
+        ]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["vpc:DeleteNatGateway", "vpc:DeleteSnatEntry", "vpc:DescribeNatGateways", "vpc:DescribeSnatTableEntries"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["eip:ReleaseEipAddress", "eip:UnassociateEipAddress", "eip:DescribeEipAddresses"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:DeleteInstance", "ecs:DescribeInstances"]
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["oss:GetObject", "oss:PutObject", "oss:ListObjects", "oss:DeleteObject"]
+        Resource = "*"
+      },
+    ]
+  })
+}
+
+resource "alicloud_ram_role_policy_attachment" "controller" {
+  count       = var.enable_controller ? 1 : 0
+  role_name   = alicloud_ram_role.controller[0].role_name
+  policy_name = alicloud_ram_policy.controller[0].policy_name
+  policy_type = "Custom"
+}
+
+locals {
+  controller_user_data = base64encode(join("\n", [
+    "#!/bin/sh",
+    "set -e",
+    "export CB_CAMPAIGN_ID='${var.campaign_id}'",
+    "export CB_OSS_BUCKET='${var.oss_bucket}'",
+    "export CB_REGION='${var.region}'",
+    "export CB_RESULTS_DIR='/var/lib/cb/results'",
+    "export CB_PLATFORM='aliyun-agentrun'",
+    "yum install -y python3.11",
+    "python3.11 -m ensurepip --upgrade",
+    "python3.11 -m pip install -i 'https://mirrors.cloud.aliyuncs.com/pypi/simple/' 'clousight-bench[probe,store]'",
+    "exec python3.11 -m clousight_bench.core.controller_main",
+  ]))
+}
+
+resource "alicloud_instance" "controller" {
+  count                      = var.enable_controller ? 1 : 0
+  instance_name              = "clousight-bench-controller-${var.campaign_id}"
+  image_id                   = data.alicloud_images.controller[0].images[0].id
+  instance_type              = var.controller_instance_type
+  vswitch_id                 = alicloud_vswitch.bench[0].id
+  security_groups            = [alicloud_security_group.bench[0].id]
+  role_name                  = alicloud_ram_role.controller[0].role_name
+  internet_max_bandwidth_out = 0 # VPC-internal; egress to the public mock is via the NAT
+  instance_charge_type       = "PostPaid"
+  user_data                  = local.controller_user_data
+  tags = {
+    campaign_id = var.campaign_id
+    app         = "clousight-bench-controller"
+  }
+}
