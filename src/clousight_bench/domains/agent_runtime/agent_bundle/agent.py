@@ -357,6 +357,17 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(out)
 
+    def do_GET(self) -> None:  # noqa: N802 - http.server naming
+        # Readiness probe. The server only binds + accepts connections once the
+        # (slow) cold start has finished loading the agent, so a 200 here means
+        # "warm". The transport polls this before measuring latency so cold-start
+        # time is not folded into e.g. TTFT (which should be warm-path only).
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", "5")
+        self.end_headers()
+        self.wfile.write(b"ready")
+
     def log_message(self, *args: Any) -> None:  # silence per-request logging
         pass
 
