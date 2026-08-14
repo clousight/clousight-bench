@@ -612,6 +612,16 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 def _cmd_run_plan(args: argparse.Namespace) -> int:
     import os
 
+    if getattr(args, "mode", "dev") == "prod":
+        import sys
+
+        print(
+            "run-plan is dev-only (本地开发). For prod (生产测评) use: "
+            "csbench submit <plan> --config <cfg>",
+            file=sys.stderr,
+        )
+        return 2
+
     import yaml as _yaml
 
     from clousight_bench.core.campaign import (
@@ -853,9 +863,107 @@ def _cmd_progress(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---- prod profile (ecs-resident orchestrator) helpers + commands ------------
+_PROD_TF_DIR = "infra/terraform/aliyun-iam"
+
+
+def _prod_target(config_path: str | None) -> dict:
+    from pathlib import Path
+
+    import yaml as _yaml
+
+    doc = _yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) if config_path else {}
+    return dict((doc or {}).get("target") or {})
+
+
+def _prod_oss(target: dict):
+    from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
+
+    return Oss2Client(str(target.get("oss_bucket") or ""), str(target.get("region") or "cn-hangzhou"))
+
+
+def _prod_channel(target: dict, campaign_id: str):
+    from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
+
+    return CampaignChannel(_prod_oss(target), campaign_id)
+
+
+def _terraform_runner():
+    import subprocess
+
+    return lambda argv: subprocess.call(["terraform", *argv], cwd=_PROD_TF_DIR)
+
+
+def _prod_runtime_deleter(target: dict):
+    def _del(runtime_id: str) -> None:
+        from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
+
+        AliyunAgentRunAdapter(target)._transport_().deprovision(runtime_id)
+
+    return _del
+
+
+def _cmd_submit(args: argparse.Namespace) -> int:
+    from clousight_bench.core import prod_submit
+    from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
+
+    oss = _prod_oss(_prod_target(args.config))
+    cid = prod_submit.submit(
+        args.plan_file,
+        args.config,
+        lambda c: CampaignChannel(oss, c),
+        _terraform_runner(),
+        watchdog_timeout_s=args.watchdog_timeout,
+    )
+    print(cid)
+    return 0
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from clousight_bench.core import prod_submit
+
+    st = prod_submit.status(_prod_channel(_prod_target(args.config), args.campaign_id))
+    print(_json.dumps(st, ensure_ascii=False))
+    return 0
+
+
+def _cmd_logs(args: argparse.Namespace) -> int:
+    from clousight_bench.core import prod_submit
+
+    for line in prod_submit.logs(_prod_channel(_prod_target(args.config), args.campaign_id)):
+        print(line)
+    return 0
+
+
+def _cmd_fetch(args: argparse.Namespace) -> int:
+    from clousight_bench.core import prod_submit
+
+    paths = prod_submit.fetch(_prod_channel(_prod_target(args.config), args.campaign_id), args.dest)
+    print(f"fetched {len(paths)} file(s) to {args.dest}")
+    return 0
+
+
+def _cmd_teardown(args: argparse.Namespace) -> int:
+    from clousight_bench.core import prod_submit
+
+    target = _prod_target(args.config)
+    out = prod_submit.teardown(
+        _prod_channel(target, args.campaign_id), _terraform_runner(), _prod_runtime_deleter(target)
+    )
+    print(out)
+    return 0
+
+
 def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "list": _cmd_list,
+        "submit": _cmd_submit,
+        "status": _cmd_status,
+        "logs": _cmd_logs,
+        "fetch": _cmd_fetch,
+        "teardown": _cmd_teardown,
         "run": _cmd_run,
         "report": _cmd_report,
         "trace": _cmd_trace,
@@ -956,6 +1064,34 @@ def main(argv: list[str] | None = None) -> int:
         "'ecs' brings up a per-campaign in-region ECS probe carrier "
         "('eci' is a deprecated alias for 'ecs')",
     )
+    rp_p.add_argument(
+        "--mode",
+        choices=["dev", "prod"],
+        default="dev",
+        help="run profile by intent: 'dev' (本地开发) runs here; 'prod' (生产测评) "
+        "is rejected — use `csbench submit` (the ecs-resident orchestrator)",
+    )
+
+    # ---- prod profile: thin submit/status/logs/fetch/teardown -----------------
+    sm_p = sub.add_parser("submit", help="prod: submit a campaign to an ecs-resident controller")
+    sm_p.add_argument("plan_file", help="YAML plan file")
+    sm_p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
+    sm_p.add_argument(
+        "--watchdog-timeout", type=float, default=5400.0, dest="watchdog_timeout",
+        help="controller self-destruct timeout in seconds (default 5400 = 90min)",
+    )
+    for _name, _help in (
+        ("status", "prod: show a campaign's progress"),
+        ("logs", "prod: show the controller's logs"),
+        ("teardown", "prod: backstop cleanup (stop + reap residual + terraform destroy)"),
+    ):
+        _p = sub.add_parser(_name, help=_help)
+        _p.add_argument("campaign_id")
+        _p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
+    fe_p = sub.add_parser("fetch", help="prod: download a campaign's results (JSON + parquet)")
+    fe_p.add_argument("campaign_id")
+    fe_p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
+    fe_p.add_argument("--dest", default="results/prod-fetch", help="destination directory")
 
     prog_p = sub.add_parser("progress", help="show a run-plan campaign's live progress")
     prog_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
