@@ -2,9 +2,47 @@ from __future__ import annotations
 
 import base64
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+
+def build_controller_user_data(
+    *,
+    bucket: str,
+    region: str,
+    campaign_id: str,
+    results_dir: str = "/var/lib/cb/results",
+    platform: str = "aliyun-agentrun",
+    code_spec: str = "clousight-bench[probe,store]",
+    python_pkg: str = "python3.11",
+    pip_index_url: str = "https://mirrors.cloud.aliyuncs.com/pypi/simple/",
+    extra_deps: Iterable[str] = (),
+) -> str:
+    """Base64 cloud-init user-data for the PROD controller instance.
+
+    Mirrors the probe carrier's install pattern but installs the ``[probe,store]``
+    extra (so the controller can write parquet sidecars in-cloud) and runs
+    ``cb-controller`` (``core.controller_main``) instead of the probe loop. Env
+    vars follow the ``CB_*`` names ``controller_main.build`` reads.
+    """
+    py = python_pkg
+    lines = [
+        "#!/bin/sh",
+        "set -e",
+        f"export CB_CAMPAIGN_ID='{campaign_id}'",
+        f"export CB_OSS_BUCKET='{bucket}'",
+        f"export CB_REGION='{region}'",
+        f"export CB_RESULTS_DIR='{results_dir}'",
+        f"export CB_PLATFORM='{platform}'",
+        f"yum install -y '{py}'",
+        f"{py} -m ensurepip --upgrade",
+    ]
+    lines += [f"{py} -m pip install -i '{pip_index_url}' '{dep}'" for dep in extra_deps]
+    lines.append(f"{py} -m pip install -i '{pip_index_url}' '{code_spec}'")
+    lines.append(f"exec {py} -m clousight_bench.core.controller_main")
+    script = "\n".join(lines) + "\n"
+    return base64.b64encode(script.encode()).decode()
 
 
 class CarrierError(RuntimeError):

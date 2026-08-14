@@ -84,6 +84,7 @@ docs = [
 [project.scripts]
 csbench = "clousight_bench.cli:main"
 cb-probe = "clousight_bench.domains.agent_runtime.probe.agent_loop:main"
+cb-controller = "clousight_bench.core.controller_main:main"
 
 [project.entry-points."clousight_bench.domains"]
 agent-runtime = "clousight_bench.domains.agent_runtime:AgentRuntimeDomain"
