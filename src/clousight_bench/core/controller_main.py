@@ -12,6 +12,7 @@ the thin live entrypoint (Oss2Client via the instance metadata role).
 
 from __future__ import annotations
 
+import contextlib
 import os
 import threading
 import time
@@ -95,15 +96,29 @@ def build(
 def main() -> int:  # pragma: no cover - live entrypoint, exercised by the smoke runbook
     from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
+    import traceback
+
     env = dict(os.environ)
     # In-region controller reads/writes OSS over the VPC-internal endpoint; creds
     # come from the instance RAM role via the default credential chain.
     oss = Oss2Client(env["CB_OSS_BUCKET"], env.get("CB_REGION", "cn-hangzhou"), internal=True)
     channel = CampaignChannel(oss, env["CB_CAMPAIGN_ID"])
-    if not channel.claim():
-        return 0  # another controller already owns this campaign
-    controller, watchdog = build(env, oss)
-    start = time.time()
-    threading.Thread(target=controller.run, daemon=True).start()
-    watchdog.run_until_terminal(start)
-    return 0
+    # Boot markers to OSS: the controller's stdout/stderr don't reach the serial
+    # console, so log progress here — a `csbench logs` shows exactly how far it got.
+    try:
+        channel.append_log("controller boot: python+import+oss OK")
+        if not channel.claim():
+            channel.append_log("campaign already claimed — exiting")
+            return 0  # another controller already owns this campaign
+        channel.append_log("claimed campaign; building controller+watchdog")
+        controller, watchdog = build(env, oss)
+        channel.append_log("built; starting orchestration loop + watchdog")
+        start = time.time()
+        threading.Thread(target=controller.run, daemon=True).start()
+        reason = watchdog.run_until_terminal(start)
+        channel.append_log(f"watchdog terminal: {reason}")
+        return 0
+    except Exception:
+        with contextlib.suppress(Exception):
+            channel.append_log("CONTROLLER FATAL:\n" + traceback.format_exc()[-3000:])
+        raise
