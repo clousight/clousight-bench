@@ -1767,6 +1767,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         # Poll endpoint list for status=Active and endpoint_public_url.
         # Using list (not get) because get requires a UUID, not the name.
         deadline = time.perf_counter() + _READY_TIMEOUT_S
+        last_status, last_reason = "", ""
         while time.perf_counter() < deadline:
             list_resp = client.list_agent_runtime_endpoints(runtime_id, m.ListAgentRuntimeEndpointsRequest())
             items = getattr(getattr(getattr(list_resp, "body", None), "data", None), "items", None) or []
@@ -1774,9 +1775,21 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 if str(getattr(ep, "agent_runtime_endpoint_name", "") or "") == "Default":
                     status = str(getattr(ep, "status", "") or "").lower()
                     url = str(getattr(ep, "endpoint_public_url", "") or "")
+                    last_status = status
+                    last_reason = str(getattr(ep, "status_reason", "") or "")
                     if status in ("active", "ready") and url:
                         return url
             time.sleep(_READY_POLL_S)
+        # Don't fail silently: surface why the endpoint never became routable.
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "AgentRuntime endpoint not routable within %ss: status=%r reason=%r (runtime_id=%s)",
+            _READY_TIMEOUT_S,
+            last_status,
+            last_reason,
+            runtime_id,
+        )
         return ""  # endpoint not ready within timeout
 
     def deprovision(self, runtime_id: str) -> DeprovisionResult:
@@ -1967,16 +1980,19 @@ class AliyunAgentRunTransport(RuntimeTransport):
             # Startup command as a list ([]string on the server side)
             command=list(target.get("command") or ["python3", "agent.py"]),
         )
-        # NetworkConfiguration is required.
-        # Valid networkMode values confirmed from console capture:
-        #   "PUBLIC"  — public internet, no VPC fields allowed
-        #   "VPC"     — user VPC; requires vpc_id + security_group_id + vswitch_ids
-        #               (exact casing TBD — use target.network_mode to override)
+        # NetworkConfiguration is required. Valid networkMode values (live-verified
+        # 2026-08-14 by probing CreateAgentRuntime):
+        #   "PUBLIC"   — public internet egress (agent's outbound tool calls exit via
+        #                AgentRun's shared public egress; ~86s to a public mock).
+        #   "PRIVATE"  — user-VPC egress; requires vpc_id + security_group_id +
+        #                vswitch_ids. The agent's outbound calls take the VPC/NAT
+        #                path (~60ms to the same mock). "VPC"/"Vpc"/"PrivateNetwork"
+        #                etc. are all rejected with "invalid networkMode".
         vpc_id = str(target.get("vpc_id") or "")
         if target.get("network_mode"):
             net_mode = str(target["network_mode"])
         elif vpc_id:
-            net_mode = "VPC"  # assume VPC mode when vpc_id is configured
+            net_mode = "PRIVATE"  # VPC egress mode when vpc_id is configured
         else:
             net_mode = "PUBLIC"  # default: public internet, no VPC needed
         net_cfg = m.NetworkConfiguration(network_mode=net_mode)
