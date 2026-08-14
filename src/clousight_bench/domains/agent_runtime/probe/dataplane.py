@@ -445,56 +445,204 @@ def run_soak(
     )
 
 
+# --- idle-retention tiering (T1.5 / T1.14) -----------------------------------
+#
+# AgentRun/FC idle instances are NOT binary hot/cold — the platform docs describe
+# three tiers whose wake cost differs by orders of magnitude:
+#   活跃/浅度休眠 (shallow)  — sub-second, ms-level wake, "almost no cold start"
+#   深度休眠 (deep)          — seconds to recover
+#   实例销毁 (recycled/cold) — full rebuild, ~86s on the next call
+# The idle→destroy threshold is configurable via CreateAgentRuntime's
+# ``sessionIdleTimeoutSeconds`` but its DEFAULT is deliberately undocumented, so an
+# empirical sweep (evidence B) is the only way to learn "how long until it goes
+# cold again". These constants classify a wake latency into a tier relative to the
+# measured warm baseline; all are overridable per-probe via params.
+RETENTION_WARMUP = 5
+# Idle points probed FROM warm; each re-invoke wakes the instance so the next
+# point is idle-from-warm again. Capped so the total sweep stays ~5min (the probe
+# breaks early once it observes a full recycle). Override via wait_intervals_s.
+RETENTION_INTERVALS_S = [30, 120, 300]
+DEEP_WAKE_FACTOR = 3.0  # wake > factor × warm_p95 ⇒ left shallow hibernation
+COLD_WAKE_MS = 15000.0  # wake ≥ this ⇒ instance was recycled (full cold rebuild)
+
+
+def _retention_body(spec: JobSpec, session_id: str) -> dict[str, Any]:
+    """A light, correlation-id-free ``prices`` invoke body for idle probing."""
+    return protocol.encode_invoke(
+        {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}},
+        spec.mock_base_url,
+        mock_token=spec.mock_token or None,
+        session_id=session_id,
+    )
+
+
+def _timed_invoke(inv: ProbeInvoker, session_id: str, body: dict[str, Any]) -> float:
+    """One invoke on ``session_id``; return end-to-end latency in ms (errors → the
+    elapsed time, so a slow-then-failing cold wake still reads as slow)."""
+    t0 = time.perf_counter()
+    try:
+        inv.invoke(session_id, body)
+    except Exception:  # noqa: BLE001 — latency is the signal, not success
+        pass
+    return (time.perf_counter() - t0) * 1000
+
+
+def _classify_wake(
+    wake_ms: float,
+    warm_p95: float,
+    *,
+    cold_ms: float = COLD_WAKE_MS,
+    deep_factor: float = DEEP_WAKE_FACTOR,
+) -> str:
+    """Bucket a post-idle wake latency into shallow / deep / cold."""
+    if wake_ms >= cold_ms:
+        return "cold"
+    if wake_ms > warm_p95 * deep_factor:
+        return "deep"
+    return "shallow"
+
+
 def run_warm_retention(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """多点检测：建立热实例后，依次等待，观察哪个时间点变冷。
+    """分档空闲扫描：建热实例后，按阶梯空闲并重调同一 session，观察每个空闲时长把
+    实例带到哪一档（浅休眠 ms / 深休眠 秒 / 销毁 全冷）。
 
-    阈值策略：取 warmup_samples 次热调用的 p95，乘以 2 作为"仍然热"的上限。
-    retention_ms = 最后一次仍然热的等待时间（0 = 完全不保活）。
+    用 ONE stable session（而非每次新建）才能真正测"这个 session 的实例保活多久"。
+    每次重调都会唤醒实例，所以每个 interval 都是"从热空闲 wait_s"，映射空闲时长→档位。
+    观察到 full-cold（销毁）即 break（已死，无需再等）。输出 shallow_retention_s /
+    deep_onset_s / cold_recycle_s；若最长档仍未销毁，sweep_capped=True（真实回收窗口 >
+    扫描上限）。
     """
-    warmup: int = spec.params.get("warmup_samples", 5)
-    intervals: list = spec.params.get("wait_intervals_s", [10, 30, 60])
+    warmup: int = spec.params.get("warmup_samples", RETENTION_WARMUP)
+    intervals: list = spec.params.get("wait_intervals_s", RETENTION_INTERVALS_S)
+    cold_ms = float(spec.params.get("cold_wake_ms", COLD_WAKE_MS))
+    deep_factor = float(spec.params.get("deep_wake_factor", DEEP_WAKE_FACTOR))
 
     inv = ProbeInvoker(spec)
     t_start = time.perf_counter()
+    sid = inv.create_session()
+    body = _retention_body(spec, sid)
 
-    # 建立热实例 + 采集基准分布，用 p95×2 作为阈值
+    # 建立热实例 + 采集基准分布，p95 用于分档阈值。首样本可能是 cold start（~86s
+    # 若底层 FC 池全冷），单独报为 cold_start_ms，基线只用后续 warm 样本，避免把冷启动
+    # 拖进分档阈值（否则 warm_p95 被抬高，真实回收会被误判为"仍热"）。
     warmup_samples: list[float] = []
     for i in range(warmup):
-        _, ms = inv.one_tool_call()
-        warmup_samples.append(ms)
+        warmup_samples.append(_timed_invoke(inv, sid, body))
         elapsed = time.perf_counter() - t_start
         progress_cb(JobProgress("warmup", i + 1, warmup, elapsed), {})
-    warm_p95 = percentiles(warmup_samples)[95]
-    warm_threshold = warm_p95 * 2  # cold start 通常 5-20× warm；2× 保守但足够区分
+    cold_start_ms = round(warmup_samples[0], 2) if warmup_samples else None
+    warm_pool = warmup_samples[1:] if len(warmup_samples) > 1 else warmup_samples
+    warm_p50 = percentiles(warm_pool)[50]
+    warm_p95 = percentiles(warm_pool)[95]
 
-    last_warm_ms = 0.0
-    keeps_warm = False
+    tiers: list[dict[str, Any]] = []
+    shallow_retention_s = 0.0
+    deep_onset_s: float | None = None
+    cold_recycle_s: float | None = None
+    sweep_capped = False
     for idx, wait_s in enumerate(intervals):
         time.sleep(wait_s)
-        _, ms = inv.one_tool_call()
+        ms = _timed_invoke(inv, sid, body)
+        tier = _classify_wake(ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
+        tiers.append({"idle_s": float(wait_s), "wake_ms": round(ms, 2), "tier": tier})
         elapsed = time.perf_counter() - t_start
-        if ms <= warm_threshold:
-            last_warm_ms = wait_s * 1000.0
-            keeps_warm = True
-        progress_cb(
-            JobProgress("idle-probe", idx + 1, len(intervals), elapsed),
-            {"keeps_warm": keeps_warm},
-        )
-        if ms > warm_threshold:
-            break  # 变冷，记录最后一次热点
+        progress_cb(JobProgress("idle-probe", idx + 1, len(intervals), elapsed), {"tier": tier})
+        if tier == "shallow":
+            shallow_retention_s = float(wait_s)
+            if idx == len(intervals) - 1:
+                sweep_capped = True  # 最长档仍热：真实窗口 > 扫描上限
+        elif tier == "deep":
+            if deep_onset_s is None:
+                deep_onset_s = float(wait_s)
+            if idx == len(intervals) - 1:
+                sweep_capped = True  # 到最长档才深休眠，尚未销毁
+        else:  # cold — instance recycled, no point idling longer
+            cold_recycle_s = float(wait_s)
+            break
+    inv.destroy_session(sid)
 
     r = RetentionResult(
-        retention_ms=last_warm_ms,
-        keeps_warm=keeps_warm,
+        retention_ms=shallow_retention_s * 1000.0,  # back-compat: shallow window in ms
+        keeps_warm=shallow_retention_s > 0,
     )
-
     return ObservationBundle(
         observations={
             "capability": "supported",
             "retention_ms": r.retention_ms,
             "keeps_warm": r.keeps_warm,
+            "cold_start_ms": cold_start_ms,
+            "warm_p50_ms": round(warm_p50, 2),
+            "shallow_retention_s": shallow_retention_s,
+            "deep_onset_s": deep_onset_s,
+            "cold_recycle_s": cold_recycle_s,
+            "sweep_capped": sweep_capped,
+            "max_idle_s": float(intervals[-1]) if intervals else 0.0,
+            "tiers": tiers,
+        }
+    )
+
+
+def run_idle_timeout_honor(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
+    """T1.14 —— idle-timeout 配置守约检查：验证平台是否兑现 sessionIdleTimeoutSeconds。
+
+    调用方（aliyun run_data_plane_probe）已用 ``session_idle_timeout_s`` provision
+    了一个小超时（如 10s）的 runtime。本 probe 对同一 session 做对照两次重调：
+      under_idle_s（< 超时）：应仍在浅休眠 → 快速唤醒
+      over_idle_s（> 超时）：实例应已被回收 → 深休眠/销毁的慢唤醒
+    honored = 短空闲仍热 且 长空闲现回收特征。用小超时把整个检查压到 ~30s 墙钟。
+    """
+    configured = float(spec.params.get("session_idle_timeout_s", 10.0))
+    under_idle = float(spec.params.get("under_idle_s", max(2.0, configured * 0.3)))
+    over_idle = float(spec.params.get("over_idle_s", configured + 15.0))
+    cold_ms = float(spec.params.get("cold_wake_ms", COLD_WAKE_MS))
+    deep_factor = float(spec.params.get("deep_wake_factor", DEEP_WAKE_FACTOR))
+
+    inv = ProbeInvoker(spec)
+    t_start = time.perf_counter()
+    sid = inv.create_session()
+    body = _retention_body(spec, sid)
+
+    # First sample may pay cold start (~86s on a cold FC pool); report it
+    # separately and base the warm threshold only on the later warm samples so a
+    # genuine over-timeout recycle is not masked by a warm_p95 inflated by cold.
+    warm_samples = [_timed_invoke(inv, sid, body) for _ in range(3)]
+    cold_start_ms = round(warm_samples[0], 2)
+    warm_pool = warm_samples[1:]
+    warm_p50 = percentiles(warm_pool)[50]
+    warm_p95 = percentiles(warm_pool)[95]
+    progress_cb(JobProgress("warmup", 3, 3, time.perf_counter() - t_start), {})
+
+    # control: idle BELOW the configured timeout — instance should still be warm.
+    time.sleep(under_idle)
+    under_ms = _timed_invoke(inv, sid, body)
+    under_tier = _classify_wake(under_ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
+    progress_cb(JobProgress("under-timeout", 1, 2, time.perf_counter() - t_start), {"tier": under_tier})
+
+    # test: idle ABOVE the configured timeout — instance should have been recycled.
+    time.sleep(over_idle)
+    over_ms = _timed_invoke(inv, sid, body)
+    over_tier = _classify_wake(over_ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
+    progress_cb(JobProgress("over-timeout", 2, 2, time.perf_counter() - t_start), {"tier": over_tier})
+
+    inv.destroy_session(sid)
+    honored = under_tier == "shallow" and over_tier in ("deep", "cold")
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "configured_idle_s": configured,
+            "under_idle_s": under_idle,
+            "under_wake_ms": round(under_ms, 2),
+            "under_tier": under_tier,
+            "over_idle_s": over_idle,
+            "over_wake_ms": round(over_ms, 2),
+            "over_tier": over_tier,
+            "warm_p50_ms": round(warm_p50, 2),
+            "cold_start_ms": cold_start_ms,
+            "honored": honored,
         }
     )
 

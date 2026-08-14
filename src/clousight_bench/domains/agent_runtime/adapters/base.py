@@ -83,6 +83,22 @@ class RetentionResult:
 
 
 @dataclass
+class IdleTimeoutHonorResult:
+    """Whether the platform honors a configured session idle timeout (T1.14).
+
+    The runtime is provisioned with a small ``sessionIdleTimeoutSeconds`` and the
+    probe idles just below it (expect still-warm) then just above it (expect the
+    instance recycled). ``honored`` is True iff both hold — proof the vendor's
+    knob does what it says.
+    """
+
+    configured_idle_s: float  # the sessionIdleTimeoutSeconds we set
+    under_wake_ms: float  # wake latency after idling BELOW the timeout
+    over_wake_ms: float  # wake latency after idling ABOVE the timeout
+    honored: bool  # under stayed warm AND over recycled
+
+
+@dataclass
 class SoakResult:
     """Steady-state availability over a soak window (the reliability dimension, T1.6)."""
 
@@ -613,6 +629,17 @@ class AgentRuntimeAdapter(ProviderAdapter):
         raises CapabilityNotSupported.
         """
         raise CapabilityNotSupported("probe_startup_curve")
+
+    def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> IdleTimeoutHonorResult:
+        """Run the T1.14 idle-timeout honor probe.
+
+        Provision (or expect) a runtime with a small configured session idle
+        timeout, idle just below it (expect still-warm) then just above it
+        (expect the instance recycled), and report whether the platform honored
+        the configured timeout. Adapters that support this override it; the
+        default raises CapabilityNotSupported.
+        """
+        raise CapabilityNotSupported("probe_idle_timeout_honor")
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
         """Run the T1.10 retry-storm probe.

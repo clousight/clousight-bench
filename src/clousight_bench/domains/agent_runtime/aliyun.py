@@ -1163,7 +1163,13 @@ class AliyunAgentRunTransport(RuntimeTransport):
         if not endpoint:
             # Lazy provision for tasks that skip explicit provision().
             target = self._adapter.target
-            self.provision({"oss_bucket": str(target.get("oss_bucket") or "")})
+            prov_spec: dict[str, Any] = {"oss_bucket": str(target.get("oss_bucket") or "")}
+            # T1.14: honor probe asks for a runtime with a small configured idle
+            # timeout so recycling can be observed cheaply — thread it through.
+            idle_timeout_s = params.get("session_idle_timeout_s")
+            if idle_timeout_s is not None:
+                prov_spec["session_idle_timeout_s"] = idle_timeout_s
+            self.provision(prov_spec)
             self._lazy_provisioned = True
             endpoint = self._endpoint_public_url or str(self._adapter.target.get("endpoint_url") or "")
         if not endpoint:
@@ -2026,6 +2032,13 @@ class AliyunAgentRunTransport(RuntimeTransport):
             memory=int(target.get("memory") or 2048),
             port=int(target.get("port") or 9000),
         )
+        # Optional session idle timeout override (T1.14 idle-timeout honor check).
+        # When unset the platform default applies (undocumented — T1.5 measures it).
+        # When set (e.g. 10s), the instance should recycle ~this long after the last
+        # request, letting us verify the platform honors the configured knob cheaply.
+        idle_timeout_s = (spec or {}).get("session_idle_timeout_s")
+        if idle_timeout_s is not None:
+            body.session_idle_timeout_seconds = int(idle_timeout_s)
         # Carry the run-id for cost reconciliation via environment variable.
         run_id = getattr(self._adapter, "run_id", None)
         if run_id:

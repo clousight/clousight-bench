@@ -263,6 +263,9 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_startup_curve(self, n_calls: int = 8) -> Any:
         return self._transport_().probe_startup_curve(n_calls=n_calls)
 
+    def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> Any:
+        return self._transport_().probe_idle_timeout_honor(session_idle_timeout_s=session_idle_timeout_s)
+
     def probe_retry_storm(self, max_window_s: float = 30.0) -> Any:
         return self._transport_().probe_retry_storm(max_window_s)
 

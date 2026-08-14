@@ -239,6 +239,21 @@ def _pack_hol_blocking(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> 
     )
 
 
+def _pack_idle_timeout_honor(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> ObservationBundle:
+    session_idle_timeout_s = float(params.get("session_idle_timeout_s", 10.0))
+    # Does NOT catch CapabilityNotSupported — re-raises
+    result = adapter.probe_idle_timeout_honor(session_idle_timeout_s=session_idle_timeout_s)
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "configured_idle_s": result.configured_idle_s,
+            "under_wake_ms": result.under_wake_ms,
+            "over_wake_ms": result.over_wake_ms,
+            "honored": result.honored,
+        }
+    )
+
+
 # Canonical set of data-plane probe names — the single source of truth shared by
 # the local-sim packers below AND any remote probe implementation (e.g. the
 # cb-adapters-enterprise cb-probe server). Both sides MUST register exactly these
@@ -258,6 +273,7 @@ PROBE_NAMES: frozenset[str] = frozenset(
         "retry_storm",
         "hol_blocking",
         "startup_curve",
+        "idle_timeout_honor",
     }
 )
 
@@ -275,6 +291,7 @@ DATA_PLANE_PACKERS: dict[str, Packer] = {
     "retry_storm": _pack_retry_storm,
     "hol_blocking": _pack_hol_blocking,
     "startup_curve": _pack_startup_curve,
+    "idle_timeout_honor": _pack_idle_timeout_honor,
 }
 
 

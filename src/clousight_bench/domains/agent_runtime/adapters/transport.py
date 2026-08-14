@@ -41,6 +41,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     FaultRecoveryResult,
     HOLResult,
     IdleCostResult,
+    IdleTimeoutHonorResult,
     InvocationTrace,
     IsolationResult,
     LoadResult,
@@ -142,6 +143,9 @@ class RuntimeTransport(ABC):
     def probe_startup_curve(self, n_calls: int = 8) -> StartupCurveResult:
         raise CapabilityNotSupported("probe_startup_curve")
 
+    def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> IdleTimeoutHonorResult:
+        raise CapabilityNotSupported("probe_idle_timeout_honor")
+
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
         raise CapabilityNotSupported("probe_retry_storm")
 
@@ -218,6 +222,11 @@ class MockRuntimeTransport(RuntimeTransport):
         warm = cfg.get("warm", {})
         self.warm_retention_ms: float = float(warm.get("retention_ms", 0))
         self.warm_keeps_warm: bool = bool(warm.get("keeps_warm", self.warm_retention_ms > 0))
+        # T1.14 idle-timeout honor: does the platform recycle at the configured
+        # sessionIdleTimeoutSeconds? Default: honored (well-behaved sim).
+        idle = cfg.get("idle_timeout", {})
+        self.idle_honored: bool = bool(idle.get("honored", True))
+        self.idle_configured_s: float = float(idle.get("configured_s", 10.0))
         # T1.6 soak: steady-state availability over a window. availability defaults
         # to 1 - error_rate unless set explicitly. Default: perfectly available.
         soak = cfg.get("soak", {})
@@ -453,6 +462,22 @@ class MockRuntimeTransport(RuntimeTransport):
         curve: list[tuple[float, bool]] = [(cold, True)] + [(warm, True)] * max(0, n_calls - 1)
         threshold = (cold + warm) / 2 if cold > warm else cold * 2 + 1
         return StartupCurveResult.from_curve(curve, threshold)
+
+    def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> IdleTimeoutHonorResult:
+        """Deterministic idle-timeout honor verdict from the ``idle_timeout`` knob.
+
+        A honoring platform stays warm under the timeout and pays a cold rebuild
+        over it; a non-honoring one stays warm regardless (the knob is ignored).
+        """
+        warm = round(self.warm_start_ms, 3)
+        cold = round(self.cold_start_ms + self.warm_start_ms, 3)
+        over_wake = cold if self.idle_honored else warm
+        return IdleTimeoutHonorResult(
+            configured_idle_s=self.idle_configured_s,
+            under_wake_ms=warm,
+            over_wake_ms=over_wake,
+            honored=self.idle_honored,
+        )
 
     def probe_soak(self, duration_s: float) -> SoakResult:
         """Report steady-state availability over a soak window (deterministic)."""

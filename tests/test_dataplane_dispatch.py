@@ -6,6 +6,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     CapabilityNotSupported,
     FaultRecoveryResult,
     HOLResult,
+    IdleTimeoutHonorResult,
     LoadResult,
     RetentionResult,
     RetryStormResult,
@@ -43,6 +44,14 @@ class _FakeAdapter(AgentRuntimeAdapter):
 
     def probe_warm_retention(self):
         return RetentionResult(retention_ms=1000.0, keeps_warm=True)
+
+    def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> IdleTimeoutHonorResult:
+        return IdleTimeoutHonorResult(
+            configured_idle_s=session_idle_timeout_s,
+            under_wake_ms=90.0,
+            over_wake_ms=90000.0,
+            honored=True,
+        )
 
     # re-raise probes: three probes that do NOT catch CapabilityNotSupported
     def probe_fault_recovery(self) -> FaultRecoveryResult:
@@ -85,7 +94,7 @@ class _IncapableAdapter(_FakeAdapter):
 
 def test_registry_has_all_probe_names():
     assert set(DATA_PLANE_PACKERS) == PROBE_NAMES
-    assert len(PROBE_NAMES) == 12
+    assert len(PROBE_NAMES) == 13
 
 
 def test_supported_probe_packs_expected_observations():
@@ -106,6 +115,15 @@ def test_supported_probe_packs_expected_observations():
         "requests",
     ):
         assert k in o
+
+
+def test_idle_timeout_honor_packs_expected_observations():
+    b = run_data_plane_probe(_FakeAdapter(), "idle_timeout_honor", {"session_idle_timeout_s": 10.0})
+    o = b.observations
+    assert o["capability"] == "supported"
+    assert o["configured_idle_s"] == 10.0
+    assert o["under_wake_ms"] == 90.0 and o["over_wake_ms"] == 90000.0
+    assert o["honored"] is True
 
 
 def test_unsupported_probe_returns_unsupported_bundle():
