@@ -227,6 +227,8 @@ class MockRuntimeTransport(RuntimeTransport):
         idle = cfg.get("idle_timeout", {})
         self.idle_honored: bool = bool(idle.get("honored", True))
         self.idle_configured_s: float = float(idle.get("configured_s", 10.0))
+        self.idle_deep_onset_s = idle.get("deep_onset_s")  # None unless configured
+        self.idle_cold_onset_s = idle.get("cold_onset_s")
         # T1.6 soak: steady-state availability over a window. availability defaults
         # to 1 - error_rate unless set explicitly. Default: perfectly available.
         soak = cfg.get("soak", {})
@@ -466,17 +468,18 @@ class MockRuntimeTransport(RuntimeTransport):
     def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> IdleTimeoutHonorResult:
         """Deterministic idle-timeout honor verdict from the ``idle_timeout`` knob.
 
-        A honoring platform stays warm under the timeout and pays a cold rebuild
-        over it; a non-honoring one stays warm regardless (the knob is ignored).
+        A honoring platform stays warm through the promised window; a non-honoring
+        one goes cold inside it (the promise is broken). The configured decay
+        onsets are read from the knob for the post-promise sweep.
         """
         warm = round(self.warm_start_ms, 3)
         cold = round(self.cold_start_ms + self.warm_start_ms, 3)
-        over_wake = cold if self.idle_honored else warm
         return IdleTimeoutHonorResult(
             configured_idle_s=self.idle_configured_s,
-            under_wake_ms=warm,
-            over_wake_ms=over_wake,
+            promise_wake_ms=warm if self.idle_honored else cold,
             honored=self.idle_honored,
+            deep_onset_s=self.idle_deep_onset_s,
+            cold_onset_s=self.idle_cold_onset_s,
         )
 
     def probe_soak(self, duration_s: float) -> SoakResult:

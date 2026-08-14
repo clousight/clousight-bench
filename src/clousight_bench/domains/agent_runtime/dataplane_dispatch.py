@@ -247,9 +247,10 @@ def _pack_idle_timeout_honor(adapter: AgentRuntimeAdapter, params: dict[str, Any
         observations={
             "capability": "supported",
             "configured_idle_s": result.configured_idle_s,
-            "under_wake_ms": result.under_wake_ms,
-            "over_wake_ms": result.over_wake_ms,
+            "promise_wake_ms": result.promise_wake_ms,
             "honored": result.honored,
+            "deep_onset_s": result.deep_onset_s,
+            "cold_onset_s": result.cold_onset_s,
         }
     )
 

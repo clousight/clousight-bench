@@ -587,17 +587,22 @@ def run_warm_retention(
 def run_idle_timeout_honor(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.14 —— idle-timeout 配置守约检查：验证平台是否兑现 sessionIdleTimeoutSeconds。
+    """T1.14 —— idle-timeout 配置守约 + 承诺期后衰减曲线。
 
-    调用方（aliyun run_data_plane_probe）已用 ``session_idle_timeout_s`` provision
-    了一个小超时（如 10s）的 runtime。本 probe 对同一 session 做对照两次重调：
-      under_idle_s（< 超时）：应仍在浅休眠 → 快速唤醒
-      over_idle_s（> 超时）：实例应已被回收 → 深休眠/销毁的慢唤醒
-    honored = 短空闲仍热 且 长空闲现回收特征。用小超时把整个检查压到 ~30s 墙钟。
+    ``sessionIdleTimeoutSeconds`` 是一个"承诺时间内保活"的合约：设了 T 秒，平台就
+    应保证 **T 秒内实例保持热**（承诺期后回收是平台的成本自由，不算违约）。所以:
+
+      1) 守约验证：在承诺期内（idle < T，取 ~0.8T）重调同一 session，仍热 → honored。
+         承诺期内就变冷 = 平台没兑现承诺 → honored=False。
+      2) 承诺期后衰减探查：继续按 1min / 3min / 5min 空闲重调，观察实例在哪个周期
+         进入深休眠（秒级唤醒）或变冷（销毁，全冷唤醒）。变冷即 break，5min 封顶
+         （再长不测）。这回答"承诺期之后，实例还能白蹭热多久"。
     """
     configured = float(spec.params.get("session_idle_timeout_s", 10.0))
-    under_idle = float(spec.params.get("under_idle_s", max(2.0, configured * 0.3)))
-    over_idle = float(spec.params.get("over_idle_s", configured + 15.0))
+    # 承诺期内探测点：idle < configured（默认 0.8×，至少 2s）
+    promise_idle = float(spec.params.get("promise_idle_s", max(2.0, configured * 0.8)))
+    # 承诺期后衰减档位（秒）：默认 1/3/5min，变冷即停，5min 封顶
+    decay_intervals: list = spec.params.get("decay_intervals_s", [60, 180, 300])
     cold_ms = float(spec.params.get("cold_wake_ms", COLD_WAKE_MS))
     deep_factor = float(spec.params.get("deep_wake_factor", DEEP_WAKE_FACTOR))
 
@@ -607,8 +612,7 @@ def run_idle_timeout_honor(
     body = _retention_body(spec, sid)
 
     # First sample may pay cold start (~86s on a cold FC pool); report it
-    # separately and base the warm threshold only on the later warm samples so a
-    # genuine over-timeout recycle is not masked by a warm_p95 inflated by cold.
+    # separately and base the warm threshold only on the later warm samples.
     warm_samples = [_timed_invoke(inv, sid, body) for _ in range(3)]
     cold_start_ms = round(warm_samples[0], 2)
     warm_pool = warm_samples[1:]
@@ -616,33 +620,47 @@ def run_idle_timeout_honor(
     warm_p95 = percentiles(warm_pool)[95]
     progress_cb(JobProgress("warmup", 3, 3, time.perf_counter() - t_start), {})
 
-    # control: idle BELOW the configured timeout — instance should still be warm.
-    time.sleep(under_idle)
-    under_ms = _timed_invoke(inv, sid, body)
-    under_tier = _classify_wake(under_ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
-    progress_cb(JobProgress("under-timeout", 1, 2, time.perf_counter() - t_start), {"tier": under_tier})
+    # 1) 守约验证：承诺期内（< configured）应仍热。
+    time.sleep(promise_idle)
+    promise_ms = _timed_invoke(inv, sid, body)
+    promise_tier = _classify_wake(promise_ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
+    honored = promise_tier == "shallow"  # 承诺时间内保持热 = 守约
+    progress_cb(JobProgress("promise", 1, 1, time.perf_counter() - t_start), {"tier": promise_tier})
 
-    # test: idle ABOVE the configured timeout — instance should have been recycled.
-    time.sleep(over_idle)
-    over_ms = _timed_invoke(inv, sid, body)
-    over_tier = _classify_wake(over_ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
-    progress_cb(JobProgress("over-timeout", 2, 2, time.perf_counter() - t_start), {"tier": over_tier})
+    # 2) 承诺期后衰减探查：找深休眠 / 变冷的周期。
+    decay_tiers: list[dict[str, Any]] = []
+    deep_onset_s: float | None = None
+    cold_onset_s: float | None = None
+    decay_capped = False
+    for idx, wait_s in enumerate(decay_intervals):
+        time.sleep(wait_s)
+        ms = _timed_invoke(inv, sid, body)
+        tier = _classify_wake(ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
+        decay_tiers.append({"idle_s": float(wait_s), "wake_ms": round(ms, 2), "tier": tier})
+        progress_cb(JobProgress("decay", idx + 1, len(decay_intervals), time.perf_counter() - t_start), {"tier": tier})
+        if tier == "deep" and deep_onset_s is None:
+            deep_onset_s = float(wait_s)
+        if tier == "cold":
+            cold_onset_s = float(wait_s)
+            break
+        if idx == len(decay_intervals) - 1:
+            decay_capped = True  # 到最长档仍未变冷（可能还浅/深）
 
     inv.destroy_session(sid)
-    honored = under_tier == "shallow" and over_tier in ("deep", "cold")
     return ObservationBundle(
         observations={
             "capability": "supported",
             "configured_idle_s": configured,
-            "under_idle_s": under_idle,
-            "under_wake_ms": round(under_ms, 2),
-            "under_tier": under_tier,
-            "over_idle_s": over_idle,
-            "over_wake_ms": round(over_ms, 2),
-            "over_tier": over_tier,
+            "promise_idle_s": promise_idle,
+            "promise_wake_ms": round(promise_ms, 2),
+            "promise_tier": promise_tier,
+            "honored": honored,
+            "deep_onset_s": deep_onset_s,
+            "cold_onset_s": cold_onset_s,
+            "decay_capped": decay_capped,
+            "decay_tiers": decay_tiers,
             "warm_p50_ms": round(warm_p50, 2),
             "cold_start_ms": cold_start_ms,
-            "honored": honored,
         }
     )
 

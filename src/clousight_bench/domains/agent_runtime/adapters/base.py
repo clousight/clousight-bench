@@ -86,16 +86,17 @@ class RetentionResult:
 class IdleTimeoutHonorResult:
     """Whether the platform honors a configured session idle timeout (T1.14).
 
-    The runtime is provisioned with a small ``sessionIdleTimeoutSeconds`` and the
-    probe idles just below it (expect still-warm) then just above it (expect the
-    instance recycled). ``honored`` is True iff both hold — proof the vendor's
-    knob does what it says.
+    ``sessionIdleTimeoutSeconds`` is a keep-warm PROMISE: for that long, the
+    instance must stay hot. The probe idles within the promised window and checks
+    it is still warm (``honored``), then sweeps past the window to find when the
+    instance decays to deep hibernation / cold recycle.
     """
 
     configured_idle_s: float  # the sessionIdleTimeoutSeconds we set
-    under_wake_ms: float  # wake latency after idling BELOW the timeout
-    over_wake_ms: float  # wake latency after idling ABOVE the timeout
-    honored: bool  # under stayed warm AND over recycled
+    promise_wake_ms: float  # wake latency after idling WITHIN the promised window
+    honored: bool  # instance stayed warm through the promised window
+    deep_onset_s: float | None  # idle (s) after which wake went deep-hibernation
+    cold_onset_s: float | None  # idle (s) after which the instance was recycled (cold)
 
 
 @dataclass

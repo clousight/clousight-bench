@@ -1,4 +1,9 @@
-"""Test: run_idle_timeout_honor data-plane probe (T1.14)."""
+"""Test: run_idle_timeout_honor data-plane probe (T1.14).
+
+sessionIdleTimeoutSeconds is a keep-warm PROMISE: within the configured window
+the instance must stay hot (honored). Past the window, a decay sweep finds when
+it goes deep / cold.
+"""
 
 import json
 import threading
@@ -9,11 +14,7 @@ from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec
 
 
 class _IdleAgent(BaseHTTPRequestHandler):
-    """Fake AgentRun target that sleeps per-session-call to model wake latency.
-
-    ``sleep_by_call`` maps the Nth same-session call to a sleep in ms, so we can
-    simulate "warm under the timeout, recycled (slow cold rebuild) over it".
-    """
+    """Fake AgentRun target that sleeps per-session-call to model wake latency."""
 
     sleep_by_call: dict = {}
     _counts: dict = {}
@@ -54,11 +55,11 @@ def _run(handler_cls):
     try:
         spec = JobSpec(
             probe="idle_timeout_honor",
-            # 3 warmup calls, then under-probe (call 4) and over-probe (call 5).
+            # calls 1-3 warmup, call 4 = promise probe, calls 5-6 = decay sweep.
             params={
                 "session_idle_timeout_s": 0.1,
-                "under_idle_s": 0.05,
-                "over_idle_s": 0.05,
+                "promise_idle_s": 0.05,
+                "decay_intervals_s": [0.05, 0.05],
                 "cold_wake_ms": 100.0,
                 "deep_wake_factor": 3.0,
             },
@@ -72,29 +73,31 @@ def _run(handler_cls):
 
 
 class _HonoringAgent(_IdleAgent):
-    # Stable 5ms warm baseline (calls 1-3 warmup, call 4 under-timeout probe);
-    # over-timeout probe (call 5) is slow → recycled (cold wake). The 5ms floor
-    # keeps the warm_p95×3 tier threshold above sub-ms timing jitter.
-    sleep_by_call = {1: 5.0, 2: 5.0, 3: 5.0, 4: 5.0, 5: 300.0}
+    # Stable 5ms warm baseline; promise probe (call 4) stays warm → honored.
+    # Decay: call 5 → 50ms (deep), call 6 → 300ms (cold).
+    sleep_by_call = {1: 5.0, 2: 5.0, 3: 5.0, 4: 5.0, 5: 50.0, 6: 300.0}
 
 
-class _IgnoringAgent(_IdleAgent):
-    # stays fast (5ms) even over the timeout → the knob was ignored (not honored).
-    sleep_by_call = {1: 5.0, 2: 5.0, 3: 5.0, 4: 5.0, 5: 5.0}
+class _PromiseBrokenAgent(_IdleAgent):
+    # Instance already cold WITHIN the promise window (call 4 slow) → not honored.
+    sleep_by_call = {1: 5.0, 2: 5.0, 3: 5.0, 4: 300.0, 5: 300.0}
 
 
-def test_idle_timeout_honored_when_recycled_over_timeout():
+def test_promise_honored_and_decay_curve_captured():
     o = _run(_HonoringAgent)
     assert o["capability"] == "supported"
     assert o["configured_idle_s"] == 0.1
-    assert o["under_tier"] == "shallow"
-    assert o["over_tier"] in ("deep", "cold")
+    assert o["promise_tier"] == "shallow"  # warm within the promised window
     assert o["honored"] is True
+    # post-promise decay: deep at first step, cold at second (breaks there)
+    assert o["deep_onset_s"] == 0.05
+    assert o["cold_onset_s"] == 0.05
+    assert o["decay_capped"] is False
+    assert [t["tier"] for t in o["decay_tiers"]] == ["deep", "cold"]
 
 
-def test_idle_timeout_not_honored_when_stays_warm():
-    o = _run(_IgnoringAgent)
+def test_promise_broken_when_cold_inside_window():
+    o = _run(_PromiseBrokenAgent)
     assert o["capability"] == "supported"
-    assert o["under_tier"] == "shallow"
-    assert o["over_tier"] == "shallow"  # never recycled → knob ignored
+    assert o["promise_tier"] == "cold"  # cold while still inside the promise
     assert o["honored"] is False

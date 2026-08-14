@@ -1,24 +1,26 @@
-"""T1.14 idle-timeout config honor.
+"""T1.14 idle-timeout config honor + post-promise decay.
 
-AgentRun lets you configure ``sessionIdleTimeoutSeconds`` on the runtime — after
-that long with no request, the underlying instance is destroyed (and billing
-stops) so the next call pays a full cold start again. This task verifies the
-platform actually HONORS that knob: does the instance really recycle at the
-configured timeout, or does the vendor quietly keep it warm (better latency, but
-you keep paying) or drop it early (cheaper, but surprise cold starts)?
+``sessionIdleTimeoutSeconds`` is a keep-warm PROMISE: for that long with no
+request, the instance must stay hot (so a request inside the window pays no wake
+penalty). This task verifies the platform keeps that promise, then charts what
+happens afterwards.
 
-The check is deliberately cheap: provision with a SMALL idle timeout (e.g. 10s),
-then do a controlled A/B on one session — idle just *under* the timeout (expect
-still-warm) and idle just *over* it (expect a recycle/cold-rebuild wake). The
-whole probe finishes in ~30s of wall-clock, unlike T1.5 which sweeps the
-(minutes-long) platform *default* window.
+Two parts on one session:
+  1. Honor: provision with the configured timeout, idle WITHIN the promised
+     window (~0.8×), and check the instance is still warm. Warm → honored. Cold
+     inside the window → the promise was broken.
+  2. Decay: past the window, sweep idle 1min / 3min / 5min and record when the
+     instance drops to deep hibernation (seconds wake) then cold recycle (full
+     cold start). Breaks on the first full recycle; 5min cap (longer not worth
+     the measurement cost). This is "how long it stays cheaply wakeable after the
+     promise expires".
 
-This complements T1.5 (measures the undocumented default idle→cold window) by
-answering the orthogonal question: is the configurable timeout truthful?
+Complements T1.5 (undocumented DEFAULT idle window, no configured timeout) by
+measuring the CONFIGURED window's behaviour.
 
 Evidence layer B: reproducible method, environment-dependent numbers. On
 local-sim the verdict is a deterministic function of
-``target.idle_timeout = {honored, configured_s}``.
+``target.idle_timeout = {honored, configured_s, deep_onset_s, cold_onset_s}``.
 """
 
 from __future__ import annotations
@@ -81,9 +83,11 @@ class IdleTimeoutHonorTask(Task):
                 unsupported=True,
             )
         configured = raw.get("configured_idle_s")
-        under_ms = raw.get("under_wake_ms")
-        over_ms = raw.get("over_wake_ms")
+        promise_ms = raw.get("promise_wake_ms")
         honored = bool(raw.get("honored"))
+        deep_onset_s = raw.get("deep_onset_s")
+        cold_onset_s = raw.get("cold_onset_s")
+        decay_capped = bool(raw.get("decay_capped", False))
 
         findings: list[Finding] = []
         if not honored:
@@ -92,31 +96,57 @@ class IdleTimeoutHonorTask(Task):
                     code="agent_runtime.idle_timeout_not_honored",
                     severity="warning",
                     summary=(
-                        f"platform did not honor the configured {configured}s session idle "
-                        "timeout: the instance was not recycled shortly after the timeout "
-                        "(stays warm — better latency but you keep paying — or was already "
-                        "cold under the timeout)"
+                        f"platform broke the configured {configured}s keep-warm promise: the "
+                        "instance was already cold/deep-hibernating while still inside the "
+                        "promised window (a request within the timeout paid a wake penalty)"
                     ),
                     evidence="B",
-                    details={
-                        "configured_idle_s": configured,
-                        "under_wake_ms": under_ms,
-                        "over_wake_ms": over_ms,
-                    },
+                    details={"configured_idle_s": configured, "promise_wake_ms": promise_ms},
+                )
+            )
+        if cold_onset_s is not None:
+            findings.append(
+                Finding(
+                    code="agent_runtime.idle_recycle_after_promise",
+                    severity="info",
+                    summary=(
+                        f"past the {configured}s promise, the instance recycled to full cold "
+                        f"after ~{cold_onset_s}s idle (deep-hibernation onset ~{deep_onset_s}s)"
+                    ),
+                    evidence="B",
+                    details={"cold_onset_s": cold_onset_s, "deep_onset_s": deep_onset_s},
+                )
+            )
+        elif decay_capped:
+            findings.append(
+                Finding(
+                    code="agent_runtime.idle_warm_beyond_sweep",
+                    severity="info",
+                    summary=(
+                        f"past the {configured}s promise, the instance never went fully cold "
+                        "within the decay sweep — it stays cheaply wakeable longer than measured"
+                    ),
+                    evidence="B",
+                    details={"deep_onset_s": deep_onset_s},
                 )
             )
 
         measurements: dict[str, Measurement] = {
             "idle_timeout_capability": Measurement(value="supported", unit="", evidence="B"),
             "configured_idle_s": Measurement(value=configured, unit="s", evidence="B"),
-            "under_wake_ms": Measurement(value=under_ms, unit="ms", evidence="B"),
-            "over_wake_ms": Measurement(value=over_ms, unit="ms", evidence="B"),
+            "promise_wake_ms": Measurement(value=promise_ms, unit="ms", evidence="B"),
             "idle_timeout_honored": Measurement(value=honored, unit="", evidence="B"),
+            # Post-promise decay curve (None if not reached within the sweep).
+            "deep_onset_s": Measurement(value=deep_onset_s, unit="s", evidence="B"),
+            "cold_onset_s": Measurement(value=cold_onset_s, unit="s", evidence="B"),
+            "decay_capped": Measurement(value=decay_capped, unit="", evidence="B"),
             "cold_start_ms": Measurement(value=raw.get("cold_start_ms"), unit="ms", evidence="B"),
         }
         notes = (
             f"configured={configured}s honored={honored} "
-            f"(under-timeout wake={under_ms}ms, over-timeout wake={over_ms}ms)"
+            f"(promise-window wake={promise_ms}ms); "
+            f"post-promise deep_onset={deep_onset_s}s cold_onset={cold_onset_s}s"
+            + (" (capped)" if decay_capped else "")
         )
         return TaskResult(
             measurements=measurements,

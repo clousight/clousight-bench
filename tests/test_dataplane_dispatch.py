@@ -48,9 +48,10 @@ class _FakeAdapter(AgentRuntimeAdapter):
     def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> IdleTimeoutHonorResult:
         return IdleTimeoutHonorResult(
             configured_idle_s=session_idle_timeout_s,
-            under_wake_ms=90.0,
-            over_wake_ms=90000.0,
+            promise_wake_ms=90.0,
             honored=True,
+            deep_onset_s=180.0,
+            cold_onset_s=300.0,
         )
 
     # re-raise probes: three probes that do NOT catch CapabilityNotSupported
@@ -122,8 +123,9 @@ def test_idle_timeout_honor_packs_expected_observations():
     o = b.observations
     assert o["capability"] == "supported"
     assert o["configured_idle_s"] == 10.0
-    assert o["under_wake_ms"] == 90.0 and o["over_wake_ms"] == 90000.0
+    assert o["promise_wake_ms"] == 90.0
     assert o["honored"] is True
+    assert o["deep_onset_s"] == 180.0 and o["cold_onset_s"] == 300.0
 
 
 def test_unsupported_probe_returns_unsupported_bundle():
