@@ -126,6 +126,9 @@ locals {
       "export CB_REGION='${var.region}'",
       "export CB_RESULTS_DIR='/var/lib/cb/results'",
       "export CB_PLATFORM='aliyun-agentrun'",
+      # Make the alibabacloud default credential chain use THIS instance's RAM role
+      # (no static AK on the box) for OSS + AgentRun + ECS SDK calls.
+      "export ALIBABA_CLOUD_ECS_METADATA='clousight-bench-controller'",
       "yum install -y python3.11",
       "python3.11 -m ensurepip --upgrade",
     ],
