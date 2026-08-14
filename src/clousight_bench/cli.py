@@ -905,7 +905,7 @@ def _prod_wheel_builder(target: dict):
     """Build+upload the private dev wheel; return (campaign_id) -> (url, extra_deps)."""
 
     def _build(campaign_id: str) -> tuple[str, list[str]]:
-        from clousight_bench.domains.agent_runtime.dev_wheel import probe_extra_deps, upload_dev_wheel
+        from clousight_bench.domains.agent_runtime.dev_wheel import deps_for_extras, upload_dev_wheel
         from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
         bucket = str(target.get("oss_bucket") or "")
@@ -913,7 +913,13 @@ def _prod_wheel_builder(target: dict):
         upload = Oss2Client(bucket, region)  # public endpoint for the PUT
         sign = Oss2Client(bucket, region, internal=True)  # internal endpoint for the presign
         url = upload_dev_wheel(upload, sign, campaign_id, expires=7200)
-        extra_deps = probe_extra_deps() + ["duckdb>=1.0", "pyarrow>=16"]  # store extra
+        # controller runs the full orchestrator → needs probe + aliyun SDKs + store
+        extra_deps = deps_for_extras(["probe", "aliyun", "store"]) or [
+            "requests>=2.28",
+            "oss2>=2.18",
+            "duckdb>=1.0",
+            "pyarrow>=16",
+        ]
         return url, extra_deps
 
     return _build

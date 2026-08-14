@@ -117,6 +117,29 @@ def probe_extra_deps() -> list[str]:
     return out or ["requests>=2.28", "oss2>=2.18"]
 
 
+def deps_for_extras(extras: list[str]) -> list[str]:
+    """Requirement specs for the given extras, read from installed metadata.
+
+    A presigned wheel URL can't carry ``[extras]``, so the controller must
+    pip-install each extra's deps from the mirror before the wheel. The prod
+    controller needs probe (oss2/requests) + aliyun (alibabacloud SDKs, so the
+    orchestrator can drive real runs) + store (duckdb/pyarrow for parquet).
+    """
+    try:
+        from importlib.metadata import metadata
+
+        reqs = list(metadata("clousight-bench").get_all("Requires-Dist") or [])
+    except Exception:  # noqa: BLE001 - metadata absent in a bare source checkout
+        reqs = []
+    out: list[str] = []
+    for r in reqs:
+        for e in extras:
+            if f'extra == "{e}"' in r or f"extra == '{e}'" in r:
+                out.append(r.split(";", 1)[0].strip())
+                break
+    return out
+
+
 def upload_dev_wheel(
     upload_client: OssClient,
     sign_client: _Signer,
