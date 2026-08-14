@@ -36,6 +36,25 @@ def test_submit_writes_launch_and_applies_terraform(tmp_path):
     assert "enable_controller=true" in tf_calls[0] and "enable_nat=true" in tf_calls[0]
 
 
+def test_submit_with_wheel_builder_injects_wheel_vars(tmp_path):
+    plan = _write(tmp_path / "plan.yaml", "tasks:\n  - task: T1.13\n")
+    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"oss_bucket": "b", "region": "cn-hangzhou"}\n')
+    oss = InMemoryOssClient()
+    tf_calls = []
+    prod_submit.submit(
+        plan,
+        config,
+        channel_factory=lambda c: CampaignChannel(oss, c),
+        terraform=lambda argv: tf_calls.append(argv) or 0,
+        watchdog_timeout_s=600.0,
+        wheel_builder=lambda cid: ("https://p/w.whl", ["requests>=2.28", "duckdb>=1.0"]),
+        gen_id=lambda: "camp-w",
+    )
+    argv = tf_calls[0]
+    assert "controller_wheel_url=https://p/w.whl" in argv
+    assert 'controller_extra_deps=["requests>=2.28", "duckdb>=1.0"]' in argv
+
+
 def test_teardown_stops_reaps_residual_and_destroys(tmp_path):
     oss = InMemoryOssClient()
     ch = CampaignChannel(oss, "camp-1")

@@ -7,6 +7,7 @@ injected seams so these are testable with no cloud.
 
 from __future__ import annotations
 
+import json
 import tempfile
 import time
 import uuid
@@ -44,9 +45,15 @@ def submit(
     terraform: Terraform,
     *,
     watchdog_timeout_s: float,
+    wheel_builder: Callable[[str], tuple[str, list[str]]] | None = None,
     gen_id: Callable[[], str] = lambda: "camp-" + uuid.uuid4().hex[:8],
 ) -> str:
-    """Write the launch spec to OSS, then terraform-apply the controller + NAT."""
+    """Write the launch spec to OSS, then terraform-apply the controller + NAT.
+
+    ``wheel_builder(campaign_id) -> (presigned_wheel_url, extra_deps)`` builds +
+    uploads the private clousight-bench dev wheel and returns the URL the
+    controller's cloud-init installs (the package is not on the public mirror).
+    """
     campaign_id = gen_id()
     tasks = _load_tasks(plan_path)
     target, params = _load_config(config_path)
@@ -58,18 +65,25 @@ def submit(
         watchdog_timeout_s=watchdog_timeout_s,
     )
     channel_factory(campaign_id).write_launch(spec)
-    terraform(
-        [
-            "apply",
-            "-auto-approve",
+    tf_args = [
+        "apply",
+        "-auto-approve",
+        "-var",
+        "enable_controller=true",
+        "-var",
+        "enable_nat=true",
+        "-var",
+        f"campaign_id={campaign_id}",
+    ]
+    if wheel_builder is not None:
+        wheel_url, extra_deps = wheel_builder(campaign_id)
+        tf_args += [
             "-var",
-            "enable_controller=true",
+            f"controller_wheel_url={wheel_url}",
             "-var",
-            "enable_nat=true",
-            "-var",
-            f"campaign_id={campaign_id}",
+            "controller_extra_deps=" + json.dumps(extra_deps),
         ]
-    )
+    terraform(tf_args)
     return campaign_id
 
 

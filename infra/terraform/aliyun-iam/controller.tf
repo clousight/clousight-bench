@@ -22,6 +22,18 @@ variable "controller_instance_type" {
   description = "ECS type for the controller (orchestration is light; probes are serial)."
 }
 
+variable "controller_wheel_url" {
+  type        = string
+  default     = ""
+  description = "Presigned OSS URL of the clousight-bench dev wheel (private pkg not on the mirror); empty → install from the public mirror."
+}
+
+variable "controller_extra_deps" {
+  type        = list(string)
+  default     = []
+  description = "Requirement specs (probe + store extras) pip-installed from the mirror before the wheel (a presigned URL can't carry [extras])."
+}
+
 data "alicloud_images" "controller" {
   count       = var.enable_controller ? 1 : 0
   owners      = "system"
@@ -94,19 +106,32 @@ resource "alicloud_ram_role_policy_attachment" "controller" {
 }
 
 locals {
-  controller_user_data = base64encode(join("\n", [
-    "#!/bin/sh",
-    "set -e",
-    "export CB_CAMPAIGN_ID='${var.campaign_id}'",
-    "export CB_OSS_BUCKET='${var.oss_bucket}'",
-    "export CB_REGION='${var.region}'",
-    "export CB_RESULTS_DIR='/var/lib/cb/results'",
-    "export CB_PLATFORM='aliyun-agentrun'",
-    "yum install -y python3.11",
-    "python3.11 -m ensurepip --upgrade",
-    "python3.11 -m pip install -i 'https://mirrors.cloud.aliyuncs.com/pypi/simple/' 'clousight-bench[probe,store]'",
-    "exec python3.11 -m clousight_bench.core.controller_main",
-  ]))
+  _mirror = "https://mirrors.cloud.aliyuncs.com/pypi/simple/"
+  # Dev-wheel path: install the extras' deps from the mirror, then the private
+  # wheel from its presigned URL. Fallback (no wheel url): install from mirror by
+  # name (only works once clousight-bench is published there).
+  _install_lines = var.controller_wheel_url != "" ? concat(
+    [for d in var.controller_extra_deps : "python3.11 -m pip install -i '${local._mirror}' '${d}'"],
+    ["python3.11 -m pip install '${var.controller_wheel_url}'"]
+    ) : [
+    "python3.11 -m pip install -i '${local._mirror}' 'clousight-bench[probe,store]'"
+  ]
+
+  controller_user_data = base64encode(join("\n", concat(
+    [
+      "#!/bin/sh",
+      "set -e",
+      "export CB_CAMPAIGN_ID='${var.campaign_id}'",
+      "export CB_OSS_BUCKET='${var.oss_bucket}'",
+      "export CB_REGION='${var.region}'",
+      "export CB_RESULTS_DIR='/var/lib/cb/results'",
+      "export CB_PLATFORM='aliyun-agentrun'",
+      "yum install -y python3.11",
+      "python3.11 -m ensurepip --upgrade",
+    ],
+    local._install_lines,
+    ["exec python3.11 -m clousight_bench.core.controller_main"]
+  )))
 }
 
 resource "alicloud_instance" "controller" {

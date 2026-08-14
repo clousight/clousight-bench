@@ -903,17 +903,37 @@ def _prod_runtime_deleter(target: dict):
     return _del
 
 
+def _prod_wheel_builder(target: dict):
+    """Build+upload the private dev wheel; return (campaign_id) -> (url, extra_deps)."""
+
+    def _build(campaign_id: str) -> tuple[str, list[str]]:
+        from clousight_bench.domains.agent_runtime.dev_wheel import probe_extra_deps, upload_dev_wheel
+        from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
+
+        bucket = str(target.get("oss_bucket") or "")
+        region = str(target.get("region") or "cn-hangzhou")
+        upload = Oss2Client(bucket, region)  # public endpoint for the PUT
+        sign = Oss2Client(bucket, region, internal=True)  # internal endpoint for the presign
+        url = upload_dev_wheel(upload, sign, campaign_id, expires=7200)
+        extra_deps = probe_extra_deps() + ["duckdb>=1.0", "pyarrow>=16"]  # store extra
+        return url, extra_deps
+
+    return _build
+
+
 def _cmd_submit(args: argparse.Namespace) -> int:
     from clousight_bench.core import prod_submit
     from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
 
-    oss = _prod_oss(_prod_target(args.config))
+    target = _prod_target(args.config)
+    oss = _prod_oss(target)
     cid = prod_submit.submit(
         args.plan_file,
         args.config,
         lambda c: CampaignChannel(oss, c),
         _terraform_runner(),
         watchdog_timeout_s=args.watchdog_timeout,
+        wheel_builder=_prod_wheel_builder(target),
     )
     print(cid)
     return 0
