@@ -100,6 +100,10 @@ class TTFTTask(Task):
                 "ttft_p95_ms": Measurement(
                     value=p95, unit="ms", evidence="B", aggregation="p95", sample_count=len(ttft_ms)
                 ),
+                # ttft_p50/p95 are warm steady-state; the ~86s cold start is
+                # reported separately (None on local-sim / older non-two-dim probe).
+                "cold_start_ms": Measurement(value=raw.get("cold_start_ms"), unit="ms", evidence="B"),
+                "warm_reliable": Measurement(value=bool(raw.get("warm_reliable", False)), unit="", evidence="B"),
             },
             findings=findings,
             notes=(

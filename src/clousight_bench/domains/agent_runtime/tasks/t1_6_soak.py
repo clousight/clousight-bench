@@ -66,6 +66,7 @@ class SoakTask(Task):
                 scorer_revision=self.scorer_revision,
                 unsupported=True,
             )
+        cold_start_ms = raw.get("cold_start_ms")
         availability = float(raw["availability"])
         findings = []
         if availability < _AVAILABILITY_SLA:
@@ -88,6 +89,7 @@ class SoakTask(Task):
                 "availability": Measurement(value=availability, unit="", evidence="B"),
                 "soak_error_rate": Measurement(value=raw["error_rate"], unit="", evidence="B"),
                 "soak_requests": Measurement(value=raw["requests"], unit="", evidence="B"),
+                "cold_start_ms": Measurement(value=cold_start_ms, unit="ms", evidence="B"),
             },
             findings=findings,
             notes=(

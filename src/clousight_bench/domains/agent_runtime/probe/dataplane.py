@@ -289,8 +289,28 @@ def run_sustained_load(
 
     inv = ProbeInvoker(spec)
 
-    # 先做一次探测请求，估计平均延迟，决定并发度
-    _, probe_ms = inv.one_tool_call()
+    # Warm one session first so the ~86s cold start is absorbed here (reported as
+    # cold_start_ms) instead of blowing up the latency estimate that sizes the
+    # worker pool. The concurrent workers below intentionally use FRESH sessions —
+    # on-demand cold-start-per-request IS the real behaviour under load, so their
+    # p50/p99 honestly include it.
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    warm_session = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(warm_session, warm_threshold_ms=warm_threshold_ms)
+    # 用暖 session 估计稳态延迟，决定并发度
+    warm_body = protocol.encode_invoke(
+        {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}},
+        spec.mock_base_url,
+        mock_token=spec.mock_token or None,
+        session_id=warm_session,
+    )
+    _t0 = time.perf_counter()
+    try:
+        inv.invoke(warm_session, warm_body)
+    except Exception:
+        pass
+    probe_ms = (time.perf_counter() - _t0) * 1000
+    inv.destroy_session(warm_session)
     estimated_latency_s = max(probe_ms / 1000, 0.1)
     # 并发度 = target_rps × 估计延迟（Little's Law），上限 32
     concurrency = min(max(int(target_rps * estimated_latency_s) + 1, 4), 32)
@@ -365,6 +385,8 @@ def run_sustained_load(
             "requests": r.requests,
             "duration_s": r.duration_s,
             "target_rps": target_rps,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -376,6 +398,10 @@ def run_soak(
     duration_s: float = spec.params.get("duration_s", 60.0)
 
     inv = ProbeInvoker(spec)
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     deadline = time.perf_counter() + duration_s
     req_count, errors = 0, 0
     progress_counter = 0
@@ -413,6 +439,8 @@ def run_soak(
             "error_rate": r.error_rate,
             "requests": r.requests,
             "window_s": r.window_s,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -494,6 +522,10 @@ def run_rate_limit(
     )
     inv = ProbeInvoker(spec)
     session_obj = inv.session
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     levels: list = spec.params.get("burst_levels", [10, 20, 40, 80])
     onset_rps = 0.0
     retry_after_ms = 0.0
@@ -541,6 +573,8 @@ def run_rate_limit(
             "throttle_onset_rps": r.throttle_onset_rps,
             "retry_after_ms": r.retry_after_ms,
             "honors_429": r.honors_429,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -563,6 +597,10 @@ def run_concurrency_ceiling(
     )
     inv = ProbeInvoker(spec)
     session_obj = inv.session
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     levels: list = spec.params.get("burst_levels", [50, 100, 200, 500])
     rejection_threshold: float = spec.params.get("rejection_threshold", 0.1)
 
@@ -607,6 +645,8 @@ def run_concurrency_ceiling(
             "capability": "supported",
             "max_in_flight": r.max_in_flight,
             "hard_limit": r.hard_limit,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -628,6 +668,10 @@ def run_cancellation(
         raise RuntimeError("run_cancellation: empty target_endpoint")
 
     inv = ProbeInvoker(spec)
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     residual: list[str] = []
     honored = False
     teardown_ran = False
@@ -693,6 +737,8 @@ def run_cancellation(
             "honored": r.honored,
             "teardown_ran": r.teardown_ran,
             "residual": list(r.residual),
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -711,6 +757,10 @@ def run_scaling(
     inter_level_cooldown_s: float = spec.params.get("inter_level_cooldown_s", 5)
 
     inv = ProbeInvoker(spec)
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     base = spec.mock_base_url
     mock_token = spec.mock_token
     body = protocol.encode_invoke(
@@ -802,6 +852,8 @@ def run_scaling(
                 for p in points
             ],
             "instance_visibility_findings": extra,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         },
         series={
             "success_rate": [[p.concurrency, p.success_rate] for p in points],
@@ -840,7 +892,11 @@ def run_hol_blocking(
     t_start = time.perf_counter()
 
     # ---- Phase A: baseline — fast_count concurrent fast requests, no slow ----
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
     session_a = inv.create_session()
+    # Warm session_a before the baseline burst so fast_p50_baseline is steady-state
+    # (a cold instance would inflate the baseline and mask the HOL ratio).
+    cold_start_ms, warmed = inv.ensure_warm(session_a, warm_threshold_ms=warm_threshold_ms)
 
     def timed_fast(session_id: str, corr: str) -> float:
         body = protocol.encode_invoke(
@@ -879,6 +935,8 @@ def run_hol_blocking(
         pass  # best-effort; probe continues even if mock unreachable
 
     session_b = inv.create_session()
+    # Warm session_b too so Phase B measures HOL blocking, not session_b's cold start.
+    inv.ensure_warm(session_b, warm_threshold_ms=warm_threshold_ms)
 
     def timed_slow() -> float:
         body = protocol.encode_invoke(
@@ -930,6 +988,8 @@ def run_hol_blocking(
             "fast_p50_under_slow": r.fast_p50_under_slow,
             "hol_ratio": r.hol_ratio,
             "serialized": r.serialized,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -965,6 +1025,13 @@ def run_fault_recovery(
     session = inv.create_session()
     t_start = time.perf_counter()
 
+    # Warm the session BEFORE injecting the fault so recovery_ms reflects the
+    # steady-state recovery window, not the ~86s cold start. The warm-up traffic
+    # carries no correlation id, so it never lands in this probe's fault corr
+    # bucket. cold_start_ms is reported separately.
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    cold_start_ms, warmed = inv.ensure_warm(session, warm_threshold_ms=warm_threshold_ms)
+
     try:
         import requests as _requests
 
@@ -990,6 +1057,7 @@ def run_fault_recovery(
 
     recovered = False
     platform_terminated = False
+    t_invoke = time.perf_counter()
     try:
         resp = inv.invoke(session, body)
         result = protocol.decode_result(resp)
@@ -1002,7 +1070,9 @@ def run_fault_recovery(
     finally:
         inv.destroy_session(session)
 
-    recovery_ms = round((time.perf_counter() - t_start) * 1000, 2)
+    # Warm-path recovery window: time of the single fault-injected invoke only
+    # (the ~86s cold start was absorbed by ensure_warm and is in cold_start_ms).
+    recovery_ms = round((time.perf_counter() - t_invoke) * 1000, 2)
 
     progress_cb(JobProgress("invoke", 2, 3, time.perf_counter() - t_start), {})
 
@@ -1029,6 +1099,8 @@ def run_fault_recovery(
             "observed_attempts": observed_attempts,
             "recovery_ms": recovery_ms,
             "platform_terminated": platform_terminated,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -1074,6 +1146,12 @@ def run_retry_storm(
     session = inv.create_session()
     t_start = time.perf_counter()
 
+    # Warm the session BEFORE injecting the fault so duration_ms reflects the
+    # steady-state storm window, not the ~86s cold start. Warm-up traffic carries
+    # no correlation id, so it stays out of this probe's fault corr bucket.
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    cold_start_ms, warmed = inv.ensure_warm(session, warm_threshold_ms=warm_threshold_ms)
+
     try:
         import requests as _requests
 
@@ -1098,6 +1176,7 @@ def run_retry_storm(
     )
 
     storm_bounded_by = "agent"  # default; may be overridden on Timeout
+    t_invoke = time.perf_counter()
     try:
         inv.invoke(session, body)
         # Invoke completed (agent exhausted retries or succeeded)
@@ -1108,7 +1187,9 @@ def run_retry_storm(
     finally:
         inv.destroy_session(session)
 
-    duration_ms = round((time.perf_counter() - t_start) * 1000, 2)
+    # Warm-path storm window: the single retry-storm invoke only (the ~86s cold
+    # start was absorbed by ensure_warm and is reported in cold_start_ms).
+    duration_ms = round((time.perf_counter() - t_invoke) * 1000, 2)
 
     progress_cb(JobProgress("invoke", 2, 3, time.perf_counter() - t_start), {})
 
@@ -1141,5 +1222,7 @@ def run_retry_storm(
             "total_attempts": total_attempts,
             "storm_bounded_by": storm_bounded_by,
             "duration_ms": duration_ms,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )

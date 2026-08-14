@@ -68,6 +68,7 @@ class ElasticityTask(Task):
                 scorer_revision=self.scorer_revision,
                 unsupported=True,
             )
+        cold_start_ms = raw.get("cold_start_ms")
         points = raw["points"]
         baseline_p95 = points[0]["p95_ms"] if points else 0.0
         knee = None
@@ -109,6 +110,7 @@ class ElasticityTask(Task):
                 "max_concurrency_tested": Measurement(value=peak["concurrency"], unit="", evidence="B"),
                 "success_rate_at_peak": Measurement(value=peak["success_rate"], unit="", evidence="B"),
                 "p95_ms_at_peak": Measurement(value=peak["p95_ms"], unit="ms", evidence="B"),
+                "cold_start_ms": Measurement(value=cold_start_ms, unit="ms", evidence="B"),
             },
             findings=findings,
             notes=(

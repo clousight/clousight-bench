@@ -145,6 +145,10 @@ class SustainedLoadTask(Task):
                 "transport_error_rate": Measurement(value=transport_err, unit="", evidence="B"),
                 "runtime_error_rate": Measurement(value=runtime_err, unit="", evidence="B"),
                 "tool_error_rate": Measurement(value=tool_err, unit="", evidence="B"),
+                # Cold start observed while warming the estimate session, reported
+                # separately; p50/p99 above still include the on-demand per-request
+                # cold start of the concurrent workers (real behaviour under load).
+                "cold_start_ms": Measurement(value=raw.get("cold_start_ms"), unit="ms", evidence="B"),
             },
             findings=findings,
             notes=(

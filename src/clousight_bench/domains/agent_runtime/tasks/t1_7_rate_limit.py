@@ -69,6 +69,7 @@ class RateLimitTask(Task):
                 scorer_revision=self.scorer_revision,
                 unsupported=True,
             )
+        cold_start_ms = raw.get("cold_start_ms")
         onset = float(raw["throttle_onset_rps"])
         honors = bool(raw["honors_429"])
         findings = []
@@ -106,6 +107,7 @@ class RateLimitTask(Task):
                 ),
                 "retry_after_ms": Measurement(value=raw["retry_after_ms"], unit="ms", evidence="B"),
                 "honors_429": Measurement(value=honors, unit="", evidence="B"),
+                "cold_start_ms": Measurement(value=cold_start_ms, unit="ms", evidence="B"),
             },
             findings=findings,
             notes=(
