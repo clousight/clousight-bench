@@ -613,8 +613,6 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
     import os
 
     if getattr(args, "mode", "dev") == "prod":
-        import sys
-
         print(
             "run-plan is dev-only (本地开发). For prod (生产测评) use: "
             "csbench submit <plan> --config <cfg>",
