@@ -92,16 +92,56 @@ def measure_ttft(
     return (time.perf_counter() - t0) * 1000
 
 
+def _measure_ttft_safe(
+    session: requests.Session,
+    spec: JobSpec,
+    session_id: str,
+) -> float | None:
+    """measure_ttft that swallows transport/HTTP errors → None.
+
+    On-demand AgentRun recycles instances unpredictably, so a warm-path sample
+    can hit a 429/connection-reset mid-sweep. Returning None lets the caller
+    retry or drop the sample instead of aborting the whole probe.
+    """
+    try:
+        return measure_ttft(
+            session,
+            spec.target_endpoint,
+            spec.session_header_scheme,
+            session_id,
+            spec.mock_base_url,
+            spec.mock_token,
+        )
+    except Exception:
+        return None
+
+
 def run_ttft(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """Warm up, then measure ``samples`` streaming invokes.
+    """Two-dimensional TTFT: cold-start cost + warm steady-state.
 
-    ``warmup``/``samples`` come from ``spec.params`` (T1.9 passes {"warmup", "samples"});
-    the module constants are the fallback defaults.
+    AgentRun code-mode cold-starts a fresh instance in ~86s on EVERY new session
+    (proven: a 475-byte empty agent also takes 86s — it's a platform-fixed cost,
+    not our agent). A naive per-sample-new-session measurement therefore records
+    ~86s every time. Instead we:
+
+    1. **Cold-start dimension:** poll ONE stable session until its first-token
+       time drops below ``warm_threshold_ms`` (or attempts exhaust). The first
+       poll's latency IS the cold-start cost (``cold_start_ms``).
+    2. **Warm steady-state dimension:** keep hitting that SAME warm session and
+       collect samples that come back under the warm threshold. Reuse is flaky
+       (a sample may hit a recycled/cold instance or a 429), so each sample gets
+       a few retries; samples that never warm are dropped, and ``warm_reliable``
+       flags whether we got enough clean warm samples to trust the steady-state.
+
+    ``warmup``/``samples`` still come from ``spec.params`` (T1.9); the module
+    constants are the fallback defaults.
     """
-    warmup = int(spec.params.get("warmup", TTFT_WARMUP))
     samples = int(spec.params.get("samples", TTFT_SAMPLES))
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    max_warm_attempts = int(spec.params.get("max_warm_attempts", 6))
+    sample_retries = int(spec.params.get("sample_retries", 3))
     session = requests.Session()
     t_start = time.perf_counter()
 
@@ -112,31 +152,45 @@ def run_ttft(
         metrics = {"last_ttft_ms": ms_so_far[-1]} if ms_so_far else {}
         progress_cb(prog, metrics)
 
+    # One stable session for the whole probe so the warm instance is reused.
     sid = f"ttft-{int(t_start * 1000)}"
-    for _ in range(warmup):
-        measure_ttft(
-            session,
-            spec.target_endpoint,
-            spec.session_header_scheme,
-            sid,
-            spec.mock_base_url,
-            spec.mock_token,
-        )
+
+    # --- Phase 1: cold-start dimension — warm up the single session ---
+    cold_start_ms: float | None = None
+    warmed = False
+    for a in range(max_warm_attempts):
+        ms = _measure_ttft_safe(session, spec, sid)
+        if cold_start_ms is None and ms is not None:
+            cold_start_ms = round(ms, 3)  # first successful poll = cold-start cost
+        report("warmup", a, [ms] if ms is not None else [])
+        if ms is not None and 0 < ms < warm_threshold_ms:
+            warmed = True
+            break
+
+    # --- Phase 2: warm steady-state dimension — reuse the warm session ---
     ttft_ms: list[float] = []
     report("sample", 0, ttft_ms)
     for i in range(samples):
-        ms = measure_ttft(
-            session,
-            spec.target_endpoint,
-            spec.session_header_scheme,
-            f"{sid}-{i}",
-            spec.mock_base_url,
-            spec.mock_token,
-        )
-        ttft_ms.append(round(ms, 3))
+        got: float | None = None
+        for _ in range(sample_retries):
+            ms = _measure_ttft_safe(session, spec, sid)
+            if ms is not None and 0 < ms < warm_threshold_ms:
+                got = round(ms, 3)
+                break
+        if got is not None:
+            ttft_ms.append(got)
         report("sample", i + 1, ttft_ms)
+
+    warm_reliable = warmed and len(ttft_ms) >= max(1, int(samples * 0.6))
     return ObservationBundle(
-        observations={"capability": "supported", "ttft_ms": ttft_ms},
+        observations={
+            "capability": "supported",
+            "ttft_ms": ttft_ms,  # warm steady-state samples (may be short if flaky)
+            "cold_start_ms": cold_start_ms,
+            "warm_samples": len(ttft_ms),
+            "requested_samples": samples,
+            "warm_reliable": warm_reliable,
+        },
         series={"ttft_ms": [[i + 1, v] for i, v in enumerate(ttft_ms)]},
     )
 
