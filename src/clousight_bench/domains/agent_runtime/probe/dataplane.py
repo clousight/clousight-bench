@@ -32,6 +32,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     RetentionResult,
     ScalePoint,
     SoakResult,
+    StartupCurveResult,
 )
 from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
 
@@ -163,7 +164,7 @@ def run_ttft(
         if cold_start_ms is None and ms is not None:
             cold_start_ms = round(ms, 3)  # first successful poll = cold-start cost
         report("warmup", a, [ms] if ms is not None else [])
-        if ms is not None and 0 < ms < warm_threshold_ms:
+        if ms is not None and ms < warm_threshold_ms:  # 0.0 = non-stream fallback → still warm
             warmed = True
             break
 
@@ -174,7 +175,7 @@ def run_ttft(
         got: float | None = None
         for _ in range(sample_retries):
             ms = _measure_ttft_safe(session, spec, sid)
-            if ms is not None and 0 < ms < warm_threshold_ms:
+            if ms is not None and ms < warm_threshold_ms:  # 0.0 = non-stream fallback → still warm
                 got = round(ms, 3)
                 break
         if got is not None:
@@ -192,6 +193,84 @@ def run_ttft(
             "warm_reliable": warm_reliable,
         },
         series={"ttft_ms": [[i + 1, v] for i, v in enumerate(ttft_ms)]},
+    )
+
+
+STARTUP_CURVE_CALLS = 8
+
+
+def run_startup_curve(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
+    """T1.13 冷启动收敛曲线：同一 session 连发 ``n_calls`` 次，记录每次端到端耗时。
+
+    刻画平台的**实例复用 / 预热行为**：第 1 次是冷启动（实例从零拉起），第 2/3
+    次是否断崖下降（命中复用的暖实例），到第几次收敛到稳态。不同平台的收敛速度、
+    稳态值、复用可靠性差异很大 —— 这是一个有区分度的评测维度，回答用户真实关心
+    的"第 N 次调用到底有多慢"。
+
+    测的是**端到端完整 invoke 耗时**（非首字节 TTFT）：用户等到工具调用返回的
+    实际时间。所有调用共用一个 session_id，让平台有机会复用暖实例。派生指标：
+
+      - ``cold_start_ms``       第 1 次（冷）
+      - ``second_call_ms`` / ``third_call_ms``  第 2/3 次（用户明确关心的点）
+      - ``warm_steady_ms``      稳态中位数（第 2 次起、成功且低于阈值的调用）
+      - ``speedup_ratio``       cold / warm 加速比
+      - ``warmed_after_n_calls`` 第几次调用首次落到暖区
+      - ``reuse_reliable``      暖样本充足且零错误 → 复用稳定
+    """
+    n_calls = int(spec.params.get("n_calls", STARTUP_CURVE_CALLS))
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    inv = ProbeInvoker(spec)
+    base = spec.mock_base_url
+    mock_token = spec.mock_token
+    sid = inv.create_session()  # single session so the platform can reuse the warm instance
+    body = protocol.encode_invoke(
+        {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}},
+        base,
+        mock_token=mock_token or None,
+        session_id=sid,
+    )
+    t_start = time.perf_counter()
+    curve: list[dict[str, Any]] = []
+    try:
+        for i in range(n_calls):
+            t0 = time.perf_counter()
+            ok = True
+            try:
+                resp = inv.invoke(sid, body)
+                ok = bool(protocol.decode_result(resp).get("ok"))
+            except Exception:
+                ok = False
+            ms = round((time.perf_counter() - t0) * 1000, 2)
+            curve.append({"call": i + 1, "ms": ms, "ok": ok})
+            progress_cb(
+                JobProgress("call", i + 1, n_calls, round(time.perf_counter() - t_start, 3)),
+                {"last_ms": ms, "ok": ok},
+            )
+            if sink is not None:
+                sink.append("series", {"call": i + 1, "ms": ms, "ok": ok})
+    finally:
+        inv.destroy_session(sid)
+
+    r = StartupCurveResult.from_curve(
+        [(c["ms"], c["ok"]) for c in curve], warm_threshold_ms
+    )
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "curve_ms": r.curve_ms,
+            "cold_start_ms": r.cold_start_ms,
+            "second_call_ms": r.second_call_ms,
+            "third_call_ms": r.third_call_ms,
+            "warm_steady_ms": r.warm_steady_ms,
+            "speedup_ratio": r.speedup_ratio,
+            "warmed_after_n_calls": r.warmed_after_n_calls,
+            "reuse_reliable": r.reuse_reliable,
+            "errors": r.errors,
+            "n_calls": len(curve),
+        },
+        series={"curve_ms": [[c["call"], c["ms"]] for c in curve]},
     )
 
 

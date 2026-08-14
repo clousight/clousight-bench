@@ -189,6 +189,28 @@ def _pack_fault_recovery(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -
     )
 
 
+def _pack_startup_curve(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> ObservationBundle:
+    n_calls = int(params.get("n_calls", 8))
+    # Does NOT catch CapabilityNotSupported — re-raises
+    result = adapter.probe_startup_curve(n_calls=n_calls)
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "curve_ms": result.curve_ms,
+            "cold_start_ms": result.cold_start_ms,
+            "second_call_ms": result.second_call_ms,
+            "third_call_ms": result.third_call_ms,
+            "warm_steady_ms": result.warm_steady_ms,
+            "speedup_ratio": result.speedup_ratio,
+            "warmed_after_n_calls": result.warmed_after_n_calls,
+            "reuse_reliable": result.reuse_reliable,
+            "errors": result.errors,
+            "n_calls": len(result.curve_ms),
+        },
+        series={"curve_ms": [[i + 1, v] for i, v in enumerate(result.curve_ms)]},
+    )
+
+
 def _pack_retry_storm(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> ObservationBundle:
     max_window_s = float(params.get("max_window_s", 30.0))
     # Does NOT catch CapabilityNotSupported — re-raises
@@ -235,6 +257,7 @@ PROBE_NAMES: frozenset[str] = frozenset(
         "fault_recovery",
         "retry_storm",
         "hol_blocking",
+        "startup_curve",
     }
 )
 
@@ -251,6 +274,7 @@ DATA_PLANE_PACKERS: dict[str, Packer] = {
     "fault_recovery": _pack_fault_recovery,
     "retry_storm": _pack_retry_storm,
     "hol_blocking": _pack_hol_blocking,
+    "startup_curve": _pack_startup_curve,
 }
 
 

@@ -59,6 +59,7 @@ from clousight_bench.domains.agent_runtime.tasks.t1_9_ttft import TTFTTask
 from clousight_bench.domains.agent_runtime.tasks.t1_10_retry_storm import RetryStormTask
 from clousight_bench.domains.agent_runtime.tasks.t1_11_concurrent_writes import ConcurrentWritesTask
 from clousight_bench.domains.agent_runtime.tasks.t1_12_head_of_line import HOLBlockingTask
+from clousight_bench.domains.agent_runtime.tasks.t1_13_startup_curve import StartupCurveTask
 from clousight_bench.domains.agent_runtime.tasks.t2_1_tool_registration import ToolRegistrationTask
 from clousight_bench.domains.agent_runtime.tasks.t4_1_trace_completeness import TraceCompletenessTask
 from clousight_bench.domains.agent_runtime.tasks.t4_2_otel_export import OtelExportTask
@@ -90,6 +91,7 @@ class AgentRuntimeDomain(DomainPack):
             RetryStormTask.task_id: RetryStormTask,
             ConcurrentWritesTask.task_id: ConcurrentWritesTask,
             HOLBlockingTask.task_id: HOLBlockingTask,
+            StartupCurveTask.task_id: StartupCurveTask,
             SoakTask.task_id: SoakTask,
             RateLimitTask.task_id: RateLimitTask,
             CancellationTask.task_id: CancellationTask,

@@ -83,9 +83,9 @@ class _IncapableAdapter(_FakeAdapter):
         raise CapabilityNotSupported("probe_hol_blocking")
 
 
-def test_registry_has_all_eleven_probe_names():
+def test_registry_has_all_probe_names():
     assert set(DATA_PLANE_PACKERS) == PROBE_NAMES
-    assert len(PROBE_NAMES) == 11
+    assert len(PROBE_NAMES) == 12
 
 
 def test_supported_probe_packs_expected_observations():

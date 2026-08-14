@@ -52,6 +52,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ScalePoint,
     SignalsResult,
     SoakResult,
+    StartupCurveResult,
     ToolCall,
 )
 
@@ -137,6 +138,9 @@ class RuntimeTransport(ABC):
 
     def probe_fault_recovery(self) -> FaultRecoveryResult:
         raise CapabilityNotSupported("probe_fault_recovery")
+
+    def probe_startup_curve(self, n_calls: int = 8) -> StartupCurveResult:
+        raise CapabilityNotSupported("probe_startup_curve")
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
         raise CapabilityNotSupported("probe_retry_storm")
@@ -434,6 +438,21 @@ class MockRuntimeTransport(RuntimeTransport):
             retention_ms=round(self.warm_retention_ms, 3),
             keeps_warm=self.warm_keeps_warm,
         )
+
+    def probe_startup_curve(self, n_calls: int = 8) -> StartupCurveResult:
+        """Deterministic startup-convergence curve from the startup knob (T1.13).
+
+        Call 1 pays ``cold_ms + warm_ms`` (spin-up + processing); every later
+        call pays just ``warm_ms`` (instance reused). The warm threshold sits
+        between the two so the cold call is flagged cold — the real probe uses an
+        absolute ms threshold, but the local-sim knob values are far smaller, so
+        here we derive it relative to the configured cold/warm gap.
+        """
+        cold = round(self.cold_start_ms + self.warm_start_ms, 3)
+        warm = round(self.warm_start_ms, 3)
+        curve: list[tuple[float, bool]] = [(cold, True)] + [(warm, True)] * max(0, n_calls - 1)
+        threshold = (cold + warm) / 2 if cold > warm else cold * 2 + 1
+        return StartupCurveResult.from_curve(curve, threshold)
 
     def probe_soak(self, duration_s: float) -> SoakResult:
         """Report steady-state availability over a soak window (deterministic)."""

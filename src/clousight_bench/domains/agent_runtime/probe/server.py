@@ -20,6 +20,7 @@ from .dataplane import (
     run_retry_storm,
     run_scaling,
     run_soak,
+    run_startup_curve,
     run_sustained_load,
     run_ttft,
     run_warm_retention,
@@ -111,6 +112,7 @@ def build_default_runner(sink_factory=None) -> JobRunner:
         "hol_blocking": run_hol_blocking,
         "fault_recovery": run_fault_recovery,
         "retry_storm": run_retry_storm,
+        "startup_curve": run_startup_curve,
     }
     # Drift guard: the remote probe registry MUST cover exactly the canonical
     # PROBE_NAMES that csbench's scorers expect. A silent rename here would

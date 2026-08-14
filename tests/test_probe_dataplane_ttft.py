@@ -34,8 +34,13 @@ def _serve():
     return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
-def _make_cold_then_warm(cold_delay_s: float):
-    """Server whose FIRST response is slow (cold start) then fast (warm)."""
+def _make_cold_then_warm(cold_delay_s: float, warm_delay_s: float = 0.0):
+    """Server whose FIRST response is slow (cold start), later ones fast (warm).
+
+    ``warm_delay_s`` adds a floor to EVERY response so a test can keep the runtime
+    perpetually above a warm threshold (never-warms case) instead of relying on
+    sub-millisecond local timing.
+    """
     counter = {"n": 0}
 
     class _ColdThenWarm(BaseHTTPRequestHandler):
@@ -43,8 +48,7 @@ def _make_cold_then_warm(cold_delay_s: float):
             n = int(self.headers.get("Content-Length", 0))
             self.rfile.read(n)
             counter["n"] += 1
-            if counter["n"] == 1:
-                time.sleep(cold_delay_s)  # simulate cold start on the first invoke
+            time.sleep(warm_delay_s + (cold_delay_s if counter["n"] == 1 else 0.0))
             _write_sse(self)
 
         def log_message(self, *a):
@@ -124,15 +128,16 @@ def test_run_ttft_separates_cold_start_from_warm():
 
 
 def test_run_ttft_warm_unreliable_when_never_warms():
-    # Every response stays slow → nothing drops below the threshold, so no warm
-    # samples are collected and warm_reliable is False (but the probe still returns).
-    srv, base, _ = _make_cold_then_warm(cold_delay_s=0.05)
+    # Every response stays slow (20ms floor) → nothing drops below the 10ms
+    # threshold, so no warm samples are collected and warm_reliable is False
+    # (but the probe still returns cleanly).
+    srv, base, _ = _make_cold_then_warm(cold_delay_s=0.0, warm_delay_s=0.02)
     try:
         spec = JobSpec(
             probe="ttft",
             params={
                 "samples": 3,
-                "warm_threshold_ms": 1.0,  # even a 1ms local response exceeds this
+                "warm_threshold_ms": 10.0,  # 20ms responses always exceed this
                 "max_warm_attempts": 2,
                 "sample_retries": 1,
             },

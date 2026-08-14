@@ -260,6 +260,9 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     def probe_fault_recovery(self) -> Any:
         return self._transport_().probe_fault_recovery()
 
+    def probe_startup_curve(self, n_calls: int = 8) -> Any:
+        return self._transport_().probe_startup_curve(n_calls=n_calls)
+
     def probe_retry_storm(self, max_window_s: float = 30.0) -> Any:
         return self._transport_().probe_retry_storm(max_window_s)
 

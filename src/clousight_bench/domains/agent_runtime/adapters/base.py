@@ -251,6 +251,84 @@ class FaultRecoveryResult:
     platform_terminated: bool
 
 
+@dataclass
+class StartupCurveResult:
+    """Instance-reuse / warm-up convergence curve for the data plane (T1.13).
+
+    The SAME session is invoked ``n_calls`` times back to back: call 1 pays cold
+    start (instance spin-up), later calls should drop to a warm steady state iff
+    the platform reuses the instance. The shape of that decay — how fast it
+    converges, the steady value, whether reuse is reliable — is the metric.
+
+    curve_ms:             per-call end-to-end latency, call 1..n
+    cold_start_ms:        curve_ms[0] (the cold call)
+    second_call_ms / third_call_ms: the convergence knee users care about
+    warm_steady_ms:       median of warm calls (2nd onward, below threshold)
+    speedup_ratio:        cold_start_ms / warm_steady_ms
+    warmed_after_n_calls: 1-based index of the first warm call
+    reuse_reliable:       warm samples plentiful AND no errors
+    errors:               non-2xx / failed calls in the sweep
+    """
+
+    curve_ms: list[float]
+    cold_start_ms: float | None
+    second_call_ms: float | None
+    third_call_ms: float | None
+    warm_steady_ms: float | None
+    speedup_ratio: float | None
+    warmed_after_n_calls: int | None
+    reuse_reliable: bool
+    errors: int
+
+    @classmethod
+    def from_curve(
+        cls, curve: list[tuple[float, bool]], warm_threshold_ms: float
+    ) -> StartupCurveResult:
+        """Derive every metric from a ``[(latency_ms, ok), ...]`` sweep.
+
+        Single source of truth for the derivation, shared by the real probe
+        (probe/dataplane.run_startup_curve) and the local-sim adapter so both
+        report identical fields.
+        """
+
+        def _median(vals: list[float]) -> float:
+            s = sorted(vals)
+            n = len(s)
+            return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+        ms_list = [round(m, 2) for m, _ in curve]
+        cold = ms_list[0] if ms_list else None
+        second = ms_list[1] if len(ms_list) > 1 else None
+        third = ms_list[2] if len(ms_list) > 2 else None
+        warm_vals = [m for (m, ok) in curve[1:] if ok and m < warm_threshold_ms]
+        warm_steady = round(_median(warm_vals), 2) if warm_vals else None
+        speedup = (
+            round(cold / warm_steady, 2)
+            if cold and warm_steady and warm_steady > 0
+            else None
+        )
+        warmed_after = next(
+            (i + 1 for i, (m, ok) in enumerate(curve) if ok and m < warm_threshold_ms), None
+        )
+        errors = sum(1 for _, ok in curve if not ok)
+        reliable = (
+            warm_steady is not None
+            and errors == 0
+            and len(warm_vals) >= max(1, int((len(curve) - 1) * 0.6))
+        )
+        return cls(
+            curve_ms=ms_list,
+            cold_start_ms=cold,
+            second_call_ms=second,
+            third_call_ms=third,
+            warm_steady_ms=warm_steady,
+            speedup_ratio=speedup,
+            warmed_after_n_calls=warmed_after,
+            reuse_reliable=reliable,
+            errors=errors,
+        )
+
+
 class CapabilityNotSupported(NotImplementedError):
     """A runtime does not offer a capability a task probes for.
 
@@ -524,6 +602,17 @@ class AgentRuntimeAdapter(ProviderAdapter):
         raises CapabilityNotSupported.
         """
         raise CapabilityNotSupported("probe_fault_recovery")
+
+    def probe_startup_curve(self, n_calls: int = 8) -> StartupCurveResult:
+        """Run the T1.13 startup-convergence curve probe.
+
+        Invoke the SAME session ``n_calls`` times back to back and record each
+        call's end-to-end latency: call 1 pays cold start, later calls reveal
+        whether the platform reuses the warm instance and how fast it converges
+        to steady state. Adapters that support this override it; the default
+        raises CapabilityNotSupported.
+        """
+        raise CapabilityNotSupported("probe_startup_curve")
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
         """Run the T1.10 retry-storm probe.
