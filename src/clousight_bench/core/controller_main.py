@@ -96,11 +96,9 @@ def main() -> int:  # pragma: no cover - live entrypoint, exercised by the smoke
     from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
     env = dict(os.environ)
-    oss = Oss2Client(
-        bucket=env["CB_OSS_BUCKET"],
-        region=env.get("CB_REGION", "cn-hangzhou"),
-        role_name=env.get("CB_OSS_ROLE", ""),
-    )
+    # In-region controller reads/writes OSS over the VPC-internal endpoint; creds
+    # come from the instance RAM role via the default credential chain.
+    oss = Oss2Client(env["CB_OSS_BUCKET"], env.get("CB_REGION", "cn-hangzhou"), internal=True)
     channel = CampaignChannel(oss, env["CB_CAMPAIGN_ID"])
     if not channel.claim():
         return 0  # another controller already owns this campaign

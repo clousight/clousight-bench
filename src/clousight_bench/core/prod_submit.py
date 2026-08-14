@@ -27,6 +27,26 @@ HEARTBEAT_INTERVAL_S = 15.0
 
 Terraform = Callable[[list[str]], int]
 
+# Only the prod-profile resources — never a bare apply/destroy (which would
+# in-place touch the mock FC + everything else in the module). Aliyun-specific.
+_CONTROLLER_TF_TARGETS = [
+    "alicloud_instance.controller",
+    "alicloud_ram_role.controller",
+    "alicloud_ram_policy.controller",
+    "alicloud_ram_role_policy_attachment.controller",
+    "alicloud_nat_gateway.bench",
+    "alicloud_eip_address.nat",
+    "alicloud_eip_association.nat",
+    "alicloud_snat_entry.bench",
+]
+
+
+def _tf_targets() -> list[str]:
+    out: list[str] = []
+    for t in _CONTROLLER_TF_TARGETS:
+        out += ["-target", t]
+    return out
+
 
 def _load_tasks(plan_path: str | Path) -> list[str]:
     doc = yaml.safe_load(Path(plan_path).read_text(encoding="utf-8")) or {}
@@ -68,6 +88,7 @@ def submit(
     tf_args = [
         "apply",
         "-auto-approve",
+        *_tf_targets(),
         "-var",
         "enable_controller=true",
         "-var",
@@ -140,6 +161,6 @@ def teardown(
                 except Exception:  # noqa: BLE001 — best-effort
                     pass
     rc = terraform(
-        ["destroy", "-auto-approve", "-var", "enable_controller=false", "-var", "enable_nat=false"]
+        ["destroy", "-auto-approve", *_tf_targets(), "-var", "enable_controller=false", "-var", "enable_nat=false"]
     )
     return {"destroyed": rc == 0, "residual_deleted": residual}
