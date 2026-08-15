@@ -117,3 +117,8 @@ output "controller_instance_id" {
   description = "Ecs-resident campaign controller instance id (null when disabled)."
   value       = var.enable_controller ? alicloud_instance.controller[0].id : null
 }
+
+output "controller_public_ip" {
+  description = "Controller public IP (debug only; null in production)."
+  value       = (var.enable_controller && var.controller_debug) ? alicloud_instance.controller[0].public_ip : null
+}

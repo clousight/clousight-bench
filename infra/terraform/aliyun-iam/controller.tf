@@ -34,6 +34,34 @@ variable "controller_extra_deps" {
   description = "Requirement specs (probe + store extras) pip-installed from the mirror before the wheel (a presigned URL can't carry [extras])."
 }
 
+variable "controller_debug" {
+  type        = bool
+  default     = false
+  description = "DEBUG/DEV ONLY: give the controller a public IP + SSH key for interactive debugging. PRODUCTION MUST leave this false (no public IP)."
+}
+
+variable "controller_ssh_public_key" {
+  type        = string
+  default     = ""
+  description = "SSH public key for debug access; only used when controller_debug=true."
+}
+
+resource "alicloud_ecs_key_pair" "controller" {
+  count         = var.controller_debug && var.controller_ssh_public_key != "" ? 1 : 0
+  key_pair_name = "clousight-bench-controller-dbg"
+  public_key    = var.controller_ssh_public_key
+}
+
+# DEBUG ONLY: open port 22 so we can SSH in to read cb-controller boot errors.
+resource "alicloud_security_group_rule" "controller_ssh" {
+  count             = var.controller_debug ? 1 : 0
+  type              = "ingress"
+  ip_protocol       = "tcp"
+  port_range        = "22/22"
+  security_group_id = alicloud_security_group.bench[0].id
+  cidr_ip           = "0.0.0.0/0"
+}
+
 data "alicloud_images" "controller" {
   count       = var.enable_controller ? 1 : 0
   owners      = "system"
@@ -144,8 +172,11 @@ resource "alicloud_instance" "controller" {
   instance_type              = var.controller_instance_type
   vswitch_id                 = alicloud_vswitch.bench[0].id
   security_groups            = [alicloud_security_group.bench[0].id]
-  role_name                  = alicloud_ram_role.controller[0].role_name
-  internet_max_bandwidth_out = 0 # VPC-internal; egress to the public mock is via the NAT
+  role_name = alicloud_ram_role.controller[0].role_name
+  # Production: 0 (no public IP, VPC-internal, egress via NAT). Debug: 5 Mbps
+  # public IP so we can SSH in and read cb-controller's boot errors.
+  internet_max_bandwidth_out = var.controller_debug ? 5 : 0
+  key_name                   = (var.controller_debug && var.controller_ssh_public_key != "") ? alicloud_ecs_key_pair.controller[0].key_pair_name : null
   instance_charge_type       = "PostPaid"
   user_data                  = local.controller_user_data
   tags = {
