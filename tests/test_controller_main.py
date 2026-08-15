@@ -50,6 +50,44 @@ def test_build_run_task_marks_failed_status(monkeypatch, tmp_path):
     assert outcome.ok is False and outcome.error == "failed"
 
 
+def test_build_reaper_wires_deleters_in_order():
+    calls: list[str] = []
+    reaper = controller_main.build_reaper(
+        {"CB_REGION": "cn-hangzhou"},
+        results_dir="/unused",
+        instance_id="i-self",
+        live_runtimes=lambda: ["rt-a", "rt-b"],
+        delete_runtime=lambda rid: calls.append(f"rt:{rid}"),
+        delete_nat=lambda: calls.append("nat"),
+        delete_self=lambda iid: calls.append(f"self:{iid}"),
+    )
+    errors = reaper.reap()
+    assert errors == []
+    # runtimes first (both), then NAT, then self LAST
+    assert calls == ["rt:rt-a", "rt:rt-b", "nat", "self:i-self"]
+
+
+def test_build_reaper_defaults_live_runtimes_to_ledger(tmp_path):
+    from clousight_bench.core.resource_ledger import ResourceLedger
+
+    led = ResourceLedger(tmp_path)
+    led.record_created("run-1", "aliyun", "rt-live", "runtime")
+    led.record_created("run-1", "aliyun", "rt-gone", "runtime")
+    led.mark_deleted("run-1", "rt-gone")
+
+    seen: list[str] = []
+    reaper = controller_main.build_reaper(
+        {"CB_REGION": "cn-hangzhou"},
+        results_dir=tmp_path,
+        instance_id="i-self",
+        delete_runtime=lambda rid: seen.append(rid),
+        delete_nat=lambda: None,
+        delete_self=lambda iid: None,
+    )
+    reaper.reap()
+    assert seen == ["rt-live"]  # created-not-deleted only
+
+
 def test_build_wires_controller_and_watchdog():
     oss = InMemoryOssClient()
     CampaignChannel(oss, "camp-1").write_launch(

@@ -23,13 +23,22 @@ from typing import Any
 from clousight_bench.core.campaign_spec import DEFAULT_WATCHDOG_TIMEOUT_S
 from clousight_bench.core.controller import CampaignController, RunTask, TaskOutcome
 from clousight_bench.core.orchestrator import execute
-from clousight_bench.core.resource_ledger import LEDGER_FILE
+from clousight_bench.core.resource_ledger import LEDGER_FILE, ResourceLedger
 from clousight_bench.core.schema import RunSpec
 from clousight_bench.core.watchdog import SelfDestructWatchdog
+from clousight_bench.domains.agent_runtime.controller_reaper import (
+    RestrictedReaper,
+    live_runtimes_from_ledger,
+)
 from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
 from clousight_bench.domains.agent_runtime.probe.oss_client import OssClient
 
 _OK_STATUSES = ("completed", "unsupported")
+# Terraform names for the run's NAT + its EIP (controller.tf / main.tf). The
+# reaper deletes them by name so the controller can self-clean with no laptop.
+_NAT_NAME = "clousight-bench-nat"
+_NAT_EIP_NAME = "clousight-bench-nat-eip"
+_ECS_METADATA_INSTANCE_ID_URL = "http://100.100.100.200/latest/meta-data/instance-id"
 
 
 def build_run_task(platform: str, results_dir: str | Path, *, allow_live: bool = True) -> RunTask:
@@ -65,6 +74,108 @@ def build_run_task(platform: str, results_dir: str | Path, *, allow_live: bool =
 def _ledger_bytes_reader(results_dir: str | Path) -> Callable[[], bytes]:
     path = Path(results_dir) / LEDGER_FILE
     return lambda: path.read_bytes() if path.exists() else b""
+
+
+def _ecs_metadata_instance_id(timeout: float = 5.0) -> str:  # pragma: no cover - live metadata
+    """This controller's own instance id, read from the ECS metadata service."""
+    import requests
+
+    return requests.get(_ECS_METADATA_INSTANCE_ID_URL, timeout=timeout).text.strip()
+
+
+def _live_delete_runtime(region: str) -> Callable[[str], None]:  # pragma: no cover - live SDK
+    """Delete one AgentRuntime (endpoint first, best-effort) via the instance role."""
+
+    def _del(runtime_id: str) -> None:
+        from alibabacloud_agentrun20250910 import models as m
+        from alibabacloud_agentrun20250910.client import Client
+        from alibabacloud_credentials.client import Client as CredClient
+        from alibabacloud_tea_openapi import models as open_api_models
+
+        cfg = open_api_models.Config(credential=CredClient())
+        cfg.region_id = region  # SDK raises "RegionId is empty" without this
+        client = Client(cfg)
+        with contextlib.suppress(Exception):
+            client.delete_agent_runtime_endpoint(runtime_id, "Default", m.DeleteAgentRuntimeEndpointRequest())
+        client.delete_agent_runtime(runtime_id)  # takes the id string, not a Request
+
+    return _del
+
+
+def _live_delete_nat(region: str, nat_name: str, eip_name: str) -> Callable[[], None]:  # pragma: no cover - live SDK
+    """Force-delete the run's NAT (removes its SNAT/DNAT entries) then release its EIP."""
+
+    def _del() -> None:
+        from alibabacloud_tea_openapi import models as open_api_models
+        from alibabacloud_credentials.client import Client as CredClient
+        from alibabacloud_vpc20160428 import models as vm
+        from alibabacloud_vpc20160428.client import Client
+
+        cfg = open_api_models.Config(credential=CredClient())
+        cfg.endpoint = f"vpc.{region}.aliyuncs.com"
+        c = Client(cfg)
+        nats = c.describe_nat_gateways(vm.DescribeNatGatewaysRequest(region_id=region, name=nat_name))
+        for nat in nats.body.nat_gateways.nat_gateway or []:
+            with contextlib.suppress(Exception):
+                c.delete_nat_gateway(vm.DeleteNatGatewayRequest(nat_gateway_id=nat.nat_gateway_id, force=True))
+        eips = c.describe_eip_addresses(vm.DescribeEipAddressesRequest(region_id=region, eip_name=eip_name))
+        for eip in eips.body.eip_addresses.eip_address or []:
+            with contextlib.suppress(Exception):
+                if eip.status == "InUse":
+                    c.unassociate_eip_address(
+                        vm.UnassociateEipAddressRequest(
+                            allocation_id=eip.allocation_id,
+                            instance_id=eip.instance_id,
+                            instance_type=eip.instance_type,
+                        )
+                    )
+                c.release_eip_address(vm.ReleaseEipAddressRequest(allocation_id=eip.allocation_id))
+
+    return _del
+
+
+def _live_delete_self(region: str) -> Callable[[str], None]:  # pragma: no cover - live SDK
+    """Delete the controller's own ECS instance (called LAST by the reaper)."""
+
+    def _del(instance_id: str) -> None:
+        from alibabacloud_ecs20140526 import models as em
+        from alibabacloud_ecs20140526.client import Client
+        from alibabacloud_credentials.client import Client as CredClient
+        from alibabacloud_tea_openapi import models as open_api_models
+
+        cfg = open_api_models.Config(credential=CredClient())
+        cfg.endpoint = f"ecs.{region}.aliyuncs.com"
+        Client(cfg).delete_instance(em.DeleteInstanceRequest(instance_id=instance_id, force=True))
+
+    return _del
+
+
+def build_reaper(
+    env: dict[str, str],
+    *,
+    results_dir: str | Path,
+    instance_id: str | None = None,
+    live_runtimes: Callable[[], list[str]] | None = None,
+    delete_runtime: Callable[[str], None] | None = None,
+    delete_nat: Callable[[], None] | None = None,
+    delete_self: Callable[[str], None] | None = None,
+) -> RestrictedReaper:
+    """Compose the self-destruct reaper: runtimes (from the ledger) → NAT → self.
+
+    Every collaborator has a live default (instance-role SDK) and a test seam.
+    Delegating the delete ORDER + best-effort semantics to :class:`RestrictedReaper`.
+    """
+    region = env.get("CB_REGION", "cn-hangzhou")
+    ledger_dir = Path(results_dir)
+    lr = live_runtimes or (lambda: live_runtimes_from_ledger(ResourceLedger(ledger_dir)))
+    iid = instance_id if instance_id is not None else _ecs_metadata_instance_id()
+    return RestrictedReaper(
+        live_runtimes=lr,
+        delete_runtime=delete_runtime or _live_delete_runtime(region),
+        delete_nat=delete_nat or _live_delete_nat(region, _NAT_NAME, _NAT_EIP_NAME),
+        delete_self=delete_self or _live_delete_self(region),
+        self_instance_id=iid,
+    )
 
 
 def build(
@@ -115,7 +226,19 @@ def main() -> int:  # pragma: no cover - live entrypoint, exercised by the smoke
             channel.append_log("campaign already claimed — exiting")
             return 0  # another controller already owns this campaign
         channel.append_log("claimed campaign; building controller+watchdog")
-        controller, watchdog = build(env, oss)
+        # Self-destruct reaper: on watchdog-terminal it deletes residual runtimes
+        # → NAT → this instance (last), so a finished/timed-out run leaves nothing
+        # even if the laptop is off. Best-effort to build — if the metadata/SDK
+        # wiring fails we log it and fall back to a noop reap rather than refuse to
+        # run the campaign (the local `csbench teardown` is the backstop).
+        reaper: Any | None = None
+        try:
+            results_dir = env.get("CB_RESULTS_DIR", "/var/lib/cb/results")
+            reaper = build_reaper(env, results_dir=results_dir)
+            channel.append_log(f"reaper armed (self={reaper._self_instance_id})")
+        except Exception as exc:  # noqa: BLE001 - never let reaper-build block the run
+            channel.append_log(f"reaper build failed ({exc!r}); teardown falls to local backstop")
+        controller, watchdog = build(env, oss, reaper=reaper)
         channel.append_log("built; starting orchestration loop + watchdog")
         start = time.time()
         threading.Thread(target=controller.run, daemon=True).start()
