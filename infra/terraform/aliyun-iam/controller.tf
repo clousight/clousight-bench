@@ -99,18 +99,27 @@ resource "alicloud_ram_policy" "controller" {
     Version = "1"
     Statement = [
       {
+        # Full task lifecycle: parity with the bench user's AgentRun grant so
+        # the controller can provision → publish → invoke → delete a runtime.
+        # (The hand-picked subset here missed agentrun:PublishRuntimeVersion and
+        # InvokeRuntime → tasks died at EXECUTE with NoPermission/ImplicitDeny.)
+        Effect   = "Allow"
+        Action   = concat(local.agentrun_control_plane, local.agentrun_data_plane)
+        Resource = "acs:agentrun:*:*:*"
+      },
+      {
+        # ARMS read-only: T4.x trace/OTel probes read spans after invocation.
         Effect = "Allow"
         Action = [
-          "agentrun:CreateAgentRuntime", "agentrun:CreateAgentRuntimeEndpoint",
-          "agentrun:DeleteAgentRuntime", "agentrun:DeleteAgentRuntimeEndpoint",
-          "agentrun:GetAgentRuntime", "agentrun:ListAgentRuntimes",
-          "agentrun:CreateAgentRuntimeVersion", "agentrun:ListAgentRuntimeEndpoints"
+          "arms:SearchTraces", "arms:GetTrace", "arms:GetMultipleTrace",
+          "arms:ListTraceApps", "arms:SearchTraceAppByName", "arms:GetTraceApp",
+          "arms:QueryMetricByPage", "arms:DescribeTraceLicenseKey",
         ]
         Resource = "*"
       },
       {
         Effect   = "Allow"
-        Action   = ["vpc:DeleteNatGateway", "vpc:DeleteSnatEntry", "vpc:DescribeNatGateways", "vpc:DescribeSnatTableEntries"]
+        Action   = ["vpc:DeleteNatGateway", "vpc:DeleteSnatEntry", "vpc:DescribeNatGateways", "vpc:DescribeSnatTableEntries", "vpc:DescribeVpcs", "vpc:DescribeVSwitches"]
         Resource = "*"
       },
       {
@@ -120,7 +129,7 @@ resource "alicloud_ram_policy" "controller" {
       },
       {
         Effect   = "Allow"
-        Action   = ["ecs:DeleteInstance", "ecs:DescribeInstances"]
+        Action   = ["ecs:DeleteInstance", "ecs:DescribeInstances", "ecs:DescribeSecurityGroups"]
         Resource = "*"
       },
       {
