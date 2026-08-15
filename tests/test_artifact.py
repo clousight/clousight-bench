@@ -134,15 +134,20 @@ def test_build_vendor_dir_falls_back_to_pip_when_uv_missing(tmp_path, monkeypatc
     raise FileNotFoundError. Regression: subprocess.run raises before the
     returncode check, so the loop has to catch it and try the next installer."""
     import subprocess
+    import sys
 
-    seen: list[str] = []
+    seen: list[list[str]] = []
 
     def fake_run(cmd, **kwargs):
-        seen.append(cmd[0])
+        seen.append(list(cmd))
         if cmd[0] == "uv":
             raise FileNotFoundError(2, "No such file or directory", "uv")
         return subprocess.CompletedProcess(cmd, 0, b"", b"")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     artifact._build_vendor_dir(tmp_path / "vendor")
-    assert seen == ["uv", "pip"]  # tried uv, then fell back to pip
+    # tried uv, then fell back to THIS interpreter's pip (never a bare `pip`,
+    # which isn't on PATH on the in-region controller).
+    assert seen[0][0] == "uv"
+    assert seen[1][:3] == [sys.executable, "-m", "pip"]
+    assert len(seen) == 2

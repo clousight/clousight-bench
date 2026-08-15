@@ -166,6 +166,10 @@ locals {
       # Make the alibabacloud default credential chain use THIS instance's RAM role
       # (no static AK on the box) for OSS + AgentRun + ECS SDK calls.
       "export ALIBABA_CLOUD_ECS_METADATA='clousight-bench-controller'",
+      # Point pip at the in-region mirror for the RUNTIME agent-artifact vendoring
+      # (artifact.py pip-installs langchain/otel at execute time). PyPI is
+      # throttled from cn-hangzhou; pip reads PIP_INDEX_URL natively.
+      "export PIP_INDEX_URL='${local._mirror}'",
       "yum install -y python3.11",
       "python3.11 -m ensurepip --upgrade",
     ],

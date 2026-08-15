@@ -57,15 +57,20 @@ def _build_vendor_dir(vendor_path: Path) -> None:
     """Install LangChain + OTel deps into vendor_path using pip/uv."""
     import shutil
     import subprocess
+    import sys
 
     if vendor_path.exists():
         shutil.rmtree(vendor_path)
     vendor_path.mkdir(parents=True)
 
-    # Try uv first (faster), fall back to pip. A missing installer raises
-    # FileNotFoundError before returncode is set (e.g. no `uv` on a CI runner),
-    # so catch it and move on to the next candidate rather than aborting.
-    for cmd in (["uv", "pip", "install"], ["pip", "install"]):
+    # Try uv first (faster), then THIS interpreter's pip. Use `sys.executable -m
+    # pip`, never a bare `pip`: an in-region controller has python3.11 + its pip
+    # but no `pip`/`uv` on PATH, so a bare command FileNotFerrors instantly and
+    # the whole vendor build fails in ~1s. The index is left to pip's own
+    # PIP_INDEX_URL env (the controller points it at the aliyun mirror; PyPI is
+    # throttled from cn-hangzhou) so nothing cloud-specific is hardcoded here.
+    last = ""
+    for cmd in (["uv", "pip", "install"], [sys.executable, "-m", "pip", "install"]):
         try:
             result = subprocess.run(
                 [*cmd, "--target", str(vendor_path), *_LC_DEPS, "-q"],
@@ -75,9 +80,11 @@ def _build_vendor_dir(vendor_path: Path) -> None:
             continue
         if result.returncode == 0:
             return
+        last = (result.stderr or result.stdout or b"").decode("utf-8", "replace")[-1500:]
     raise RuntimeError(
         f"Failed to install agent dependencies. "
         f"Run manually: pip install --target {vendor_path} {' '.join(_LC_DEPS)}"
+        + (f"\nlast installer stderr:\n{last}" if last else "")
     )
 
 
