@@ -102,15 +102,17 @@ def _live_delete_runtime(region: str) -> Callable[[str], None]:  # pragma: no co
     return _del
 
 
-def _live_delete_nat(region: str, nat_name: str, eip_name: str) -> Callable[[], None]:  # pragma: no cover - live SDK
+def _live_delete_nat(  # pragma: no cover - live SDK
+    region: str, nat_name: str, eip_name: str, log: Callable[[str], None] = lambda _m: None
+) -> Callable[[], None]:
     """Tear the run's NAT down in the order Aliyun requires: unassociate the EIP
     FIRST (a still-bound EIP makes DeleteNatGateway fail even with force=true),
     then force-delete the NAT (drops its SNAT/DNAT entries), then release the EIP.
 
-    Each step is best-effort + waits briefly for the async unassociate/delete to
-    settle so the next step isn't blocked by the previous still being in-flight.
-    The local `csbench teardown` (terraform destroy) is the backstop for anything
-    left."""
+    Each step is best-effort — its error is logged (``log``) BEFORE the reaper
+    moves on to delete_self (so it reaches OSS before this box dies) — with a
+    brief settle between the async unassociate/delete. The local `csbench
+    teardown` (terraform destroy) is the backstop for anything left."""
 
     def _del() -> None:
         from alibabacloud_tea_openapi import models as open_api_models
@@ -132,11 +134,12 @@ def _live_delete_nat(region: str, nat_name: str, eip_name: str) -> Callable[[], 
             c.describe_eip_addresses(vm.DescribeEipAddressesRequest(region_id=region, eip_name=eip_name)).body.eip_addresses.eip_address
             or []
         )
+        log(f"delete_nat: nats={nat_ids} eips={[(e.allocation_id, e.status) for e in eips]}")
         # 1) unassociate each bound EIP from its NAT (force), then let it settle.
         unbound = False
         for eip in eips:
             if eip.status in ("InUse", "Associating"):
-                with contextlib.suppress(Exception):
+                try:
                     c.unassociate_eip_address(
                         vm.UnassociateEipAddressRequest(
                             allocation_id=eip.allocation_id,
@@ -146,20 +149,26 @@ def _live_delete_nat(region: str, nat_name: str, eip_name: str) -> Callable[[], 
                         )
                     )
                     unbound = True
+                except Exception as exc:  # noqa: BLE001 - log then continue best-effort
+                    log(f"delete_nat unassociate {eip.allocation_id} FAILED: {exc}")
         if unbound:
             time.sleep(8)
         # 2) force-delete the NAT (removes SNAT/DNAT), then let it settle.
         deleted = False
         for nid in nat_ids:
-            with contextlib.suppress(Exception):
+            try:
                 c.delete_nat_gateway(vm.DeleteNatGatewayRequest(nat_gateway_id=nid, force=True))
                 deleted = True
+            except Exception as exc:  # noqa: BLE001
+                log(f"delete_nat delete {nid} FAILED: {exc}")
         if deleted:
             time.sleep(8)
         # 3) release the (now-free) EIP.
         for eip in eips:
-            with contextlib.suppress(Exception):
+            try:
                 c.release_eip_address(vm.ReleaseEipAddressRequest(allocation_id=eip.allocation_id))
+            except Exception as exc:  # noqa: BLE001
+                log(f"delete_nat release {eip.allocation_id} FAILED: {exc}")
 
     return _del
 
@@ -189,11 +198,13 @@ def build_reaper(
     delete_runtime: Callable[[str], None] | None = None,
     delete_nat: Callable[[], None] | None = None,
     delete_self: Callable[[str], None] | None = None,
+    log: Callable[[str], None] = lambda _m: None,
 ) -> RestrictedReaper:
     """Compose the self-destruct reaper: runtimes (from the ledger) → NAT → self.
 
     Every collaborator has a live default (instance-role SDK) and a test seam.
     Delegating the delete ORDER + best-effort semantics to :class:`RestrictedReaper`.
+    ``log`` (e.g. ``channel.append_log``) surfaces the live NAT-delete steps to OSS.
     """
     region = env.get("CB_REGION", "cn-hangzhou")
     ledger_dir = Path(results_dir)
@@ -202,7 +213,7 @@ def build_reaper(
     return RestrictedReaper(
         live_runtimes=lr,
         delete_runtime=delete_runtime or _live_delete_runtime(region),
-        delete_nat=delete_nat or _live_delete_nat(region, _NAT_NAME, _NAT_EIP_NAME),
+        delete_nat=delete_nat or _live_delete_nat(region, _NAT_NAME, _NAT_EIP_NAME, log),
         delete_self=delete_self or _live_delete_self(region),
         self_instance_id=iid,
     )
@@ -264,7 +275,7 @@ def main() -> int:  # pragma: no cover - live entrypoint, exercised by the smoke
         reaper: Any | None = None
         try:
             results_dir = env.get("CB_RESULTS_DIR", "/var/lib/cb/results")
-            reaper = build_reaper(env, results_dir=results_dir)
+            reaper = build_reaper(env, results_dir=results_dir, log=channel.append_log)
             channel.append_log(f"reaper armed (self={reaper._self_instance_id})")
         except Exception as exc:  # noqa: BLE001 - never let reaper-build block the run
             channel.append_log(f"reaper build failed ({exc!r}); teardown falls to local backstop")

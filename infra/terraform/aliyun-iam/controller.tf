@@ -118,13 +118,16 @@ resource "alicloud_ram_policy" "controller" {
         Resource = "*"
       },
       {
-        Effect   = "Allow"
-        Action   = ["vpc:DeleteNatGateway", "vpc:DeleteSnatEntry", "vpc:DescribeNatGateways", "vpc:DescribeSnatTableEntries", "vpc:DescribeVpcs", "vpc:DescribeVSwitches"]
-        Resource = "*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["eip:ReleaseEipAddress", "eip:UnassociateEipAddress", "eip:DescribeEipAddresses"]
+        # EIP RAM actions live under the vpc: prefix (EIP is part of the VPC
+        # product), NOT eip: — granting eip:* left the reaper's UnassociateEip /
+        # ReleaseEip ImplicitDenied, so delete_nat failed (NAT stayed Available,
+        # EIP InUse) while delete_self (ecs:) succeeded. Live-diagnosed 2026-08-15.
+        Effect = "Allow"
+        Action = [
+          "vpc:DeleteNatGateway", "vpc:DeleteSnatEntry", "vpc:DescribeNatGateways",
+          "vpc:DescribeSnatTableEntries", "vpc:DescribeVpcs", "vpc:DescribeVSwitches",
+          "vpc:UnassociateEipAddress", "vpc:ReleaseEipAddress", "vpc:DescribeEipAddresses",
+        ]
         Resource = "*"
       },
       {
