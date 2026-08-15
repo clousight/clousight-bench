@@ -65,6 +65,7 @@ aliyun = [
     "oss2",
     "alibabacloud-arms20190808",
     "alibabacloud-ecs20140526",
+    "alibabacloud-vpc20160428",  # controller self-destruct reaper: delete NAT + release EIP
     "requests>=2.28",
 ]
 # Live AWS Bedrock AgentCore provider SDK. Optional: the provider registers and
