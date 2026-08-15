@@ -123,17 +123,22 @@ def _live_delete_nat(  # pragma: no cover - live SDK
         cfg = open_api_models.Config(credential=CredClient())
         cfg.endpoint = f"vpc.{region}.aliyuncs.com"
         c = Client(cfg)
-        nat_ids = [
-            n.nat_gateway_id
-            for n in (
-                c.describe_nat_gateways(vm.DescribeNatGatewaysRequest(region_id=region, name=nat_name)).body.nat_gateways.nat_gateway
+        log("delete_nat: start")  # first line before ANY SDK call, so a failing describe still surfaces
+        try:
+            nat_ids = [
+                n.nat_gateway_id
+                for n in (
+                    c.describe_nat_gateways(vm.DescribeNatGatewaysRequest(region_id=region, name=nat_name)).body.nat_gateways.nat_gateway
+                    or []
+                )
+            ]
+            eips = list(
+                c.describe_eip_addresses(vm.DescribeEipAddressesRequest(region_id=region, eip_name=eip_name)).body.eip_addresses.eip_address
                 or []
             )
-        ]
-        eips = list(
-            c.describe_eip_addresses(vm.DescribeEipAddressesRequest(region_id=region, eip_name=eip_name)).body.eip_addresses.eip_address
-            or []
-        )
+        except Exception as exc:  # noqa: BLE001 - describe itself can be denied
+            log(f"delete_nat describe FAILED: {exc}")
+            return
         log(f"delete_nat: nats={nat_ids} eips={[(e.allocation_id, e.status) for e in eips]}")
         # 1) unassociate each bound EIP from its NAT (force), then let it settle.
         unbound = False
@@ -240,7 +245,17 @@ def build(
 
     spec = channel.read_launch()
     timeout_s = spec.watchdog_timeout_s if spec else DEFAULT_WATCHDOG_TIMEOUT_S
-    reap = reaper.reap if reaper is not None else (lambda: None)
+
+    def _reap() -> Any:
+        # Surface RestrictedReaper's collected best-effort errors to OSS (it runs
+        # delete_nat BEFORE delete_self, so this write lands before the box dies).
+        errs = reaper.reap()
+        if errs:
+            with contextlib.suppress(Exception):
+                channel.append_log("reaper errors:\n" + "\n".join(str(e) for e in errs))
+        return errs
+
+    reap = _reap if reaper is not None else (lambda: None)
     watchdog = SelfDestructWatchdog(channel, reap=reap, timeout_s=timeout_s, now=now)
     return controller, watchdog
 
