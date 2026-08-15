@@ -34,6 +34,42 @@ def test_auth_env_missing_reports_which(monkeypatch):
     assert "MY_AK" in res.detail["missing_env"]
 
 
+def test_instance_role_recognised_when_metadata_env_set(monkeypatch):
+    # An in-region controller runs on an ECS instance RAM role — no static AK on
+    # the box. ALIBABA_CLOUD_ECS_METADATA is the explicit "use my instance role"
+    # signal the alibabacloud default chain (and our adapter's CredClient) honor.
+    # Preflight must accept it even though auth_env is configured but unset.
+    monkeypatch.setenv("ALIBABA_CLOUD_ECS_METADATA", "clousight-bench-controller")
+    monkeypatch.delenv("ALIBABA_CLOUD_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET", raising=False)
+    res = resolve_credentials(
+        {
+            "provider": "aliyun",
+            "auth_env": {
+                "access_key_id": "ALIBABA_CLOUD_ACCESS_KEY_ID",
+                "access_key_secret": "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+            },
+        }
+    )
+    assert res.ok and res.source == "instance_role"
+
+
+def test_no_instance_role_env_still_fails_on_missing_auth_env(monkeypatch):
+    monkeypatch.delenv("ALIBABA_CLOUD_ECS_METADATA", raising=False)
+    monkeypatch.delenv("ALIBABA_CLOUD_ACCESS_KEY_ID", raising=False)
+    monkeypatch.delenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET", raising=False)
+    res = resolve_credentials(
+        {
+            "provider": "aliyun",
+            "auth_env": {
+                "access_key_id": "ALIBABA_CLOUD_ACCESS_KEY_ID",
+                "access_key_secret": "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+            },
+        }
+    )
+    assert res.ok is False and res.source == "auth_env"
+
+
 def test_profile_takes_precedence_over_std_env():
     res = resolve_credentials({"provider": "aws", "profile": "prod"})
     assert res.ok and res.source == "profile"
