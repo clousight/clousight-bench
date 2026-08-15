@@ -94,14 +94,18 @@ def build(
 
 
 def main() -> int:  # pragma: no cover - live entrypoint, exercised by the smoke runbook
-    from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
+    from clousight_bench.domains.agent_runtime.probe.oss_client import EcsRamRoleOssClient
 
     import traceback
 
     env = dict(os.environ)
-    # In-region controller reads/writes OSS over the VPC-internal endpoint; creds
-    # come from the instance RAM role via the default credential chain.
-    oss = Oss2Client(env["CB_OSS_BUCKET"], env.get("CB_REGION", "cn-hangzhou"), internal=True)
+    # In-region controller reads/writes OSS over the VPC-internal endpoint. Creds
+    # come from THIS instance's RAM role read straight from the ECS metadata
+    # service (requests-only, 5s timeout) — NOT the alibabacloud_credentials
+    # default chain (Oss2Client), whose ECS-metadata provider blocks silently with
+    # no timeout when it can't resolve, hanging the controller before its first
+    # OSS write (observed live 2026-08-15: zero boot markers, no traceback).
+    oss = EcsRamRoleOssClient(env["CB_OSS_BUCKET"], env.get("CB_REGION", "cn-hangzhou"))
     channel = CampaignChannel(oss, env["CB_CAMPAIGN_ID"])
     # Boot markers to OSS: the controller's stdout/stderr don't reach the serial
     # console, so log progress here — a `csbench logs` shows exactly how far it got.
@@ -122,3 +126,10 @@ def main() -> int:  # pragma: no cover - live entrypoint, exercised by the smoke
         with contextlib.suppress(Exception):
             channel.append_log("CONTROLLER FATAL:\n" + traceback.format_exc()[-3000:])
         raise
+
+
+if __name__ == "__main__":  # pragma: no cover - `python -m clousight_bench.core.controller_main`
+    # cloud-init boots the controller via `python3.11 -m ...`; without this guard
+    # that only imports the module and exits WITHOUT calling main() (observed live
+    # 2026-08-15: controller wrote zero OSS, no stdout — main() never ran).
+    raise SystemExit(main())

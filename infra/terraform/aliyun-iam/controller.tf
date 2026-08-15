@@ -22,6 +22,12 @@ variable "controller_instance_type" {
   description = "ECS type for the controller (orchestration is light; probes are serial)."
 }
 
+variable "controller_system_disk_category" {
+  type        = string
+  default     = "cloud_essd"
+  description = "System disk category for the controller. Must be one the instance type + zone support (cloud_essd/cloud_auto for e-/u1-series in cn-hangzhou-b); the provider default cloud_efficiency is rejected by RunInstances."
+}
+
 variable "controller_wheel_url" {
   type        = string
   default     = ""
@@ -150,7 +156,10 @@ locals {
       "#!/bin/sh",
       "set -e",
       "export CB_CAMPAIGN_ID='${var.campaign_id}'",
-      "export CB_OSS_BUCKET='${var.oss_bucket}'",
+      # local.bucket_name — NOT var.oss_bucket, which is "" on the default
+      # random-suffix path, so the controller booted with an empty bucket name
+      # (oss2 rejected it: "The bucket_name is invalid"), never writing any OSS.
+      "export CB_OSS_BUCKET='${local.bucket_name}'",
       "export CB_REGION='${var.region}'",
       "export CB_RESULTS_DIR='/var/lib/cb/results'",
       "export CB_PLATFORM='aliyun-agentrun'",
@@ -170,6 +179,10 @@ resource "alicloud_instance" "controller" {
   instance_name              = "clousight-bench-controller-${var.campaign_id}"
   image_id                   = data.alicloud_images.controller[0].images[0].id
   instance_type              = var.controller_instance_type
+  # e-/u1-series (and most current gens) do NOT support the provider-default
+  # cloud_efficiency system disk in cn-hangzhou-b — only cloud_essd/cloud_auto.
+  # Omitting this made RunInstances fail with InvalidSystemDiskCategory.
+  system_disk_category       = var.controller_system_disk_category
   vswitch_id                 = alicloud_vswitch.bench[0].id
   security_groups            = [alicloud_security_group.bench[0].id]
   role_name = alicloud_ram_role.controller[0].role_name
