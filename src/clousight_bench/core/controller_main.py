@@ -103,7 +103,14 @@ def _live_delete_runtime(region: str) -> Callable[[str], None]:  # pragma: no co
 
 
 def _live_delete_nat(region: str, nat_name: str, eip_name: str) -> Callable[[], None]:  # pragma: no cover - live SDK
-    """Force-delete the run's NAT (removes its SNAT/DNAT entries) then release its EIP."""
+    """Tear the run's NAT down in the order Aliyun requires: unassociate the EIP
+    FIRST (a still-bound EIP makes DeleteNatGateway fail even with force=true),
+    then force-delete the NAT (drops its SNAT/DNAT entries), then release the EIP.
+
+    Each step is best-effort + waits briefly for the async unassociate/delete to
+    settle so the next step isn't blocked by the previous still being in-flight.
+    The local `csbench teardown` (terraform destroy) is the backstop for anything
+    left."""
 
     def _del() -> None:
         from alibabacloud_tea_openapi import models as open_api_models
@@ -114,21 +121,44 @@ def _live_delete_nat(region: str, nat_name: str, eip_name: str) -> Callable[[], 
         cfg = open_api_models.Config(credential=CredClient())
         cfg.endpoint = f"vpc.{region}.aliyuncs.com"
         c = Client(cfg)
-        nats = c.describe_nat_gateways(vm.DescribeNatGatewaysRequest(region_id=region, name=nat_name))
-        for nat in nats.body.nat_gateways.nat_gateway or []:
-            with contextlib.suppress(Exception):
-                c.delete_nat_gateway(vm.DeleteNatGatewayRequest(nat_gateway_id=nat.nat_gateway_id, force=True))
-        eips = c.describe_eip_addresses(vm.DescribeEipAddressesRequest(region_id=region, eip_name=eip_name))
-        for eip in eips.body.eip_addresses.eip_address or []:
-            with contextlib.suppress(Exception):
-                if eip.status == "InUse":
+        nat_ids = [
+            n.nat_gateway_id
+            for n in (
+                c.describe_nat_gateways(vm.DescribeNatGatewaysRequest(region_id=region, name=nat_name)).body.nat_gateways.nat_gateway
+                or []
+            )
+        ]
+        eips = list(
+            c.describe_eip_addresses(vm.DescribeEipAddressesRequest(region_id=region, eip_name=eip_name)).body.eip_addresses.eip_address
+            or []
+        )
+        # 1) unassociate each bound EIP from its NAT (force), then let it settle.
+        unbound = False
+        for eip in eips:
+            if eip.status in ("InUse", "Associating"):
+                with contextlib.suppress(Exception):
                     c.unassociate_eip_address(
                         vm.UnassociateEipAddressRequest(
                             allocation_id=eip.allocation_id,
                             instance_id=eip.instance_id,
-                            instance_type=eip.instance_type,
+                            instance_type=eip.instance_type or "Nat",
+                            force=True,
                         )
                     )
+                    unbound = True
+        if unbound:
+            time.sleep(8)
+        # 2) force-delete the NAT (removes SNAT/DNAT), then let it settle.
+        deleted = False
+        for nid in nat_ids:
+            with contextlib.suppress(Exception):
+                c.delete_nat_gateway(vm.DeleteNatGatewayRequest(nat_gateway_id=nid, force=True))
+                deleted = True
+        if deleted:
+            time.sleep(8)
+        # 3) release the (now-free) EIP.
+        for eip in eips:
+            with contextlib.suppress(Exception):
                 c.release_eip_address(vm.ReleaseEipAddressRequest(allocation_id=eip.allocation_id))
 
     return _del
