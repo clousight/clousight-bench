@@ -11,5 +11,5 @@ def test_dump_bundle_writes_json(tmp_path):
     rc = main(["report", "--results", str(tmp_path), "--dump-bundle", str(out)])
     assert rc == 0
     data = json.loads(out.read_text(encoding="utf-8"))
-    assert data["schema"] == "report-bundle/1.0"
+    assert data["schema"] == "report-bundle/1.1"
     assert data["domains"][0]["domain"] == "agent-runtime"

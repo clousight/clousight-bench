@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass
 from typing import Any
 
@@ -107,7 +108,7 @@ _AGENT_RUNTIME: list[_PanelSpec] = [
         "Cost (list / discount / net)",
         ["T5.1"],
         ["invocations", "vcpu_hours", "list_cost_usd", "discount_usd", "cost_usd"],
-        "grouped_bar",
+        "stacked_bar",
     ),
     ("Cost", "idle_cost", "Idle / scale-to-zero", ["T5.3"], ["scales_to_zero", "idle_cost_per_hour"], ""),
     (
@@ -157,6 +158,83 @@ def _chart(kind: str, metric_keys: list[str], cells: list[Cell]) -> ChartSpec | 
     return ChartSpec(kind=kind, x_label=" / ".join(numeric), y_label="value", series=series)
 
 
+# Quadrant: cold-start cost (X) vs warm-state performance (Y). Y takes the first
+# present of these per record.
+_QUADRANT_X = "cold_start_ms"
+_QUADRANT_Y = ["warm_start_p50_ms", "ttft_p50_ms", "warm_steady_ms"]
+
+# task_id -> (tab, title). A time-series panel is emitted only when the run
+# actually captured a series for that task.
+_TIMESERIES_TASKS: dict[str, tuple[str, str]] = {
+    "T1.13": ("Performance", "Cold→warm convergence"),
+    "T0.1": ("Performance", "Provisioning samples"),
+    "T1.9": ("Performance", "Time-to-first-token"),
+    "T5.2": ("Capability", "Elasticity under load"),
+    "T1.1": ("Performance", "Warm-start curve"),
+}
+
+
+def _num(rec, key: str) -> float | None:
+    m = rec.measurements.get(key)
+    v = m.get("value") if isinstance(m, dict) else None
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _quadrant_panel(latest: dict) -> list[Panel]:
+    """One point per (task, platform) that has both a cold-start X and a warm Y,
+    grouped by execution (never mixing simulated + live). Dividers at the median."""
+    by_exec: dict[str, list[dict[str, Any]]] = {}
+    for (task, platform, execu), rec in latest.items():
+        if rec.status not in ("completed", "unsupported"):
+            continue
+        x = _num(rec, _QUADRANT_X)
+        y = next((_num(rec, k) for k in _QUADRANT_Y if _num(rec, k) is not None), None)
+        if x is None or y is None:
+            continue
+        by_exec.setdefault(execu, []).append(
+            {"name": f"{platform}·{task}", "x": x, "y": y, "meta": {"platform": platform, "task": task}}
+        )
+    panels: list[Panel] = []
+    for execu, pts in by_exec.items():
+        if not pts:
+            continue
+        chart = ChartSpec(
+            kind="quadrant",
+            x_label="cold_start_ms",
+            y_label="warm p50 (ms)",
+            series=pts,
+            x_split=statistics.median(p["x"] for p in pts),
+            y_split=statistics.median(p["y"] for p in pts),
+        )
+        tasks = sorted({p["meta"]["task"] for p in pts})
+        cell = Cell(platform="", status="completed", execution=execu, metrics=[])
+        panels.append(
+            Panel(
+                "quadrant",
+                "Cold-start cost × warm-state performance",
+                "B",
+                tasks,
+                [cell],
+                chart,
+                comparison=len(pts) > 1,
+                tab="Performance",
+            )
+        )
+    return panels
+
+
+def build_timeseries_panels(series_by_task: dict) -> list[Panel]:
+    """A time-series Panel per configured task present in the loaded series. The
+    points live on ``DomainReport.series``; the panel just tags the task_id."""
+    panels: list[Panel] = []
+    for task, (tab, title) in _TIMESERIES_TASKS.items():
+        if not series_by_task.get(task):
+            continue
+        chart = ChartSpec(kind="timeseries", x_label="step", y_label="value", series=[])
+        panels.append(Panel(f"ts_{task}", title, "B", [task], [], chart, tab=tab))
+    return panels
+
+
 @dataclass
 class Profile:
     name: str
@@ -191,6 +269,7 @@ class Profile:
                 panels.append(
                     Panel(key, title, "B", task_ids, cells, chart, comparison=len(cells) > 1, tab=tab)
                 )
+        panels.extend(_quadrant_panel(latest))
         return panels
 
     def _metrics(self, rec, metric_keys) -> list[dict[str, Any]]:

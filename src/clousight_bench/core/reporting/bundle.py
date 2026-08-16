@@ -14,7 +14,7 @@ from typing import Any
 from clousight_bench.core.report import _CAPABILITY_MEASUREMENTS, _capability_mark
 from clousight_bench.core.schema import ResultRecord
 
-BUNDLE_SCHEMA = "report-bundle/1.0"
+BUNDLE_SCHEMA = "report-bundle/1.1"
 
 
 @dataclass
@@ -23,6 +23,9 @@ class ChartSpec:
     x_label: str
     y_label: str
     series: list[dict[str, Any]]
+    # Quadrant charts carry the divider positions (median of the points by default).
+    x_split: float | None = None
+    y_split: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -30,6 +33,8 @@ class ChartSpec:
             "x_label": self.x_label,
             "y_label": self.y_label,
             "series": list(self.series),
+            "x_split": self.x_split,
+            "y_split": self.y_split,
         }
 
 
@@ -85,6 +90,10 @@ class DomainReport:
     capability_matrix: dict[str, dict[str, str]]
     panels: list[Panel]
     red_flags: list[str] = field(default_factory=list)
+    # "single" when the domain holds one platform (per-task deep dive) else "multi".
+    mode: str = "multi"
+    # task_id -> series_name -> [{"t","value","unit"}] — embedded time-series.
+    series: dict[str, dict[str, list[dict[str, Any]]]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -94,6 +103,8 @@ class DomainReport:
             "capability_matrix": self.capability_matrix,
             "panels": [p.to_dict() for p in self.panels],
             "red_flags": list(self.red_flags),
+            "mode": self.mode,
+            "series": self.series,
         }
 
 
@@ -228,8 +239,11 @@ def _build_agg_cells(
     return result
 
 
-def build_bundle(records, *, results_dir: str, generated_at: str, profiles, aggregates=None) -> ReportBundle:
+def build_bundle(
+    records, *, results_dir: str, generated_at: str, profiles, aggregates=None, series_by_task=None
+) -> ReportBundle:
     from clousight_bench.core.report import _is_warmup
+    from clousight_bench.core.reporting.profiles import build_timeseries_panels
 
     # Build aggregate lookup: {(domain, task_id, platform): agg_dict}
     # Deduplicate: highest n wins; tie-break by plan_id lexicographic descending.
@@ -271,5 +285,13 @@ def build_bundle(records, *, results_dir: str, generated_at: str, profiles, aggr
         if agg_lookup:
             for panel in panels:
                 panel.cells.extend(_build_agg_cells(domain, panel, agg_lookup))
-        domains.append(DomainReport(domain, profile.name, platforms, cap, panels, red_flags))
+        dom_tasks = {r.identity.task_id for r in recs}
+        dom_series = {tid: s for tid, s in (series_by_task or {}).items() if tid in dom_tasks}
+        panels.extend(build_timeseries_panels(dom_series))
+        mode = "single" if len(platforms) == 1 else "multi"
+        domains.append(
+            DomainReport(
+                domain, profile.name, platforms, cap, panels, red_flags, mode=mode, series=dom_series
+            )
+        )
     return ReportBundle(BUNDLE_SCHEMA, results_dir, generated_at, domains)
