@@ -109,7 +109,8 @@ aws = "clousight_bench.domains.agent_runtime.aws.reaper:AwsResourceReaper"
 packages = ["src/clousight_bench"]
 artifacts = ["src/clousight_bench/resources/schemas/*.json",
              "src/clousight_bench/resources/brand/*.png",
-             "src/clousight_bench/resources/brand/providers/*.svg"]
+             "src/clousight_bench/resources/brand/providers/*.svg",
+             "src/clousight_bench/core/reporting/assets/*.js"]
 
 [tool.ruff]
 line-length = 110
