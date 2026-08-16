@@ -90,3 +90,24 @@ def test_chartspec_split_serialized():
         y_split=2.0,
     )
     assert c.to_dict()["x_split"] == 1.0 and c.to_dict()["y_split"] == 2.0
+
+
+def test_bundle_notes_and_evidence(report_record):
+    from clousight_bench.core.reporting.bundle import build_bundle
+    from clousight_bench.core.reporting.profiles import PROFILES
+
+    rec = report_record(
+        "aliyun-agentrun",
+        "T1.1",
+        execution="live",
+        measurements={"cold_start_ms": 87000.0},
+        extensions={"core": {"notes": "cold=87s → warm=70ms"}},
+    )
+    b = build_bundle([rec], results_dir="r", generated_at="t", profiles=PROFILES)
+    dom = b.domains[0]
+    assert dom.notes["T1.1"] == "cold=87s → warm=70ms"
+    # evidence flows onto the metric dicts
+    lat = [p for p in dom.panels if p.key == "latency"][0]
+    m = [m for c in lat.cells for m in c.metrics if m["name"] == "cold_start_ms"][0]
+    assert m["evidence"] == "B"
+    assert b.to_dict()["domains"][0]["notes"]["T1.1"] == "cold=87s → warm=70ms"

@@ -285,6 +285,7 @@ class Profile:
                         "value_str": None,
                         "unit": currency,
                         "aggregation": "",
+                        "evidence": "A",
                     }
                 )
                 continue

@@ -123,6 +123,9 @@ select = ["E", "F", "I", "W", "UP"]
 # Tests legitimately use local (mid-file) imports for isolation and lambda
 # fakes/factories; those are noise there, not a code-quality signal.
 "tests/*" = ["E402", "E731"]
+# The echarts renderer embeds a JS app + CSS as string literals; those lines
+# can't be wrapped without breaking the asset, so line-length is noise here.
+"src/clousight_bench/core/reporting/renderers/echarts.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
