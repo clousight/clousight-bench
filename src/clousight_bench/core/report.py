@@ -121,8 +121,7 @@ def _load_series(results_dir: Path) -> dict[str, dict[str, list[dict[str, Any]]]
                 stride = len(pts) // MAX_SERIES_POINTS + 1
                 byname[sname] = pts[::stride]
                 print(
-                    f"clousight-bench: downsampled {tid}/{sname} "
-                    f"{len(pts)}->{len(byname[sname])} points",
+                    f"clousight-bench: downsampled {tid}/{sname} {len(pts)}->{len(byname[sname])} points",
                     file=sys.stderr,
                 )
     return out
