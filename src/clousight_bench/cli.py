@@ -236,19 +236,21 @@ def _load_aggregates(results_dir: Path) -> list[dict]:
 def _report_bundle(results_dir: str):
     import datetime as _dt
 
-    from clousight_bench.core.report import _load_results
+    from clousight_bench.core.report import _load_results, _load_series
     from clousight_bench.core.reporting.bundle import build_bundle
     from clousight_bench.core.reporting.profiles import PROFILES
 
     results_path = Path(results_dir)
     records = _load_results(results_path)
     aggregates = _load_aggregates(results_path)
+    series_by_task = _load_series(results_path)
     return build_bundle(
         records,
         results_dir=str(results_dir),
         generated_at=_dt.datetime.now().isoformat(timespec="seconds"),
         profiles=PROFILES,
         aggregates=aggregates,
+        series_by_task=series_by_task,
     )
 
 

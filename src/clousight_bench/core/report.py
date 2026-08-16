@@ -86,6 +86,48 @@ def _capability_matrix(records: dict[tuple[str, str, str], ResultRecord]) -> lis
     return lines
 
 
+MAX_SERIES_POINTS = 500
+
+
+def _load_series(results_dir: Path) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Read every ``*.series.parquet`` (flat fetch layout) and ``**/series.parquet``
+    (nested run layout) into ``{task_id: {series: [{"t","value","unit"}]}}``.
+
+    Series are tiny here; above ``MAX_SERIES_POINTS`` a stride-downsample is applied
+    and the truncation is logged (never silent)."""
+    import pyarrow.parquet as pq
+
+    out: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    seen: set[Path] = set()
+    for pattern in ("*.series.parquet", "**/series.parquet"):
+        for path in sorted(Path(results_dir).glob(pattern)):
+            rp = path.resolve()
+            if rp in seen:
+                continue
+            seen.add(rp)
+            try:
+                tbl = pq.read_table(path, columns=["task_id", "series", "t", "value", "unit"])
+            except (OSError, ValueError, KeyError):
+                continue
+            for row in tbl.to_pylist():
+                tid, sname = str(row["task_id"]), str(row["series"])
+                out.setdefault(tid, {}).setdefault(sname, []).append(
+                    {"t": row["t"], "value": row["value"], "unit": row.get("unit") or ""}
+                )
+    for tid, byname in out.items():
+        for sname, pts in byname.items():
+            pts.sort(key=lambda p: p["t"])
+            if len(pts) > MAX_SERIES_POINTS:
+                stride = len(pts) // MAX_SERIES_POINTS + 1
+                byname[sname] = pts[::stride]
+                print(
+                    f"clousight-bench: downsampled {tid}/{sname} "
+                    f"{len(pts)}->{len(byname[sname])} points",
+                    file=sys.stderr,
+                )
+    return out
+
+
 def _load_results(results_dir: Path) -> list[ResultRecord]:
     """Read every record we can, and say out loud which ones we could not.
 
