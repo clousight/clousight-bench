@@ -147,7 +147,7 @@ class EchartsRenderer(ReportRenderer):
     def render(self, bundle: ReportBundle) -> str:
         data = json.dumps(bundle.to_dict(), ensure_ascii=False)
         return (
-            "<!doctype html><html lang=zh><head><meta charset=utf-8>"
+            "<!DOCTYPE html><html lang=zh><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<title>Clousight Bench 指北测评</title><style>{_CSS}</style></head><body>"
             "<div class=topbar>Clousight Bench · 报告</div>"

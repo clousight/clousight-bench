@@ -1134,8 +1134,8 @@ def main(argv: list[str] | None = None) -> int:
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     rep_p.add_argument("--out", help="write markdown here (default: <results>/comparison.md)")
     rep_p.add_argument("--dump-bundle", help="write the ReportBundle as JSON to this path")
-    rep_p.add_argument("--format", choices=["markdown", "html"], default="markdown")
-    rep_p.add_argument("--renderer", default="html", help="report renderer name (default: html)")
+    rep_p.add_argument("--format", choices=["markdown", "html"], default="html")
+    rep_p.add_argument("--renderer", default="echarts", help="report renderer name (default: echarts)")
     rep_p.add_argument("--css", help="CSS file injected into the HTML (overrides the default theme)")
     rep_p.add_argument("--template", help="jinja2 HTML template file (needs the [report] extra)")
 

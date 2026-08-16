@@ -225,7 +225,10 @@ def _platform_card(platform: str, execution: str, metrics: dict[str, dict]) -> s
 def _chart_html(panel: Panel, metric_names: list[str]) -> str:
     if not panel.chart:
         return ""
-    if panel.chart.kind == "grouped_bar":
+    if panel.chart.kind in ("grouped_bar", "stacked_bar"):
+        # The SVG renderer has no stacked variant; a stacked bar's data is
+        # grouped-bar-shaped, so it degrades to a grouped bar here (the echarts
+        # renderer is the one that actually stacks).
         return svg.grouped_bar_svg(panel.chart, metric_names)
     if panel.chart.kind == "bar":
         return svg.bar_svg(panel.chart, metric_names)
