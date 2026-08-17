@@ -1,24 +1,17 @@
 from __future__ import annotations
 
 import base64
-import time
-from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, ClassVar
 
+from clousight_bench.domains.agent_runtime.carrier_base import BaseProbeCarrier, CarrierError
 
-class CarrierError(RuntimeError):
-    """Probe carrier provisioning failed (no silent fallback)."""
-
-
-class Ec2Sdk(Protocol):
-    """The three EC2 operations the carrier needs. Boto3Ec2Sdk supplies the
-    real impl over boto3; tests inject FakeEc2Sdk.
-    Account-free seam."""
-
-    def run_instance(self, req: dict[str, Any]) -> str: ...  # -> instance_id
-    def describe_instance(self, instance_id: str) -> dict[str, Any]: ...  # {"status"}
-    def delete_instance(self, instance_id: str) -> None: ...
+__all__ = [
+    "CarrierError",
+    "Ec2CarrierConfig",
+    "Ec2ProbeCarrier",
+    "Boto3Ec2Sdk",
+]
 
 
 @dataclass
@@ -89,89 +82,32 @@ class Ec2CarrierConfig:
     run_id: str | None = None
 
 
-@dataclass
-class Ec2ProbeCarrier:
+class Ec2ProbeCarrier(BaseProbeCarrier):
     """Ephemeral EC2 instance that runs the S3-mediated probe loop.
-
-    provision() / teardown() / ready_check / _default_ready_check /
-    injectable sleep+now. The control channel is the S3-mediated
-    OssChannel / agent_loop contract shared by every probe carrier.
 
     Instead of launching a container (which requires a private image), this
     carrier launches a stock EC2 instance whose cloud-init user-data installs
-    and runs the public ``clousight-bench[probe]`` package.
+    and runs the public ``clousight-bench[probe]`` package. The provision /
+    teardown / readiness lifecycle is inherited from ``BaseProbeCarrier``; this
+    class only supplies the EC2-specific run request, cloud-init and S3 client.
     """
 
-    sdk: Ec2Sdk
-    config: Ec2CarrierConfig
-    # ready_check() -> True once the S3 heartbeat key exists.
-    # Defaults to None; provision() builds the default from config if not supplied.
-    ready_check: Callable[[], bool] | None = None
-    sleep: Callable[[float], None] = time.sleep
-    now: Callable[[], float] = time.monotonic
-    instance_id: str | None = field(default=None, init=False)
-    control_prefix: str | None = field(default=None, init=False)
-    token: str = field(default="", init=False)  # bearer token injected via cloud-init
+    _RUNNING_STATUS: ClassVar[str] = "running"
+    _KIND: ClassVar[str] = "EC2"
 
-    def provision(self) -> str:
-        """Create the EC2 instance, wait until running AND the S3 heartbeat fires.
+    def _missing_image_error(self) -> str:
+        return (
+            "no EC2 AMI configured: find a stock Amazon Linux 2023 AMI id for "
+            "your region and set target 'ec2_image_id' to that id."
+        )
 
-        Returns the control prefix (campaign_id) that both the carrier and the
-        probe loop use to scope their S3 channel.  Raises CarrierError on timeout
-        (never silently falls back — on timeout, tears down + raises).
-        """
-        import secrets
-
-        if not self.config.image_id:
-            raise CarrierError(
-                "no EC2 AMI configured: find a stock Amazon Linux 2023 AMI id for "
-                "your region and set target 'ec2_image_id' to that id."
-            )
-
-        self.token = secrets.token_urlsafe(32)
-        req = self._build_run_request()
-        self.instance_id = self.sdk.run_instance(req)
-        deadline = self.now() + self.config.ready_timeout_s
-        ready = self.ready_check if self.ready_check is not None else self._default_ready_check()
-        while self.now() < deadline:
-            desc = self.sdk.describe_instance(self.instance_id)
-            status = str(desc.get("status") or "")
-            if status == "running" and ready():
-                self.control_prefix = self.config.campaign_id
-                return self.config.campaign_id
-            self.sleep(self.config.poll_interval_s)
-        self.teardown()  # don't leak a half-booted instance
-        raise CarrierError(f"EC2 probe {self.instance_id} not ready within {self.config.ready_timeout_s}s")
-
-    def teardown(self) -> None:
-        """Reap the EC2 instance. Idempotent + best-effort (called from a finally)."""
-        iid, self.instance_id = self.instance_id, None
-        self.control_prefix = None
-        if iid is None:
-            return
-        try:
-            self.sdk.delete_instance(iid)
-        except Exception:  # noqa: BLE001 — teardown must never raise out of finally
-            pass
-
-    def _default_ready_check(self) -> Callable[[], bool]:
-        """Build the default S3-heartbeat readiness check from config.
-
-        Constructs an OssChannel pointed at config.bucket / config.region /
-        config.campaign_id and returns channel.is_ready as the callable.
-        Uses S3Client (default credential chain) because the control plane does
-        NOT run on an EC2 instance role — only the probe EC2 itself uses the
-        instance profile.
-        Lazy import so production code that skips S3 doesn't need boto3 at
-        import time. S3Client import is also lazy so missing the module doesn't
-        break import of this carrier.
-        """
-        from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+    def _build_blob_client(self) -> Any:
+        # S3Client: default credential chain (the control plane does not run on an
+        # EC2 instance role). Lazy import so code that skips S3 doesn't need boto3
+        # at import time.
         from clousight_bench.domains.agent_runtime.probe.s3_client import S3Client
 
-        s3 = S3Client(bucket=self.config.bucket, region=self.config.region)
-        channel = OssChannel(s3, campaign_id=self.config.campaign_id)
-        return channel.is_ready
+        return S3Client(bucket=self.config.bucket, region=self.config.region)
 
     def _build_run_request(self) -> dict[str, Any]:
         """Build the EC2 RunInstances request dict.
@@ -237,7 +173,7 @@ class Ec2ProbeCarrier:
 
 
 class Boto3Ec2Sdk:
-    """Real Ec2Sdk over boto3 (live path).
+    """Real ComputeSdk over boto3 (live path).
 
     Maps the carrier's plain-dict run request onto EC2 API calls and normalizes
     describe to the {"status"} contract the carrier expects.  The boto3 client

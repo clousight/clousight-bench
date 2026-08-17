@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import base64
-import time
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, ClassVar
 
 from clousight_bench.core.resource_tags import run_tags
+from clousight_bench.domains.agent_runtime.carrier_base import BaseProbeCarrier, CarrierError
+
+__all__ = [
+    "CarrierError",
+    "EcsCarrierConfig",
+    "EcsProbeCarrier",
+    "Ecs20140526Sdk",
+    "build_controller_user_data",
+]
 
 
 def build_controller_user_data(
@@ -45,20 +53,6 @@ def build_controller_user_data(
     lines.append(f"exec {py} -m clousight_bench.core.controller_main")
     script = "\n".join(lines) + "\n"
     return base64.b64encode(script.encode()).decode()
-
-
-class CarrierError(RuntimeError):
-    """Probe carrier provisioning failed (no silent fallback)."""
-
-
-class EcsSdk(Protocol):
-    """The three ECS operations the carrier needs. Ecs20140526Sdk supplies the
-    real impl over alibabacloud_ecs20140526; tests inject FakeEcsSdk.
-    Account-free seam."""
-
-    def run_instance(self, req: dict[str, Any]) -> str: ...  # -> instance_id
-    def describe_instance(self, instance_id: str) -> dict[str, Any]: ...  # {"status"}
-    def delete_instance(self, instance_id: str) -> None: ...
 
 
 @dataclass
@@ -126,88 +120,32 @@ class EcsCarrierConfig:
     run_id: str | None = None
 
 
-@dataclass
-class EcsProbeCarrier:
+class EcsProbeCarrier(BaseProbeCarrier):
     """Ephemeral ECS instance that runs the OSS-mediated probe loop.
-
-    provision() / teardown() / ready_check / _default_ready_check /
-    injectable sleep+now. The control channel is the OSS-mediated
-    OssChannel / agent_loop contract shared by every probe carrier.
 
     Instead of launching a container (which requires a private image), this
     carrier launches a stock ECS instance whose cloud-init user-data installs
-    and runs the public ``clousight-bench[probe]`` package.
+    and runs the public ``clousight-bench[probe]`` package. The provision /
+    teardown / readiness lifecycle is inherited from ``BaseProbeCarrier``; this
+    class only supplies the ECS-specific run request, cloud-init and OSS client.
     """
 
-    sdk: EcsSdk
-    config: EcsCarrierConfig
-    # ready_check() -> True once the OSS heartbeat key exists.
-    # Defaults to None; provision() builds the default from config if not supplied.
-    ready_check: Callable[[], bool] | None = None
-    sleep: Callable[[float], None] = time.sleep
-    now: Callable[[], float] = time.monotonic
-    instance_id: str | None = field(default=None, init=False)
-    control_prefix: str | None = field(default=None, init=False)
-    token: str = field(default="", init=False)  # bearer token injected via cloud-init
+    _RUNNING_STATUS: ClassVar[str] = "Running"
+    _KIND: ClassVar[str] = "ECS"
 
-    def provision(self) -> str:
-        """Create the ECS instance, wait until Running AND the OSS heartbeat fires.
+    def _missing_image_error(self) -> str:
+        return (
+            "no ECS OS image configured: find a stock Aliyun Linux 3 image id for "
+            "your region and set target 'ecs_image_id' to that id."
+        )
 
-        Returns the control prefix (campaign_id) that both the carrier and the
-        probe loop use to scope their OSS channel.  Raises CarrierError on timeout
-        (never silently falls back — on timeout, tears down + raises).
-        """
-        import secrets
-
-        if not self.config.image_id:
-            raise CarrierError(
-                "no ECS OS image configured: find a stock Aliyun Linux 3 image id for "
-                "your region and set target 'ecs_image_id' to that id."
-            )
-
-        self.token = secrets.token_urlsafe(32)
-        req = self._build_run_request()
-        self.instance_id = self.sdk.run_instance(req)
-        deadline = self.now() + self.config.ready_timeout_s
-        ready = self.ready_check if self.ready_check is not None else self._default_ready_check()
-        while self.now() < deadline:
-            desc = self.sdk.describe_instance(self.instance_id)
-            status = str(desc.get("status") or "")
-            if status == "Running" and ready():
-                self.control_prefix = self.config.campaign_id
-                return self.config.campaign_id
-            self.sleep(self.config.poll_interval_s)
-        self.teardown()  # don't leak a half-booted instance
-        raise CarrierError(f"ECS probe {self.instance_id} not ready within {self.config.ready_timeout_s}s")
-
-    def teardown(self) -> None:
-        """Reap the ECS instance. Idempotent + best-effort (called from a finally)."""
-        iid, self.instance_id = self.instance_id, None
-        self.control_prefix = None
-        if iid is None:
-            return
-        try:
-            self.sdk.delete_instance(iid)
-        except Exception:  # noqa: BLE001 — teardown must never raise out of finally
-            pass
-
-    def _default_ready_check(self) -> Callable[[], bool]:
-        """Build the default OSS-heartbeat readiness check from config.
-
-        Constructs an OssChannel pointed at config.bucket / config.region /
-        config.campaign_id and returns channel.is_ready as the callable.
-        Uses Oss2Client (default credential chain, public endpoint) because the
-        control plane does NOT run on an ECS instance role — only the probe ECS
-        itself uses EcsRamRoleOssClient.
-        Lazy import so production code that skips OSS doesn't need oss2 at
-        import time.
-        """
-        from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+    def _build_blob_client(self) -> Any:
+        # Oss2Client: default credential chain, public endpoint (the control
+        # plane does not run on an ECS instance role). Lazy import so code that
+        # skips OSS doesn't need oss2 at import time.
         from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
-        oss = Oss2Client(bucket=self.config.bucket, region=self.config.region)
-        channel = OssChannel(oss, campaign_id=self.config.campaign_id)
-        return channel.is_ready
+        return Oss2Client(bucket=self.config.bucket, region=self.config.region)
 
     def _build_run_request(self) -> dict[str, Any]:
         """Build the ECS RunInstances request dict.
@@ -278,7 +216,7 @@ class EcsProbeCarrier:
 
 
 class Ecs20140526Sdk:
-    """Real EcsSdk over alibabacloud_ecs20140526 (live path).
+    """Real ComputeSdk over alibabacloud_ecs20140526 (live path).
 
     Maps the carrier's plain-dict run request onto ECS request models and
     normalizes describe to the {"status"} contract the carrier expects.  The
