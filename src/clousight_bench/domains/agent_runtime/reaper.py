@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from clousight_bench.core.plugin import ResourceReaper
+from clousight_bench.core.reaper_base import BaseResourceReaper
 from clousight_bench.core.resource_tags import TAG_MANAGED, TAG_RUN_ID
 
 # Probe carrier ECS instances are named cb-probe-<run-id-suffix> by EcsProbeCarrier;
@@ -25,12 +25,14 @@ _PROBE_NAME_PREFIX = "cb-probe"
 _ECI_NAME_PREFIX = "cb-"
 
 
-class AliyunResourceReaper(ResourceReaper):
+class AliyunResourceReaper(BaseResourceReaper):
     """Reap ECS probe carriers + AgentRun runtimes for the clousight-bench project.
 
     The list/delete cloud calls are behind injectable seams so the reaper is
     unit-tested account-free. Each seam yields dicts:
-    {"kind","id","run_id","created_ts","tags"}."""
+    {"kind","id","run_id","created_ts","tags"}. The ``sweep`` template (tag
+    filter + age failsafe + dry-run/delete loop) is inherited from
+    ``BaseResourceReaper``."""
 
     provider = "aliyun"
 
@@ -45,39 +47,12 @@ class AliyunResourceReaper(ResourceReaper):
         agentrun_client: Any | None = None,
         eci_client: Any | None = None,
     ) -> None:
+        # Set the SDK seams before super().__init__ resolves _default_list_fns.
         self._region = region
         self._ecs_client = ecs_client
         self._agentrun_client = agentrun_client
         self._eci_client = eci_client
-        self._list_fns = list_fns if list_fns is not None else self._default_list_fns()
-        self._delete_fn = delete_fn if delete_fn is not None else self._default_delete
-        self._now = now
-
-    def sweep(self, *, dry_run: bool, older_than_s: float | None = None) -> list[dict[str, Any]]:
-        acted: list[dict[str, Any]] = []
-        for list_fn in self._list_fns:
-            for res in list_fn():
-                if res.get("tags", {}).get(TAG_MANAGED) != "true":
-                    continue
-                if older_than_s is not None:
-                    created_ts = float(res.get("created_ts") or 0.0)
-                    # Fail safe: a resource whose creation time is unknown (0.0)
-                    # must NOT be age-reaped — it may be in-flight. Only reap it
-                    # in an untimed sweep (older_than_s is None), never by age.
-                    if created_ts <= 0.0:
-                        continue
-                    if self._now() - created_ts < older_than_s:
-                        continue
-                if not dry_run:
-                    self._delete_fn(res["kind"], res["id"])
-                acted.append(
-                    {
-                        "kind": res["kind"],
-                        "id": res["id"],
-                        "run_id": res.get("tags", {}).get(TAG_RUN_ID, "?"),
-                    }
-                )
-        return acted
+        super().__init__(list_fns, delete_fn, now)
 
     def _ecs(self) -> Any:
         if self._ecs_client is None:
