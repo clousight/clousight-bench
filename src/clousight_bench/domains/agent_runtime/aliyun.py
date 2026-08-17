@@ -139,43 +139,46 @@ class _LiveMemory(ObjectStoreSessionMemory):
 
 
 class _LiveMcp:
-    """AgentRun MCP：基于预注册模板，不支持动态工具注册。
+    """AgentRun MCP: template-based, no dynamic tool registration.
 
-    AgentRun 的 MCP 通过 ActivateTemplateMCP 激活已有模板。T2.1 的 _TOOL_SPEC
-    是任意工具定义，不对应已注册的模板名称，因此此路径报告为"能力不支持"。
-    这是平台真实行为的如实记录，不是 bug。
+    AgentRun's MCP activates a pre-registered template via ActivateTemplateMCP.
+    T2.1's _TOOL_SPEC is an arbitrary tool definition that does not map to a
+    registered template name, so this path is reported as CapabilityNotSupported.
+    That is a faithful record of the platform's real behaviour, not a bug.
     """
 
     def __init__(self, client_factory: Any = None) -> None:
-        self._client_factory = client_factory  # 注入真实 SDK client（可测试）
+        self._client_factory = client_factory  # inject a real SDK client (testable)
 
     def activate(self, name: str, spec: dict[str, Any]) -> bool:
         if self._client_factory is None:
             raise CapabilityNotSupported(
-                "register_tool[mcp]: AgentRun MCP 使用预注册模板（ActivateTemplateMCP），"
-                "不支持动态工具注册。请在 AgentRun 控制台预先创建 MCP 模板后再调用。"
+                "register_tool[mcp]: AgentRun MCP uses pre-registered templates "
+                "(ActivateTemplateMCP); dynamic tool registration is not supported. "
+                "Pre-create an MCP template in the AgentRun console before calling."
             )
-        # 尝试激活同名模板；若模板不存在或格式不符则视为能力不支持
+        # Try to activate a template of the same name; a missing or malformed
+        # template counts as CapabilityNotSupported.
         try:
             from alibabacloud_agentrun20250910 import models as m
 
             self._client_factory().activate_template_mcp(
                 name,
-                m.ActivateTemplateMCPRequest(transport="sse"),  # 必须指定传输协议
+                m.ActivateTemplateMCPRequest(transport="sse"),  # transport is required
             )
             return True
         except Exception as exc:
             err = str(exc)
-            # 模板不存在 → 需预注册
+            # Template not found -> it must be pre-registered.
             if any(k in err for k in ("NotFound", "not found", "NoSuch", "ERR_NOT_FOUND")):
                 raise CapabilityNotSupported(
-                    f"register_tool[mcp]: AgentRun MCP 使用预注册模板，"
-                    f"模板 '{name}' 不存在。请在控制台创建后重试。"
+                    f"register_tool[mcp]: AgentRun MCP uses pre-registered templates; "
+                    f"template '{name}' does not exist. Create it in the console and retry."
                 ) from exc
-            # 其他 400/403 → 平台限制，也视为能力不支持
+            # Other 400/403 -> platform restriction, also CapabilityNotSupported.
             if "400" in err or "403" in err:
                 raise CapabilityNotSupported(
-                    f"register_tool[mcp]: AgentRun MCP 模板激活受限 — {err[:120]}"
+                    f"register_tool[mcp]: AgentRun MCP template activation restricted — {err[:120]}"
                 ) from exc
             raise
 
@@ -622,12 +625,14 @@ class AliyunAgentRunTransport(RuntimeTransport):
         return ok, (_time.perf_counter() - t0) * 1000, error_type
 
     def probe_sustained_load(self, duration_s: float, target_rps: float) -> Any:
-        """真并发持续负载：用令牌桶 + 线程池驱动，真实测量吞吐和尾延迟。
+        """Real concurrent sustained load: token-bucket + thread pool, measuring
+        true throughput and tail latency.
 
-        工作者数量 = min(target_rps * 预估延迟, 64)（Little's Law）。
-        吞吐量分母使用实际挂钟时间（含所有 in-flight 请求完成后），避免高尾延迟
-        场景下人为高估吞吐量（deadline 后仍在执行的请求不被计入 duration_s 但
-        被计入 n，导致 n/duration_s 虚高）。
+        Worker count = min(target_rps * estimated_latency, 64) (Little's Law).
+        Throughput uses actual wall-clock time (after all in-flight requests
+        finish) to avoid inflating throughput under high tail latency (requests
+        still executing after the deadline are not counted in duration_s but are
+        counted in n, which would make n/duration_s artificially high).
         """
         import threading
         import time as _time
@@ -636,10 +641,11 @@ class AliyunAgentRunTransport(RuntimeTransport):
         from clousight_bench.core.stats import percentiles
         from clousight_bench.domains.agent_runtime.adapters.base import LoadResult
 
-        # 先做一次探测请求，估计平均延迟，决定并发度
+        # One probe request first to estimate average latency and pick concurrency.
         _, probe_ms = self._one_tool_call()
         estimated_latency_s = max(probe_ms / 1000, 0.1)
-        # 并发度 = target_rps × 估计延迟（Little's Law），上限 32（原64，降低线程峰值避免系统线程耗尽）
+        # concurrency = target_rps x estimated latency (Little's Law), capped at 32
+        # (was 64; lower the thread peak to avoid exhausting system threads).
         concurrency = min(max(int(target_rps * estimated_latency_s) + 1, 4), 32)
 
         latencies: list[float] = []
@@ -690,25 +696,29 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
 
     def probe_warm_retention(self) -> Any:
-        """多点检测：建立热实例后，依次等待 10s/30s/60s，观察哪个时间点变冷。
+        """Multi-point probe: after warming an instance, wait 10s/30s/60s in turn
+        and observe at which point it goes cold.
 
-        阈值策略：取 5 次热调用的 p95，乘以 2 作为"仍然热"的上限。
-        这比固定 3× 均值更稳健：高方差平台（p95 >> mean）不会把正常慢响应
-        误判为冷启动；低方差平台也不会把真正的冷启动漏掉（冷启动通常 5-20×）。
-        retention_ms = 最后一次仍然热的等待时间（0 = 完全不保活）。
+        Threshold strategy: take the p95 of 5 warm calls and multiply by 2 as the
+        "still warm" ceiling. This is more robust than a fixed 3x mean: a
+        high-variance platform (p95 >> mean) won't misclassify a normally-slow
+        response as a cold start, and a low-variance platform won't miss a real
+        cold start (cold starts are usually 5-20x).
+        retention_ms = the last still-warm wait interval (0 = no retention at all).
         """
         import time as _time
 
         from clousight_bench.core.stats import percentiles
         from clousight_bench.domains.agent_runtime.adapters.base import RetentionResult
 
-        # 建立热实例 + 采集基准分布（5次），用 p95×2 作为阈值
+        # Warm an instance + collect a baseline distribution (5 calls); use p95x2 as the threshold.
         warmup_samples: list[float] = []
         for _ in range(5):
             _, ms = self._one_tool_call()
             warmup_samples.append(ms)
         warm_p95 = percentiles(warmup_samples)[95]
-        warm_threshold = warm_p95 * 2  # cold start 通常 5-20× warm；2× 保守但足够区分
+        # cold start is usually 5-20x warm; 2x is conservative but enough to distinguish
+        warm_threshold = warm_p95 * 2
 
         wait_intervals_s = [10, 30, 60]
         last_warm_ms = 0.0
@@ -720,7 +730,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 last_warm_ms = wait_s * 1000.0
                 keeps_warm = True
             else:
-                break  # 变冷，记录最后一次热点
+                break  # went cold; keep the last warm data point
 
         return RetentionResult(
             retention_ms=last_warm_ms,
@@ -748,17 +758,20 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
 
     def probe_rate_limit(self) -> Any:
-        """阶梯式并发探测限流：10→20→40→80 并发，观察首个出现 429 的级别。
+        """Stepped concurrency probe for rate limiting: 10->20->40->80 concurrent,
+        observing the first level that returns 429.
 
-        直接检查 AgentRun 数据面的 HTTP 状态（不经过 run_tool_plan），捕获
-        Retry-After 头，确认 429 合约是否完整。
-        onset_rps = 触发限流的最小并发数（0 = 在测试范围内未触发）。
+        Checks the AgentRun data-plane HTTP status directly (bypassing
+        run_tool_plan), captures the Retry-After header, and confirms whether the
+        429 contract is complete.
+        onset_rps = the smallest concurrency that triggers throttling
+        (0 = not triggered within the tested range).
         """
         from concurrent.futures import ThreadPoolExecutor
 
         from clousight_bench.domains.agent_runtime.adapters.base import RateLimitResult
 
-        # 确保 runtime 已启动（lazy provision）
+        # Make sure the runtime is up (lazy provision).
         _, _ = self._one_tool_call()
         endpoint_url = self._endpoint_public_url or ""
         if not endpoint_url:
@@ -813,18 +826,20 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
 
     def probe_cancellation(self) -> Any:
-        """真实取消探测：用极短超时强制客户端断开，验证端点能从中恢复。
+        """Real cancellation probe: force a client disconnect with a very short
+        timeout and verify the endpoint recovers from it.
 
-        设计：CLIENT_TIMEOUT_S = 0.1s（100ms），比任何 AgentRun 调用都快，
-        保证必然触发 Timeout 异常（无需依赖 mock server 状态同步）。
+        Design: CLIENT_TIMEOUT_S = 0.1s (100ms), faster than any AgentRun call, so
+        a Timeout is guaranteed (no dependency on mock-server state sync).
 
-        honored=True: 超时异常已抛出 = 客户端取消有效
-        teardown_ran=True: 超时后端点仍可正常响应（session 未损坏）
-        residual: 取消后检测到的异常状态
+        honored=True: a timeout was raised = client cancellation is effective.
+        teardown_ran=True: the endpoint still responds after the timeout (session
+        not corrupted).
+        residual: any abnormal state detected after cancellation.
         """
         from clousight_bench.domains.agent_runtime.adapters.base import CancellationResult
 
-        # 极短超时：100ms 远低于任何 AgentRun 数据面调用的实际延迟（通常 300ms+）
+        # Very short timeout: 100ms is far below any AgentRun data-plane call latency (usually 300ms+).
         CLIENT_TIMEOUT_S = 0.1
         residual: list[str] = []
         honored = False
@@ -1595,7 +1610,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         from concurrent.futures import ThreadPoolExecutor
 
         N_REPS = 3
-        INTER_REP_COOLDOWN_S = 10  # 加长冷却让 OS 回收线程，避免累积耗尽
+        # longer cooldown lets the OS reclaim threads, avoiding cumulative exhaustion
+        INTER_REP_COOLDOWN_S = 10
 
         base = self._adapter.mock_base_url
         mock_token = str(self._adapter.target.get("mock_token") or "")

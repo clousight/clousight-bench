@@ -23,7 +23,9 @@ from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
-_NO_NATIVE_STATE_REASON = "AgentRun (FC-based) 无原生并发会话状态,状态由调用方外部管理"
+_NO_NATIVE_STATE_REASON = (
+    "AgentRun (FC-based) has no native concurrent session state; state is managed externally by the caller"
+)
 
 
 class ConcurrentWritesTask(Task):
@@ -68,8 +70,9 @@ class ConcurrentWritesTask(Task):
                     code="agent_runtime.no_native_session_state",
                     severity="info",
                     summary=(
-                        "平台无原生并发会话状态,并发写安全性无法测量"
-                        " (platform architecture, not a measurement failure)"
+                        "platform has no native concurrent session state; "
+                        "concurrent-write safety cannot be measured "
+                        "(platform architecture, not a measurement failure)"
                     ),
                     evidence="A",
                     details={"reason": str(raw.get("reason", _NO_NATIVE_STATE_REASON))},

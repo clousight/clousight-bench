@@ -622,7 +622,7 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
 
     if getattr(args, "mode", "dev") == "prod":
         print(
-            "run-plan is dev-only (本地开发). For prod (生产测评) use: "
+            "run-plan is dev-only (local development). For prod (production benchmarking) use: "
             "csbench submit <plan> --config <cfg>",
             file=sys.stderr,
         )
@@ -1106,7 +1106,7 @@ def main(argv: list[str] | None = None) -> int:
         "--mode",
         choices=["dev", "prod"],
         default="dev",
-        help="run profile by intent: 'dev' (本地开发) runs here; 'prod' (生产测评) "
+        help="run profile by intent: 'dev' (local development) runs here; 'prod' (production benchmarking) "
         "is rejected — use `csbench submit` (the ecs-resident orchestrator)",
     )
 
@@ -1115,7 +1115,10 @@ def main(argv: list[str] | None = None) -> int:
     sm_p.add_argument("plan_file", help="YAML plan file")
     sm_p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
     sm_p.add_argument(
-        "--watchdog-timeout", type=float, default=5400.0, dest="watchdog_timeout",
+        "--watchdog-timeout",
+        type=float,
+        default=5400.0,
+        dest="watchdog_timeout",
         help="controller self-destruct timeout in seconds (default 5400 = 90min)",
     )
     for _name, _help in (

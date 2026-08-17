@@ -77,8 +77,8 @@ class FaultRecoveryTask(Task):
                     code="agent_runtime.platform_timeout_recovery",
                     severity="warning",
                     summary=(
-                        "平台 timeout 在 agent 恢复窗口内杀掉 invoke"
-                        " (platform terminated invoke during recovery)"
+                        "platform terminated invoke during recovery "
+                        "(timeout killed the invoke inside the agent's recovery window)"
                     ),
                     evidence="B",
                     details={"recovery_ms": recovery_ms},

@@ -81,7 +81,7 @@ def test_oss_auth_bridges_the_default_chain_incl_sts_token():
     # OSS auth uses the same alibabacloud_credentials default chain as AgentRun,
     # so AK, CLI profile, OIDC, instance role AND STS temporary credentials all
     # work -- the security_token is carried through (that is what makes STS /
-    # 本机临时 credentials work for uploads, not just static AccessKeys).
+    # instance temporary credentials work for uploads, not just static AccessKeys).
     from clousight_bench.domains.agent_runtime.artifact import _ChainCredentialsProvider
 
     class _FakeCred:

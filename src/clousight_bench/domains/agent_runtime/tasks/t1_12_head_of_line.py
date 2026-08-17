@@ -73,7 +73,9 @@ class HOLBlockingTask(Task):
                 Finding(
                     code="agent_runtime.hol_blocking",
                     severity="warning",
-                    summary="平台会话层队头阻塞: fast requests delayed ≥2× vs baseline",
+                    summary=(
+                        "platform session-layer head-of-line blocking: fast requests delayed ≥2× vs baseline"
+                    ),
                     evidence="B",
                     details={
                         "fast_p50_baseline_ms": fast_p50_baseline,

@@ -202,22 +202,26 @@ STARTUP_CURVE_CALLS = 8
 def run_startup_curve(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.13 冷启动收敛曲线：同一 session 连发 ``n_calls`` 次，记录每次端到端耗时。
+    """T1.13 startup-convergence curve: fire ``n_calls`` calls on the same session
+    and record each end-to-end latency.
 
-    刻画平台的**实例复用 / 预热行为**：第 1 次是冷启动（实例从零拉起），第 2/3
-    次是否断崖下降（命中复用的暖实例），到第几次收敛到稳态。不同平台的收敛速度、
-    稳态值、复用可靠性差异很大 —— 这是一个有区分度的评测维度，回答用户真实关心
-    的"第 N 次调用到底有多慢"。
+    Characterises the platform's **instance reuse / warm-up behaviour**: the 1st
+    call is a cold start (instance built from scratch); do the 2nd/3rd drop off a
+    cliff (hitting a reused warm instance), and at which call does it converge to
+    steady state? Convergence speed, steady value and reuse reliability vary a lot
+    across platforms — a differentiating dimension that answers the question users
+    actually care about: "how slow is the Nth call, really?"
 
-    测的是**端到端完整 invoke 耗时**（非首字节 TTFT）：用户等到工具调用返回的
-    实际时间。所有调用共用一个 session_id，让平台有机会复用暖实例。派生指标：
+    Measures the **full end-to-end invoke time** (not first-byte TTFT): the actual
+    time a user waits for the tool call to return. All calls share one session_id
+    so the platform has a chance to reuse a warm instance. Derived metrics:
 
-      - ``cold_start_ms``       第 1 次（冷）
-      - ``second_call_ms`` / ``third_call_ms``  第 2/3 次（用户明确关心的点）
-      - ``warm_steady_ms``      稳态中位数（第 2 次起、成功且低于阈值的调用）
-      - ``speedup_ratio``       cold / warm 加速比
-      - ``warmed_after_n_calls`` 第几次调用首次落到暖区
-      - ``reuse_reliable``      暖样本充足且零错误 → 复用稳定
+      - ``cold_start_ms``       1st call (cold)
+      - ``second_call_ms`` / ``third_call_ms``  2nd/3rd call (points users care about)
+      - ``warm_steady_ms``      steady-state median (from the 2nd call on, successful and below threshold)
+      - ``speedup_ratio``       cold / warm speedup
+      - ``warmed_after_n_calls`` which call first landed in the warm zone
+      - ``reuse_reliable``      enough warm samples and zero errors -> reuse is stable
     """
     n_calls = int(spec.params.get("n_calls", STARTUP_CURVE_CALLS))
     warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
@@ -253,9 +257,7 @@ def run_startup_curve(
     finally:
         inv.destroy_session(sid)
 
-    r = StartupCurveResult.from_curve(
-        [(c["ms"], c["ok"]) for c in curve], warm_threshold_ms
-    )
+    r = StartupCurveResult.from_curve([(c["ms"], c["ok"]) for c in curve], warm_threshold_ms)
     return ObservationBundle(
         observations={
             "capability": "supported",
@@ -277,12 +279,14 @@ def run_startup_curve(
 def run_sustained_load(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """真并发持续负载：用令牌桶 + 线程池驱动，真实测量吞吐和尾延迟。
+    """Real concurrent sustained load: token-bucket + thread pool, measuring true
+    throughput and tail latency.
 
-    工作者数量 = min(target_rps * 预估延迟, 32)（Little's Law）。
-    吞吐量分母使用实际挂钟时间（含所有 in-flight 请求完成后），避免高尾延迟
-    场景下人为高估吞吐量（deadline 后仍在执行的请求不被计入 duration_s 但
-    被计入 n，导致 n/duration_s 虚高）。
+    Worker count = min(target_rps * estimated_latency, 32) (Little's Law).
+    Throughput uses actual wall-clock time (after all in-flight requests finish)
+    to avoid inflating throughput under high tail latency (requests still
+    executing after the deadline are not counted in duration_s but are counted in
+    n, which would make n/duration_s artificially high).
     """
     duration_s: float = spec.params.get("duration_s", 60.0)
     target_rps: float = spec.params.get("target_rps", 50.0)
@@ -297,7 +301,7 @@ def run_sustained_load(
     warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
     warm_session = inv.create_session()
     cold_start_ms, warmed = inv.ensure_warm(warm_session, warm_threshold_ms=warm_threshold_ms)
-    # 用暖 session 估计稳态延迟，决定并发度
+    # Use the warm session to estimate steady-state latency and pick concurrency.
     warm_body = protocol.encode_invoke(
         {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}},
         spec.mock_base_url,
@@ -312,7 +316,7 @@ def run_sustained_load(
     probe_ms = (time.perf_counter() - _t0) * 1000
     inv.destroy_session(warm_session)
     estimated_latency_s = max(probe_ms / 1000, 0.1)
-    # 并发度 = target_rps × 估计延迟（Little's Law），上限 32
+    # concurrency = target_rps x estimated latency (Little's Law), capped at 32
     concurrency = min(max(int(target_rps * estimated_latency_s) + 1, 4), 32)
 
     progress_cb(JobProgress("probe", 0, 1, 0.0), {})
@@ -394,7 +398,7 @@ def run_sustained_load(
 def run_soak(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """持续可用性探测：在 duration_s 内循环单次调用，统计成功率。"""
+    """Sustained-availability probe: loop single calls for duration_s and track the success rate."""
     duration_s: float = spec.params.get("duration_s", 60.0)
 
     inv = ProbeInvoker(spec)
@@ -449,9 +453,9 @@ def run_soak(
 #
 # AgentRun/FC idle instances are NOT binary hot/cold — the platform docs describe
 # three tiers whose wake cost differs by orders of magnitude:
-#   活跃/浅度休眠 (shallow)  — sub-second, ms-level wake, "almost no cold start"
-#   深度休眠 (deep)          — seconds to recover
-#   实例销毁 (recycled/cold) — full rebuild, ~86s on the next call
+#   active / shallow hibernation (shallow) — sub-second, ms-level wake, "almost no cold start"
+#   deep hibernation (deep)                — seconds to recover
+#   instance recycled (recycled/cold)      — full rebuild, ~86s on the next call
 # The idle→destroy threshold is configurable via CreateAgentRuntime's
 # ``sessionIdleTimeoutSeconds`` but its DEFAULT is deliberately undocumented, so an
 # empirical sweep (evidence B) is the only way to learn "how long until it goes
@@ -505,14 +509,17 @@ def _classify_wake(
 def run_warm_retention(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """分档空闲扫描：建热实例后，按阶梯空闲并重调同一 session，观察每个空闲时长把
-    实例带到哪一档（浅休眠 ms / 深休眠 秒 / 销毁 全冷）。
+    """Tiered idle sweep: after warming an instance, idle in steps and re-invoke
+    the same session, observing which tier each idle interval drops the instance
+    into (shallow hibernation ms / deep hibernation s / recycled full-cold).
 
-    用 ONE stable session（而非每次新建）才能真正测"这个 session 的实例保活多久"。
-    每次重调都会唤醒实例，所以每个 interval 都是"从热空闲 wait_s"，映射空闲时长→档位。
-    观察到 full-cold（销毁）即 break（已死，无需再等）。输出 shallow_retention_s /
-    deep_onset_s / cold_recycle_s；若最长档仍未销毁，sweep_capped=True（真实回收窗口 >
-    扫描上限）。
+    Using ONE stable session (not a fresh one each time) is what actually measures
+    "how long this session's instance stays alive". Every re-invoke wakes the
+    instance, so each interval is "idle wait_s from warm", mapping idle duration ->
+    tier. Break on the first full-cold (recycled) observation (it's dead, no point
+    waiting more). Emits shallow_retention_s / deep_onset_s / cold_recycle_s; if the
+    longest interval is still not recycled, sweep_capped=True (the real recycle
+    window is > the scan cap).
     """
     warmup: int = spec.params.get("warmup_samples", RETENTION_WARMUP)
     intervals: list = spec.params.get("wait_intervals_s", RETENTION_INTERVALS_S)
@@ -524,9 +531,12 @@ def run_warm_retention(
     sid = inv.create_session()
     body = _retention_body(spec, sid)
 
-    # 建立热实例 + 采集基准分布，p95 用于分档阈值。首样本可能是 cold start（~86s
-    # 若底层 FC 池全冷），单独报为 cold_start_ms，基线只用后续 warm 样本，避免把冷启动
-    # 拖进分档阈值（否则 warm_p95 被抬高，真实回收会被误判为"仍热"）。
+    # Warm an instance + collect a baseline distribution; p95 is the tiering
+    # threshold. The first sample may be a cold start (~86s if the underlying FC
+    # pool is all-cold), reported separately as cold_start_ms; the baseline uses
+    # only the later warm samples, so the cold start isn't dragged into the
+    # tiering threshold (otherwise warm_p95 is inflated and a real recycle gets
+    # misclassified as "still warm").
     warmup_samples: list[float] = []
     for i in range(warmup):
         warmup_samples.append(_timed_invoke(inv, sid, body))
@@ -552,12 +562,12 @@ def run_warm_retention(
         if tier == "shallow":
             shallow_retention_s = float(wait_s)
             if idx == len(intervals) - 1:
-                sweep_capped = True  # 最长档仍热：真实窗口 > 扫描上限
+                sweep_capped = True  # longest interval still warm: real window > scan cap
         elif tier == "deep":
             if deep_onset_s is None:
                 deep_onset_s = float(wait_s)
             if idx == len(intervals) - 1:
-                sweep_capped = True  # 到最长档才深休眠，尚未销毁
+                sweep_capped = True  # only reached deep hibernation at the longest interval, not yet recycled
         else:  # cold — instance recycled, no point idling longer
             cold_recycle_s = float(wait_s)
             break
@@ -587,21 +597,26 @@ def run_warm_retention(
 def run_idle_timeout_honor(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.14 —— idle-timeout 配置守约 + 承诺期后衰减曲线。
+    """T1.14 — idle-timeout config honor + post-promise decay curve.
 
-    ``sessionIdleTimeoutSeconds`` 是一个"承诺时间内保活"的合约：设了 T 秒，平台就
-    应保证 **T 秒内实例保持热**（承诺期后回收是平台的成本自由，不算违约）。所以:
+    ``sessionIdleTimeoutSeconds`` is a "keep-alive within the promised time"
+    contract: set T seconds and the platform should guarantee the **instance
+    stays warm for T seconds** (recycling after the promise window is the
+    platform's cost freedom, not a breach). So:
 
-      1) 守约验证：在承诺期内（idle < T，取 ~0.8T）重调同一 session，仍热 → honored。
-         承诺期内就变冷 = 平台没兑现承诺 → honored=False。
-      2) 承诺期后衰减探查：继续按 1min / 3min / 5min 空闲重调，观察实例在哪个周期
-         进入深休眠（秒级唤醒）或变冷（销毁，全冷唤醒）。变冷即 break，5min 封顶
-         （再长不测）。这回答"承诺期之后，实例还能白蹭热多久"。
+      1) Honor check: within the promise window (idle < T, using ~0.8T) re-invoke
+         the same session; still warm -> honored. Going cold inside the promise
+         window = the platform didn't honor its promise -> honored=False.
+      2) Post-promise decay probe: keep re-invoking at 1min / 3min / 5min idle and
+         observe at which interval the instance enters deep hibernation
+         (second-level wake) or goes cold (recycled, full-cold wake). Break on
+         cold, capped at 5min (no point probing longer). This answers "after the
+         promise window, how much longer does the instance stay warm for free".
     """
     configured = float(spec.params.get("session_idle_timeout_s", 10.0))
-    # 承诺期内探测点：idle < configured（默认 0.8×，至少 2s）
+    # In-promise probe point: idle < configured (default 0.8x, at least 2s).
     promise_idle = float(spec.params.get("promise_idle_s", max(2.0, configured * 0.8)))
-    # 承诺期后衰减档位（秒）：默认 1/3/5min，变冷即停，5min 封顶
+    # Post-promise decay tiers (seconds): default 1/3/5min, stop on cold, capped at 5min.
     decay_intervals: list = spec.params.get("decay_intervals_s", [60, 180, 300])
     cold_ms = float(spec.params.get("cold_wake_ms", COLD_WAKE_MS))
     deep_factor = float(spec.params.get("deep_wake_factor", DEEP_WAKE_FACTOR))
@@ -620,14 +635,14 @@ def run_idle_timeout_honor(
     warm_p95 = percentiles(warm_pool)[95]
     progress_cb(JobProgress("warmup", 3, 3, time.perf_counter() - t_start), {})
 
-    # 1) 守约验证：承诺期内（< configured）应仍热。
+    # 1) Honor check: within the promise window (< configured) it should still be warm.
     time.sleep(promise_idle)
     promise_ms = _timed_invoke(inv, sid, body)
     promise_tier = _classify_wake(promise_ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
-    honored = promise_tier == "shallow"  # 承诺时间内保持热 = 守约
+    honored = promise_tier == "shallow"  # stayed warm within the promised time = honored
     progress_cb(JobProgress("promise", 1, 1, time.perf_counter() - t_start), {"tier": promise_tier})
 
-    # 2) 承诺期后衰减探查：找深休眠 / 变冷的周期。
+    # 2) Post-promise decay probe: find the interval of deep hibernation / going cold.
     decay_tiers: list[dict[str, Any]] = []
     deep_onset_s: float | None = None
     cold_onset_s: float | None = None
@@ -637,14 +652,17 @@ def run_idle_timeout_honor(
         ms = _timed_invoke(inv, sid, body)
         tier = _classify_wake(ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
         decay_tiers.append({"idle_s": float(wait_s), "wake_ms": round(ms, 2), "tier": tier})
-        progress_cb(JobProgress("decay", idx + 1, len(decay_intervals), time.perf_counter() - t_start), {"tier": tier})
+        progress_cb(
+            JobProgress("decay", idx + 1, len(decay_intervals), time.perf_counter() - t_start),
+            {"tier": tier},
+        )
         if tier == "deep" and deep_onset_s is None:
             deep_onset_s = float(wait_s)
         if tier == "cold":
             cold_onset_s = float(wait_s)
             break
         if idx == len(decay_intervals) - 1:
-            decay_capped = True  # 到最长档仍未变冷（可能还浅/深）
+            decay_capped = True  # still not cold at the longest interval (may be shallow/deep)
 
     inv.destroy_session(sid)
     return ObservationBundle(
@@ -668,11 +686,14 @@ def run_idle_timeout_honor(
 def run_rate_limit(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """阶梯式并发探测限流：观察首个出现 429 的级别。
+    """Stepped concurrency probe for rate limiting: observe the first level to
+    return 429.
 
-    直接检查 AgentRun 数据面的 HTTP 状态（不经过 run_tool_plan），捕获
-    Retry-After 头，确认 429 合约是否完整。
-    onset_rps = 触发限流的最小并发数（0 = 在测试范围内未触发）。
+    Checks the AgentRun data-plane HTTP status directly (bypassing run_tool_plan),
+    captures the Retry-After header, and confirms whether the 429 contract is
+    complete.
+    onset_rps = the smallest concurrency that triggers throttling
+    (0 = not triggered within the tested range).
     """
     endpoint_url = spec.target_endpoint
     if not endpoint_url:
@@ -748,7 +769,8 @@ def run_rate_limit(
 def run_concurrency_ceiling(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """阶梯式并发上限探测：逐步提升并发量，找到拒绝率超阈值的级别。"""
+    """Stepped concurrency-ceiling probe: ramp up concurrency to find the level
+    where the rejection rate exceeds the threshold."""
     endpoint_url = spec.target_endpoint
     if not endpoint_url:
         raise RuntimeError("run_concurrency_ceiling: empty target_endpoint")
@@ -820,13 +842,14 @@ def run_concurrency_ceiling(
 def run_cancellation(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """真实取消探测：用极短超时强制客户端断开，验证端点能从中恢复。
+    """Real cancellation probe: force a client disconnect with a very short
+    timeout and verify the endpoint recovers from it.
 
-    honored=True: 超时异常已抛出 = 客户端取消有效
-    teardown_ran=True: 超时后端点仍可正常响应（session 未损坏）
-    residual: 取消后检测到的异常状态
+    honored=True: a timeout was raised = client cancellation is effective.
+    teardown_ran=True: the endpoint still responds after the timeout (session not corrupted).
+    residual: any abnormal state detected after cancellation.
     """
-    # CLIENT_TIMEOUT_S 远低于任何 AgentRun 数据面调用的实际延迟（通常 300ms+）
+    # CLIENT_TIMEOUT_S is far below any AgentRun data-plane call latency (usually 300ms+).
     CLIENT_TIMEOUT_S: float = spec.params.get("client_timeout_s", 0.1)
 
     endpoint_url = spec.target_endpoint
@@ -912,7 +935,7 @@ def run_cancellation(
 def run_scaling(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """弹性探测：在各并发级别跑 N_REPS 次，报告中位 success_rate 和 p95_ms。
+    """Elasticity probe: run N_REPS at each concurrency level and report the median success_rate and p95_ms.
 
     The probe has no control credentials and cannot query instance counts;
     observed_instances is always None (ScalePoint.observed_instances: int | None).
@@ -1004,7 +1027,10 @@ def run_scaling(
             )
 
     points = sorted(points, key=lambda p: p.concurrency)
-    extra = ["AgentRun GetAgentRuntime 不暴露实时实例数，无法观测弹性行为。"]
+    extra = [
+        "AgentRun GetAgentRuntime does not expose live instance counts; "
+        "elasticity behaviour cannot be observed."
+    ]
     return ObservationBundle(
         observations={
             "capability": "supported",

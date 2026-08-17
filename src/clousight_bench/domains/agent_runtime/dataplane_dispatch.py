@@ -153,7 +153,10 @@ def _pack_scaling(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> Obser
     all_instances_none = all(getattr(p, "observed_instances", None) is None for p in points)
     extra_findings: list[str] = []
     if all_instances_none:
-        extra_findings.append("AgentRun GetAgentRuntime 不暴露实时实例数，无法观测弹性行为。")
+        extra_findings.append(
+            "AgentRun GetAgentRuntime does not expose live instance counts; "
+            "elasticity behaviour cannot be observed."
+        )
     return ObservationBundle(
         observations={
             "capability": "supported",

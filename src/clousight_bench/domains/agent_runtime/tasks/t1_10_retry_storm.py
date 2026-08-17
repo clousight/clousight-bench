@@ -80,10 +80,7 @@ class RetryStormTask(Task):
                 Finding(
                     code="agent_runtime.retry_storm_unbounded",
                     severity="critical",
-                    summary=(
-                        "无界重试风暴风险"
-                        " (unbounded retry storm risk — total_attempts exceeded agent contract)"
-                    ),
+                    summary="unbounded retry storm risk — total_attempts exceeded agent contract",
                     evidence="B",
                     details={
                         "total_attempts": total_attempts,
@@ -98,10 +95,7 @@ class RetryStormTask(Task):
                 Finding(
                     code="agent_runtime.retry_storm_platform_bounded",
                     severity="info",
-                    summary=(
-                        "平台 timeout 在 agent 耗尽重试前终止 invoke"
-                        " (platform bounded storm via invoke timeout)"
-                    ),
+                    summary="platform bounded storm via invoke timeout",
                     evidence="B",
                     details={
                         "total_attempts": total_attempts,

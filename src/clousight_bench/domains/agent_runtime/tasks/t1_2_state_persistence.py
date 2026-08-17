@@ -24,7 +24,9 @@ from clousight_bench.core.plugin import ProviderAdapter, Task
 from clousight_bench.domains.agent_runtime import permissions as perm
 from clousight_bench.domains.agent_runtime.adapters.base import AgentRuntimeAdapter
 
-_NO_NATIVE_STATE_REASON = "AgentRun (FC-based) 无原生持久会话状态,状态由调用方外部管理"
+_NO_NATIVE_STATE_REASON = (
+    "AgentRun (FC-based) has no native persistent session state; state is managed externally by the caller"
+)
 
 
 class StatePersistenceTask(Task):
@@ -65,8 +67,9 @@ class StatePersistenceTask(Task):
                     code="agent_runtime.no_native_session_state",
                     severity="info",
                     summary=(
-                        "平台无原生持久会话状态,状态由调用方外部管理"
-                        " (platform architecture, not a measurement failure)"
+                        "platform has no native persistent session state; "
+                        "state is managed externally by the caller "
+                        "(platform architecture, not a measurement failure)"
                     ),
                     evidence="A",
                     details={"reason": str(raw.get("reason", _NO_NATIVE_STATE_REASON))},
