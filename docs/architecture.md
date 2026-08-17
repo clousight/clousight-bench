@@ -95,9 +95,12 @@ comparable at all) or implementation fingerprints (comparable only with the
 caveat that the code changed). Only `completed` / `unsupported` runs contribute
 numbers — a `failed` run is counted, but it has no verdict to pool.
 
-Phase 1C does **not** ship plugin API ranges, JSON Schema, a conformance kit or
-workload sandboxing (Phase 1D), and it aggregates only scalar `measurements`,
-not time series.
+Phase 1C does **not** itself ship plugin API ranges, JSON Schema, a conformance
+kit or workload sandboxing — those are Phase 1D, which has since shipped in the
+open core (plugin API version ranges + conflict detection, JSON Schema for
+`RunSpec` / `ResultRecord` / manifest, `csbench conformance`, and workload
+sandbox layers 1+2; see `ROADMAP.md` / `CHANGELOG.md`). Phase 1C aggregates only
+scalar `measurements`, not time series.
 
 ## Layers
 
@@ -126,9 +129,13 @@ CLI (csbench)
 
 Built-in and third-party (including closed-source commercial) packs load
 identically — installing a package or dropping in a workload directory is enough.
-A commercial pack wiring a real cloud registers a `RuntimeProvider` (and,
-optionally, a `CampaignProbeHook` and `ResourceReaper`); the open core defines
-only these abstractions and never ships an implementation.
+A pack wiring a real cloud registers a `RuntimeProvider` (and, optionally, a
+`CampaignProbeHook` and `ResourceReaper`). The open core defines these
+abstractions **and now ships reference implementations** for them — the live
+Aliyun AgentRun and AWS AgentCore `RuntimeProvider`s and `ResourceReaper`s are
+registered in-tree (`pyproject.toml`), so a real-cloud path is reproducible from
+the open core alone. The seam stays open for additional third-party / commercial
+providers to register the same way.
 
 ## Control plane vs. data plane
 
@@ -147,8 +154,9 @@ numbers, and return the same `ObservationBundle` for scoring. `score()` is
 unchanged either way. The probe lifecycle for a `run-plan` campaign is driven by
 the optional `CampaignProbeHook` (started, synced and reaped in a `try/finally`
 around the task loop; default `--probe local` leaves this path untouched). The
-open core defines the seam and the hook contract; a real probe carrier and its
-cloud transport live in a commercial pack.
+open core defines the seam and the hook contract **and ships the reference
+Aliyun ECI probe carrier and its cloud transport in-tree**; additional carriers
+(other clouds, third-party or commercial) register the same way.
 
 ## Evidence layers
 
@@ -214,8 +222,11 @@ Reports never blend dimensions into one score.
 - `reference` and `wired` adapters can execute.
 - `experimental` adapters can execute with preview caveats.
 - `skeleton` adapters are discoverable but rejected before preflight.
-- Current runnable references are `local-sim` and `local-process`; no real-cloud
-  adapter is wired.
+- Current runnable references are `local-sim` and `local-process`. The Aliyun
+  AgentRun (and AWS AgentCore) `RuntimeProvider`s are registered in-tree and the
+  `aliyun-agentrun` adapter runs end-to-end in `mode: mock`; the live-cloud path
+  is code-complete but not yet validated against a real account, so no adapter is
+  marked `wired` yet.
 - Bundled workloads live in `clousight_bench.resources.workloads` and are
   resolved with `core.resources.reference_workload_path()`, so wheel and
   editable installs use the same files.
@@ -224,12 +235,21 @@ Phase 1B ships ResultRecord schema `0.2` (see "Result contract" above); plugin
 API `1.0` stays until its range-negotiation replacement in Phase 1D.
 
 This repository is public and Apache-2.0 licensed; it contains the whole open
-core. Commercial plugins (`cb-pricing`, `cb-samplers`, `cb-dataservice`,
-`cb-adapters-enterprise`) live in the separate private `clousight-bench-pro`
-repository and attach only through the published entry points
-`clousight_bench.domains`, `clousight_bench.enrichers` and
-`clousight_bench.asset_resolvers`. Nothing in the open core imports, requires or
-degrades without them.
+core, **including the reproducibility mechanisms** — the live Aliyun AgentRun
+`RuntimeProvider`, ECI probe carrier, `ResourceReaper`, Terraform and the seed
+`pricing` enricher. The moat is *data and service*, not withheld code. The
+separate private `clousight-bench-pro` repository ships only:
+
+- `cb-pricing` — a fuller / fresher private price feed, consumed by the open
+  `pricing` enricher via the `CLOUSIGHT_PRICING_DATA` environment variable (not
+  an entry point);
+- `cb-dataservice` — token-gated private / held-out datasets, registered as a
+  `PrivateAssetResolver` on the `clousight_bench.asset_resolvers` entry point,
+  plus a managed object-store upload (placeholder);
+- `cb-adapters-enterprise` — an empty placeholder for future managed-SaaS and
+  private-cloud / 信创 adapters.
+
+Nothing in the open core imports, requires or degrades without them.
 
 ## 凭证与上手（便捷层）
 
