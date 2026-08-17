@@ -141,6 +141,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         params=params,
     )
 
+    from clousight_bench.core.cost_notice import live_cost_notice
+
+    notice = live_cost_notice(args.platform, task_count=1, allow_live=args.allow_live)
+    if notice:
+        print(notice, file=sys.stderr)
+
     if args.repeat != 1 or args.warmup != 0 or args.plan_id or args.resume:
         from clousight_bench.core.runplan import RunPlan, execute_plan
 
@@ -673,6 +679,12 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
             print("error: task entry missing 'task' key", file=sys.stderr)
             return 2
         task_ids.append(task_id)
+
+    from clousight_bench.core.cost_notice import live_cost_notice
+
+    notice = live_cost_notice(platform, task_count=len(task_ids), allow_live=allow_live)
+    if notice:
+        print(notice, file=sys.stderr)
 
     manifest = CampaignManifest(
         campaign_id=new_campaign_id(),
