@@ -9,8 +9,11 @@
 
 > Clousight Bench is the measuring stick of Clousight: open methods anyone can reproduce; evidence-graded results, never a blended vanity score.
 
-> **0.2.0 Developer Preview.** The local reference baselines are runnable.
-> Real-cloud adapters are visible for contributors but are not wired yet.
+> **0.2.0 Developer Preview.** The local reference baselines are runnable, and
+> every cloud adapter runs end-to-end in `mode: mock` with no account. The Aliyun
+> AgentRun runtime provider (plus its probe carrier, reaper and Terraform) is
+> code-complete in-tree; its live-cloud path is not yet validated against a real
+> account — so no real-cloud number exists yet. The other clouds are skeletons.
 
 **Repository status.** This repository is public and Apache-2.0 licensed.
 `main` is protected: every change lands through a pull request that passes
@@ -36,10 +39,12 @@ Adapter status is part of the public contract:
 `skeleton` is discoverable for contributors but is rejected before preflight.
 A `skeleton` cloud has two runnable paths without editing its adapter: `mode: mock`
 exercises the whole harness against the in-process simulated runtime with no
-account; and in real mode it becomes runnable the moment a commercial pack
-registers a **wired runtime provider** for that cloud through the
-`clousight_bench.runtime_providers` entry point — installing the pack, not
-patching the adapter, is what wires it.
+account; and in real mode it becomes runnable once a **runtime provider** is
+registered for that cloud through the `clousight_bench.runtime_providers` entry
+point. The open core already ships and registers that provider in-tree for
+`aliyun-agentrun` (code-complete, live validation pending) and `aws-agentcore`;
+additional clouds wire the same way — an open-core or third-party pack registering
+a provider, not patching the adapter, is what wires them.
 
 ## The reproducibility contract (read this first)
 
@@ -179,10 +184,10 @@ for your own account, network and region. That is the point.
 
 ## Status
 
-- [x] Core: lifecycle orchestrator, unified `RunSpec`/`ResultRecord` schema, entry-point plugin registry, cross-language workload protocol, markdown comparison report
+- [x] Core: lifecycle orchestrator, unified `RunSpec`/`ResultRecord` schema, entry-point plugin registry, cross-language workload protocol, Markdown + self-contained HTML/ECharts comparison report, DuckDB-backed `csbench query`, cost budget + live-run gate + resource reaper (`csbench sweep`)
 - [x] Onboarding: `csbench init` (scaffold private config + `.env.example`, auto-gitignored) and `csbench doctor` (preflight credentials + connectivity); credentials reuse the cloud's default chain (env / profile / role), never stored in configs
-- [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, **25 tasks** end-to-end on `local-sim`, spanning provisioning (T0.1/T0.2), runtime behaviour (T1.1 cold/warm start · T1.2 state persistence · T1.3 fault recovery · T1.4 sustained load & tail · T1.5 warm retention · T1.6 soak · T1.7 rate limiting · T1.8 timeout/cancellation · T1.9 TTFT · T1.10 retry storm · T1.11 concurrent state writes · T1.12 head-of-line blocking), tools (T2.1 registration paths), observability (T4.1 trace completeness · T4.2 OTel export · T4.3 metrics/log signals · T4.4 span propagation · T4.5 export latency), cost (T5.1 attribution · T5.2 elasticity · T5.3 idle/scale-to-zero · T5.4 concurrency ceiling) and isolation (T6.1). Latency-class "data-plane" tasks run through the `run_data_plane_probe` adapter seam, so a wired cloud can sink the load generation into an in-region probe instead of the operator's machine.
-- [ ] `agent-runtime`: wire aliyun-agentrun / huawei-agentarts / volcengine-agentkit / aws-agentcore adapters (skeletons in-tree; a commercial runtime-provider plugin wires them via the `clousight_bench.runtime_providers` entry point)
+- [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, **27 tasks** end-to-end on `local-sim`, spanning provisioning (T0.1/T0.2), runtime behaviour (T1.1 cold/warm start · T1.2 state persistence · T1.3 fault recovery · T1.4 sustained load & tail · T1.5 warm retention · T1.6 soak · T1.7 rate limiting · T1.8 timeout/cancellation · T1.9 TTFT · T1.10 retry storm · T1.11 concurrent state writes · T1.12 head-of-line blocking · T1.13 startup-convergence curve · T1.14 idle-timeout config honor), tools (T2.1 registration paths), observability (T4.1 trace completeness · T4.2 OTel export · T4.3 metrics/log signals · T4.4 span propagation · T4.5 export latency), cost (T5.1 attribution · T5.2 elasticity · T5.3 idle/scale-to-zero · T5.4 concurrency ceiling) and isolation (T6.1). Latency-class "data-plane" tasks run through the `run_data_plane_probe` adapter seam, so a wired cloud can sink the load generation into an in-region probe instead of the operator's machine.
+- [~] `agent-runtime`: the `aliyun-agentrun` runtime provider (+ ECI probe carrier, reaper, Terraform) is code-complete in-tree and runs in `mode: mock`; live-cloud validation against a real account is pending. `huawei-agentarts` / `volcengine-agentkit` / `aws-agentcore` remain skeletons wired the same way via the `clousight_bench.runtime_providers` entry point.
 - [x] `bigdata-emr`: J1.1 wordcount smoke via the cross-language workload protocol and `local-process` reference adapter
 - [ ] `bigdata-emr`: wire the `aws-emr` Terraform-backed adapter (skeleton in-tree)
 - [ ] database / compute / messaging domain packs

@@ -2,9 +2,9 @@
 
 All notable changes to Clousight Bench are recorded here.
 
-## 0.2.0 — Unreleased
+## 0.2.0 — 2026-08-17
 
-Developer-preview reset before the first public release.
+Developer-preview reset; the first public release.
 
 ### Added
 
@@ -76,6 +76,16 @@ Developer-preview reset before the first public release.
   protocol helper) and a `synthetic-sampler` reference workload.
 - `csbench rollup <run_dir> [--bucket-s N]` downsamples a run's `series.parquet`
   into `series_rollup.parquet` (avg/p99/max/count per bucket); needs `[store]`.
+- Result store & analytics (optional `[store]` extra): high-frequency `series`
+  are written as `series.parquet` sidecars, and `csbench query "<sql>"` /
+  `csbench export <view> --out f.parquet` run DuckDB SQL over flattened
+  `records` / `measurements` / `findings` / `series` views for cross-cloud
+  analysis or notebook/BI export (see `docs/querying.md`). Cost is surfaced on a
+  **list → discount → net** axis (`CLOUSIGHT_PRICING_DATA` / `CLOUSIGHT_PRICING_DISCOUNTS`).
+- Reporting: alongside the Markdown report, a self-contained **HTML/ECharts
+  renderer** (now the default) with bilingual labels, a per-dimension matrix,
+  capability matrix and quadrant / time-series / stacked-bar panels, plus a cost
+  column and red flags — no external assets, one openable file.
 - `docs/dataset-tiers.md`: the open-seed vs. private-held-out dataset policy.
 - Project is a typed package: ships a `py.typed` marker (PEP 561) so downstream
   consumers get type information; CI enforces `mypy` on the source.
@@ -169,5 +179,6 @@ Developer-preview reset before the first public release.
 ### Compatibility
 
 - Package version is pre-1.0.
-- Result schema is now `0.2` (migrate `1.0` files with `csbench migrate-results`);
-  the plugin API stays `1.0` until Phase 1D.
+- Result schema is now `0.2` (migrate `1.0` files with `csbench migrate-results`).
+- Plugin API is `1.0`; Phase 1D (in this release) adds version-range negotiation
+  and conflict detection around it without bumping the version.
