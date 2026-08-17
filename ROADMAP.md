@@ -40,12 +40,14 @@ Status legend: ✅ done · 🚧 in progress · 📋 planned · 💤 deferred
 
 - 🚧 Broaden the `agent-runtime` measurement layer (latency distributions, usage
   metrics, capability matrix) and add more dimensions on the mock runtime.
-- 🚧 **Wire the first real cloud** (`aliyun-agentrun`): the RuntimeProvider, ECI
-  probe carrier, resource reaper and Terraform are code-complete and in-tree, and
-  the adapter runs end-to-end in `mode: mock`; the live-cloud path is not yet
-  validated against a real account (needs a deployed benchmark target + a
-  publicly reachable mock endpoint). This is the credibility gate — no real number
-  exists yet.
+- ✅ **First real-cloud run** (`aliyun-agentrun`, now `experimental`): the in-tree
+  RuntimeProvider + ECI probe carrier + reaper + Terraform ran a full 27-task
+  **live** campaign (`cn-hangzhou`, 2026-08-15 — 25 `completed` + 2 honestly
+  `unsupported`). The credibility gate is crossed: the first real, evidence-graded
+  numbers exist.
+- 🚧 **Harden the live path toward `wired`**: repeat the campaign across
+  regions/accounts, watch for contamination, and promote `aliyun-agentrun` from
+  `experimental` to `wired` once the live path is stable and reproducible.
 - ✅ **Trusted result contract**: `record_digest` verified via `csbench verify`;
   canonical JSON spec documented in SECURITY.md.
 - ✅ Run plans (`--repeat N --warmup W`), summary statistics (mean/stdev/p95),

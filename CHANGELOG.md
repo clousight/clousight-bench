@@ -59,6 +59,10 @@ Developer-preview reset; the first public release.
   `csbench conformance --domain <d> [--platform]` checks an installed domain
   against the contract (both built-in domains pass in CI). Workload sandboxing
   and path/URI allow-listing remain out of scope for this slice.
+- `agent-runtime`: `aliyun-agentrun` promoted `skeleton` → `experimental` — its
+  in-tree runtime provider ran a full 27-task **live** campaign (`cn-hangzhou`:
+  25 `completed` + 2 honestly `unsupported`), the first real-cloud numbers. The
+  live path is validated but not yet promoted to `wired`.
 - `agent-runtime`: three more dimensions on the 0.2 contract, for eight total on
   `local-sim` — T1.1 cold/warm start latency, T5.1 cost attribution (emits usage
   measurements the pricing enricher prices), T5.2 elasticity under concurrency.

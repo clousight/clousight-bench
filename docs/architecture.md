@@ -206,7 +206,7 @@ Reports never blend dimensions into one score.
 | T5.4 | Concurrency ceiling | B |
 | T6.1 | Tenant isolation | B |
 
-**Adapters:** `aliyun-agentrun` skeleton · `aws-agentcore` skeleton · `huawei-agentarts` skeleton · `local-sim` reference · `volcengine-agentkit` skeleton
+**Adapters:** `aliyun-agentrun` experimental · `aws-agentcore` skeleton · `huawei-agentarts` skeleton · `local-sim` reference · `volcengine-agentkit` skeleton
 
 ### `bigdata-emr` — 1 task
 
@@ -223,10 +223,12 @@ Reports never blend dimensions into one score.
 - `experimental` adapters can execute with preview caveats.
 - `skeleton` adapters are discoverable but rejected before preflight.
 - Current runnable references are `local-sim` and `local-process`. The Aliyun
-  AgentRun (and AWS AgentCore) `RuntimeProvider`s are registered in-tree and the
-  `aliyun-agentrun` adapter runs end-to-end in `mode: mock`; the live-cloud path
-  is code-complete but not yet validated against a real account, so no adapter is
-  marked `wired` yet.
+  AgentRun (and AWS AgentCore) `RuntimeProvider`s are registered in-tree. The
+  `aliyun-agentrun` adapter is `experimental`: it runs end-to-end in `mode: mock`
+  and its live path has run a full 27-task real-cloud campaign (`cn-hangzhou`,
+  2026-08-15 — 25 `completed` + 2 honestly `unsupported`). It is not yet promoted
+  to `wired` (that status is reserved for a stabilized, repeatedly-validated live
+  path); AWS AgentCore and the other clouds remain `skeleton`.
 - Bundled workloads live in `clousight_bench.resources.workloads` and are
   resolved with `core.resources.reference_workload_path()`, so wheel and
   editable installs use the same files.

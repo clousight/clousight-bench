@@ -15,7 +15,8 @@ def test_list_verbose_shows_task_and_adapter_status(capsys):
     assert "T1.3" in out
     assert "Tool-failure recovery" in out
     assert "local-sim" in out and "reference" in out
-    assert "aliyun-agentrun" in out and "skeleton" in out
+    assert "aliyun-agentrun" in out and "experimental" in out
+    assert "huawei-agentarts" in out and "skeleton" in out
 
 
 def test_run_unknown_task_returns_usage_error_without_traceback(capsys):
@@ -135,14 +136,17 @@ def test_doctor_skeleton_warns_but_still_runs_preflight(capsys):
     hard usage error here. It should print a clear warning that this platform
     is a skeleton (wiring / preflight requirements only, never a live check),
     then still call adapter.preflight(task) so the (benchmark x cloud) minimal
-    permission list is visible before anyone wires the adapter."""
+    permission list is visible before anyone wires the adapter.
+
+    Uses huawei-agentarts: aliyun-agentrun is now experimental (its provider ran a
+    live campaign), so it no longer prints the skeleton warning."""
     rc = main(
         [
             "doctor",
             "--domain",
             "agent-runtime",
             "--platform",
-            "aliyun-agentrun",
+            "huawei-agentarts",
             "--task",
             "T1.3",
         ]
@@ -162,7 +166,7 @@ def test_doctor_skeleton_without_task_still_shows_wiring_warning(capsys):
             "--domain",
             "agent-runtime",
             "--platform",
-            "aliyun-agentrun",
+            "huawei-agentarts",
         ]
     )
     captured = capsys.readouterr()
