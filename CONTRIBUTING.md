@@ -79,3 +79,23 @@ csbench run --domain agent-runtime --task T1.3 --platform local-sim   # local sm
 
 CI runs lint · test · local baseline smoke on Python 3.10 / 3.11 / 3.12 / 3.13,
 plus an installed-wheel smoke in an isolated Python 3.12 environment.
+
+### Live tests
+
+Tests that hit a real cloud endpoint (they need credentials) are marked
+`@pytest.mark.live` and **skipped by default** — `pytest` runs with
+`-m 'not live'`, so the suite stays account-free, fast and non-flaky. To run them
+against your own account:
+
+```bash
+pytest -m live
+```
+
+## Triage & labels
+
+Issues and PRs are triaged with a small label set: type (`bug`, `enhancement`,
+`docs`, `refactor`, `test`, `question`), area (`area: core` / `adapter` /
+`domain` / `report` / `cost` / `ci`), and meta (`good first issue`,
+`help wanted`, `needs-repro`, `blocked`, `breaking`). A maintainer syncs them
+with `scripts/setup-labels.sh` (uses the `gh` CLI). New to the project? Filter for
+[`good first issue`](https://github.com/clousight/clousight-bench/labels/good%20first%20issue).

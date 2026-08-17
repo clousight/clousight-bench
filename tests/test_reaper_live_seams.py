@@ -1,6 +1,8 @@
 # tests/test_reaper_live_seams.py
 import types
 
+import pytest
+
 from clousight_bench.domains.agent_runtime.reaper import AliyunResourceReaper
 
 
@@ -65,6 +67,7 @@ def test_list_agentrun_filters_by_name_prefix_and_synthesizes_managed_tag():
     assert rows[0]["tags"]["clousight-bench:managed"] == "true"
 
 
+@pytest.mark.live  # _reaper() injects no eci_client, so sweep()'s _list_eci hits the real Aliyun ECI endpoint
 def test_sweep_confirm_deletes_via_both_clients():
     r, ecs, ar = _reaper()
     acted = r.sweep(dry_run=False)

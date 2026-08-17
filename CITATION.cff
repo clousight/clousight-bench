@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: Clousight Bench
+message: >-
+  If you use Clousight Bench or cite results it produced, please cite it using
+  the metadata below.
+type: software
+authors:
+  - name: Clousight Bench contributors
+url: https://clousight.com
+repository-code: https://github.com/clousight/clousight-bench
+license: Apache-2.0
+version: 0.2.0
+date-released: "2026-08-17"
+keywords:
+  - benchmark
+  - cloud
+  - agent-runtime
+  - reproducibility
+  - evidence-graded
+abstract: >-
+  Clousight Bench is a reproducible, evidence-graded benchmarking framework for
+  cloud products. It measures the runtime engineering of managed cloud services
+  (session hosting, tool-failure recovery, trace completeness, cost attribution)
+  through a shared lifecycle and a per-dimension result contract with three-axis
+  fingerprints — open methods anyone can reproduce, never a blended vanity score.
