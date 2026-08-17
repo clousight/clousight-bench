@@ -68,30 +68,20 @@ from clousight_bench.domains.agent_runtime.ecs_carrier import (
     EcsCarrierConfig,
     EcsProbeCarrier,
 )
-from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
 from clousight_bench.domains.agent_runtime.session_memory import ObjectStoreSessionMemory
+from clousight_bench.domains.agent_runtime.transport_base import (
+    auth_headers as _auth_headers,
+)
+from clousight_bench.domains.agent_runtime.transport_base import (
+    build_pooled_http_session,
+)
+from clousight_bench.domains.agent_runtime.transport_base import (
+    get_probe_fns as _get_probe_fns,
+)
 
 _SDK_PACKAGE = "alibabacloud-agentrun20250910"
 _READY_TIMEOUT_S = 300.0
 _READY_POLL_S = 3.0
-
-# Module-level cache: built once at first use, not at import, to avoid the
-# import-time cost of building the runner when this module is merely loaded.
-_PROBE_FNS: dict | None = None
-
-
-def _auth_headers(mock_token: str) -> dict[str, str]:
-    """Return the auth header dict for direct control-plane calls to the mock server."""
-    return {AUTH_HEADER: mock_token} if mock_token else {}
-
-
-def _get_probe_fns() -> dict:
-    global _PROBE_FNS
-    if _PROBE_FNS is None:
-        from clousight_bench.domains.agent_runtime.probe.server import build_default_runner
-
-        _PROBE_FNS = build_default_runner()._probes
-    return _PROBE_FNS
 
 
 class _SdkMissing(RuntimeError):
@@ -259,27 +249,9 @@ class AliyunAgentRunTransport(RuntimeTransport):
     # --- HTTP session (connection-pooled, thread-safe) -----------------------
 
     def _http_session(self) -> Any:
-        """Lazily create a requests.Session with connection pooling.
-
-        requests.Session is thread-safe for concurrent GET/POST calls,
-        and reuses HTTPS connections — avoids the SSL EOF errors that urllib
-        produces under concurrent load (no pooling, one TCP connection per call).
-        """
+        """Lazily create a connection-pooled, thread-safe requests.Session."""
         if self._http is None:
-            try:
-                import requests
-                from requests.adapters import HTTPAdapter
-            except ImportError as exc:
-                raise RuntimeError(
-                    "the 'requests' library is required for data-plane HTTP calls. "
-                    "Install it with: pip install requests"
-                ) from exc
-            s = requests.Session()
-            # Allow up to 64 concurrent connections per host
-            adapter = HTTPAdapter(pool_connections=4, pool_maxsize=64)
-            s.mount("https://", adapter)
-            s.mount("http://", adapter)
-            self._http = s
+            self._http = build_pooled_http_session()
         return self._http
 
     # --- lazy SDK clients ---------------------------------------------------

@@ -50,31 +50,21 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ToolCall,
 )
 from clousight_bench.domains.agent_runtime.adapters.transport import RuntimeTransport
-from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
 from clousight_bench.domains.agent_runtime.session_memory import ObjectStoreSessionMemory
-
-# --------------------------------------------------------------------------- #
-# Module-level probe-fn cache (lazy-built, same pattern as aliyun.py)
-# --------------------------------------------------------------------------- #
-_PROBE_FNS: dict | None = None
+from clousight_bench.domains.agent_runtime.transport_base import (
+    auth_headers as _auth_headers,
+)
+from clousight_bench.domains.agent_runtime.transport_base import (
+    build_pooled_http_session,
+)
+from clousight_bench.domains.agent_runtime.transport_base import (
+    get_probe_fns as _get_probe_fns,
+)
 
 _READY_TIMEOUT_S = 300.0
 _READY_POLL_S = 5.0
 
 _SESSION_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id"
-
-
-def _auth_headers(mock_token: str) -> dict[str, str]:
-    return {AUTH_HEADER: mock_token} if mock_token else {}
-
-
-def _get_probe_fns() -> dict:
-    global _PROBE_FNS
-    if _PROBE_FNS is None:
-        from clousight_bench.domains.agent_runtime.probe.server import build_default_runner
-
-        _PROBE_FNS = build_default_runner()._probes
-    return _PROBE_FNS
 
 
 # --------------------------------------------------------------------------- #
@@ -208,19 +198,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
 
     def _http_session(self) -> Any:
         if self._http is None:
-            try:
-                import requests
-                from requests.adapters import HTTPAdapter
-            except ImportError as exc:
-                raise RuntimeError(
-                    "the 'requests' library is required for data-plane HTTP calls. "
-                    "Install it with: pip install requests"
-                ) from exc
-            s = requests.Session()
-            adapter = HTTPAdapter(pool_connections=4, pool_maxsize=64)
-            s.mount("https://", adapter)
-            s.mount("http://", adapter)
-            self._http = s
+            self._http = build_pooled_http_session()
         return self._http
 
     # ---------------------------------------------------------------------- #

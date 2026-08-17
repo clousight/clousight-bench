@@ -34,20 +34,10 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     SoakResult,
     StartupCurveResult,
 )
-from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
+from clousight_bench.domains.agent_runtime.transport_base import auth_headers as _auth_headers
 
 from .invoke import ProbeInvoker
 from .jobs import JobProgress, JobSpec
-
-
-def _auth_headers(mock_token: str) -> dict[str, str]:
-    """Return the auth header dict for direct control-plane calls to the mock server.
-
-    An empty token means the mock is open (local-sim / no token configured) — return
-    an empty dict so callers can unconditionally merge the result.
-    """
-    return {AUTH_HEADER: mock_token} if mock_token else {}
-
 
 TTFT_WARMUP = 1
 TTFT_SAMPLES = 5
