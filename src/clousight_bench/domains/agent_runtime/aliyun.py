@@ -64,6 +64,7 @@ from clousight_bench.domains.agent_runtime.ecs_carrier import (
     EcsProbeCarrier,
 )
 from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
+from clousight_bench.domains.agent_runtime.session_memory import ObjectStoreSessionMemory
 
 _SDK_PACKAGE = "alibabacloud-agentrun20250910"
 _READY_TIMEOUT_S = 300.0
@@ -120,57 +121,21 @@ def _p95(values: list[float]) -> float:
     return ordered[idx]
 
 
-class _LiveMemory:
-    """OSS 기반 세션 상태 저장소.
+class _LiveMemory(ObjectStoreSessionMemory):
+    """OSS-backed session state for AgentRun.
 
-    AgentRun의 Memory Collection API는 RAG/벡터 시스템으로 단순 K/V 세션 상태용이
-    아닙니다. 대신 이미 확보된 OSS 버킷을 사용합니다:
-      - store: clousight-bench/state/{session_id}.json 에 PUT
-      - fetch: 동일 경로에서 GET
-    T1.2는 '상태가 세션 간에 유지되는가'를 테스트하며, OSS는 진짜 영속성을 제공합니다.
-    상태 파일은 teardown 시 정리됩니다.
+    AgentRun's Memory Collection API is a RAG/vector store, not a plain K/V, so
+    T1.2 (does state persist across sessions?) uses the OSS bucket the adapter
+    already has. This is the Aliyun binding of ``ObjectStoreSessionMemory`` over
+    ``Oss2Client`` (public endpoint, shared credential chain); the key layout and
+    store/fetch/cleanup live in the base class. State files are cleaned up at
+    teardown.
     """
 
     def __init__(self, bucket: str, region: str, run_id: str | None = None) -> None:
-        self._bucket = bucket
-        self._region = region
-        self._run_id = run_id
-        self._keys: list[str] = []
+        from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
-    def _oss_bucket(self) -> Any:
-        import oss2
-        from alibabacloud_credentials.client import Client as CredClient
-
-        from clousight_bench.domains.agent_runtime.probe.oss_client import _ChainCredentialsProvider
-
-        auth = oss2.ProviderAuthV4(_ChainCredentialsProvider(CredClient()))
-        endpoint = f"https://oss-{self._region}.aliyuncs.com"
-        return oss2.Bucket(auth, endpoint, self._bucket, region=self._region)
-
-    def store(self, session_id: str, state: dict[str, Any]) -> None:
-        import json
-
-        key = f"clousight-bench/state/{self._run_id or 'default'}/{session_id}.json"
-        self._oss_bucket().put_object(key, json.dumps(state).encode("utf-8"))
-        if key not in self._keys:
-            self._keys.append(key)
-
-    def fetch(self, session_id: str) -> dict[str, Any]:
-        import json
-
-        key = f"clousight-bench/state/{self._run_id or 'default'}/{session_id}.json"
-        result = self._oss_bucket().get_object(key)
-        return json.loads(result.read().decode("utf-8"))
-
-    def cleanup(self) -> None:
-        """teardown 시 저장된 상태 파일 정리."""
-        bucket = self._oss_bucket()
-        for key in self._keys:
-            try:
-                bucket.delete_object(key)
-            except Exception:
-                pass
-        self._keys.clear()
+        super().__init__(Oss2Client(bucket, region), run_id)
 
 
 class _LiveMcp:

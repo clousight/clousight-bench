@@ -51,6 +51,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
 )
 from clousight_bench.domains.agent_runtime.adapters.transport import RuntimeTransport
 from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
+from clousight_bench.domains.agent_runtime.session_memory import ObjectStoreSessionMemory
 
 # --------------------------------------------------------------------------- #
 # Module-level probe-fn cache (lazy-built, same pattern as aliyun.py)
@@ -81,11 +82,13 @@ def _get_probe_fns() -> dict:
 # --------------------------------------------------------------------------- #
 
 
-class _AwsMemory:
-    """S3-backed session state store for AWS AgentCore (mirrors _LiveMemory).
+class _AwsMemory(ObjectStoreSessionMemory):
+    """S3-backed session state for AWS AgentCore.
 
-    Key pattern: ``clousight-bench/state/{run_id}/{session_id}.json``
-    via an injected (or lazily constructed) S3Client.
+    The Aliyun binding of ``ObjectStoreSessionMemory`` over ``S3Client`` (an
+    injected client keeps the suite account-free; ``None`` builds a lazy boto3
+    ``S3Client``). Key layout ``clousight-bench/state/{run_id}/{session_id}.json``
+    and the store/fetch/cleanup loop live in the base class.
     """
 
     def __init__(
@@ -96,41 +99,11 @@ class _AwsMemory:
         *,
         s3_client: Any | None = None,
     ) -> None:
-        self._bucket = bucket
-        self._region = region
-        self._run_id = run_id or "default"
-        self._keys: list[str] = []
-        self._injected_client = s3_client  # None → build lazily from S3Client
+        if s3_client is None:
+            from clousight_bench.domains.agent_runtime.probe.s3_client import S3Client
 
-    def _s3(self) -> Any:
-        if self._injected_client is not None:
-            return self._injected_client
-        from clousight_bench.domains.agent_runtime.probe.s3_client import S3Client
-
-        self._injected_client = S3Client(self._bucket, self._region)
-        return self._injected_client
-
-    def store(self, session_id: str, state: dict[str, Any]) -> None:
-        import json
-
-        key = f"clousight-bench/state/{self._run_id}/{session_id}.json"
-        self._s3().put_object(key, json.dumps(state).encode("utf-8"))
-        if key not in self._keys:
-            self._keys.append(key)
-
-    def fetch(self, session_id: str) -> dict[str, Any]:
-        import json
-
-        key = f"clousight-bench/state/{self._run_id}/{session_id}.json"
-        data = self._s3().get_object(key)
-        return json.loads(data.decode("utf-8"))
-
-    def cleanup(self) -> None:
-        s3 = self._s3()
-        for key in list(self._keys):
-            with contextlib.suppress(Exception):
-                s3.delete_object(key)
-        self._keys.clear()
+            s3_client = S3Client(bucket, region)
+        super().__init__(s3_client, run_id)
 
 
 # --------------------------------------------------------------------------- #
