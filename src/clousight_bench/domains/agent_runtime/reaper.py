@@ -18,6 +18,11 @@ from clousight_bench.core.resource_tags import TAG_MANAGED, TAG_RUN_ID
 # this prefix is how the reaper recognises a managed carrier (instances are not
 # tag-stamped, same as the AgentRun name-prefix convention).
 _PROBE_NAME_PREFIX = "cb-probe"
+# ECI container groups this project creates (probe carriers, image-pull probes)
+# are all named cb-*. They aren't tag-stamped historically, so — like the ECS and
+# AgentRun name-prefix conventions — this prefix is how the reaper recognises a
+# managed ECI. A 2026-08 sweep found an untagged `cb-imgp` ECI billing for days.
+_ECI_NAME_PREFIX = "cb-"
 
 
 class AliyunResourceReaper(ResourceReaper):
@@ -38,10 +43,12 @@ class AliyunResourceReaper(ResourceReaper):
         region: str = "cn-hangzhou",
         ecs_client: Any | None = None,
         agentrun_client: Any | None = None,
+        eci_client: Any | None = None,
     ) -> None:
         self._region = region
         self._ecs_client = ecs_client
         self._agentrun_client = agentrun_client
+        self._eci_client = eci_client
         self._list_fns = list_fns if list_fns is not None else self._default_list_fns()
         self._delete_fn = delete_fn if delete_fn is not None else self._default_delete
         self._now = now
@@ -95,7 +102,33 @@ class AliyunResourceReaper(ResourceReaper):
         return self._agentrun_client
 
     def _default_list_fns(self) -> list[Callable[[], list[dict[str, Any]]]]:
-        return [self._list_ecs, self._list_agentrun]
+        return [self._list_ecs, self._list_agentrun, self._list_eci]
+
+    def _eci(self) -> Any:
+        if self._eci_client is None:
+            from alibabacloud_credentials.client import Client as CredClient
+            from alibabacloud_eci20180808.client import Client as EciClient
+            from alibabacloud_tea_openapi import models as open_api_models
+
+            cfg = open_api_models.Config(credential=CredClient())
+            cfg.endpoint = f"eci.{self._region}.aliyuncs.com"
+            self._eci_client = EciClient(cfg)
+        return self._eci_client
+
+    @staticmethod
+    def _eci_models() -> Any:
+        """Return alibabacloud_eci20180808.models, or a None-proxy for test path."""
+        try:
+            from alibabacloud_eci20180808 import models as m
+
+            return m
+        except ImportError:
+
+            class _NoneProxy:
+                def __getattr__(self, _: str) -> None:
+                    return None
+
+            return _NoneProxy()
 
     @staticmethod
     def _ecs_models() -> Any:
@@ -182,6 +215,34 @@ class AliyunResourceReaper(ResourceReaper):
             )
         return out
 
+    def _list_eci(self) -> list[dict[str, Any]]:
+        import datetime as _dt
+
+        m = self._eci_models()
+        resp = self._eci().describe_container_groups(
+            self._make(m.DescribeContainerGroupsRequest, region_id=self._region)
+        )
+        groups = getattr(getattr(resp, "body", None), "container_groups", None) or []
+        out: list[dict[str, Any]] = []
+        for g in groups:
+            name = str(getattr(g, "container_group_name", "") or "")
+            if not name.startswith(_ECI_NAME_PREFIX):
+                continue  # name-prefix managed detection (groups aren't tag-stamped)
+            created = getattr(g, "creation_time", "") or ""
+            try:
+                ts = _dt.datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                ts = 0.0
+            out.append(
+                {
+                    "kind": "eci",
+                    "id": str(getattr(g, "container_group_id", "")),
+                    "created_ts": ts,
+                    "tags": {TAG_MANAGED: "true", TAG_RUN_ID: name},
+                }
+            )
+        return out
+
     def _default_delete(self, kind: str, resource_id: str) -> None:
         if kind == "ecs":
             m = self._ecs_models()
@@ -195,5 +256,14 @@ class AliyunResourceReaper(ResourceReaper):
             )
         elif kind == "agentrun":
             self._agentrun().delete_agent_runtime(resource_id)
+        elif kind == "eci":
+            m = self._eci_models()
+            self._eci().delete_container_group(
+                self._make(
+                    m.DeleteContainerGroupRequest,
+                    region_id=self._region,
+                    container_group_id=resource_id,
+                )
+            )
         else:
             raise ValueError(f"unknown reap kind: {kind!r}")

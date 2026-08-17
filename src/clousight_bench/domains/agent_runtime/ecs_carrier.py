@@ -6,6 +6,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from clousight_bench.core.resource_tags import run_tags
+
 
 def build_controller_user_data(
     *,
@@ -217,6 +219,12 @@ class EcsProbeCarrier:
         """
         c = self.config
         user_data = self._build_user_data()
+        # Stamp the managed tags AT CREATION: RunInstances applies them atomically
+        # and they persist even if the instance later fails, so a run that dies
+        # before teardown leaves a tag-findable orphan (not a silent biller). A
+        # 2026-08 sweep found an untagged ECI billing for days precisely because
+        # its creation call omitted tags. See core.resource_tags.
+        tags = run_tags(c.run_id)
         return {
             "region_id": c.region,
             "image_id": c.image_id,
@@ -230,6 +238,7 @@ class EcsProbeCarrier:
             # No public IP — egress is via the VPC NAT gateway only.
             "internet_max_bandwidth_out": 0,
             "user_data": user_data,
+            "tag": [{"key": k, "value": v} for k, v in tags.items()],
         }
 
     def _build_user_data(self) -> str:
@@ -331,6 +340,10 @@ class Ecs20140526Sdk:
 
     def run_instance(self, req: dict[str, Any]) -> str:
         m = self._models()
+        tags = [
+            self._make(m.RunInstancesRequestTag, key=t["key"], value=t["value"])
+            for t in (req.get("tag") or [])
+        ]
         request = self._make(
             m.RunInstancesRequest,
             region_id=req["region_id"],
@@ -344,6 +357,7 @@ class Ecs20140526Sdk:
             amount=int(req.get("amount", 1)),
             instance_name=req.get("instance_name") or None,
             user_data=req.get("user_data") or None,
+            tag=tags or None,
         )
         resp = self._cli().run_instances(request)
         return str(resp.body.instance_id_sets.instance_id_set[0])
