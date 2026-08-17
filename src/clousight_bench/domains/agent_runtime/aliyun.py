@@ -58,6 +58,11 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ToolCall,
 )
 from clousight_bench.domains.agent_runtime.adapters.transport import RuntimeTransport
+from clousight_bench.domains.agent_runtime.campaign_probe_base import (
+    CampaignProbeOrchestrator,
+    _published_code_spec,
+    _truthy,
+)
 from clousight_bench.domains.agent_runtime.ecs_carrier import (
     Ecs20140526Sdk,
     EcsCarrierConfig,
@@ -2054,47 +2059,15 @@ def _split_artifact(artifact_ref: str) -> tuple[str, str]:
     return bucket, obj
 
 
-def _truthy(v: object) -> bool:
-    """Interpret a target flag that may arrive as a bool or a YAML string."""
-    return v is True or str(v).strip().lower() in ("1", "true", "yes", "on")
-
-
-def _published_code_spec() -> str:
-    """The published-package ``code_spec`` pinned to the control plane's own version.
-
-    Pinning avoids control-plane↔probe version skew: the probe installs the SAME
-    version that is driving the campaign (protocol/token/OSS-prefix contract).
-    Falls back to the bare name if the version can't be read (e.g. odd install).
-    """
-    try:
-        from importlib.metadata import version
-
-        return f"clousight-bench[probe]=={version('clousight-bench')}"
-    except Exception:  # noqa: BLE001 - metadata absent → bare name still installs
-        return "clousight-bench[probe]"
-
-
-class _AliyunCampaignProbe:
+class _AliyunCampaignProbe(CampaignProbeOrchestrator):
     """Per-campaign probe lifecycle: ECS carrier + OSS sync (probe-sink §7).
 
-    Constructor factories are injectable so tests run account-free. The real
-    path (``_default_carrier``) creates an :class:`EcsProbeCarrier` — a stock-OS
-    ECS instance whose cloud-init user-data ``pip install``s the public
+    The real path (``_default_carrier``) creates an :class:`EcsProbeCarrier` — a
+    stock-OS ECS instance whose cloud-init user-data ``pip install``s the public
     ``clousight-bench[probe]`` package (no container image, see docs/probe-carrier.md).
+    The start/sync/stop lifecycle is inherited from ``CampaignProbeOrchestrator``.
     """
 
-    def __init__(self, carrier_factory=None, oss_factory=None):
-        self._carrier_factory = carrier_factory or self._default_carrier
-        self._oss_factory = oss_factory or self._default_oss
-        self._carrier = None
-        self._oss = None
-        self._channel = None  # OssChannel built during start_campaign_probe
-        self._prefix = ""
-        self._bucket = ""
-
-    # ------------------------------------------------------------------
-    # Default factories (real-cloud paths; wired in Plan 5 Task 3)
-    # ------------------------------------------------------------------
     @staticmethod
     def _default_carrier(target: dict, prefix: str, campaign_id: str = "", bucket: str = ""):  # noqa: ANN202
         run_id = str(target.get("run_id") or "")
@@ -2145,67 +2118,6 @@ class _AliyunCampaignProbe:
         bucket = str(target.get("oss_bucket") or "")
         region = str(target.get("region") or "cn-hangzhou")
         return Oss2Client(bucket=bucket, region=region)
-
-    # ------------------------------------------------------------------
-    # CampaignProbeHook interface
-    # ------------------------------------------------------------------
-    def start_campaign_probe(self, target: dict) -> dict:
-        """Provision the probe.
-
-        Returns ``{probe_control_prefix, probe_oss_prefix, probe_token,
-        probe_in_vpc}`` for target stamping — no ``probe_url`` key (OSS-mediated
-        transport, no HTTP surface required).
-        """
-        from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
-
-        run_id = str(target.get("run_id") or "")
-        campaign_id = run_id or "adhoc"
-        self._bucket = str(target.get("oss_bucket") or "")
-        self._prefix = f"clousight-bench/telemetry/{campaign_id}/"
-        self._oss = self._oss_factory(target)
-        # Build the control channel — readiness is polled via OSS, not HTTP.
-        channel = OssChannel(self._oss, campaign_id)
-        self._channel = channel
-        # Clear any residue from a prior run on this (possibly reused) campaign
-        # prefix — a stale `stop` sentinel would make the fresh probe exit at once.
-        channel.reset()
-        self._carrier = self._carrier_factory(target, self._prefix, campaign_id, self._bucket)
-        # Inject the readiness check so provision() polls OSS (not EcsRamRole).
-        self._carrier.ready_check = channel.is_ready
-        self._carrier.provision()  # raises CarrierError on failure
-        return {
-            "probe_control_prefix": campaign_id,
-            "probe_oss_prefix": self._prefix,
-            "probe_token": getattr(self._carrier, "token", "") or "",
-            "probe_in_vpc": True,
-        }
-
-    def sync_probe_artifacts(self, results_dir: Any) -> None:
-        """Mirror the probe's OSS prefix into results_dir (channel ②)."""
-        if self._oss is None:
-            return
-        from clousight_bench.domains.agent_runtime.probe.oss_sync import sync_prefix
-
-        sync_prefix(self._oss, self._prefix, results_dir)
-
-    def stop_campaign_probe(self) -> None:
-        """Reap the probe. Idempotent + best-effort (called from a finally).
-
-        Sends the OSS stop sentinel BEFORE tearing down the ECI carrier so the
-        in-region loop gets a chance to drain gracefully.
-        """
-        if self._channel is not None:
-            try:
-                self._channel.signal_stop()
-            except Exception:  # noqa: BLE001
-                pass
-            self._channel = None
-        if self._carrier is not None:
-            try:
-                self._carrier.teardown()
-            except Exception:  # noqa: BLE001
-                pass
-            self._carrier = None
 
 
 class AliyunRuntimeProvider(RuntimeProviderPlugin):
