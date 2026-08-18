@@ -14,7 +14,7 @@ def _fake_record(status="completed"):
     return SimpleNamespace(
         status=status,
         errors=[],
-        to_json=lambda: '{"status": "%s"}' % status,
+        to_json=lambda: f'{{"status": "{status}"}}',
         identity=SimpleNamespace(domain="agent-runtime", adapter="aliyun-agentrun"),
         run=SimpleNamespace(run_id="run-xyz"),
     )

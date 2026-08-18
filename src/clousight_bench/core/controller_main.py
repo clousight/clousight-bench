@@ -57,16 +57,14 @@ def build_run_task(platform: str, results_dir: str | Path, *, allow_live: bool =
         record = execute(run_spec, results_dir=rdir, allow_live=allow_live)
         result_json = record.to_json().encode("utf-8")
         sidecar = (
-            rdir
-            / record.identity.domain
-            / record.identity.adapter
-            / record.run.run_id
-            / "series.parquet"
+            rdir / record.identity.domain / record.identity.adapter / record.run.run_id / "series.parquet"
         )
         parquet = sidecar.read_bytes() if sidecar.exists() else None
         ok = record.status in _OK_STATUSES
         error = None if ok else (record.status if not record.errors else str(record.errors[0]))
-        return TaskOutcome(task_id=task_id, ok=ok, result_json=result_json, series_parquet=parquet, error=error)
+        return TaskOutcome(
+            task_id=task_id, ok=ok, result_json=result_json, series_parquet=parquet, error=error
+        )
 
     return run_task
 
@@ -115,8 +113,8 @@ def _live_delete_nat(  # pragma: no cover - live SDK
     teardown` (terraform destroy) is the backstop for anything left."""
 
     def _del() -> None:
-        from alibabacloud_tea_openapi import models as open_api_models
         from alibabacloud_credentials.client import Client as CredClient
+        from alibabacloud_tea_openapi import models as open_api_models
         from alibabacloud_vpc20160428 import models as vm
         from alibabacloud_vpc20160428.client import Client
 
@@ -128,12 +126,16 @@ def _live_delete_nat(  # pragma: no cover - live SDK
             nat_ids = [
                 n.nat_gateway_id
                 for n in (
-                    c.describe_nat_gateways(vm.DescribeNatGatewaysRequest(region_id=region, name=nat_name)).body.nat_gateways.nat_gateway
+                    c.describe_nat_gateways(
+                        vm.DescribeNatGatewaysRequest(region_id=region, name=nat_name)
+                    ).body.nat_gateways.nat_gateway
                     or []
                 )
             ]
             eips = list(
-                c.describe_eip_addresses(vm.DescribeEipAddressesRequest(region_id=region, eip_name=eip_name)).body.eip_addresses.eip_address
+                c.describe_eip_addresses(
+                    vm.DescribeEipAddressesRequest(region_id=region, eip_name=eip_name)
+                ).body.eip_addresses.eip_address
                 or []
             )
         except Exception as exc:  # noqa: BLE001 - describe itself can be denied
@@ -182,9 +184,9 @@ def _live_delete_self(region: str) -> Callable[[str], None]:  # pragma: no cover
     """Delete the controller's own ECS instance (called LAST by the reaper)."""
 
     def _del(instance_id: str) -> None:
+        from alibabacloud_credentials.client import Client as CredClient
         from alibabacloud_ecs20140526 import models as em
         from alibabacloud_ecs20140526.client import Client
-        from alibabacloud_credentials.client import Client as CredClient
         from alibabacloud_tea_openapi import models as open_api_models
 
         cfg = open_api_models.Config(credential=CredClient())
@@ -239,9 +241,7 @@ def build(
     channel = CampaignChannel(oss, campaign_id, now=now)
 
     rt = run_task or build_run_task(platform, results_dir)
-    controller = CampaignController(
-        channel, rt, now=now, ledger_bytes=_ledger_bytes_reader(results_dir)
-    )
+    controller = CampaignController(channel, rt, now=now, ledger_bytes=_ledger_bytes_reader(results_dir))
 
     spec = channel.read_launch()
     timeout_s = spec.watchdog_timeout_s if spec else DEFAULT_WATCHDOG_TIMEOUT_S
@@ -249,6 +249,7 @@ def build(
     def _reap() -> Any:
         # Surface RestrictedReaper's collected best-effort errors to OSS (it runs
         # delete_nat BEFORE delete_self, so this write lands before the box dies).
+        assert reaper is not None  # only wired as the reap callback when non-None (see below)
         errs = reaper.reap()
         if errs:
             with contextlib.suppress(Exception):
@@ -261,9 +262,9 @@ def build(
 
 
 def main() -> int:  # pragma: no cover - live entrypoint, exercised by the smoke runbook
-    from clousight_bench.domains.agent_runtime.probe.oss_client import EcsRamRoleOssClient
-
     import traceback
+
+    from clousight_bench.domains.agent_runtime.probe.oss_client import EcsRamRoleOssClient
 
     env = dict(os.environ)
     # In-region controller reads/writes OSS over the VPC-internal endpoint. Creds

@@ -1,7 +1,5 @@
 """Tests for CampaignController — the serial campaign orchestration loop."""
 
-import pytest
-
 from clousight_bench.core.campaign_spec import LaunchSpec
 from clousight_bench.core.controller import CampaignController, TaskOutcome
 from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel

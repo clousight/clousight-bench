@@ -56,9 +56,7 @@ def test_bundle_mode_and_series(report_record):
     from clousight_bench.core.reporting.profiles import PROFILES
 
     assert BUNDLE_SCHEMA == "report-bundle/1.1"
-    rec = report_record(
-        "aliyun-agentrun", "T1.13", execution="live", measurements={"cold_start_ms": 87000.0}
-    )
+    rec = report_record("aliyun-agentrun", "T1.13", execution="live", measurements={"cold_start_ms": 87000.0})
     series = {
         "T1.13": {
             "curve_ms": [
@@ -67,9 +65,7 @@ def test_bundle_mode_and_series(report_record):
             ]
         }
     }
-    b = build_bundle(
-        [rec], results_dir="r", generated_at="t", profiles=PROFILES, series_by_task=series
-    )
+    b = build_bundle([rec], results_dir="r", generated_at="t", profiles=PROFILES, series_by_task=series)
     dom = b.domains[0]
     assert dom.mode == "single"
     assert dom.series["T1.13"]["curve_ms"][0]["value"] == 87000.0

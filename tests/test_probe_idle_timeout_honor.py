@@ -32,7 +32,9 @@ class _IdleAgent(BaseHTTPRequestHandler):
             import time as _t
 
             _t.sleep(cls.sleep_by_call[call_n] / 1000)
-        out = json.dumps({"choices": [{"message": {"role": "assistant", "content": "{\"ok\": true}"}}]}).encode()
+        out = json.dumps(
+            {"choices": [{"message": {"role": "assistant", "content": '{"ok": true}'}}]}
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(out)))

@@ -298,9 +298,7 @@ class StartupCurveResult:
     errors: int
 
     @classmethod
-    def from_curve(
-        cls, curve: list[tuple[float, bool]], warm_threshold_ms: float
-    ) -> StartupCurveResult:
+    def from_curve(cls, curve: list[tuple[float, bool]], warm_threshold_ms: float) -> StartupCurveResult:
         """Derive every metric from a ``[(latency_ms, ok), ...]`` sweep.
 
         Single source of truth for the derivation, shared by the real probe
@@ -319,19 +317,11 @@ class StartupCurveResult:
         third = ms_list[2] if len(ms_list) > 2 else None
         warm_vals = [m for (m, ok) in curve[1:] if ok and m < warm_threshold_ms]
         warm_steady = round(_median(warm_vals), 2) if warm_vals else None
-        speedup = (
-            round(cold / warm_steady, 2)
-            if cold and warm_steady and warm_steady > 0
-            else None
-        )
-        warmed_after = next(
-            (i + 1 for i, (m, ok) in enumerate(curve) if ok and m < warm_threshold_ms), None
-        )
+        speedup = round(cold / warm_steady, 2) if cold and warm_steady and warm_steady > 0 else None
+        warmed_after = next((i + 1 for i, (m, ok) in enumerate(curve) if ok and m < warm_threshold_ms), None)
         errors = sum(1 for _, ok in curve if not ok)
         reliable = (
-            warm_steady is not None
-            and errors == 0
-            and len(warm_vals) >= max(1, int((len(curve) - 1) * 0.6))
+            warm_steady is not None and errors == 0 and len(warm_vals) >= max(1, int((len(curve) - 1) * 0.6))
         )
         return cls(
             curve_ms=ms_list,

@@ -95,7 +95,12 @@ def _load_series(results_dir: Path) -> dict[str, dict[str, list[dict[str, Any]]]
 
     Series are tiny here; above ``MAX_SERIES_POINTS`` a stride-downsample is applied
     and the truncation is logged (never silent)."""
-    import pyarrow.parquet as pq
+    try:
+        import pyarrow.parquet as pq
+    except ImportError:
+        # Parquet series sidecars are only written with the optional [store] extra;
+        # without pyarrow there is nothing to read, so the report renders without them.
+        return {}
 
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}
     seen: set[Path] = set()

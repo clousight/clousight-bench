@@ -42,7 +42,9 @@ def test_full_prod_flow_in_memory(tmp_path):
     # 2) controller runs the campaign (fake run_task; ledger snapshot each task)
     def run_task(task_id, spec):
         parquet = b"PARQ" if task_id == "T1.13" else None
-        return TaskOutcome(task_id=task_id, ok=True, result_json=b'{"id":"%s"}' % task_id.encode(), series_parquet=parquet)
+        return TaskOutcome(
+            task_id=task_id, ok=True, result_json=b'{"id":"%s"}' % task_id.encode(), series_parquet=parquet
+        )
 
     CampaignController(
         ch,

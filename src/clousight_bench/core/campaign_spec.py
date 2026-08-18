@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from typing import Any
 
 # Default self-destruct window: a full 27-task serial run is ~70-120min; 90min

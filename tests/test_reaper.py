@@ -59,8 +59,12 @@ def test_registered_under_entry_point():
 def test_eci_container_groups_reaped_by_name_prefix():
     # ECI groups named cb-* are managed (synthesized tag); others are skipped.
     eci = lambda: [
-        {"kind": "eci", "id": "eci-1", "created_ts": 100.0,
-         "tags": {"clousight-bench:managed": "true", "clousight-bench:run-id": "cb-imgp"}},
+        {
+            "kind": "eci",
+            "id": "eci-1",
+            "created_ts": 100.0,
+            "tags": {"clousight-bench:managed": "true", "clousight-bench:run-id": "cb-imgp"},
+        },
     ]
     deleted = []
     r = AliyunResourceReaper(list_fns=[eci], delete_fn=lambda k, i: deleted.append((k, i)))
@@ -78,9 +82,7 @@ def test_list_eci_filters_prefix_and_synthesizes_tag():
         container_group_name="someone-else", container_group_id="eci-2", creation_time=""
     )
     body = types.SimpleNamespace(container_groups=[grp_managed, grp_foreign])
-    fake_eci = types.SimpleNamespace(
-        describe_container_groups=lambda req: types.SimpleNamespace(body=body)
-    )
+    fake_eci = types.SimpleNamespace(describe_container_groups=lambda req: types.SimpleNamespace(body=body))
     r = AliyunResourceReaper(eci_client=fake_eci)
     got = r._list_eci()
     assert [g["id"] for g in got] == ["eci-1"]  # foreign group skipped
@@ -92,9 +94,15 @@ def test_carrier_tags_instance_at_creation():
     from clousight_bench.domains.agent_runtime.ecs_carrier import EcsCarrierConfig, EcsProbeCarrier
 
     cfg = EcsCarrierConfig(
-        region="cn-hangzhou", image_id="img", instance_type="ecs.e-c1m2.large",
-        vswitch_id="vsw", security_group_id="sg", ram_role="role",
-        bucket="b", campaign_id="camp-x", run_id="run-20260817-abc",
+        region="cn-hangzhou",
+        image_id="img",
+        instance_type="ecs.e-c1m2.large",
+        vswitch_id="vsw",
+        security_group_id="sg",
+        ram_role="role",
+        bucket="b",
+        campaign_id="camp-x",
+        run_id="run-20260817-abc",
     )
     carrier = EcsProbeCarrier(sdk=None, config=cfg)
     req = carrier._build_run_request()

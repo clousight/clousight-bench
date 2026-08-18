@@ -161,6 +161,14 @@ def teardown(
                 except Exception:  # noqa: BLE001 — best-effort
                     pass
     rc = terraform(
-        ["destroy", "-auto-approve", *_tf_targets(), "-var", "enable_controller=false", "-var", "enable_nat=false"]
+        [
+            "destroy",
+            "-auto-approve",
+            *_tf_targets(),
+            "-var",
+            "enable_controller=false",
+            "-var",
+            "enable_nat=false",
+        ]
     )
     return {"destroyed": rc == 0, "residual_deleted": residual}

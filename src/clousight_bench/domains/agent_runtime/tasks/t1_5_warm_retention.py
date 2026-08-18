@@ -132,8 +132,7 @@ class WarmRetentionTask(Task):
             notes=(
                 f"keeps_warm={keeps_warm}; shallow_retention="
                 f"{raw.get('shallow_retention_s')}s deep_onset={deep_onset_s}s "
-                f"cold_recycle={cold_recycle_s}s"
-                + (" (capped)" if sweep_capped else "")
+                f"cold_recycle={cold_recycle_s}s" + (" (capped)" if sweep_capped else "")
             ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,

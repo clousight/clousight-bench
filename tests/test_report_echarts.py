@@ -20,9 +20,7 @@ def _bundle(report_record):
             ]
         }
     }
-    return build_bundle(
-        [rec], results_dir="r", generated_at="t", profiles=PROFILES, series_by_task=series
-    )
+    return build_bundle([rec], results_dir="r", generated_at="t", profiles=PROFILES, series_by_task=series)
 
 
 def test_render_is_self_contained(report_record):

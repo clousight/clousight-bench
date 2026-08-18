@@ -57,9 +57,7 @@ class IdleTimeoutHonorTask(Task):
     def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
         if not isinstance(adapter, AgentRuntimeAdapter):
             raise TypeError("T1.14 needs an AgentRuntimeAdapter")
-        return adapter.run_data_plane_probe(
-            "idle_timeout_honor", {"session_idle_timeout_s": IDLE_TIMEOUT_S}
-        )
+        return adapter.run_data_plane_probe("idle_timeout_honor", {"session_idle_timeout_s": IDLE_TIMEOUT_S})
 
     def score(self, observations: ObservationBundle) -> TaskResult:
         raw = observations.observations

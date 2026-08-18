@@ -13,9 +13,7 @@ _INITED = (_TFDIR / ".terraform").exists()
 
 @pytest.mark.skipif(_TF is None or not _INITED, reason="terraform not installed / not initialized")
 def test_controller_module_validates():
-    proc = subprocess.run(
-        [_TF, "validate"], cwd=_TFDIR, capture_output=True, text=True, check=False
-    )
+    proc = subprocess.run([_TF, "validate"], cwd=_TFDIR, capture_output=True, text=True, check=False)
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 

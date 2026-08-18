@@ -38,7 +38,9 @@ def test_submit_writes_launch_and_applies_terraform(tmp_path):
 
 def test_submit_with_wheel_builder_injects_wheel_vars(tmp_path):
     plan = _write(tmp_path / "plan.yaml", "tasks:\n  - task: T1.13\n")
-    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"oss_bucket": "b", "region": "cn-hangzhou"}\n')
+    config = _write(
+        tmp_path / "cfg.yaml", 'params: {}\ntarget: {"oss_bucket": "b", "region": "cn-hangzhou"}\n'
+    )
     oss = InMemoryOssClient()
     tf_calls = []
     prod_submit.submit(
