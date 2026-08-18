@@ -1,14 +1,15 @@
 name: docs-deploy
 
-# Publish the MkDocs site to GitHub Pages on a version tag (the same trigger as
-# the PyPI release), so the docs a release ships match the published package.
-# CI already builds the docs with --strict on every PR (see ci.yml); this only
-# deploys. One-time setup: repo Settings → Pages → Source = "GitHub Actions".
+# Publish the MkDocs site to GitHub Pages on every push to main (a release lands
+# on main first, so the site always reflects the released state) and on manual
+# dispatch. CI already builds the docs with --strict on every PR (see ci.yml);
+# this only deploys. Deploying from main (not a tag) keeps it inside the
+# github-pages environment's default deployment-branch policy. One-time setup:
+# repo Settings → Pages → Source = "GitHub Actions".
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
   workflow_dispatch:
 
 permissions:

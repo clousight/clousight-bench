@@ -1,6 +1,8 @@
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pytest
+
 from clousight_bench.domains.agent_runtime import protocol as p
 from clousight_bench.domains.agent_runtime.adapters.base import ToolCall
 from clousight_bench.domains.agent_runtime.agent_bundle import agent
@@ -52,6 +54,7 @@ def test_run_tool_plan_end_to_end():
         srv.shutdown()
 
 
+@pytest.mark.slow  # ~70s: multi-level concurrency scaling probe against a local agent
 def test_probe_scaling_against_local_agent():
     srv, base = _serve_tool()
     try:

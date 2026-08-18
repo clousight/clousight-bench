@@ -90,6 +90,7 @@ def _mock_run(task_id, tmp_path, **provision):
     )
 
 
+@pytest.mark.slow  # ~6 min: end-to-end provision with real readiness polling
 def test_t0_1_provision_latency_end_to_end(tmp_path):
     rec = _mock_run("T0.1", tmp_path, ready_ms=0)
     assert rec.status == "completed"

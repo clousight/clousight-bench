@@ -130,11 +130,15 @@ select = ["E", "F", "I", "W", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Live tests hit a real cloud endpoint / network and need credentials; skip them
-# by default (locally and in CI). Run them explicitly with `pytest -m live`.
-addopts = "-m 'not live'"
+# The fast gate skips two buckets by default (locally and in the required CI
+# matrix): `live` (real cloud/network, needs credentials) and `slow` (heavy
+# real-sleep / timing-sensitive integration tests). Run them explicitly with
+# `pytest -m live` or `pytest -m slow`; CI runs the slow bucket in a separate
+# non-required job.
+addopts = "-m 'not live and not slow'"
 markers = [
     "live: exercises a real cloud endpoint / network (needs credentials); skipped by default, run with -m live",
+    "slow: heavy real-sleep / timing-sensitive integration test; skipped by the fast gate, run with -m slow",
 ]
 
 [tool.mypy]

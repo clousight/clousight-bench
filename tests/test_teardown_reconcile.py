@@ -7,6 +7,8 @@ destroy it, and confirm. Anything it reclaims is flagged (a leak happened);
 anything it cannot reclaim is a critical finding pointing at ``csbench sweep``.
 """
 
+import pytest
+
 from clousight_bench.core.resource_ledger import ResourceLedger
 from clousight_bench.core.resource_reconcile import reconcile_run_resources
 from clousight_bench.core.schema import RunSpec
@@ -79,6 +81,7 @@ def test_reaper_verify_confirms_via_the_cloud(tmp_path, monkeypatch):
     adapter.teardown()
 
 
+@pytest.mark.slow  # ~6 min: real provision/teardown reconcile loop with sleeps
 def test_orchestrator_run_leaves_no_residual_and_no_leak_finding(tmp_path, monkeypatch):
     # A normal provisioning run (T0.1 provisions then deprovisions) must end clean:
     # reconcile runs, finds nothing, and emits no residual/reclaimed finding.
