@@ -12,6 +12,12 @@
 
 set -euo pipefail
 
+ALLOWED_GH_USER="clousight-dev"
+login="$(gh api user --jq .login 2>/dev/null)" \
+  || { echo "setup-labels: gh is not authenticated; run: gh auth login" >&2; exit 2; }
+[[ "$login" == "$ALLOWED_GH_USER" ]] \
+  || { echo "setup-labels: active gh account is '$login'; switch with: gh auth switch --user $ALLOWED_GH_USER" >&2; exit 2; }
+
 REPO_FLAG=()
 if [[ -n "${REPO:-}" ]]; then
   REPO_FLAG=(--repo "$REPO")
