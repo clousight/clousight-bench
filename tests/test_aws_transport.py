@@ -530,6 +530,7 @@ def test_probe_idle_cost_scales_to_zero():
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.slow  # ~17 min: exercises every probe name incl. real-sleep warm-retention/idle sweeps
 def test_run_data_plane_probe_all_names_accepted():
     """Every canonical probe name is accepted by run_data_plane_probe (in-process path)."""
     from clousight_bench.domains.agent_runtime.dataplane_dispatch import PROBE_NAMES

@@ -19,6 +19,8 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any  # noqa: F401
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Fake agent server (mimics ThreadingHTTPServer agent — parallel, no HOL)
 # ---------------------------------------------------------------------------
@@ -245,6 +247,7 @@ def test_hol_blocking_new_shape_keys_present():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow  # timing-sensitive: flakes on a contended runner (real parallel latency thresholds)
 def test_hol_blocking_parallel_agent_gives_serialized_false():
     """ThreadingHTTPServer processes requests in parallel → serialized must be False.
 

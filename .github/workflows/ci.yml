@@ -214,3 +214,23 @@ jobs:
           pip install -e ".[docs]"
       - name: Build docs
         run: mkdocs build --strict
+
+  slow-tests:
+    # The heavy real-sleep / timing-sensitive integration tests (`-m slow`), split
+    # out of the required test matrix so the fast gate stays quick and their
+    # timing flakiness never blocks a PR. NOT a required status check — it runs for
+    # visibility; a red here is a signal to investigate, not a merge blocker.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,store,validate,probe,agent,aliyun]"
+      - name: Slow / integration tests
+        run: pytest -m slow -q --durations=10
