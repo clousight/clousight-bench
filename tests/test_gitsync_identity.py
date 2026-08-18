@@ -76,3 +76,37 @@ def test_gitsync_forces_clousight_dev_noreply_email():
     text = _GITSYNC.read_text(encoding="utf-8")
     assert 'ALLOWED_GH_USER="clousight-dev"' in text
     assert f'GIT_IDENTITY_EMAIL="{_ALLOWED_EMAIL}"' in text
+
+
+def test_gitsync_refuses_push_to_main():
+    text = _GITSYNC.read_text(encoding="utf-8")
+    assert '[[ "$(branch)" != "main" ]]' in text
+    assert "refusing to push 'main'" in text
+
+
+def test_gitsync_merge_defaults_to_squash(tmp_path: Path):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    gh = bindir / "gh"
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$1" == "api" && "$2" == "user" ]]; then\n'
+        "  echo clousight-dev\n"
+        "  exit 0\n"
+        "fi\n"
+        'if [[ "$1" == "pr" && "$2" == "merge" ]]; then\n'
+        '  printf "gh-pr-merge:%s\\n" "$*"\n'
+        "  exit 0\n"
+        "fi\n"
+        'echo "unexpected gh $*" >&2\n'
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
+    env = os.environ.copy()
+    env["PATH"] = f"{bindir}{os.pathsep}{env.get('PATH', '')}"
+    env["CSBENCH_REPO"] = "clousight/clousight-bench"
+    proc = _run_gitsync(["merge", "12"], env=env)
+    assert proc.returncode == 0, proc.stderr
+    assert "--squash" in proc.stdout
+    assert "12" in proc.stdout

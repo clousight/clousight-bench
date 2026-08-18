@@ -16,12 +16,15 @@
 # GitHub-touching command must run as clousight-dev, and commits use that
 # account's noreply address.
 #
+# Landing on main is squash-merge only. `push` refuses the `main` branch — push
+# a feature branch, open a PR, then `merge` (defaults to --squash).
+#
 # Usage:
 #   scripts/gitsync.sh commit "message"          # git add -A && git commit -s
-#   scripts/gitsync.sh push [git-push args]       # push current branch
+#   scripts/gitsync.sh push [git-push args]       # push current branch (not main)
 #   scripts/gitsync.sh pull [git-pull args]       # ff-only pull current branch
 #   scripts/gitsync.sh pr "title" "body" [flags]  # gh pr create (head=current, base=main)
-#   scripts/gitsync.sh merge <num> [flags]        # gh pr merge
+#   scripts/gitsync.sh merge <num> [flags]        # gh pr merge (defaults to --squash)
 #   scripts/gitsync.sh checks <num> [flags]       # gh pr checks
 #   scripts/gitsync.sh status [flags]             # gh pr status
 #   scripts/gitsync.sh repo                       # print the resolved slug
@@ -43,8 +46,11 @@ _require_gh_user() {
 }
 
 _ensure_local_identity() {
-  git config --local user.name "$GIT_IDENTITY_NAME"
-  git config --local user.email "$GIT_IDENTITY_EMAIL"
+  local name email
+  name="$(git config --local --get user.name 2>/dev/null || true)"
+  email="$(git config --local --get user.email 2>/dev/null || true)"
+  [[ "$name" == "$GIT_IDENTITY_NAME" ]] || git config --local user.name "$GIT_IDENTITY_NAME"
+  [[ "$email" == "$GIT_IDENTITY_EMAIL" ]] || git config --local user.email "$GIT_IDENTITY_EMAIL"
 }
 
 _apply_commit_identity() {
@@ -94,6 +100,8 @@ case "$cmd" in
     ;;
   push)
     _gate
+    [[ "$(branch)" != "main" ]] \
+      || die "refusing to push 'main'; land via a feature branch: gitsync push && gitsync pr \"title\" \"body\" && gitsync merge <num>"
     _ephemeral_remote
     git push "$REMOTE" "HEAD:$(branch)" "$@"
     ;;
@@ -112,7 +120,15 @@ case "$cmd" in
     ;;
   merge)
     _gate
-    gh pr merge -R "$SLUG" "$@"
+    method=0
+    for a in "$@"; do
+      case "$a" in --squash|--merge|--rebase) method=1 ;; esac
+    done
+    if [[ $method -eq 0 ]]; then
+      gh pr merge -R "$SLUG" --squash "$@"
+    else
+      gh pr merge -R "$SLUG" "$@"
+    fi
     ;;
   checks)
     _gate

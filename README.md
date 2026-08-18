@@ -199,7 +199,7 @@ for your own account, network and region. That is the point.
 
 Sign your commits (`git commit -s`, [DCO](https://developercertificate.org/)). Adding a platform = one adapter file + one example config; adding a dimension = one task file with its scoring and declared evidence layer; adding a product category = one DomainPack. PRs that change task or scoring logic for a shipped dimension require a version bump and a changelog entry — published numbers must stay attributable.
 
-This checkout has no `origin` remote — commit/push/PR/merge go through `scripts/gitsync.sh` (requires the `clousight-dev` `gh` account and forces commit identity to that account's noreply email; run `cp .gitsync.env.example .gitsync.env` once to set the target repo).
+This checkout has no `origin` remote — commit/push/PR/merge go through `scripts/gitsync.sh` (requires the `clousight-dev` `gh` account and forces commit identity to that account's noreply email; `push` refuses `main` — land via a feature-branch PR with squash merge; run `cp .gitsync.env.example .gitsync.env` once to set the target repo).
 
 ## License
 
