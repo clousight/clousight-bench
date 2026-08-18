@@ -31,8 +31,8 @@ class WarmRetentionTask(Task):
     task_id = "T1.5"
     title = "Warm-pool retention"
     evidence_layer = "B"
-    task_revision = "1"
-    scorer_revision = "1"
+    task_revision = "2"
+    scorer_revision = "2"
     required_permissions = (perm.SESSION_CREATE,)
     capability_tags = ("performance/warm-pool",)
 
@@ -77,14 +77,63 @@ class WarmRetentionTask(Task):
                     details={"retention_ms": raw["retention_ms"]},
                 )
             )
+        # Tiered idle sweep (live path emits these; local-sim leaves them None).
+        cold_recycle_s = raw.get("cold_recycle_s")
+        deep_onset_s = raw.get("deep_onset_s")
+        sweep_capped = bool(raw.get("sweep_capped", False))
+        if cold_recycle_s is not None:
+            findings.append(
+                Finding(
+                    code="agent_runtime.idle_recycle_observed",
+                    severity="info",
+                    summary=(
+                        f"idle instance recycled (full cold start returns) after "
+                        f"~{cold_recycle_s}s idle; a bursty/sparse workload with gaps "
+                        "longer than this re-pays the cold start"
+                    ),
+                    evidence="B",
+                    details={
+                        "cold_recycle_s": cold_recycle_s,
+                        "deep_onset_s": deep_onset_s,
+                        "shallow_retention_s": raw.get("shallow_retention_s"),
+                    },
+                )
+            )
+        elif sweep_capped:
+            findings.append(
+                Finding(
+                    code="agent_runtime.idle_recycle_beyond_sweep",
+                    severity="info",
+                    summary=(
+                        f"instance still warm/deep-hibernating at the sweep cap "
+                        f"({raw.get('max_idle_s')}s idle) — the full-cold recycle window "
+                        "is longer than the probe measured"
+                    ),
+                    evidence="B",
+                    details={"max_idle_s": raw.get("max_idle_s"), "deep_onset_s": deep_onset_s},
+                )
+            )
         return TaskResult(
             measurements={
                 "retention_capability": Measurement(value="supported", unit="", evidence="B"),
                 "warm_retention_ms": Measurement(value=raw["retention_ms"], unit="ms", evidence="B"),
                 "keeps_warm": Measurement(value=keeps_warm, unit="", evidence="B"),
+                # Tiered idle→cold sweep (None on local-sim / older probe).
+                "shallow_retention_s": Measurement(
+                    value=raw.get("shallow_retention_s"), unit="s", evidence="B"
+                ),
+                "deep_onset_s": Measurement(value=deep_onset_s, unit="s", evidence="B"),
+                "cold_recycle_s": Measurement(value=cold_recycle_s, unit="s", evidence="B"),
+                "sweep_capped": Measurement(value=sweep_capped, unit="", evidence="B"),
+                "warm_p50_ms": Measurement(value=raw.get("warm_p50_ms"), unit="ms", evidence="B"),
+                "cold_start_ms": Measurement(value=raw.get("cold_start_ms"), unit="ms", evidence="B"),
             },
             findings=findings,
-            notes=(f"keeps_warm={keeps_warm}; retention={raw['retention_ms']}ms"),
+            notes=(
+                f"keeps_warm={keeps_warm}; shallow_retention="
+                f"{raw.get('shallow_retention_s')}s deep_onset={deep_onset_s}s "
+                f"cold_recycle={cold_recycle_s}s" + (" (capped)" if sweep_capped else "")
+            ),
             task_revision=self.task_revision,
             scorer_revision=self.scorer_revision,
         )

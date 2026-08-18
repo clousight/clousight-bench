@@ -1,0 +1,40 @@
+version: "1"
+domain: agent-runtime
+platform: aliyun-agentrun
+# 全量跑：28 任务，覆盖 T0–T6 + 新增可靠性覆盖
+# 预估耗时：90–120 分钟（T0.1 7样本×60s idle 约 25 分钟）
+tasks:
+  # ── 控制面：provisioning lifecycle ──────────────────────────
+  - task: T0.1   # provision create->ready 延迟（7样本×60s idle）
+  - task: T0.2   # teardown 清洁度（异步删除轮询修复）
+  # ── 数据面：session / 核心运行时行为 ─────────────────────────
+  - task: T1.1   # cold/warm 启动延迟
+  - task: T1.2   # session 状态持久化
+  - task: T1.3   # 故障恢复（请求级注入，稳定 fail-fast）
+  - task: T1.4   # 持续负载 + 尾延迟（transport/runtime/tool 三分类）
+  - task: T1.5   # warm 保活窗口
+  - task: T1.6   # soak 可用率（60s 窗口）
+  - task: T1.7   # 限流行为（stepped burst 10→80）
+  - task: T1.8   # 取消语义
+  - task: T1.9   # TTFT 流式首包延迟（LangChain agent）
+  # ── 新增可靠性覆盖 ─────────────────────────────────────────
+  - task: T1.10  # 重试风暴（持续故障下的退出行为）
+  - task: T1.11  # 并发写入冲突（两个 session 写同一 key）
+  - task: T1.12  # Head-of-line blocking（慢请求阻塞快请求）
+  - task: T1.13  # 启动收敛曲线（cold→warm 实例复用，同 session 连发 8 次）
+  - task: T1.14  # idle-timeout 配置守约（设 10s 小超时，验证平台是否按时回收实例）
+  # ── 工具注册 ─────────────────────────────────────────────────
+  - task: T2.1   # 工具注册路径（MCP / native / openapi）
+  # ── 可观测性：trace / metrics / logs ─────────────────────────
+  - task: T4.1   # trace 完整度（LangChain AgentExecutor, completeness=100%）
+  - task: T4.2   # OTLP 导出（valid=True）
+  - task: T4.3   # metrics + logs 信号（ARMS QueryMetricByPage）
+  - task: T4.4   # span 父子传播（orphans=0, roots=1）
+  - task: T4.5   # telemetry 导出延迟（invoke→ARMS trace 出现时间差）
+  # ── 成本与弹性 ───────────────────────────────────────────────
+  - task: T5.1   # 成本归因（vcpu-hours）
+  - task: T5.2   # 弹性（N_REPS=3，并发扩展拐点）
+  - task: T5.3   # 空闲成本 / scale-to-zero（evidence A，FC 按调用计费）
+  - task: T5.4   # 并发上限（stepped burst 50→500）
+  # ── 安全隔离 ─────────────────────────────────────────────────
+  - task: T6.1   # 租户隔离（evidence A/B 分层）

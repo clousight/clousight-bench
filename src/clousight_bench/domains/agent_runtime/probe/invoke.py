@@ -239,6 +239,47 @@ class ProbeInvoker:
                 break
         return InvocationTrace(session_id, attempts, completed, final_state)
 
+    def ensure_warm(
+        self,
+        session_id: str,
+        *,
+        warm_threshold_ms: float = 30000.0,
+        max_attempts: int = 6,
+    ) -> tuple[float | None, bool]:
+        """Poll ONE session with light invokes until it is warm (< threshold).
+
+        AgentRun code-mode cold-starts a fresh instance in ~86s on the first
+        invoke of a new session; later same-session invokes reuse the warm
+        instance. A probe that wants *steady-state* numbers calls this first so
+        the cold-start cost is absorbed here (and reported separately) instead of
+        contaminating the measured latency.
+
+        Returns ``(cold_start_ms, warmed)``: the first invoke's latency IS the
+        cold-start cost; ``warmed`` is False if it never dropped below the
+        threshold within ``max_attempts`` (unreliable reuse / perpetual cold).
+        The warm-up traffic uses a plain ``prices`` call with NO correlation id,
+        so probes that count per-corr mock hits are not polluted.
+        """
+        body = protocol.encode_invoke(
+            {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}},
+            self._spec.mock_base_url,
+            mock_token=self._spec.mock_token or None,
+            session_id=session_id,
+        )
+        cold_start_ms: float | None = None
+        for _ in range(max_attempts):
+            t0 = time.perf_counter()
+            try:
+                self.invoke(session_id, body)
+            except Exception:
+                pass
+            ms = (time.perf_counter() - t0) * 1000
+            if cold_start_ms is None:
+                cold_start_ms = round(ms, 2)
+            if ms < warm_threshold_ms:
+                return cold_start_ms, True
+        return cold_start_ms, False
+
     def one_tool_call(self) -> tuple[bool, float]:
         ok, ms, _ = self.one_tool_call_classified()
         return ok, ms

@@ -153,7 +153,10 @@ def _pack_scaling(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> Obser
     all_instances_none = all(getattr(p, "observed_instances", None) is None for p in points)
     extra_findings: list[str] = []
     if all_instances_none:
-        extra_findings.append("AgentRun GetAgentRuntime 不暴露实时实例数，无法观测弹性行为。")
+        extra_findings.append(
+            "AgentRun GetAgentRuntime does not expose live instance counts; "
+            "elasticity behaviour cannot be observed."
+        )
     return ObservationBundle(
         observations={
             "capability": "supported",
@@ -189,6 +192,28 @@ def _pack_fault_recovery(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -
     )
 
 
+def _pack_startup_curve(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> ObservationBundle:
+    n_calls = int(params.get("n_calls", 8))
+    # Does NOT catch CapabilityNotSupported — re-raises
+    result = adapter.probe_startup_curve(n_calls=n_calls)
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "curve_ms": result.curve_ms,
+            "cold_start_ms": result.cold_start_ms,
+            "second_call_ms": result.second_call_ms,
+            "third_call_ms": result.third_call_ms,
+            "warm_steady_ms": result.warm_steady_ms,
+            "speedup_ratio": result.speedup_ratio,
+            "warmed_after_n_calls": result.warmed_after_n_calls,
+            "reuse_reliable": result.reuse_reliable,
+            "errors": result.errors,
+            "n_calls": len(result.curve_ms),
+        },
+        series={"curve_ms": [[i + 1, v] for i, v in enumerate(result.curve_ms)]},
+    )
+
+
 def _pack_retry_storm(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> ObservationBundle:
     max_window_s = float(params.get("max_window_s", 30.0))
     # Does NOT catch CapabilityNotSupported — re-raises
@@ -217,6 +242,22 @@ def _pack_hol_blocking(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> 
     )
 
 
+def _pack_idle_timeout_honor(adapter: AgentRuntimeAdapter, params: dict[str, Any]) -> ObservationBundle:
+    session_idle_timeout_s = float(params.get("session_idle_timeout_s", 10.0))
+    # Does NOT catch CapabilityNotSupported — re-raises
+    result = adapter.probe_idle_timeout_honor(session_idle_timeout_s=session_idle_timeout_s)
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "configured_idle_s": result.configured_idle_s,
+            "promise_wake_ms": result.promise_wake_ms,
+            "honored": result.honored,
+            "deep_onset_s": result.deep_onset_s,
+            "cold_onset_s": result.cold_onset_s,
+        }
+    )
+
+
 # Canonical set of data-plane probe names — the single source of truth shared by
 # the local-sim packers below AND any remote probe implementation (e.g. the
 # cb-adapters-enterprise cb-probe server). Both sides MUST register exactly these
@@ -235,6 +276,8 @@ PROBE_NAMES: frozenset[str] = frozenset(
         "fault_recovery",
         "retry_storm",
         "hol_blocking",
+        "startup_curve",
+        "idle_timeout_honor",
     }
 )
 
@@ -251,6 +294,8 @@ DATA_PLANE_PACKERS: dict[str, Packer] = {
     "fault_recovery": _pack_fault_recovery,
     "retry_storm": _pack_retry_storm,
     "hol_blocking": _pack_hol_blocking,
+    "startup_curve": _pack_startup_curve,
+    "idle_timeout_honor": _pack_idle_timeout_honor,
 }
 
 

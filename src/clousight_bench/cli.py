@@ -141,6 +141,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         params=params,
     )
 
+    from clousight_bench.core.cost_notice import live_cost_notice
+
+    notice = live_cost_notice(args.platform, task_count=1, allow_live=args.allow_live)
+    if notice:
+        print(notice, file=sys.stderr)
+
     if args.repeat != 1 or args.warmup != 0 or args.plan_id or args.resume:
         from clousight_bench.core.runplan import RunPlan, execute_plan
 
@@ -236,19 +242,21 @@ def _load_aggregates(results_dir: Path) -> list[dict]:
 def _report_bundle(results_dir: str):
     import datetime as _dt
 
-    from clousight_bench.core.report import _load_results
+    from clousight_bench.core.report import _load_results, _load_series
     from clousight_bench.core.reporting.bundle import build_bundle
     from clousight_bench.core.reporting.profiles import PROFILES
 
     results_path = Path(results_dir)
     records = _load_results(results_path)
     aggregates = _load_aggregates(results_path)
+    series_by_task = _load_series(results_path)
     return build_bundle(
         records,
         results_dir=str(results_dir),
         generated_at=_dt.datetime.now().isoformat(timespec="seconds"),
         profiles=PROFILES,
         aggregates=aggregates,
+        series_by_task=series_by_task,
     )
 
 
@@ -612,6 +620,14 @@ def _cmd_verify(args: argparse.Namespace) -> int:
 def _cmd_run_plan(args: argparse.Namespace) -> int:
     import os
 
+    if getattr(args, "mode", "dev") == "prod":
+        print(
+            "run-plan is dev-only (local development). For prod (production benchmarking) use: "
+            "csbench submit <plan> --config <cfg>",
+            file=sys.stderr,
+        )
+        return 2
+
     import yaml as _yaml
 
     from clousight_bench.core.campaign import (
@@ -663,6 +679,12 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
             print("error: task entry missing 'task' key", file=sys.stderr)
             return 2
         task_ids.append(task_id)
+
+    from clousight_bench.core.cost_notice import live_cost_notice
+
+    notice = live_cost_notice(platform, task_count=len(task_ids), allow_live=allow_live)
+    if notice:
+        print(notice, file=sys.stderr)
 
     manifest = CampaignManifest(
         campaign_id=new_campaign_id(),
@@ -853,9 +875,133 @@ def _cmd_progress(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---- prod profile (ecs-resident orchestrator) helpers + commands ------------
+_PROD_TF_DIR = "infra/terraform/aliyun-iam"
+
+
+def _prod_target(config_path: str | None) -> dict:
+    from pathlib import Path
+
+    import yaml as _yaml
+
+    doc = _yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) if config_path else {}
+    return dict((doc or {}).get("target") or {})
+
+
+def _prod_oss(target: dict):
+    from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
+
+    return Oss2Client(str(target.get("oss_bucket") or ""), str(target.get("region") or "cn-hangzhou"))
+
+
+def _prod_channel(target: dict, campaign_id: str):
+    from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
+
+    return CampaignChannel(_prod_oss(target), campaign_id)
+
+
+def _terraform_runner():
+    import subprocess
+
+    return lambda argv: subprocess.call(["terraform", *argv], cwd=_PROD_TF_DIR)
+
+
+def _prod_runtime_deleter(target: dict):
+    def _del(runtime_id: str) -> None:
+        from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
+
+        AliyunAgentRunAdapter(target)._transport_().deprovision(runtime_id)
+
+    return _del
+
+
+def _prod_wheel_builder(target: dict):
+    """Build+upload the private dev wheel; return (campaign_id) -> (url, extra_deps)."""
+
+    def _build(campaign_id: str) -> tuple[str, list[str]]:
+        from clousight_bench.domains.agent_runtime.dev_wheel import deps_for_extras, upload_dev_wheel
+        from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
+
+        bucket = str(target.get("oss_bucket") or "")
+        region = str(target.get("region") or "cn-hangzhou")
+        upload = Oss2Client(bucket, region)  # public endpoint for the PUT
+        sign = Oss2Client(bucket, region, internal=True)  # internal endpoint for the presign
+        url = upload_dev_wheel(upload, sign, campaign_id, expires=7200)
+        # controller runs the full orchestrator → needs probe + aliyun SDKs + store
+        extra_deps = deps_for_extras(["probe", "aliyun", "store"]) or [
+            "requests>=2.28",
+            "oss2>=2.18",
+            "duckdb>=1.0",
+            "pyarrow>=16",
+        ]
+        return url, extra_deps
+
+    return _build
+
+
+def _cmd_submit(args: argparse.Namespace) -> int:
+    from clousight_bench.core import prod_submit
+    from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
+
+    target = _prod_target(args.config)
+    oss = _prod_oss(target)
+    cid = prod_submit.submit(
+        args.plan_file,
+        args.config,
+        lambda c: CampaignChannel(oss, c),
+        _terraform_runner(),
+        watchdog_timeout_s=args.watchdog_timeout,
+        wheel_builder=_prod_wheel_builder(target),
+    )
+    print(cid)
+    return 0
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from clousight_bench.core import prod_submit
+
+    st = prod_submit.status(_prod_channel(_prod_target(args.config), args.campaign_id))
+    print(_json.dumps(st, ensure_ascii=False))
+    return 0
+
+
+def _cmd_logs(args: argparse.Namespace) -> int:
+    from clousight_bench.core import prod_submit
+
+    for line in prod_submit.logs(_prod_channel(_prod_target(args.config), args.campaign_id)):
+        print(line)
+    return 0
+
+
+def _cmd_fetch(args: argparse.Namespace) -> int:
+    from clousight_bench.core import prod_submit
+
+    paths = prod_submit.fetch(_prod_channel(_prod_target(args.config), args.campaign_id), args.dest)
+    print(f"fetched {len(paths)} file(s) to {args.dest}")
+    return 0
+
+
+def _cmd_teardown(args: argparse.Namespace) -> int:
+    from clousight_bench.core import prod_submit
+
+    target = _prod_target(args.config)
+    out = prod_submit.teardown(
+        _prod_channel(target, args.campaign_id), _terraform_runner(), _prod_runtime_deleter(target)
+    )
+    print(out)
+    return 0
+
+
 def _dispatch(args: argparse.Namespace) -> int:
     handlers = {
         "list": _cmd_list,
+        "submit": _cmd_submit,
+        "status": _cmd_status,
+        "logs": _cmd_logs,
+        "fetch": _cmd_fetch,
+        "teardown": _cmd_teardown,
         "run": _cmd_run,
         "report": _cmd_report,
         "trace": _cmd_trace,
@@ -956,6 +1102,37 @@ def main(argv: list[str] | None = None) -> int:
         "'ecs' brings up a per-campaign in-region ECS probe carrier "
         "('eci' is a deprecated alias for 'ecs')",
     )
+    rp_p.add_argument(
+        "--mode",
+        choices=["dev", "prod"],
+        default="dev",
+        help="run profile by intent: 'dev' (local development) runs here; 'prod' (production benchmarking) "
+        "is rejected — use `csbench submit` (the ecs-resident orchestrator)",
+    )
+
+    # ---- prod profile: thin submit/status/logs/fetch/teardown -----------------
+    sm_p = sub.add_parser("submit", help="prod: submit a campaign to an ecs-resident controller")
+    sm_p.add_argument("plan_file", help="YAML plan file")
+    sm_p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
+    sm_p.add_argument(
+        "--watchdog-timeout",
+        type=float,
+        default=5400.0,
+        dest="watchdog_timeout",
+        help="controller self-destruct timeout in seconds (default 5400 = 90min)",
+    )
+    for _name, _help in (
+        ("status", "prod: show a campaign's progress"),
+        ("logs", "prod: show the controller's logs"),
+        ("teardown", "prod: backstop cleanup (stop + reap residual + terraform destroy)"),
+    ):
+        _p = sub.add_parser(_name, help=_help)
+        _p.add_argument("campaign_id")
+        _p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
+    fe_p = sub.add_parser("fetch", help="prod: download a campaign's results (JSON + parquet)")
+    fe_p.add_argument("campaign_id")
+    fe_p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
+    fe_p.add_argument("--dest", default="results/prod-fetch", help="destination directory")
 
     prog_p = sub.add_parser("progress", help="show a run-plan campaign's live progress")
     prog_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
@@ -972,8 +1149,8 @@ def main(argv: list[str] | None = None) -> int:
     rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     rep_p.add_argument("--out", help="write markdown here (default: <results>/comparison.md)")
     rep_p.add_argument("--dump-bundle", help="write the ReportBundle as JSON to this path")
-    rep_p.add_argument("--format", choices=["markdown", "html"], default="markdown")
-    rep_p.add_argument("--renderer", default="html", help="report renderer name (default: html)")
+    rep_p.add_argument("--format", choices=["markdown", "html"], default="html")
+    rep_p.add_argument("--renderer", default="echarts", help="report renderer name (default: echarts)")
     rep_p.add_argument("--css", help="CSS file injected into the HTML (overrides the default theme)")
     rep_p.add_argument("--template", help="jinja2 HTML template file (needs the [report] extra)")
 

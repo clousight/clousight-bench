@@ -32,21 +32,12 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     RetentionResult,
     ScalePoint,
     SoakResult,
+    StartupCurveResult,
 )
-from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
+from clousight_bench.domains.agent_runtime.transport_base import auth_headers as _auth_headers
 
 from .invoke import ProbeInvoker
 from .jobs import JobProgress, JobSpec
-
-
-def _auth_headers(mock_token: str) -> dict[str, str]:
-    """Return the auth header dict for direct control-plane calls to the mock server.
-
-    An empty token means the mock is open (local-sim / no token configured) — return
-    an empty dict so callers can unconditionally merge the result.
-    """
-    return {AUTH_HEADER: mock_token} if mock_token else {}
-
 
 TTFT_WARMUP = 1
 TTFT_SAMPLES = 5
@@ -92,16 +83,56 @@ def measure_ttft(
     return (time.perf_counter() - t0) * 1000
 
 
+def _measure_ttft_safe(
+    session: requests.Session,
+    spec: JobSpec,
+    session_id: str,
+) -> float | None:
+    """measure_ttft that swallows transport/HTTP errors → None.
+
+    On-demand AgentRun recycles instances unpredictably, so a warm-path sample
+    can hit a 429/connection-reset mid-sweep. Returning None lets the caller
+    retry or drop the sample instead of aborting the whole probe.
+    """
+    try:
+        return measure_ttft(
+            session,
+            spec.target_endpoint,
+            spec.session_header_scheme,
+            session_id,
+            spec.mock_base_url,
+            spec.mock_token,
+        )
+    except Exception:
+        return None
+
+
 def run_ttft(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """Warm up, then measure ``samples`` streaming invokes.
+    """Two-dimensional TTFT: cold-start cost + warm steady-state.
 
-    ``warmup``/``samples`` come from ``spec.params`` (T1.9 passes {"warmup", "samples"});
-    the module constants are the fallback defaults.
+    AgentRun code-mode cold-starts a fresh instance in ~86s on EVERY new session
+    (proven: a 475-byte empty agent also takes 86s — it's a platform-fixed cost,
+    not our agent). A naive per-sample-new-session measurement therefore records
+    ~86s every time. Instead we:
+
+    1. **Cold-start dimension:** poll ONE stable session until its first-token
+       time drops below ``warm_threshold_ms`` (or attempts exhaust). The first
+       poll's latency IS the cold-start cost (``cold_start_ms``).
+    2. **Warm steady-state dimension:** keep hitting that SAME warm session and
+       collect samples that come back under the warm threshold. Reuse is flaky
+       (a sample may hit a recycled/cold instance or a 429), so each sample gets
+       a few retries; samples that never warm are dropped, and ``warm_reliable``
+       flags whether we got enough clean warm samples to trust the steady-state.
+
+    ``warmup``/``samples`` still come from ``spec.params`` (T1.9); the module
+    constants are the fallback defaults.
     """
-    warmup = int(spec.params.get("warmup", TTFT_WARMUP))
     samples = int(spec.params.get("samples", TTFT_SAMPLES))
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    max_warm_attempts = int(spec.params.get("max_warm_attempts", 6))
+    sample_retries = int(spec.params.get("sample_retries", 3))
     session = requests.Session()
     t_start = time.perf_counter()
 
@@ -112,54 +143,170 @@ def run_ttft(
         metrics = {"last_ttft_ms": ms_so_far[-1]} if ms_so_far else {}
         progress_cb(prog, metrics)
 
+    # One stable session for the whole probe so the warm instance is reused.
     sid = f"ttft-{int(t_start * 1000)}"
-    for _ in range(warmup):
-        measure_ttft(
-            session,
-            spec.target_endpoint,
-            spec.session_header_scheme,
-            sid,
-            spec.mock_base_url,
-            spec.mock_token,
-        )
+
+    # --- Phase 1: cold-start dimension — warm up the single session ---
+    cold_start_ms: float | None = None
+    warmed = False
+    for a in range(max_warm_attempts):
+        ms = _measure_ttft_safe(session, spec, sid)
+        if cold_start_ms is None and ms is not None:
+            cold_start_ms = round(ms, 3)  # first successful poll = cold-start cost
+        report("warmup", a, [ms] if ms is not None else [])
+        if ms is not None and ms < warm_threshold_ms:  # 0.0 = non-stream fallback → still warm
+            warmed = True
+            break
+
+    # --- Phase 2: warm steady-state dimension — reuse the warm session ---
     ttft_ms: list[float] = []
     report("sample", 0, ttft_ms)
     for i in range(samples):
-        ms = measure_ttft(
-            session,
-            spec.target_endpoint,
-            spec.session_header_scheme,
-            f"{sid}-{i}",
-            spec.mock_base_url,
-            spec.mock_token,
-        )
-        ttft_ms.append(round(ms, 3))
+        got: float | None = None
+        for _ in range(sample_retries):
+            ms = _measure_ttft_safe(session, spec, sid)
+            if ms is not None and ms < warm_threshold_ms:  # 0.0 = non-stream fallback → still warm
+                got = round(ms, 3)
+                break
+        if got is not None:
+            ttft_ms.append(got)
         report("sample", i + 1, ttft_ms)
+
+    warm_reliable = warmed and len(ttft_ms) >= max(1, int(samples * 0.6))
     return ObservationBundle(
-        observations={"capability": "supported", "ttft_ms": ttft_ms},
+        observations={
+            "capability": "supported",
+            "ttft_ms": ttft_ms,  # warm steady-state samples (may be short if flaky)
+            "cold_start_ms": cold_start_ms,
+            "warm_samples": len(ttft_ms),
+            "requested_samples": samples,
+            "warm_reliable": warm_reliable,
+        },
         series={"ttft_ms": [[i + 1, v] for i, v in enumerate(ttft_ms)]},
+    )
+
+
+STARTUP_CURVE_CALLS = 8
+
+
+def run_startup_curve(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
+    """T1.13 startup-convergence curve: fire ``n_calls`` calls on the same session
+    and record each end-to-end latency.
+
+    Characterises the platform's **instance reuse / warm-up behaviour**: the 1st
+    call is a cold start (instance built from scratch); do the 2nd/3rd drop off a
+    cliff (hitting a reused warm instance), and at which call does it converge to
+    steady state? Convergence speed, steady value and reuse reliability vary a lot
+    across platforms — a differentiating dimension that answers the question users
+    actually care about: "how slow is the Nth call, really?"
+
+    Measures the **full end-to-end invoke time** (not first-byte TTFT): the actual
+    time a user waits for the tool call to return. All calls share one session_id
+    so the platform has a chance to reuse a warm instance. Derived metrics:
+
+      - ``cold_start_ms``       1st call (cold)
+      - ``second_call_ms`` / ``third_call_ms``  2nd/3rd call (points users care about)
+      - ``warm_steady_ms``      steady-state median (from the 2nd call on, successful and below threshold)
+      - ``speedup_ratio``       cold / warm speedup
+      - ``warmed_after_n_calls`` which call first landed in the warm zone
+      - ``reuse_reliable``      enough warm samples and zero errors -> reuse is stable
+    """
+    n_calls = int(spec.params.get("n_calls", STARTUP_CURVE_CALLS))
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    inv = ProbeInvoker(spec)
+    base = spec.mock_base_url
+    mock_token = spec.mock_token
+    sid = inv.create_session()  # single session so the platform can reuse the warm instance
+    body = protocol.encode_invoke(
+        {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}},
+        base,
+        mock_token=mock_token or None,
+        session_id=sid,
+    )
+    t_start = time.perf_counter()
+    curve: list[dict[str, Any]] = []
+    try:
+        for i in range(n_calls):
+            t0 = time.perf_counter()
+            ok = True
+            try:
+                resp = inv.invoke(sid, body)
+                ok = bool(protocol.decode_result(resp).get("ok"))
+            except Exception:
+                ok = False
+            ms = round((time.perf_counter() - t0) * 1000, 2)
+            curve.append({"call": i + 1, "ms": ms, "ok": ok})
+            progress_cb(
+                JobProgress("call", i + 1, n_calls, round(time.perf_counter() - t_start, 3)),
+                {"last_ms": ms, "ok": ok},
+            )
+            if sink is not None:
+                sink.append("series", {"call": i + 1, "ms": ms, "ok": ok})
+    finally:
+        inv.destroy_session(sid)
+
+    r = StartupCurveResult.from_curve([(c["ms"], c["ok"]) for c in curve], warm_threshold_ms)
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "curve_ms": r.curve_ms,
+            "cold_start_ms": r.cold_start_ms,
+            "second_call_ms": r.second_call_ms,
+            "third_call_ms": r.third_call_ms,
+            "warm_steady_ms": r.warm_steady_ms,
+            "speedup_ratio": r.speedup_ratio,
+            "warmed_after_n_calls": r.warmed_after_n_calls,
+            "reuse_reliable": r.reuse_reliable,
+            "errors": r.errors,
+            "n_calls": len(curve),
+        },
+        series={"curve_ms": [[c["call"], c["ms"]] for c in curve]},
     )
 
 
 def run_sustained_load(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """真并发持续负载：用令牌桶 + 线程池驱动，真实测量吞吐和尾延迟。
+    """Real concurrent sustained load: token-bucket + thread pool, measuring true
+    throughput and tail latency.
 
-    工作者数量 = min(target_rps * 预估延迟, 32)（Little's Law）。
-    吞吐量分母使用实际挂钟时间（含所有 in-flight 请求完成后），避免高尾延迟
-    场景下人为高估吞吐量（deadline 后仍在执行的请求不被计入 duration_s 但
-    被计入 n，导致 n/duration_s 虚高）。
+    Worker count = min(target_rps * estimated_latency, 32) (Little's Law).
+    Throughput uses actual wall-clock time (after all in-flight requests finish)
+    to avoid inflating throughput under high tail latency (requests still
+    executing after the deadline are not counted in duration_s but are counted in
+    n, which would make n/duration_s artificially high).
     """
     duration_s: float = spec.params.get("duration_s", 60.0)
     target_rps: float = spec.params.get("target_rps", 50.0)
 
     inv = ProbeInvoker(spec)
 
-    # 先做一次探测请求，估计平均延迟，决定并发度
-    _, probe_ms = inv.one_tool_call()
+    # Warm one session first so the ~86s cold start is absorbed here (reported as
+    # cold_start_ms) instead of blowing up the latency estimate that sizes the
+    # worker pool. The concurrent workers below intentionally use FRESH sessions —
+    # on-demand cold-start-per-request IS the real behaviour under load, so their
+    # p50/p99 honestly include it.
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    warm_session = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(warm_session, warm_threshold_ms=warm_threshold_ms)
+    # Use the warm session to estimate steady-state latency and pick concurrency.
+    warm_body = protocol.encode_invoke(
+        {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}},
+        spec.mock_base_url,
+        mock_token=spec.mock_token or None,
+        session_id=warm_session,
+    )
+    _t0 = time.perf_counter()
+    try:
+        inv.invoke(warm_session, warm_body)
+    except Exception:
+        pass
+    probe_ms = (time.perf_counter() - _t0) * 1000
+    inv.destroy_session(warm_session)
     estimated_latency_s = max(probe_ms / 1000, 0.1)
-    # 并发度 = target_rps × 估计延迟（Little's Law），上限 32
+    # concurrency = target_rps x estimated latency (Little's Law), capped at 32
     concurrency = min(max(int(target_rps * estimated_latency_s) + 1, 4), 32)
 
     progress_cb(JobProgress("probe", 0, 1, 0.0), {})
@@ -232,6 +379,8 @@ def run_sustained_load(
             "requests": r.requests,
             "duration_s": r.duration_s,
             "target_rps": target_rps,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -239,10 +388,14 @@ def run_sustained_load(
 def run_soak(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """持续可用性探测：在 duration_s 内循环单次调用，统计成功率。"""
+    """Sustained-availability probe: loop single calls for duration_s and track the success rate."""
     duration_s: float = spec.params.get("duration_s", 60.0)
 
     inv = ProbeInvoker(spec)
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     deadline = time.perf_counter() + duration_s
     req_count, errors = 0, 0
     progress_counter = 0
@@ -280,60 +433,242 @@ def run_soak(
             "error_rate": r.error_rate,
             "requests": r.requests,
             "window_s": r.window_s,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
+
+
+# --- idle-retention tiering (T1.5 / T1.14) -----------------------------------
+#
+# AgentRun/FC idle instances are NOT binary hot/cold — the platform docs describe
+# three tiers whose wake cost differs by orders of magnitude:
+#   active / shallow hibernation (shallow) — sub-second, ms-level wake, "almost no cold start"
+#   deep hibernation (deep)                — seconds to recover
+#   instance recycled (recycled/cold)      — full rebuild, ~86s on the next call
+# The idle→destroy threshold is configurable via CreateAgentRuntime's
+# ``sessionIdleTimeoutSeconds`` but its DEFAULT is deliberately undocumented, so an
+# empirical sweep (evidence B) is the only way to learn "how long until it goes
+# cold again". These constants classify a wake latency into a tier relative to the
+# measured warm baseline; all are overridable per-probe via params.
+RETENTION_WARMUP = 5
+# Idle points probed FROM warm; each re-invoke wakes the instance so the next
+# point is idle-from-warm again. Capped so the total sweep stays ~5min (the probe
+# breaks early once it observes a full recycle). Override via wait_intervals_s.
+RETENTION_INTERVALS_S = [30, 120, 300]
+DEEP_WAKE_FACTOR = 3.0  # wake > factor × warm_p95 ⇒ left shallow hibernation
+COLD_WAKE_MS = 15000.0  # wake ≥ this ⇒ instance was recycled (full cold rebuild)
+
+
+def _retention_body(spec: JobSpec, session_id: str) -> dict[str, Any]:
+    """A light, correlation-id-free ``prices`` invoke body for idle probing."""
+    return protocol.encode_invoke(
+        {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}},
+        spec.mock_base_url,
+        mock_token=spec.mock_token or None,
+        session_id=session_id,
+    )
+
+
+def _timed_invoke(inv: ProbeInvoker, session_id: str, body: dict[str, Any]) -> float:
+    """One invoke on ``session_id``; return end-to-end latency in ms (errors → the
+    elapsed time, so a slow-then-failing cold wake still reads as slow)."""
+    t0 = time.perf_counter()
+    try:
+        inv.invoke(session_id, body)
+    except Exception:  # noqa: BLE001 — latency is the signal, not success
+        pass
+    return (time.perf_counter() - t0) * 1000
+
+
+def _classify_wake(
+    wake_ms: float,
+    warm_p95: float,
+    *,
+    cold_ms: float = COLD_WAKE_MS,
+    deep_factor: float = DEEP_WAKE_FACTOR,
+) -> str:
+    """Bucket a post-idle wake latency into shallow / deep / cold."""
+    if wake_ms >= cold_ms:
+        return "cold"
+    if wake_ms > warm_p95 * deep_factor:
+        return "deep"
+    return "shallow"
 
 
 def run_warm_retention(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """多点检测：建立热实例后，依次等待，观察哪个时间点变冷。
+    """Tiered idle sweep: after warming an instance, idle in steps and re-invoke
+    the same session, observing which tier each idle interval drops the instance
+    into (shallow hibernation ms / deep hibernation s / recycled full-cold).
 
-    阈值策略：取 warmup_samples 次热调用的 p95，乘以 2 作为"仍然热"的上限。
-    retention_ms = 最后一次仍然热的等待时间（0 = 完全不保活）。
+    Using ONE stable session (not a fresh one each time) is what actually measures
+    "how long this session's instance stays alive". Every re-invoke wakes the
+    instance, so each interval is "idle wait_s from warm", mapping idle duration ->
+    tier. Break on the first full-cold (recycled) observation (it's dead, no point
+    waiting more). Emits shallow_retention_s / deep_onset_s / cold_recycle_s; if the
+    longest interval is still not recycled, sweep_capped=True (the real recycle
+    window is > the scan cap).
     """
-    warmup: int = spec.params.get("warmup_samples", 5)
-    intervals: list = spec.params.get("wait_intervals_s", [10, 30, 60])
+    warmup: int = spec.params.get("warmup_samples", RETENTION_WARMUP)
+    intervals: list = spec.params.get("wait_intervals_s", RETENTION_INTERVALS_S)
+    cold_ms = float(spec.params.get("cold_wake_ms", COLD_WAKE_MS))
+    deep_factor = float(spec.params.get("deep_wake_factor", DEEP_WAKE_FACTOR))
 
     inv = ProbeInvoker(spec)
     t_start = time.perf_counter()
+    sid = inv.create_session()
+    body = _retention_body(spec, sid)
 
-    # 建立热实例 + 采集基准分布，用 p95×2 作为阈值
+    # Warm an instance + collect a baseline distribution; p95 is the tiering
+    # threshold. The first sample may be a cold start (~86s if the underlying FC
+    # pool is all-cold), reported separately as cold_start_ms; the baseline uses
+    # only the later warm samples, so the cold start isn't dragged into the
+    # tiering threshold (otherwise warm_p95 is inflated and a real recycle gets
+    # misclassified as "still warm").
     warmup_samples: list[float] = []
     for i in range(warmup):
-        _, ms = inv.one_tool_call()
-        warmup_samples.append(ms)
+        warmup_samples.append(_timed_invoke(inv, sid, body))
         elapsed = time.perf_counter() - t_start
         progress_cb(JobProgress("warmup", i + 1, warmup, elapsed), {})
-    warm_p95 = percentiles(warmup_samples)[95]
-    warm_threshold = warm_p95 * 2  # cold start 通常 5-20× warm；2× 保守但足够区分
+    cold_start_ms = round(warmup_samples[0], 2) if warmup_samples else None
+    warm_pool = warmup_samples[1:] if len(warmup_samples) > 1 else warmup_samples
+    warm_p50 = percentiles(warm_pool)[50]
+    warm_p95 = percentiles(warm_pool)[95]
 
-    last_warm_ms = 0.0
-    keeps_warm = False
+    tiers: list[dict[str, Any]] = []
+    shallow_retention_s = 0.0
+    deep_onset_s: float | None = None
+    cold_recycle_s: float | None = None
+    sweep_capped = False
     for idx, wait_s in enumerate(intervals):
         time.sleep(wait_s)
-        _, ms = inv.one_tool_call()
+        ms = _timed_invoke(inv, sid, body)
+        tier = _classify_wake(ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
+        tiers.append({"idle_s": float(wait_s), "wake_ms": round(ms, 2), "tier": tier})
         elapsed = time.perf_counter() - t_start
-        if ms <= warm_threshold:
-            last_warm_ms = wait_s * 1000.0
-            keeps_warm = True
-        progress_cb(
-            JobProgress("idle-probe", idx + 1, len(intervals), elapsed),
-            {"keeps_warm": keeps_warm},
-        )
-        if ms > warm_threshold:
-            break  # 变冷，记录最后一次热点
+        progress_cb(JobProgress("idle-probe", idx + 1, len(intervals), elapsed), {"tier": tier})
+        if tier == "shallow":
+            shallow_retention_s = float(wait_s)
+            if idx == len(intervals) - 1:
+                sweep_capped = True  # longest interval still warm: real window > scan cap
+        elif tier == "deep":
+            if deep_onset_s is None:
+                deep_onset_s = float(wait_s)
+            if idx == len(intervals) - 1:
+                sweep_capped = True  # only reached deep hibernation at the longest interval, not yet recycled
+        else:  # cold — instance recycled, no point idling longer
+            cold_recycle_s = float(wait_s)
+            break
+    inv.destroy_session(sid)
 
     r = RetentionResult(
-        retention_ms=last_warm_ms,
-        keeps_warm=keeps_warm,
+        retention_ms=shallow_retention_s * 1000.0,  # back-compat: shallow window in ms
+        keeps_warm=shallow_retention_s > 0,
     )
-
     return ObservationBundle(
         observations={
             "capability": "supported",
             "retention_ms": r.retention_ms,
             "keeps_warm": r.keeps_warm,
+            "cold_start_ms": cold_start_ms,
+            "warm_p50_ms": round(warm_p50, 2),
+            "shallow_retention_s": shallow_retention_s,
+            "deep_onset_s": deep_onset_s,
+            "cold_recycle_s": cold_recycle_s,
+            "sweep_capped": sweep_capped,
+            "max_idle_s": float(intervals[-1]) if intervals else 0.0,
+            "tiers": tiers,
+        }
+    )
+
+
+def run_idle_timeout_honor(
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+) -> ObservationBundle:
+    """T1.14 — idle-timeout config honor + post-promise decay curve.
+
+    ``sessionIdleTimeoutSeconds`` is a "keep-alive within the promised time"
+    contract: set T seconds and the platform should guarantee the **instance
+    stays warm for T seconds** (recycling after the promise window is the
+    platform's cost freedom, not a breach). So:
+
+      1) Honor check: within the promise window (idle < T, using ~0.8T) re-invoke
+         the same session; still warm -> honored. Going cold inside the promise
+         window = the platform didn't honor its promise -> honored=False.
+      2) Post-promise decay probe: keep re-invoking at 1min / 3min / 5min idle and
+         observe at which interval the instance enters deep hibernation
+         (second-level wake) or goes cold (recycled, full-cold wake). Break on
+         cold, capped at 5min (no point probing longer). This answers "after the
+         promise window, how much longer does the instance stay warm for free".
+    """
+    configured = float(spec.params.get("session_idle_timeout_s", 10.0))
+    # In-promise probe point: idle < configured (default 0.8x, at least 2s).
+    promise_idle = float(spec.params.get("promise_idle_s", max(2.0, configured * 0.8)))
+    # Post-promise decay tiers (seconds): default 1/3/5min, stop on cold, capped at 5min.
+    decay_intervals: list = spec.params.get("decay_intervals_s", [60, 180, 300])
+    cold_ms = float(spec.params.get("cold_wake_ms", COLD_WAKE_MS))
+    deep_factor = float(spec.params.get("deep_wake_factor", DEEP_WAKE_FACTOR))
+
+    inv = ProbeInvoker(spec)
+    t_start = time.perf_counter()
+    sid = inv.create_session()
+    body = _retention_body(spec, sid)
+
+    # First sample may pay cold start (~86s on a cold FC pool); report it
+    # separately and base the warm threshold only on the later warm samples.
+    warm_samples = [_timed_invoke(inv, sid, body) for _ in range(3)]
+    cold_start_ms = round(warm_samples[0], 2)
+    warm_pool = warm_samples[1:]
+    warm_p50 = percentiles(warm_pool)[50]
+    warm_p95 = percentiles(warm_pool)[95]
+    progress_cb(JobProgress("warmup", 3, 3, time.perf_counter() - t_start), {})
+
+    # 1) Honor check: within the promise window (< configured) it should still be warm.
+    time.sleep(promise_idle)
+    promise_ms = _timed_invoke(inv, sid, body)
+    promise_tier = _classify_wake(promise_ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
+    honored = promise_tier == "shallow"  # stayed warm within the promised time = honored
+    progress_cb(JobProgress("promise", 1, 1, time.perf_counter() - t_start), {"tier": promise_tier})
+
+    # 2) Post-promise decay probe: find the interval of deep hibernation / going cold.
+    decay_tiers: list[dict[str, Any]] = []
+    deep_onset_s: float | None = None
+    cold_onset_s: float | None = None
+    decay_capped = False
+    for idx, wait_s in enumerate(decay_intervals):
+        time.sleep(wait_s)
+        ms = _timed_invoke(inv, sid, body)
+        tier = _classify_wake(ms, warm_p95, cold_ms=cold_ms, deep_factor=deep_factor)
+        decay_tiers.append({"idle_s": float(wait_s), "wake_ms": round(ms, 2), "tier": tier})
+        progress_cb(
+            JobProgress("decay", idx + 1, len(decay_intervals), time.perf_counter() - t_start),
+            {"tier": tier},
+        )
+        if tier == "deep" and deep_onset_s is None:
+            deep_onset_s = float(wait_s)
+        if tier == "cold":
+            cold_onset_s = float(wait_s)
+            break
+        if idx == len(decay_intervals) - 1:
+            decay_capped = True  # still not cold at the longest interval (may be shallow/deep)
+
+    inv.destroy_session(sid)
+    return ObservationBundle(
+        observations={
+            "capability": "supported",
+            "configured_idle_s": configured,
+            "promise_idle_s": promise_idle,
+            "promise_wake_ms": round(promise_ms, 2),
+            "promise_tier": promise_tier,
+            "honored": honored,
+            "deep_onset_s": deep_onset_s,
+            "cold_onset_s": cold_onset_s,
+            "decay_capped": decay_capped,
+            "decay_tiers": decay_tiers,
+            "warm_p50_ms": round(warm_p50, 2),
+            "cold_start_ms": cold_start_ms,
         }
     )
 
@@ -341,11 +676,14 @@ def run_warm_retention(
 def run_rate_limit(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """阶梯式并发探测限流：观察首个出现 429 的级别。
+    """Stepped concurrency probe for rate limiting: observe the first level to
+    return 429.
 
-    直接检查 AgentRun 数据面的 HTTP 状态（不经过 run_tool_plan），捕获
-    Retry-After 头，确认 429 合约是否完整。
-    onset_rps = 触发限流的最小并发数（0 = 在测试范围内未触发）。
+    Checks the AgentRun data-plane HTTP status directly (bypassing run_tool_plan),
+    captures the Retry-After header, and confirms whether the 429 contract is
+    complete.
+    onset_rps = the smallest concurrency that triggers throttling
+    (0 = not triggered within the tested range).
     """
     endpoint_url = spec.target_endpoint
     if not endpoint_url:
@@ -361,6 +699,10 @@ def run_rate_limit(
     )
     inv = ProbeInvoker(spec)
     session_obj = inv.session
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     levels: list = spec.params.get("burst_levels", [10, 20, 40, 80])
     onset_rps = 0.0
     retry_after_ms = 0.0
@@ -408,6 +750,8 @@ def run_rate_limit(
             "throttle_onset_rps": r.throttle_onset_rps,
             "retry_after_ms": r.retry_after_ms,
             "honors_429": r.honors_429,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -415,7 +759,8 @@ def run_rate_limit(
 def run_concurrency_ceiling(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """阶梯式并发上限探测：逐步提升并发量，找到拒绝率超阈值的级别。"""
+    """Stepped concurrency-ceiling probe: ramp up concurrency to find the level
+    where the rejection rate exceeds the threshold."""
     endpoint_url = spec.target_endpoint
     if not endpoint_url:
         raise RuntimeError("run_concurrency_ceiling: empty target_endpoint")
@@ -430,6 +775,10 @@ def run_concurrency_ceiling(
     )
     inv = ProbeInvoker(spec)
     session_obj = inv.session
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     levels: list = spec.params.get("burst_levels", [50, 100, 200, 500])
     rejection_threshold: float = spec.params.get("rejection_threshold", 0.1)
 
@@ -474,6 +823,8 @@ def run_concurrency_ceiling(
             "capability": "supported",
             "max_in_flight": r.max_in_flight,
             "hard_limit": r.hard_limit,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -481,13 +832,14 @@ def run_concurrency_ceiling(
 def run_cancellation(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """真实取消探测：用极短超时强制客户端断开，验证端点能从中恢复。
+    """Real cancellation probe: force a client disconnect with a very short
+    timeout and verify the endpoint recovers from it.
 
-    honored=True: 超时异常已抛出 = 客户端取消有效
-    teardown_ran=True: 超时后端点仍可正常响应（session 未损坏）
-    residual: 取消后检测到的异常状态
+    honored=True: a timeout was raised = client cancellation is effective.
+    teardown_ran=True: the endpoint still responds after the timeout (session not corrupted).
+    residual: any abnormal state detected after cancellation.
     """
-    # CLIENT_TIMEOUT_S 远低于任何 AgentRun 数据面调用的实际延迟（通常 300ms+）
+    # CLIENT_TIMEOUT_S is far below any AgentRun data-plane call latency (usually 300ms+).
     CLIENT_TIMEOUT_S: float = spec.params.get("client_timeout_s", 0.1)
 
     endpoint_url = spec.target_endpoint
@@ -495,6 +847,10 @@ def run_cancellation(
         raise RuntimeError("run_cancellation: empty target_endpoint")
 
     inv = ProbeInvoker(spec)
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     residual: list[str] = []
     honored = False
     teardown_ran = False
@@ -560,6 +916,8 @@ def run_cancellation(
             "honored": r.honored,
             "teardown_ran": r.teardown_ran,
             "residual": list(r.residual),
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -567,7 +925,7 @@ def run_cancellation(
 def run_scaling(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
 ) -> ObservationBundle:
-    """弹性探测：在各并发级别跑 N_REPS 次，报告中位 success_rate 和 p95_ms。
+    """Elasticity probe: run N_REPS at each concurrency level and report the median success_rate and p95_ms.
 
     The probe has no control credentials and cannot query instance counts;
     observed_instances is always None (ScalePoint.observed_instances: int | None).
@@ -578,6 +936,10 @@ def run_scaling(
     inter_level_cooldown_s: float = spec.params.get("inter_level_cooldown_s", 5)
 
     inv = ProbeInvoker(spec)
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    _warm_sid = inv.create_session()
+    cold_start_ms, warmed = inv.ensure_warm(_warm_sid, warm_threshold_ms=warm_threshold_ms)
+    inv.destroy_session(_warm_sid)
     base = spec.mock_base_url
     mock_token = spec.mock_token
     body = protocol.encode_invoke(
@@ -655,7 +1017,10 @@ def run_scaling(
             )
 
     points = sorted(points, key=lambda p: p.concurrency)
-    extra = ["AgentRun GetAgentRuntime 不暴露实时实例数，无法观测弹性行为。"]
+    extra = [
+        "AgentRun GetAgentRuntime does not expose live instance counts; "
+        "elasticity behaviour cannot be observed."
+    ]
     return ObservationBundle(
         observations={
             "capability": "supported",
@@ -669,6 +1034,8 @@ def run_scaling(
                 for p in points
             ],
             "instance_visibility_findings": extra,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         },
         series={
             "success_rate": [[p.concurrency, p.success_rate] for p in points],
@@ -707,7 +1074,11 @@ def run_hol_blocking(
     t_start = time.perf_counter()
 
     # ---- Phase A: baseline — fast_count concurrent fast requests, no slow ----
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
     session_a = inv.create_session()
+    # Warm session_a before the baseline burst so fast_p50_baseline is steady-state
+    # (a cold instance would inflate the baseline and mask the HOL ratio).
+    cold_start_ms, warmed = inv.ensure_warm(session_a, warm_threshold_ms=warm_threshold_ms)
 
     def timed_fast(session_id: str, corr: str) -> float:
         body = protocol.encode_invoke(
@@ -746,6 +1117,8 @@ def run_hol_blocking(
         pass  # best-effort; probe continues even if mock unreachable
 
     session_b = inv.create_session()
+    # Warm session_b too so Phase B measures HOL blocking, not session_b's cold start.
+    inv.ensure_warm(session_b, warm_threshold_ms=warm_threshold_ms)
 
     def timed_slow() -> float:
         body = protocol.encode_invoke(
@@ -797,6 +1170,8 @@ def run_hol_blocking(
             "fast_p50_under_slow": r.fast_p50_under_slow,
             "hol_ratio": r.hol_ratio,
             "serialized": r.serialized,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -832,6 +1207,13 @@ def run_fault_recovery(
     session = inv.create_session()
     t_start = time.perf_counter()
 
+    # Warm the session BEFORE injecting the fault so recovery_ms reflects the
+    # steady-state recovery window, not the ~86s cold start. The warm-up traffic
+    # carries no correlation id, so it never lands in this probe's fault corr
+    # bucket. cold_start_ms is reported separately.
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    cold_start_ms, warmed = inv.ensure_warm(session, warm_threshold_ms=warm_threshold_ms)
+
     try:
         import requests as _requests
 
@@ -857,6 +1239,7 @@ def run_fault_recovery(
 
     recovered = False
     platform_terminated = False
+    t_invoke = time.perf_counter()
     try:
         resp = inv.invoke(session, body)
         result = protocol.decode_result(resp)
@@ -869,7 +1252,9 @@ def run_fault_recovery(
     finally:
         inv.destroy_session(session)
 
-    recovery_ms = round((time.perf_counter() - t_start) * 1000, 2)
+    # Warm-path recovery window: time of the single fault-injected invoke only
+    # (the ~86s cold start was absorbed by ensure_warm and is in cold_start_ms).
+    recovery_ms = round((time.perf_counter() - t_invoke) * 1000, 2)
 
     progress_cb(JobProgress("invoke", 2, 3, time.perf_counter() - t_start), {})
 
@@ -896,6 +1281,8 @@ def run_fault_recovery(
             "observed_attempts": observed_attempts,
             "recovery_ms": recovery_ms,
             "platform_terminated": platform_terminated,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )
 
@@ -941,6 +1328,12 @@ def run_retry_storm(
     session = inv.create_session()
     t_start = time.perf_counter()
 
+    # Warm the session BEFORE injecting the fault so duration_ms reflects the
+    # steady-state storm window, not the ~86s cold start. Warm-up traffic carries
+    # no correlation id, so it stays out of this probe's fault corr bucket.
+    warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
+    cold_start_ms, warmed = inv.ensure_warm(session, warm_threshold_ms=warm_threshold_ms)
+
     try:
         import requests as _requests
 
@@ -965,6 +1358,7 @@ def run_retry_storm(
     )
 
     storm_bounded_by = "agent"  # default; may be overridden on Timeout
+    t_invoke = time.perf_counter()
     try:
         inv.invoke(session, body)
         # Invoke completed (agent exhausted retries or succeeded)
@@ -975,7 +1369,9 @@ def run_retry_storm(
     finally:
         inv.destroy_session(session)
 
-    duration_ms = round((time.perf_counter() - t_start) * 1000, 2)
+    # Warm-path storm window: the single retry-storm invoke only (the ~86s cold
+    # start was absorbed by ensure_warm and is reported in cold_start_ms).
+    duration_ms = round((time.perf_counter() - t_invoke) * 1000, 2)
 
     progress_cb(JobProgress("invoke", 2, 3, time.perf_counter() - t_start), {})
 
@@ -1008,5 +1404,7 @@ def run_retry_storm(
             "total_attempts": total_attempts,
             "storm_bounded_by": storm_bounded_by,
             "duration_ms": duration_ms,
+            "cold_start_ms": cold_start_ms,
+            "warmed": warmed,
         }
     )

@@ -48,4 +48,62 @@ def test_bundle_is_json_serializable(report_record):
         generated_at="t",
         profiles=PROFILES,
     )
-    assert json.loads(json.dumps(b.to_dict()))["schema"] == "report-bundle/1.0"
+    assert json.loads(json.dumps(b.to_dict()))["schema"] == "report-bundle/1.1"
+
+
+def test_bundle_mode_and_series(report_record):
+    from clousight_bench.core.reporting.bundle import BUNDLE_SCHEMA, build_bundle
+    from clousight_bench.core.reporting.profiles import PROFILES
+
+    assert BUNDLE_SCHEMA == "report-bundle/1.1"
+    rec = report_record("aliyun-agentrun", "T1.13", execution="live", measurements={"cold_start_ms": 87000.0})
+    series = {
+        "T1.13": {
+            "curve_ms": [
+                {"t": 1, "value": 87000.0, "unit": ""},
+                {"t": 2, "value": 70.0, "unit": ""},
+            ]
+        }
+    }
+    b = build_bundle([rec], results_dir="r", generated_at="t", profiles=PROFILES, series_by_task=series)
+    dom = b.domains[0]
+    assert dom.mode == "single"
+    assert dom.series["T1.13"]["curve_ms"][0]["value"] == 87000.0
+    d = b.to_dict()
+    assert d["domains"][0]["mode"] == "single"
+    assert d["domains"][0]["series"]["T1.13"]["curve_ms"][1]["value"] == 70.0
+
+
+def test_chartspec_split_serialized():
+    from clousight_bench.core.reporting.bundle import ChartSpec
+
+    c = ChartSpec(
+        kind="quadrant",
+        x_label="x",
+        y_label="y",
+        series=[{"name": "p", "x": 1.0, "y": 2.0, "meta": {}}],
+        x_split=1.0,
+        y_split=2.0,
+    )
+    assert c.to_dict()["x_split"] == 1.0 and c.to_dict()["y_split"] == 2.0
+
+
+def test_bundle_notes_and_evidence(report_record):
+    from clousight_bench.core.reporting.bundle import build_bundle
+    from clousight_bench.core.reporting.profiles import PROFILES
+
+    rec = report_record(
+        "aliyun-agentrun",
+        "T1.1",
+        execution="live",
+        measurements={"cold_start_ms": 87000.0},
+        extensions={"core": {"notes": "cold=87s → warm=70ms"}},
+    )
+    b = build_bundle([rec], results_dir="r", generated_at="t", profiles=PROFILES)
+    dom = b.domains[0]
+    assert dom.notes["T1.1"] == "cold=87s → warm=70ms"
+    # evidence flows onto the metric dicts
+    lat = [p for p in dom.panels if p.key == "latency"][0]
+    m = [m for c in lat.cells for m in c.metrics if m["name"] == "cold_start_ms"][0]
+    assert m["evidence"] == "B"
+    assert b.to_dict()["domains"][0]["notes"]["T1.1"] == "cold=87s → warm=70ms"

@@ -50,12 +50,16 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ToolCall,
 )
 from clousight_bench.domains.agent_runtime.adapters.transport import RuntimeTransport
-from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
-
-# --------------------------------------------------------------------------- #
-# Module-level probe-fn cache (lazy-built, same pattern as aliyun.py)
-# --------------------------------------------------------------------------- #
-_PROBE_FNS: dict | None = None
+from clousight_bench.domains.agent_runtime.session_memory import ObjectStoreSessionMemory
+from clousight_bench.domains.agent_runtime.transport_base import (
+    auth_headers as _auth_headers,
+)
+from clousight_bench.domains.agent_runtime.transport_base import (
+    build_pooled_http_session,
+)
+from clousight_bench.domains.agent_runtime.transport_base import (
+    get_probe_fns as _get_probe_fns,
+)
 
 _READY_TIMEOUT_S = 300.0
 _READY_POLL_S = 5.0
@@ -63,29 +67,18 @@ _READY_POLL_S = 5.0
 _SESSION_HEADER = "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id"
 
 
-def _auth_headers(mock_token: str) -> dict[str, str]:
-    return {AUTH_HEADER: mock_token} if mock_token else {}
-
-
-def _get_probe_fns() -> dict:
-    global _PROBE_FNS
-    if _PROBE_FNS is None:
-        from clousight_bench.domains.agent_runtime.probe.server import build_default_runner
-
-        _PROBE_FNS = build_default_runner()._probes
-    return _PROBE_FNS
-
-
 # --------------------------------------------------------------------------- #
 # S3-backed session state (mirrors _LiveMemory in aliyun.py)
 # --------------------------------------------------------------------------- #
 
 
-class _AwsMemory:
-    """S3-backed session state store for AWS AgentCore (mirrors _LiveMemory).
+class _AwsMemory(ObjectStoreSessionMemory):
+    """S3-backed session state for AWS AgentCore.
 
-    Key pattern: ``clousight-bench/state/{run_id}/{session_id}.json``
-    via an injected (or lazily constructed) S3Client.
+    The Aliyun binding of ``ObjectStoreSessionMemory`` over ``S3Client`` (an
+    injected client keeps the suite account-free; ``None`` builds a lazy boto3
+    ``S3Client``). Key layout ``clousight-bench/state/{run_id}/{session_id}.json``
+    and the store/fetch/cleanup loop live in the base class.
     """
 
     def __init__(
@@ -96,41 +89,11 @@ class _AwsMemory:
         *,
         s3_client: Any | None = None,
     ) -> None:
-        self._bucket = bucket
-        self._region = region
-        self._run_id = run_id or "default"
-        self._keys: list[str] = []
-        self._injected_client = s3_client  # None → build lazily from S3Client
+        if s3_client is None:
+            from clousight_bench.domains.agent_runtime.probe.s3_client import S3Client
 
-    def _s3(self) -> Any:
-        if self._injected_client is not None:
-            return self._injected_client
-        from clousight_bench.domains.agent_runtime.probe.s3_client import S3Client
-
-        self._injected_client = S3Client(self._bucket, self._region)
-        return self._injected_client
-
-    def store(self, session_id: str, state: dict[str, Any]) -> None:
-        import json
-
-        key = f"clousight-bench/state/{self._run_id}/{session_id}.json"
-        self._s3().put_object(key, json.dumps(state).encode("utf-8"))
-        if key not in self._keys:
-            self._keys.append(key)
-
-    def fetch(self, session_id: str) -> dict[str, Any]:
-        import json
-
-        key = f"clousight-bench/state/{self._run_id}/{session_id}.json"
-        data = self._s3().get_object(key)
-        return json.loads(data.decode("utf-8"))
-
-    def cleanup(self) -> None:
-        s3 = self._s3()
-        for key in list(self._keys):
-            with contextlib.suppress(Exception):
-                s3.delete_object(key)
-        self._keys.clear()
+            s3_client = S3Client(bucket, region)
+        super().__init__(s3_client, run_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -235,19 +198,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
 
     def _http_session(self) -> Any:
         if self._http is None:
-            try:
-                import requests
-                from requests.adapters import HTTPAdapter
-            except ImportError as exc:
-                raise RuntimeError(
-                    "the 'requests' library is required for data-plane HTTP calls. "
-                    "Install it with: pip install requests"
-                ) from exc
-            s = requests.Session()
-            adapter = HTTPAdapter(pool_connections=4, pool_maxsize=64)
-            s.mount("https://", adapter)
-            s.mount("http://", adapter)
-            self._http = s
+            self._http = build_pooled_http_session()
         return self._http
 
     # ---------------------------------------------------------------------- #

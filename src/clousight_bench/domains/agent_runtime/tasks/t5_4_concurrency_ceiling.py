@@ -51,11 +51,13 @@ class ConcurrencyCeilingTask(Task):
                 scorer_revision=self.scorer_revision,
                 unsupported=True,
             )
+        cold_start_ms = raw.get("cold_start_ms")
         return TaskResult(
             measurements={
                 "ceiling_capability": Measurement(value="supported", unit="", evidence="B"),
                 "max_in_flight": Measurement(value=raw["max_in_flight"], unit="", evidence="B"),
                 "hard_limit": Measurement(value=bool(raw["hard_limit"]), unit="", evidence="B"),
+                "cold_start_ms": Measurement(value=cold_start_ms, unit="ms", evidence="B"),
             },
             notes=f"max_in_flight={raw['max_in_flight']} hard_limit={raw['hard_limit']}",
             task_revision=self.task_revision,

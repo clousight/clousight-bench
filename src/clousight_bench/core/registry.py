@@ -248,9 +248,10 @@ def load_report_renderers() -> dict[str, ReportRenderer]:
     commercial/third-party pack adds more via the ``clousight_bench.report_renderers``
     entry point (e.g. a PDF or a themed HTML renderer)."""
     from clousight_bench.core.reporting.renderers.base import ReportRenderer
+    from clousight_bench.core.reporting.renderers.echarts import EchartsRenderer
     from clousight_bench.core.reporting.renderers.html import HtmlRenderer
 
-    renderers: dict[str, ReportRenderer] = {"html": HtmlRenderer()}
+    renderers: dict[str, ReportRenderer] = {"html": HtmlRenderer(), "echarts": EchartsRenderer()}
     for ep in entry_points(group=REPORT_RENDERER_ENTRY_POINT_GROUP):
         inst = ep.load()()
         if not isinstance(inst, ReportRenderer):

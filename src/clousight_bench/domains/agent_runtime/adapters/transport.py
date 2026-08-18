@@ -41,6 +41,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     FaultRecoveryResult,
     HOLResult,
     IdleCostResult,
+    IdleTimeoutHonorResult,
     InvocationTrace,
     IsolationResult,
     LoadResult,
@@ -52,6 +53,7 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ScalePoint,
     SignalsResult,
     SoakResult,
+    StartupCurveResult,
     ToolCall,
 )
 
@@ -138,6 +140,12 @@ class RuntimeTransport(ABC):
     def probe_fault_recovery(self) -> FaultRecoveryResult:
         raise CapabilityNotSupported("probe_fault_recovery")
 
+    def probe_startup_curve(self, n_calls: int = 8) -> StartupCurveResult:
+        raise CapabilityNotSupported("probe_startup_curve")
+
+    def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> IdleTimeoutHonorResult:
+        raise CapabilityNotSupported("probe_idle_timeout_honor")
+
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
         raise CapabilityNotSupported("probe_retry_storm")
 
@@ -214,6 +222,13 @@ class MockRuntimeTransport(RuntimeTransport):
         warm = cfg.get("warm", {})
         self.warm_retention_ms: float = float(warm.get("retention_ms", 0))
         self.warm_keeps_warm: bool = bool(warm.get("keeps_warm", self.warm_retention_ms > 0))
+        # T1.14 idle-timeout honor: does the platform recycle at the configured
+        # sessionIdleTimeoutSeconds? Default: honored (well-behaved sim).
+        idle = cfg.get("idle_timeout", {})
+        self.idle_honored: bool = bool(idle.get("honored", True))
+        self.idle_configured_s: float = float(idle.get("configured_s", 10.0))
+        self.idle_deep_onset_s = idle.get("deep_onset_s")  # None unless configured
+        self.idle_cold_onset_s = idle.get("cold_onset_s")
         # T1.6 soak: steady-state availability over a window. availability defaults
         # to 1 - error_rate unless set explicitly. Default: perfectly available.
         soak = cfg.get("soak", {})
@@ -433,6 +448,38 @@ class MockRuntimeTransport(RuntimeTransport):
         return RetentionResult(
             retention_ms=round(self.warm_retention_ms, 3),
             keeps_warm=self.warm_keeps_warm,
+        )
+
+    def probe_startup_curve(self, n_calls: int = 8) -> StartupCurveResult:
+        """Deterministic startup-convergence curve from the startup knob (T1.13).
+
+        Call 1 pays ``cold_ms + warm_ms`` (spin-up + processing); every later
+        call pays just ``warm_ms`` (instance reused). The warm threshold sits
+        between the two so the cold call is flagged cold — the real probe uses an
+        absolute ms threshold, but the local-sim knob values are far smaller, so
+        here we derive it relative to the configured cold/warm gap.
+        """
+        cold = round(self.cold_start_ms + self.warm_start_ms, 3)
+        warm = round(self.warm_start_ms, 3)
+        curve: list[tuple[float, bool]] = [(cold, True)] + [(warm, True)] * max(0, n_calls - 1)
+        threshold = (cold + warm) / 2 if cold > warm else cold * 2 + 1
+        return StartupCurveResult.from_curve(curve, threshold)
+
+    def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> IdleTimeoutHonorResult:
+        """Deterministic idle-timeout honor verdict from the ``idle_timeout`` knob.
+
+        A honoring platform stays warm through the promised window; a non-honoring
+        one goes cold inside it (the promise is broken). The configured decay
+        onsets are read from the knob for the post-promise sweep.
+        """
+        warm = round(self.warm_start_ms, 3)
+        cold = round(self.cold_start_ms + self.warm_start_ms, 3)
+        return IdleTimeoutHonorResult(
+            configured_idle_s=self.idle_configured_s,
+            promise_wake_ms=warm if self.idle_honored else cold,
+            honored=self.idle_honored,
+            deep_onset_s=self.idle_deep_onset_s,
+            cold_onset_s=self.idle_cold_onset_s,
         )
 
     def probe_soak(self, duration_s: float) -> SoakResult:

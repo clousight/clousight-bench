@@ -46,6 +46,10 @@ not be merged:
 ## Commercial plugins
 
 Commercial plugins are developed in a separate private repository and are not
-required to run anything in this one. The open-source core never depends on any
-commercial plugin; plugins depend on the core only through the published plugin
-API and data contract.
+required to run anything in this one. The reproducibility mechanisms — including
+the real-cloud adapters, the probe carrier, the resource reaper and the seed
+pricing enricher — live here in the open core. The commercial layer is *data and
+service*, not withheld code: a fuller / fresher price feed, token-gated private
+and held-out datasets, and managed SaaS. The open-source core never depends on
+any commercial plugin; plugins depend on the core only through the published
+plugin API and data contract.

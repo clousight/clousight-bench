@@ -330,7 +330,7 @@ def test_retry_storm_local_sim_e2e(tmp_path):
 
 
 def test_retry_storm_score_none_is_error():
-    """score() with storm_bounded_by='none' → error finding '无界重试风暴风险'."""
+    """score() with storm_bounded_by='none' → error finding 'unbounded retry storm risk'."""
     from clousight_bench.core.observation import ObservationBundle
     from clousight_bench.domains.agent_runtime.tasks.t1_10_retry_storm import RetryStormTask
 
@@ -348,8 +348,8 @@ def test_retry_storm_score_none_is_error():
     # Check severity is critical (framework maps "error" → "critical")
     unbounded = next(f for f in result.findings if f.code == "agent_runtime.retry_storm_unbounded")
     assert unbounded.severity == "critical"
-    # Check Chinese message is present
-    assert "无界重试风暴风险" in unbounded.summary
+    # Check the summary message is present
+    assert "unbounded retry storm risk" in unbounded.summary
 
 
 def test_retry_storm_score_platform_is_info():

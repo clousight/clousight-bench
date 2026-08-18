@@ -6,14 +6,17 @@ endpoint, the platform docs, and the minimal RAM/IAM action map per benchmark.
 The shared body owns credential resolution, endpoint resolution, the mock<->real
 transport switch, preflight, and the runtime-op delegation.
 
-Status stays ``skeleton`` because the *real* transport is not wired to a live
-account yet: ``csbench run`` refuses these platforms in real mode up front. But
-``mode: mock`` runs them end-to-end via the shared simulated runtime, so the
-whole harness (identity + endpoint + permission plumbing included) is
-exercisable without an account. Wiring the real path means implementing
-``NotWiredCloudTransport``'s ops against the platform SDK; it must NOT touch
-tasks/ or scoring -- the runtime's own retry / session / trace behaviour is what
-gets measured, so it is surfaced as observed, never re-implemented.
+``aliyun-agentrun`` is ``experimental``: its runtime provider is registered in
+the open core and has run a full 27-task live campaign (``cn-hangzhou``,
+2026-08-15). ``huawei-agentarts`` / ``volcengine-agentkit`` stay ``skeleton``
+because their real transport is not wired to a live account yet: ``csbench run``
+refuses a skeleton platform in real mode up front. Either way ``mode: mock`` runs
+them end-to-end via the shared simulated runtime, so the whole harness (identity
++ endpoint + permission plumbing included) is exercisable without an account.
+Wiring the real path means implementing ``NotWiredCloudTransport``'s ops against
+the platform SDK; it must NOT touch tasks/ or scoring -- the runtime's own retry
+/ session / trace behaviour is what gets measured, so it is surfaced as observed,
+never re-implemented.
 
 Common target keys (configs/agent-runtime.*.example.yaml):
     mode           "real" (default) | "mock"
@@ -38,7 +41,7 @@ class AliyunAgentRunAdapter(ManagedAgentRuntimeAdapter):
     """Aliyun AgentRun (GA). Sessions map to AgentRun runtime sessions."""
 
     name = "aliyun-agentrun"
-    status = "skeleton"
+    status = "experimental"
     provider = "aliyun"
     endpoint_service = "agentrun"  # control plane: agentrun.<region>.aliyuncs.com
     data_endpoint_service = "agentrun-data"  # data plane (invoke): agentrun-data.<region>...

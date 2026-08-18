@@ -101,3 +101,36 @@ def test_unreadable_and_non_record_files_are_skipped(tmp_path):
     (tmp_path / "migration-manifest.json").write_text("{}", encoding="utf-8")
     (tmp_path / "junk.json").write_text("not json", encoding="utf-8")
     assert "No schema 0.2 results found" in generate_report(tmp_path)
+
+
+def test_load_series_reads_flat_and_nested(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from clousight_bench.core.report import _load_series
+
+    def write(p, task):
+        pq.write_table(
+            pa.table(
+                {
+                    "task_id": [task, task],
+                    "series": ["curve_ms", "curve_ms"],
+                    "t": [1, 2],
+                    "value": [87000.0, 70.0],
+                    "unit": ["", ""],
+                }
+            ),
+            p,
+        )
+
+    write(tmp_path / "T1.13.series.parquet", "T1.13")
+    nested = tmp_path / "agent-runtime" / "x" / "run-1"
+    nested.mkdir(parents=True)
+    write(nested / "series.parquet", "T0.1")
+
+    got = _load_series(tmp_path)
+    assert got["T1.13"]["curve_ms"] == [
+        {"t": 1, "value": 87000.0, "unit": ""},
+        {"t": 2, "value": 70.0, "unit": ""},
+    ]
+    assert "T0.1" in got

@@ -113,6 +113,15 @@ def validate_sidecar(results_dir: Path, payload: dict[str, Any]) -> tuple[Path |
     path = (root / relpath).resolve()
     if not path.is_relative_to(root):
         return None, "sidecar path escapes the results directory"
+    # `csbench fetch` writes the parquet flat as `<task_id>.series.parquet`, so
+    # the record's nested pointer path won't exist. Fall back to the flat file;
+    # the sha256/row checks below still run, so integrity is preserved either way.
+    if not path.exists():
+        task_id = payload.get("identity", {}).get("task_id")
+        if isinstance(task_id, str) and task_id:
+            flat = (root / f"{task_id}.series.parquet").resolve()
+            if flat.is_relative_to(root) and flat.exists():
+                path = flat
     try:
         data = path.read_bytes()
     except OSError as exc:

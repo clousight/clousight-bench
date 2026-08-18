@@ -64,6 +64,7 @@ class CancellationTask(Task):
                 scorer_revision=self.scorer_revision,
                 unsupported=True,
             )
+        cold_start_ms = raw.get("cold_start_ms")
         honored = bool(raw["honored"])
         teardown = bool(raw["teardown_ran"])
         residual = list(raw["residual"])
@@ -94,6 +95,7 @@ class CancellationTask(Task):
                 "cancellation_honored": Measurement(value=honored, unit="", evidence="B"),
                 "teardown_on_cancel": Measurement(value=teardown, unit="", evidence="B"),
                 "residual_on_cancel": Measurement(value=len(residual), unit="", evidence="B"),
+                "cold_start_ms": Measurement(value=cold_start_ms, unit="ms", evidence="B"),
             },
             findings=findings,
             notes=(f"honored={honored} teardown={teardown} residual={len(residual)}"),

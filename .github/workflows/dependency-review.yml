@@ -1,0 +1,21 @@
+name: dependency-review
+
+# Flag known-vulnerable or license-incompatible dependencies introduced by a PR,
+# before they land on main. Complements Dependabot (which updates existing deps).
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dependency review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high

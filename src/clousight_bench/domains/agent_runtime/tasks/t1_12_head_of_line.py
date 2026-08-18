@@ -62,6 +62,10 @@ class HOLBlockingTask(Task):
         fast_p50_baseline = float(raw.get("fast_p50_baseline", 0.0))
         fast_p50_under_slow = float(raw.get("fast_p50_under_slow", 0.0))
         hol_ratio = float(raw.get("hol_ratio", 0.0))
+        # Both baseline and under-slow phases warm their session first, so these
+        # p50s are steady-state; the ~86s cold start is reported separately (None
+        # on local-sim, which has no cold-start phase).
+        cold_start_ms = raw.get("cold_start_ms")
 
         findings: list[Finding] = []
         if serialized:
@@ -69,7 +73,9 @@ class HOLBlockingTask(Task):
                 Finding(
                     code="agent_runtime.hol_blocking",
                     severity="warning",
-                    summary="平台会话层队头阻塞: fast requests delayed ≥2× vs baseline",
+                    summary=(
+                        "platform session-layer head-of-line blocking: fast requests delayed ≥2× vs baseline"
+                    ),
                     evidence="B",
                     details={
                         "fast_p50_baseline_ms": fast_p50_baseline,
@@ -91,6 +97,7 @@ class HOLBlockingTask(Task):
                 ),
                 "hol_ratio": Measurement(value=hol_ratio, unit="ratio", evidence="B"),
                 "serialized": Measurement(value=serialized, unit="", evidence="B"),
+                "cold_start_ms": Measurement(value=cold_start_ms, unit="ms", evidence="B"),
             },
             findings=findings,
             notes=(

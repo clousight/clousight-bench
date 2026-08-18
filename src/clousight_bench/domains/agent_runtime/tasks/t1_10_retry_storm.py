@@ -68,6 +68,10 @@ class RetryStormTask(Task):
         total_attempts: int = int(raw.get("total_attempts", 0))
         storm_bounded_by: str = str(raw.get("storm_bounded_by", "agent"))
         duration_ms: float = float(raw.get("duration_ms", 0.0))
+        # duration_ms is now the warm-path storm window; the ~86s cold start is
+        # absorbed by the probe's ensure_warm and reported separately (None on
+        # local-sim, which has no cold-start phase).
+        cold_start_ms = raw.get("cold_start_ms")
 
         findings: list[Finding] = []
 
@@ -76,10 +80,7 @@ class RetryStormTask(Task):
                 Finding(
                     code="agent_runtime.retry_storm_unbounded",
                     severity="critical",
-                    summary=(
-                        "无界重试风暴风险"
-                        " (unbounded retry storm risk — total_attempts exceeded agent contract)"
-                    ),
+                    summary="unbounded retry storm risk — total_attempts exceeded agent contract",
                     evidence="B",
                     details={
                         "total_attempts": total_attempts,
@@ -94,10 +95,7 @@ class RetryStormTask(Task):
                 Finding(
                     code="agent_runtime.retry_storm_platform_bounded",
                     severity="info",
-                    summary=(
-                        "平台 timeout 在 agent 耗尽重试前终止 invoke"
-                        " (platform bounded storm via invoke timeout)"
-                    ),
+                    summary="platform bounded storm via invoke timeout",
                     evidence="B",
                     details={
                         "total_attempts": total_attempts,
@@ -113,6 +111,7 @@ class RetryStormTask(Task):
                 "total_attempts": Measurement(value=total_attempts, unit="count", evidence="B"),
                 "storm_bounded_by": Measurement(value=storm_bounded_by, unit="", evidence="B"),
                 "duration_ms": Measurement(value=duration_ms, unit="ms", evidence="B"),
+                "cold_start_ms": Measurement(value=cold_start_ms, unit="ms", evidence="B"),
             },
             findings=findings,
             notes=(

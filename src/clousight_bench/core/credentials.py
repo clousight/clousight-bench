@@ -29,6 +29,10 @@ PROVIDER_CREDENTIALS: dict[str, dict[str, Any]] = {
         "profile_env": "ALIBABA_CLOUD_PROFILE",
         "cred_files": ["~/.alibabacloud/credentials", "~/.aliyun/config.json"],
         "sdk_module": "alibabacloud_credentials",
+        # Env var(s) that signal "use this instance's ECS/ECI RAM role" — the
+        # alibabacloud default chain (and our adapter's CredClient) read the role
+        # off the metadata service, so no static secret lives on the box.
+        "role_env": ["ALIBABA_CLOUD_ECS_METADATA"],
         "docs": "https://help.aliyun.com/zh/sdk/developer-reference/configure-credentials",
     },
     "huawei": {
@@ -87,6 +91,24 @@ def resolve_credentials(target: dict[str, Any], platform: str | None = None) -> 
             remediation="set target.provider to one of: " + ", ".join(PROVIDER_CREDENTIALS),
         )
     spec = PROVIDER_CREDENTIALS[provider]
+
+    # 0) instance / ECS RAM role: the SDK default chain uses the role attached to
+    # THIS machine (no static secret on the box). Detected by the provider's
+    # role-signal env var (e.g. ALIBABA_CLOUD_ECS_METADATA, which the alibabacloud
+    # chain reads to load the instance role). The real adapter honors it, so
+    # preflight must too — else an in-region controller running on its instance
+    # role can never pass preflight even though its SDK calls would succeed. This
+    # is checked BEFORE auth_env so a configured-but-unset auth_env (the norm on a
+    # role-only box) doesn't hard-fail the run.
+    role_hit = [n for n in (spec.get("role_env") or []) if os.environ.get(n)]
+    if role_hit:
+        return CredentialResolution(
+            provider,
+            True,
+            "instance_role",
+            identity_hint="role_env:" + ",".join(role_hit),
+            detail={"role_env": role_hit},
+        )
 
     # 1) explicit escape hatch: auth_env maps logical names -> env var names.
     auth_env = target.get("auth_env") or {}

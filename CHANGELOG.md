@@ -2,9 +2,9 @@
 
 All notable changes to Clousight Bench are recorded here.
 
-## 0.2.0 — Unreleased
+## 0.2.0 — 2026-08-17
 
-Developer-preview reset before the first public release.
+Developer-preview reset; the first public release.
 
 ### Added
 
@@ -59,6 +59,10 @@ Developer-preview reset before the first public release.
   `csbench conformance --domain <d> [--platform]` checks an installed domain
   against the contract (both built-in domains pass in CI). Workload sandboxing
   and path/URI allow-listing remain out of scope for this slice.
+- `agent-runtime`: `aliyun-agentrun` promoted `skeleton` → `experimental` — its
+  in-tree runtime provider ran a full 27-task **live** campaign (`cn-hangzhou`:
+  25 `completed` + 2 honestly `unsupported`), the first real-cloud numbers. The
+  live path is validated but not yet promoted to `wired`.
 - `agent-runtime`: three more dimensions on the 0.2 contract, for eight total on
   `local-sim` — T1.1 cold/warm start latency, T5.1 cost attribution (emits usage
   measurements the pricing enricher prices), T5.2 elasticity under concurrency.
@@ -76,6 +80,16 @@ Developer-preview reset before the first public release.
   protocol helper) and a `synthetic-sampler` reference workload.
 - `csbench rollup <run_dir> [--bucket-s N]` downsamples a run's `series.parquet`
   into `series_rollup.parquet` (avg/p99/max/count per bucket); needs `[store]`.
+- Result store & analytics (optional `[store]` extra): high-frequency `series`
+  are written as `series.parquet` sidecars, and `csbench query "<sql>"` /
+  `csbench export <view> --out f.parquet` run DuckDB SQL over flattened
+  `records` / `measurements` / `findings` / `series` views for cross-cloud
+  analysis or notebook/BI export (see `docs/querying.md`). Cost is surfaced on a
+  **list → discount → net** axis (`CLOUSIGHT_PRICING_DATA` / `CLOUSIGHT_PRICING_DISCOUNTS`).
+- Reporting: alongside the Markdown report, a self-contained **HTML/ECharts
+  renderer** (now the default) with bilingual labels, a per-dimension matrix,
+  capability matrix and quadrant / time-series / stacked-bar panels, plus a cost
+  column and red flags — no external assets, one openable file.
 - `docs/dataset-tiers.md`: the open-seed vs. private-held-out dataset policy.
 - Project is a typed package: ships a `py.typed` marker (PEP 561) so downstream
   consumers get type information; CI enforces `mypy` on the source.
@@ -169,5 +183,6 @@ Developer-preview reset before the first public release.
 ### Compatibility
 
 - Package version is pre-1.0.
-- Result schema is now `0.2` (migrate `1.0` files with `csbench migrate-results`);
-  the plugin API stays `1.0` until Phase 1D.
+- Result schema is now `0.2` (migrate `1.0` files with `csbench migrate-results`).
+- Plugin API is `1.0`; Phase 1D (in this release) adds version-range negotiation
+  and conflict detection around it without bumping the version.

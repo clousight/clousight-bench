@@ -81,7 +81,7 @@ def test_oss_auth_bridges_the_default_chain_incl_sts_token():
     # OSS auth uses the same alibabacloud_credentials default chain as AgentRun,
     # so AK, CLI profile, OIDC, instance role AND STS temporary credentials all
     # work -- the security_token is carried through (that is what makes STS /
-    # 本机临时 credentials work for uploads, not just static AccessKeys).
+    # instance temporary credentials work for uploads, not just static AccessKeys).
     from clousight_bench.domains.agent_runtime.artifact import _ChainCredentialsProvider
 
     class _FakeCred:
@@ -134,15 +134,20 @@ def test_build_vendor_dir_falls_back_to_pip_when_uv_missing(tmp_path, monkeypatc
     raise FileNotFoundError. Regression: subprocess.run raises before the
     returncode check, so the loop has to catch it and try the next installer."""
     import subprocess
+    import sys
 
-    seen: list[str] = []
+    seen: list[list[str]] = []
 
     def fake_run(cmd, **kwargs):
-        seen.append(cmd[0])
+        seen.append(list(cmd))
         if cmd[0] == "uv":
             raise FileNotFoundError(2, "No such file or directory", "uv")
         return subprocess.CompletedProcess(cmd, 0, b"", b"")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     artifact._build_vendor_dir(tmp_path / "vendor")
-    assert seen == ["uv", "pip"]  # tried uv, then fell back to pip
+    # tried uv, then fell back to THIS interpreter's pip (never a bare `pip`,
+    # which isn't on PATH on the in-region controller).
+    assert seen[0][0] == "uv"
+    assert seen[1][:3] == [sys.executable, "-m", "pip"]
+    assert len(seen) == 2

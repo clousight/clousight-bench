@@ -64,6 +64,10 @@ class FaultRecoveryTask(Task):
         observed_attempts: int = int(raw.get("observed_attempts", 0))
         recovery_ms: float = float(raw.get("recovery_ms", 0.0))
         platform_terminated: bool = bool(raw.get("platform_terminated", False))
+        # recovery_ms is now the warm-path recovery window; the ~86s cold start is
+        # absorbed by the probe's ensure_warm and reported separately (None on
+        # local-sim, which has no cold-start phase).
+        cold_start_ms = raw.get("cold_start_ms")
 
         findings: list[Finding] = []
 
@@ -73,8 +77,8 @@ class FaultRecoveryTask(Task):
                     code="agent_runtime.platform_timeout_recovery",
                     severity="warning",
                     summary=(
-                        "平台 timeout 在 agent 恢复窗口内杀掉 invoke"
-                        " (platform terminated invoke during recovery)"
+                        "platform terminated invoke during recovery "
+                        "(timeout killed the invoke inside the agent's recovery window)"
                     ),
                     evidence="B",
                     details={"recovery_ms": recovery_ms},
@@ -101,6 +105,7 @@ class FaultRecoveryTask(Task):
                 "observed_attempts": Measurement(value=observed_attempts, unit="count", evidence="B"),
                 "recovery_ms": Measurement(value=round(recovery_ms, 2), unit="ms", evidence="B"),
                 "platform_terminated": Measurement(value=platform_terminated, unit="", evidence="B"),
+                "cold_start_ms": Measurement(value=cold_start_ms, unit="ms", evidence="B"),
             },
             findings=findings,
             notes=(

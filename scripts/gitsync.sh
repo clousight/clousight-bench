@@ -11,18 +11,59 @@
 # Auth uses this machine's `gh` (which is wired as git's credential helper for
 # github.com). Nothing here stores a token.
 #
+# Maintainer identity is enforced: GitHub maps commit emails to accounts, so a
+# personal Gmail on this machine would show as a personal GitHub user. Every
+# GitHub-touching command must run as clousight-dev, and commits use that
+# account's noreply address.
+#
+# Landing on main is squash-merge only. `push` refuses the `main` branch — push
+# a feature branch, open a PR, then `merge` (defaults to --squash).
+#
 # Usage:
-#   scripts/gitsync.sh commit "message"          # git add -A && git commit
-#   scripts/gitsync.sh push [git-push args]       # push current branch
+#   scripts/gitsync.sh commit "message"          # git add -A && git commit -s
+#   scripts/gitsync.sh push [git-push args]       # push current branch (not main)
 #   scripts/gitsync.sh pull [git-pull args]       # ff-only pull current branch
 #   scripts/gitsync.sh pr "title" "body" [flags]  # gh pr create (head=current, base=main)
-#   scripts/gitsync.sh merge <num> [flags]        # gh pr merge
+#   scripts/gitsync.sh merge <num> [flags]        # gh pr merge (defaults to --squash)
 #   scripts/gitsync.sh checks <num> [flags]       # gh pr checks
 #   scripts/gitsync.sh status [flags]             # gh pr status
 #   scripts/gitsync.sh repo                       # print the resolved slug
 set -euo pipefail
 
 die() { echo "gitsync: $*" >&2; exit 2; }
+
+ALLOWED_GH_USER="clousight-dev"
+GIT_IDENTITY_NAME="Clousight"
+GIT_IDENTITY_EMAIL="306954191+clousight-dev@users.noreply.github.com"
+
+_require_gh_user() {
+  local login
+  login="$(gh api user --jq .login 2>/dev/null)" \
+    || die "gh is not authenticated; run: gh auth login"
+  [[ -n "$login" ]] || die "gh returned an empty login; run: gh auth status"
+  [[ "$login" == "$ALLOWED_GH_USER" ]] \
+    || die "active gh account is '$login'; switch with: gh auth switch --user $ALLOWED_GH_USER"
+}
+
+_ensure_local_identity() {
+  local name email
+  name="$(git config --local --get user.name 2>/dev/null || true)"
+  email="$(git config --local --get user.email 2>/dev/null || true)"
+  [[ "$name" == "$GIT_IDENTITY_NAME" ]] || git config --local user.name "$GIT_IDENTITY_NAME"
+  [[ "$email" == "$GIT_IDENTITY_EMAIL" ]] || git config --local user.email "$GIT_IDENTITY_EMAIL"
+}
+
+_apply_commit_identity() {
+  export GIT_AUTHOR_NAME="$GIT_IDENTITY_NAME"
+  export GIT_AUTHOR_EMAIL="$GIT_IDENTITY_EMAIL"
+  export GIT_COMMITTER_NAME="$GIT_IDENTITY_NAME"
+  export GIT_COMMITTER_EMAIL="$GIT_IDENTITY_EMAIL"
+}
+
+_gate() {
+  _require_gh_user
+  _ensure_local_identity
+}
 
 command -v gh >/dev/null || die "gh CLI not found on PATH"
 toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git repo"
@@ -52,31 +93,49 @@ cmd="${1:-}"
 [[ -n "$cmd" ]] && shift || true
 case "$cmd" in
   commit)
+    _gate
+    _apply_commit_identity
     git add -A
-    git commit "$@"
+    git commit -s "$@"
     ;;
   push)
+    _gate
+    [[ "$(branch)" != "main" ]] \
+      || die "refusing to push 'main'; land via a feature branch: gitsync push && gitsync pr \"title\" \"body\" && gitsync merge <num>"
     _ephemeral_remote
     git push "$REMOTE" "HEAD:$(branch)" "$@"
     ;;
   pull)
+    _gate
     _ephemeral_remote
     git pull --ff-only "$REMOTE" "$(branch)" "$@"
     ;;
   pr)
     [[ $# -ge 2 ]] || die 'usage: gitsync pr "<title>" "<body>" [gh flags]'
+    _gate
     title="$1"; body="$2"; shift 2
     _ephemeral_remote
     gh pr create -R "$SLUG" --head "$(branch)" --base main \
       --title "$title" --body "$body" "$@"
     ;;
   merge)
-    gh pr merge -R "$SLUG" "$@"
+    _gate
+    method=0
+    for a in "$@"; do
+      case "$a" in --squash|--merge|--rebase) method=1 ;; esac
+    done
+    if [[ $method -eq 0 ]]; then
+      gh pr merge -R "$SLUG" --squash "$@"
+    else
+      gh pr merge -R "$SLUG" "$@"
+    fi
     ;;
   checks)
+    _gate
     gh pr checks -R "$SLUG" "$@"
     ;;
   status)
+    _gate
     gh pr status -R "$SLUG" "$@"
     ;;
   repo)

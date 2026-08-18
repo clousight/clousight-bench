@@ -45,11 +45,14 @@ def test_adapter_status_distinguishes_reference_from_skeleton():
     assert agent["local-sim"].status == "reference"
     assert agent["local-sim"].provider is None
     assert agent["local-sim"].is_runnable()
-    assert agent["aliyun-agentrun"].status == "skeleton"
+    # aliyun-agentrun is experimental (its provider ran a live campaign), so it is
+    # runnable; huawei/volcengine stay pure skeletons (rejected before preflight).
+    assert agent["aliyun-agentrun"].status == "experimental"
     assert agent["aliyun-agentrun"].provider == "aliyun"
-    assert not agent["aliyun-agentrun"].is_runnable()
+    assert agent["aliyun-agentrun"].is_runnable()
     assert agent["huawei-agentarts"].status == "skeleton"
     assert agent["huawei-agentarts"].provider == "huawei"
+    assert not agent["huawei-agentarts"].is_runnable()
     assert agent["volcengine-agentkit"].status == "skeleton"
     assert agent["volcengine-agentkit"].provider == "volcengine"
     assert bigdata["local-process"].status == "reference"

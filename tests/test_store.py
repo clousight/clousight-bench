@@ -137,3 +137,44 @@ def test_series_inline_when_store_unavailable(tmp_path, monkeypatch):
     store_mod.ResultStore(tmp_path).persist(_rec(series={"latency_ms": [[1, 10.0]]}))
     record_json = json.loads((tmp_path / "agent-runtime" / "local-sim" / "T1.3-run-x.json").read_text())
     assert record_json["series"] == {"latency_ms": [[1, 10.0]]}
+
+
+def test_validate_sidecar_accepts_flat_fetch_layout(tmp_path):
+    import hashlib
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from clousight_bench.core.store import validate_sidecar
+
+    tbl = pa.table({"series": ["m"], "t": [1], "value": [1.0], "unit": [""]})
+    flat = tmp_path / "T9.9.series.parquet"
+    pq.write_table(tbl, flat)
+    data = flat.read_bytes()
+    payload = {
+        "identity": {"task_id": "T9.9"},
+        "series": {
+            "$parquet": "agent-runtime/x/run-1/series.parquet",
+            "sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
+            "rows": 1,
+        },
+    }
+    path, err = validate_sidecar(tmp_path, payload)
+    assert err is None
+    assert path == flat.resolve()
+
+
+def test_validate_sidecar_flat_still_checks_sha(tmp_path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from clousight_bench.core.store import validate_sidecar
+
+    tbl = pa.table({"series": ["m"], "t": [1], "value": [1.0], "unit": [""]})
+    pq.write_table(tbl, tmp_path / "T9.9.series.parquet")
+    payload = {
+        "identity": {"task_id": "T9.9"},
+        "series": {"$parquet": "nope/series.parquet", "sha256": "sha256:deadbeef", "rows": 1},
+    }
+    _, err = validate_sidecar(tmp_path, payload)
+    assert err == "sidecar sha256 mismatch"

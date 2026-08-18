@@ -58,34 +58,30 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     ToolCall,
 )
 from clousight_bench.domains.agent_runtime.adapters.transport import RuntimeTransport
+from clousight_bench.domains.agent_runtime.campaign_probe_base import (
+    CampaignProbeOrchestrator,
+    _published_code_spec,
+    _truthy,
+)
 from clousight_bench.domains.agent_runtime.ecs_carrier import (
     Ecs20140526Sdk,
     EcsCarrierConfig,
     EcsProbeCarrier,
 )
-from clousight_bench.domains.agent_runtime.mock_tools import AUTH_HEADER
+from clousight_bench.domains.agent_runtime.session_memory import ObjectStoreSessionMemory
+from clousight_bench.domains.agent_runtime.transport_base import (
+    auth_headers as _auth_headers,
+)
+from clousight_bench.domains.agent_runtime.transport_base import (
+    build_pooled_http_session,
+)
+from clousight_bench.domains.agent_runtime.transport_base import (
+    get_probe_fns as _get_probe_fns,
+)
 
 _SDK_PACKAGE = "alibabacloud-agentrun20250910"
 _READY_TIMEOUT_S = 300.0
 _READY_POLL_S = 3.0
-
-# Module-level cache: built once at first use, not at import, to avoid the
-# import-time cost of building the runner when this module is merely loaded.
-_PROBE_FNS: dict | None = None
-
-
-def _auth_headers(mock_token: str) -> dict[str, str]:
-    """Return the auth header dict for direct control-plane calls to the mock server."""
-    return {AUTH_HEADER: mock_token} if mock_token else {}
-
-
-def _get_probe_fns() -> dict:
-    global _PROBE_FNS
-    if _PROBE_FNS is None:
-        from clousight_bench.domains.agent_runtime.probe.server import build_default_runner
-
-        _PROBE_FNS = build_default_runner()._probes
-    return _PROBE_FNS
 
 
 class _SdkMissing(RuntimeError):
@@ -120,97 +116,64 @@ def _p95(values: list[float]) -> float:
     return ordered[idx]
 
 
-class _LiveMemory:
-    """OSS 기반 세션 상태 저장소.
+class _LiveMemory(ObjectStoreSessionMemory):
+    """OSS-backed session state for AgentRun.
 
-    AgentRun의 Memory Collection API는 RAG/벡터 시스템으로 단순 K/V 세션 상태용이
-    아닙니다. 대신 이미 확보된 OSS 버킷을 사용합니다:
-      - store: clousight-bench/state/{session_id}.json 에 PUT
-      - fetch: 동일 경로에서 GET
-    T1.2는 '상태가 세션 간에 유지되는가'를 테스트하며, OSS는 진짜 영속성을 제공합니다.
-    상태 파일은 teardown 시 정리됩니다.
+    AgentRun's Memory Collection API is a RAG/vector store, not a plain K/V, so
+    T1.2 (does state persist across sessions?) uses the OSS bucket the adapter
+    already has. This is the Aliyun binding of ``ObjectStoreSessionMemory`` over
+    ``Oss2Client`` (public endpoint, shared credential chain); the key layout and
+    store/fetch/cleanup live in the base class. State files are cleaned up at
+    teardown.
     """
 
     def __init__(self, bucket: str, region: str, run_id: str | None = None) -> None:
-        self._bucket = bucket
-        self._region = region
-        self._run_id = run_id
-        self._keys: list[str] = []
+        from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
-    def _oss_bucket(self) -> Any:
-        import oss2
-        from alibabacloud_credentials.client import Client as CredClient
-
-        from clousight_bench.domains.agent_runtime.probe.oss_client import _ChainCredentialsProvider
-
-        auth = oss2.ProviderAuthV4(_ChainCredentialsProvider(CredClient()))
-        endpoint = f"https://oss-{self._region}.aliyuncs.com"
-        return oss2.Bucket(auth, endpoint, self._bucket, region=self._region)
-
-    def store(self, session_id: str, state: dict[str, Any]) -> None:
-        import json
-
-        key = f"clousight-bench/state/{self._run_id or 'default'}/{session_id}.json"
-        self._oss_bucket().put_object(key, json.dumps(state).encode("utf-8"))
-        if key not in self._keys:
-            self._keys.append(key)
-
-    def fetch(self, session_id: str) -> dict[str, Any]:
-        import json
-
-        key = f"clousight-bench/state/{self._run_id or 'default'}/{session_id}.json"
-        result = self._oss_bucket().get_object(key)
-        return json.loads(result.read().decode("utf-8"))
-
-    def cleanup(self) -> None:
-        """teardown 시 저장된 상태 파일 정리."""
-        bucket = self._oss_bucket()
-        for key in self._keys:
-            try:
-                bucket.delete_object(key)
-            except Exception:
-                pass
-        self._keys.clear()
+        super().__init__(Oss2Client(bucket, region), run_id)
 
 
 class _LiveMcp:
-    """AgentRun MCP：基于预注册模板，不支持动态工具注册。
+    """AgentRun MCP: template-based, no dynamic tool registration.
 
-    AgentRun 的 MCP 通过 ActivateTemplateMCP 激活已有模板。T2.1 的 _TOOL_SPEC
-    是任意工具定义，不对应已注册的模板名称，因此此路径报告为"能力不支持"。
-    这是平台真实行为的如实记录，不是 bug。
+    AgentRun's MCP activates a pre-registered template via ActivateTemplateMCP.
+    T2.1's _TOOL_SPEC is an arbitrary tool definition that does not map to a
+    registered template name, so this path is reported as CapabilityNotSupported.
+    That is a faithful record of the platform's real behaviour, not a bug.
     """
 
     def __init__(self, client_factory: Any = None) -> None:
-        self._client_factory = client_factory  # 注入真实 SDK client（可测试）
+        self._client_factory = client_factory  # inject a real SDK client (testable)
 
     def activate(self, name: str, spec: dict[str, Any]) -> bool:
         if self._client_factory is None:
             raise CapabilityNotSupported(
-                "register_tool[mcp]: AgentRun MCP 使用预注册模板（ActivateTemplateMCP），"
-                "不支持动态工具注册。请在 AgentRun 控制台预先创建 MCP 模板后再调用。"
+                "register_tool[mcp]: AgentRun MCP uses pre-registered templates "
+                "(ActivateTemplateMCP); dynamic tool registration is not supported. "
+                "Pre-create an MCP template in the AgentRun console before calling."
             )
-        # 尝试激活同名模板；若模板不存在或格式不符则视为能力不支持
+        # Try to activate a template of the same name; a missing or malformed
+        # template counts as CapabilityNotSupported.
         try:
             from alibabacloud_agentrun20250910 import models as m
 
             self._client_factory().activate_template_mcp(
                 name,
-                m.ActivateTemplateMCPRequest(transport="sse"),  # 必须指定传输协议
+                m.ActivateTemplateMCPRequest(transport="sse"),  # transport is required
             )
             return True
         except Exception as exc:
             err = str(exc)
-            # 模板不存在 → 需预注册
+            # Template not found -> it must be pre-registered.
             if any(k in err for k in ("NotFound", "not found", "NoSuch", "ERR_NOT_FOUND")):
                 raise CapabilityNotSupported(
-                    f"register_tool[mcp]: AgentRun MCP 使用预注册模板，"
-                    f"模板 '{name}' 不存在。请在控制台创建后重试。"
+                    f"register_tool[mcp]: AgentRun MCP uses pre-registered templates; "
+                    f"template '{name}' does not exist. Create it in the console and retry."
                 ) from exc
-            # 其他 400/403 → 平台限制，也视为能力不支持
+            # Other 400/403 -> platform restriction, also CapabilityNotSupported.
             if "400" in err or "403" in err:
                 raise CapabilityNotSupported(
-                    f"register_tool[mcp]: AgentRun MCP 模板激活受限 — {err[:120]}"
+                    f"register_tool[mcp]: AgentRun MCP template activation restricted — {err[:120]}"
                 ) from exc
             raise
 
@@ -286,27 +249,9 @@ class AliyunAgentRunTransport(RuntimeTransport):
     # --- HTTP session (connection-pooled, thread-safe) -----------------------
 
     def _http_session(self) -> Any:
-        """Lazily create a requests.Session with connection pooling.
-
-        requests.Session is thread-safe for concurrent GET/POST calls,
-        and reuses HTTPS connections — avoids the SSL EOF errors that urllib
-        produces under concurrent load (no pooling, one TCP connection per call).
-        """
+        """Lazily create a connection-pooled, thread-safe requests.Session."""
         if self._http is None:
-            try:
-                import requests
-                from requests.adapters import HTTPAdapter
-            except ImportError as exc:
-                raise RuntimeError(
-                    "the 'requests' library is required for data-plane HTTP calls. "
-                    "Install it with: pip install requests"
-                ) from exc
-            s = requests.Session()
-            # Allow up to 64 concurrent connections per host
-            adapter = HTTPAdapter(pool_connections=4, pool_maxsize=64)
-            s.mount("https://", adapter)
-            s.mount("http://", adapter)
-            self._http = s
+            self._http = build_pooled_http_session()
         return self._http
 
     # --- lazy SDK clients ---------------------------------------------------
@@ -657,12 +602,14 @@ class AliyunAgentRunTransport(RuntimeTransport):
         return ok, (_time.perf_counter() - t0) * 1000, error_type
 
     def probe_sustained_load(self, duration_s: float, target_rps: float) -> Any:
-        """真并发持续负载：用令牌桶 + 线程池驱动，真实测量吞吐和尾延迟。
+        """Real concurrent sustained load: token-bucket + thread pool, measuring
+        true throughput and tail latency.
 
-        工作者数量 = min(target_rps * 预估延迟, 64)（Little's Law）。
-        吞吐量分母使用实际挂钟时间（含所有 in-flight 请求完成后），避免高尾延迟
-        场景下人为高估吞吐量（deadline 后仍在执行的请求不被计入 duration_s 但
-        被计入 n，导致 n/duration_s 虚高）。
+        Worker count = min(target_rps * estimated_latency, 64) (Little's Law).
+        Throughput uses actual wall-clock time (after all in-flight requests
+        finish) to avoid inflating throughput under high tail latency (requests
+        still executing after the deadline are not counted in duration_s but are
+        counted in n, which would make n/duration_s artificially high).
         """
         import threading
         import time as _time
@@ -671,10 +618,11 @@ class AliyunAgentRunTransport(RuntimeTransport):
         from clousight_bench.core.stats import percentiles
         from clousight_bench.domains.agent_runtime.adapters.base import LoadResult
 
-        # 先做一次探测请求，估计平均延迟，决定并发度
+        # One probe request first to estimate average latency and pick concurrency.
         _, probe_ms = self._one_tool_call()
         estimated_latency_s = max(probe_ms / 1000, 0.1)
-        # 并发度 = target_rps × 估计延迟（Little's Law），上限 32（原64，降低线程峰值避免系统线程耗尽）
+        # concurrency = target_rps x estimated latency (Little's Law), capped at 32
+        # (was 64; lower the thread peak to avoid exhausting system threads).
         concurrency = min(max(int(target_rps * estimated_latency_s) + 1, 4), 32)
 
         latencies: list[float] = []
@@ -725,25 +673,29 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
 
     def probe_warm_retention(self) -> Any:
-        """多点检测：建立热实例后，依次等待 10s/30s/60s，观察哪个时间点变冷。
+        """Multi-point probe: after warming an instance, wait 10s/30s/60s in turn
+        and observe at which point it goes cold.
 
-        阈值策略：取 5 次热调用的 p95，乘以 2 作为"仍然热"的上限。
-        这比固定 3× 均值更稳健：高方差平台（p95 >> mean）不会把正常慢响应
-        误判为冷启动；低方差平台也不会把真正的冷启动漏掉（冷启动通常 5-20×）。
-        retention_ms = 最后一次仍然热的等待时间（0 = 完全不保活）。
+        Threshold strategy: take the p95 of 5 warm calls and multiply by 2 as the
+        "still warm" ceiling. This is more robust than a fixed 3x mean: a
+        high-variance platform (p95 >> mean) won't misclassify a normally-slow
+        response as a cold start, and a low-variance platform won't miss a real
+        cold start (cold starts are usually 5-20x).
+        retention_ms = the last still-warm wait interval (0 = no retention at all).
         """
         import time as _time
 
         from clousight_bench.core.stats import percentiles
         from clousight_bench.domains.agent_runtime.adapters.base import RetentionResult
 
-        # 建立热实例 + 采集基准分布（5次），用 p95×2 作为阈值
+        # Warm an instance + collect a baseline distribution (5 calls); use p95x2 as the threshold.
         warmup_samples: list[float] = []
         for _ in range(5):
             _, ms = self._one_tool_call()
             warmup_samples.append(ms)
         warm_p95 = percentiles(warmup_samples)[95]
-        warm_threshold = warm_p95 * 2  # cold start 通常 5-20× warm；2× 保守但足够区分
+        # cold start is usually 5-20x warm; 2x is conservative but enough to distinguish
+        warm_threshold = warm_p95 * 2
 
         wait_intervals_s = [10, 30, 60]
         last_warm_ms = 0.0
@@ -755,7 +707,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 last_warm_ms = wait_s * 1000.0
                 keeps_warm = True
             else:
-                break  # 变冷，记录最后一次热点
+                break  # went cold; keep the last warm data point
 
         return RetentionResult(
             retention_ms=last_warm_ms,
@@ -783,17 +735,20 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
 
     def probe_rate_limit(self) -> Any:
-        """阶梯式并发探测限流：10→20→40→80 并发，观察首个出现 429 的级别。
+        """Stepped concurrency probe for rate limiting: 10->20->40->80 concurrent,
+        observing the first level that returns 429.
 
-        直接检查 AgentRun 数据面的 HTTP 状态（不经过 run_tool_plan），捕获
-        Retry-After 头，确认 429 合约是否完整。
-        onset_rps = 触发限流的最小并发数（0 = 在测试范围内未触发）。
+        Checks the AgentRun data-plane HTTP status directly (bypassing
+        run_tool_plan), captures the Retry-After header, and confirms whether the
+        429 contract is complete.
+        onset_rps = the smallest concurrency that triggers throttling
+        (0 = not triggered within the tested range).
         """
         from concurrent.futures import ThreadPoolExecutor
 
         from clousight_bench.domains.agent_runtime.adapters.base import RateLimitResult
 
-        # 确保 runtime 已启动（lazy provision）
+        # Make sure the runtime is up (lazy provision).
         _, _ = self._one_tool_call()
         endpoint_url = self._endpoint_public_url or ""
         if not endpoint_url:
@@ -848,18 +803,20 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
 
     def probe_cancellation(self) -> Any:
-        """真实取消探测：用极短超时强制客户端断开，验证端点能从中恢复。
+        """Real cancellation probe: force a client disconnect with a very short
+        timeout and verify the endpoint recovers from it.
 
-        设计：CLIENT_TIMEOUT_S = 0.1s（100ms），比任何 AgentRun 调用都快，
-        保证必然触发 Timeout 异常（无需依赖 mock server 状态同步）。
+        Design: CLIENT_TIMEOUT_S = 0.1s (100ms), faster than any AgentRun call, so
+        a Timeout is guaranteed (no dependency on mock-server state sync).
 
-        honored=True: 超时异常已抛出 = 客户端取消有效
-        teardown_ran=True: 超时后端点仍可正常响应（session 未损坏）
-        residual: 取消后检测到的异常状态
+        honored=True: a timeout was raised = client cancellation is effective.
+        teardown_ran=True: the endpoint still responds after the timeout (session
+        not corrupted).
+        residual: any abnormal state detected after cancellation.
         """
         from clousight_bench.domains.agent_runtime.adapters.base import CancellationResult
 
-        # 极短超时：100ms 远低于任何 AgentRun 数据面调用的实际延迟（通常 300ms+）
+        # Very short timeout: 100ms is far below any AgentRun data-plane call latency (usually 300ms+).
         CLIENT_TIMEOUT_S = 0.1
         residual: list[str] = []
         honored = False
@@ -1163,7 +1120,13 @@ class AliyunAgentRunTransport(RuntimeTransport):
         if not endpoint:
             # Lazy provision for tasks that skip explicit provision().
             target = self._adapter.target
-            self.provision({"oss_bucket": str(target.get("oss_bucket") or "")})
+            prov_spec: dict[str, Any] = {"oss_bucket": str(target.get("oss_bucket") or "")}
+            # T1.14: honor probe asks for a runtime with a small configured idle
+            # timeout so recycling can be observed cheaply — thread it through.
+            idle_timeout_s = params.get("session_idle_timeout_s")
+            if idle_timeout_s is not None:
+                prov_spec["session_idle_timeout_s"] = idle_timeout_s
+            self.provision(prov_spec)
             self._lazy_provisioned = True
             endpoint = self._endpoint_public_url or str(self._adapter.target.get("endpoint_url") or "")
         if not endpoint:
@@ -1624,7 +1587,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
         from concurrent.futures import ThreadPoolExecutor
 
         N_REPS = 3
-        INTER_REP_COOLDOWN_S = 10  # 加长冷却让 OS 回收线程，避免累积耗尽
+        # longer cooldown lets the OS reclaim threads, avoiding cumulative exhaustion
+        INTER_REP_COOLDOWN_S = 10
 
         base = self._adapter.mock_base_url
         mock_token = str(self._adapter.target.get("mock_token") or "")
@@ -2026,6 +1990,13 @@ class AliyunAgentRunTransport(RuntimeTransport):
             memory=int(target.get("memory") or 2048),
             port=int(target.get("port") or 9000),
         )
+        # Optional session idle timeout override (T1.14 idle-timeout honor check).
+        # When unset the platform default applies (undocumented — T1.5 measures it).
+        # When set (e.g. 10s), the instance should recycle ~this long after the last
+        # request, letting us verify the platform honors the configured knob cheaply.
+        idle_timeout_s = (spec or {}).get("session_idle_timeout_s")
+        if idle_timeout_s is not None:
+            body.session_idle_timeout_seconds = int(idle_timeout_s)
         # Carry the run-id for cost reconciliation via environment variable.
         run_id = getattr(self._adapter, "run_id", None)
         if run_id:
@@ -2060,47 +2031,15 @@ def _split_artifact(artifact_ref: str) -> tuple[str, str]:
     return bucket, obj
 
 
-def _truthy(v: object) -> bool:
-    """Interpret a target flag that may arrive as a bool or a YAML string."""
-    return v is True or str(v).strip().lower() in ("1", "true", "yes", "on")
-
-
-def _published_code_spec() -> str:
-    """The published-package ``code_spec`` pinned to the control plane's own version.
-
-    Pinning avoids control-plane↔probe version skew: the probe installs the SAME
-    version that is driving the campaign (protocol/token/OSS-prefix contract).
-    Falls back to the bare name if the version can't be read (e.g. odd install).
-    """
-    try:
-        from importlib.metadata import version
-
-        return f"clousight-bench[probe]=={version('clousight-bench')}"
-    except Exception:  # noqa: BLE001 - metadata absent → bare name still installs
-        return "clousight-bench[probe]"
-
-
-class _AliyunCampaignProbe:
+class _AliyunCampaignProbe(CampaignProbeOrchestrator):
     """Per-campaign probe lifecycle: ECS carrier + OSS sync (probe-sink §7).
 
-    Constructor factories are injectable so tests run account-free. The real
-    path (``_default_carrier``) creates an :class:`EcsProbeCarrier` — a stock-OS
-    ECS instance whose cloud-init user-data ``pip install``s the public
+    The real path (``_default_carrier``) creates an :class:`EcsProbeCarrier` — a
+    stock-OS ECS instance whose cloud-init user-data ``pip install``s the public
     ``clousight-bench[probe]`` package (no container image, see docs/probe-carrier.md).
+    The start/sync/stop lifecycle is inherited from ``CampaignProbeOrchestrator``.
     """
 
-    def __init__(self, carrier_factory=None, oss_factory=None):
-        self._carrier_factory = carrier_factory or self._default_carrier
-        self._oss_factory = oss_factory or self._default_oss
-        self._carrier = None
-        self._oss = None
-        self._channel = None  # OssChannel built during start_campaign_probe
-        self._prefix = ""
-        self._bucket = ""
-
-    # ------------------------------------------------------------------
-    # Default factories (real-cloud paths; wired in Plan 5 Task 3)
-    # ------------------------------------------------------------------
     @staticmethod
     def _default_carrier(target: dict, prefix: str, campaign_id: str = "", bucket: str = ""):  # noqa: ANN202
         run_id = str(target.get("run_id") or "")
@@ -2151,67 +2090,6 @@ class _AliyunCampaignProbe:
         bucket = str(target.get("oss_bucket") or "")
         region = str(target.get("region") or "cn-hangzhou")
         return Oss2Client(bucket=bucket, region=region)
-
-    # ------------------------------------------------------------------
-    # CampaignProbeHook interface
-    # ------------------------------------------------------------------
-    def start_campaign_probe(self, target: dict) -> dict:
-        """Provision the probe.
-
-        Returns ``{probe_control_prefix, probe_oss_prefix, probe_token,
-        probe_in_vpc}`` for target stamping — no ``probe_url`` key (OSS-mediated
-        transport, no HTTP surface required).
-        """
-        from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
-
-        run_id = str(target.get("run_id") or "")
-        campaign_id = run_id or "adhoc"
-        self._bucket = str(target.get("oss_bucket") or "")
-        self._prefix = f"clousight-bench/telemetry/{campaign_id}/"
-        self._oss = self._oss_factory(target)
-        # Build the control channel — readiness is polled via OSS, not HTTP.
-        channel = OssChannel(self._oss, campaign_id)
-        self._channel = channel
-        # Clear any residue from a prior run on this (possibly reused) campaign
-        # prefix — a stale `stop` sentinel would make the fresh probe exit at once.
-        channel.reset()
-        self._carrier = self._carrier_factory(target, self._prefix, campaign_id, self._bucket)
-        # Inject the readiness check so provision() polls OSS (not EcsRamRole).
-        self._carrier.ready_check = channel.is_ready
-        self._carrier.provision()  # raises CarrierError on failure
-        return {
-            "probe_control_prefix": campaign_id,
-            "probe_oss_prefix": self._prefix,
-            "probe_token": getattr(self._carrier, "token", "") or "",
-            "probe_in_vpc": True,
-        }
-
-    def sync_probe_artifacts(self, results_dir: Any) -> None:
-        """Mirror the probe's OSS prefix into results_dir (channel ②)."""
-        if self._oss is None:
-            return
-        from clousight_bench.domains.agent_runtime.probe.oss_sync import sync_prefix
-
-        sync_prefix(self._oss, self._prefix, results_dir)
-
-    def stop_campaign_probe(self) -> None:
-        """Reap the probe. Idempotent + best-effort (called from a finally).
-
-        Sends the OSS stop sentinel BEFORE tearing down the ECI carrier so the
-        in-region loop gets a chance to drain gracefully.
-        """
-        if self._channel is not None:
-            try:
-                self._channel.signal_stop()
-            except Exception:  # noqa: BLE001
-                pass
-            self._channel = None
-        if self._carrier is not None:
-            try:
-                self._carrier.teardown()
-            except Exception:  # noqa: BLE001
-                pass
-            self._carrier = None
 
 
 class AliyunRuntimeProvider(RuntimeProviderPlugin):

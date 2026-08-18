@@ -61,3 +61,52 @@ def test_generic_profile_for_other_domain(report_record):
     b = build_bundle([rec], results_dir="r", generated_at="t", profiles=PROFILES)
     assert b.domains[0].profile == "generic"
     assert b.domains[0].panels
+
+
+def test_quadrant_panel_points(report_record):
+    from clousight_bench.core.reporting.profiles import PROFILES
+
+    latest = {
+        ("T1.13", "aliyun-agentrun", "live"): report_record(
+            "aliyun-agentrun",
+            "T1.13",
+            execution="live",
+            measurements={"cold_start_ms": 87000.0, "warm_start_p50_ms": 70.0},
+        ),
+        ("T1.1", "aliyun-agentrun", "live"): report_record(
+            "aliyun-agentrun",
+            "T1.1",
+            execution="live",
+            measurements={"cold_start_ms": 6000.0, "warm_start_p50_ms": 40.0},
+        ),
+    }
+    panels = PROFILES["agent-runtime"].build_panels(latest)
+    q = [p for p in panels if p.chart and p.chart.kind == "quadrant"][0]
+    xs = sorted(pt["x"] for pt in q.chart.series)
+    assert xs == [6000.0, 87000.0]
+    assert q.chart.x_split == 46500.0
+
+
+def test_timeseries_panels_from_series():
+    from clousight_bench.core.reporting.profiles import build_timeseries_panels
+
+    panels = build_timeseries_panels({"T1.13": {"curve_ms": [{"t": 1, "value": 1.0, "unit": ""}]}})
+    assert len(panels) == 1
+    assert panels[0].chart.kind == "timeseries"
+    assert panels[0].task_ids == ["T1.13"]
+
+
+def test_cost_panel_is_stacked_bar(report_record):
+    from clousight_bench.core.reporting.profiles import PROFILES
+
+    latest = {
+        ("T5.1", "aliyun-agentrun", "live"): report_record(
+            "aliyun-agentrun",
+            "T5.1",
+            execution="live",
+            measurements={"list_cost_usd": 1.0, "discount_usd": 0.2, "cost_usd": 0.8},
+        )
+    }
+    panels = PROFILES["agent-runtime"].build_panels(latest)
+    cost = [p for p in panels if p.key == "cost"][0]
+    assert cost.chart.kind == "stacked_bar"
