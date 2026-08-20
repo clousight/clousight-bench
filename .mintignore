@@ -1,10 +1,11 @@
-# Only docs/*.mdx (the pages listed in docs.json) form the Mintlify site.
-# Everything below is repo prose or internal design docs that is NOT valid MDX;
-# exclude it so `mint broken-links` and the Mintlify build never try to parse it.
+# The Mintlify site is ONLY docs/*.mdx plus docs.json. `mint` scans the whole
+# working tree (including gitignored scratch like .venv/ and .superpowers/), so
+# ignore everything, re-include just the docs dir + config, then drop the
+# internal, non-MDX docs that live under docs/.
 # .mintignore uses .gitignore-style patterns.
-
-# Repo-root prose (README, SECURITY, CONTRIBUTING, CHANGELOG, ...)
-/*.md
+/*
+!/docs/
+!/docs.json
 
 # Non-published markdown under docs/ (internal design docs + research notes)
 /docs/*.md
@@ -12,15 +13,3 @@
 /docs/plans/
 /docs/runbooks/
 /docs/superpowers/
-
-# Source trees that carry their own READMEs / markdown
-/.github/
-/src/
-/tests/
-/examples/
-/workloads/
-/results/
-/infra/
-/configs/
-/site/
-/scripts/
