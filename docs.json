@@ -7,6 +7,9 @@
     "light": "#5a8bf8",
     "dark": "#1e4fd6"
   },
+  "contextual": {
+    "options": ["copy", "view", "chatgpt", "claude"]
+  },
   "navigation": {
     "versions": [
       {
