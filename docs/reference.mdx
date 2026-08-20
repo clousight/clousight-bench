@@ -1,0 +1,43 @@
+---
+title: API reference
+description: Core data contract and the plugin extension points.
+---
+
+The core orchestrates a fixed lifecycle; everything product-specific is a
+plugin. This page names the load-bearing types and the entry points that
+register them. For line-level code questions, use the in-page **Ask** assistant
+or [DeepWiki](https://deepwiki.com/clousight/clousight-bench).
+
+## Result contract
+
+A run emits a `ResultRecord` (schema `0.2`): `status` (`completed` / `failed` /
+`invalid` / `unsupported`), `measurements` (each with `value`, `unit`,
+`evidence`), `findings` (each with a stable `code`, `severity`, evidence), and
+`fingerprints` (`benchmark` / `environment` / `implementation` / `record_digest`).
+See [Architecture](/docs/architecture) for the full field table.
+
+## Plugin base classes
+
+| Base class | One per | Registered via |
+|---|---|---|
+| `DomainPack` | product category | `clousight_bench.domains` |
+| `ProviderAdapter` | (domain, cloud) | in the domain pack |
+| `Task` | dimension | in the domain pack |
+| `WorkloadEngine` | load generator | `manifest.yaml` + executable |
+
+A `Task` implements `config()` (controlled inputs), `execute()` (raw observation
+only), `score()` (a pure function of the bundle), and carries `task_revision` /
+`scorer_revision`.
+
+## Entry points
+
+Third-party packages extend the harness by declaring these entry points (see
+`pyproject.toml`):
+
+- `clousight_bench.domains` — domain packs
+- `clousight_bench.runtime_providers` — cloud runtime providers
+- `clousight_bench.resource_reapers` — orphan-resource reapers
+- `clousight_bench.enrichers` — post-run enrichers (e.g. pricing)
+- `clousight_bench.span_exporters` — trace span exporters
+
+See [Extending (plugins)](/docs/plugins) for a worked example.
