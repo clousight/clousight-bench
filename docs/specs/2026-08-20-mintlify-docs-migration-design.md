@@ -19,10 +19,36 @@ things the maintainer explicitly wants:
 
 - **Mintlify Pro via the OSS Program.** clousight-bench is Apache-2.0 and
   non-commercial, which qualifies. Pro (via OSS) unlocks the AI assistant,
-  versioning and preview deployments. The free Starter tier alone would cover
-  visuals + custom domain but not the AI assistant.
+  preview deployments and analytics.
 - Docs authored in **MDX** with a root **`docs.json`**; hosted on Mintlify's
   SaaS; deployed by the **Mintlify GitHub App** on push to `main`.
+
+### Reference: what agentscope actually runs
+
+Verified against the live `docs.agentscope.io` DOM (2026-08-20): `generator =
+Mintlify`, an AI chat assistant is present (`chat-assistant-*` elements — a
+**Pro** feature), a version selector is live, and the **"Powered by Mintlify"**
+footer is still shown (so **not Enterprise** — only Enterprise removes it).
+Conclusion: agentscope is on **Pro**, almost certainly free via the OSS Program.
+Matching it (AI Ask + versioning + custom domain) means Pro; the only thing we
+cannot remove without Enterprise is the footer badge (acceptable).
+
+### Free vs Pro (Starter), confirmed from mintlify.com/pricing
+
+- **Auto-publish works on the free Starter plan.** Git sync (GitHub App
+  auto-deploy on push to `main`) is on both tiers — publishing is never manual.
+- Starter includes: custom domain, 5 editor seats, ⌘K search, git sync.
+- Pro-only (missing on Starter): **AI assistant**, **per-PR preview
+  deployments**, **analytics/insights**, webhooks/developer API, user-feedback
+  widgets. Versioning tier is unconfirmed from the pricing table (verify during
+  setup); the OSS Pro grant makes it moot.
+- The **"Powered by Mintlify"** badge stays on both Starter and Pro; removing it
+  needs Enterprise.
+
+**Launch strategy:** the migration PR is tier-agnostic (`docs.json` + `.mdx` +
+CI are identical on any plan). Ship on Starter immediately if OSS approval lags —
+auto-publish still works — and enable AI Ask + previews once Pro is granted, with
+**zero repo rework**.
 
 ## Non-goals
 
