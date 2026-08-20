@@ -1,4 +1,7 @@
-# Querying results
+---
+title: Querying results
+description: DuckDB-backed analytics over the Parquet result store.
+---
 
 Every run persists a `0.2` record under `results/<domain>/<platform>/`. The
 analytics layer flattens those records at read time into four SQL-queryable
@@ -121,4 +124,3 @@ Write a long table to parquet / csv / jsonl for a notebook or BI tool:
 csbench export measurements --out ./measurements.parquet
 csbench export records --out ./records.csv --format csv
 ```
-</content>

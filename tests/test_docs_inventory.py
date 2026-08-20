@@ -16,7 +16,7 @@ from clousight_bench.core.inventory import inventory
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GEN_DOCS = REPO_ROOT / "scripts" / "gen_docs.py"
-ARCHITECTURE_DOC = REPO_ROOT / "docs" / "architecture.md"
+ARCHITECTURE_DOC = REPO_ROOT / "docs" / "architecture.mdx"
 
 
 def _load_gen_docs():
@@ -28,7 +28,7 @@ def _load_gen_docs():
 
 
 def test_architecture_inventory_is_not_stale():
-    """docs/architecture.md must match a fresh render of the registry.
+    """docs/architecture.mdx must match a fresh render of the registry.
 
     Equivalent to `python scripts/gen_docs.py --check`; if this fails, run
     `python scripts/gen_docs.py` and commit the result.
@@ -37,7 +37,7 @@ def test_architecture_inventory_is_not_stale():
     current = ARCHITECTURE_DOC.read_text(encoding="utf-8")
     regenerated = gen_docs.build_doc(current)
     assert current == regenerated, (
-        "docs/architecture.md task-inventory block is stale — run `python scripts/gen_docs.py` and commit."
+        "docs/architecture.mdx task-inventory block is stale — run `python scripts/gen_docs.py` and commit."
     )
 
 

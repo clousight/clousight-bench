@@ -1,0 +1,15 @@
+# The Mintlify site is ONLY docs/*.mdx plus docs.json. `mint` scans the whole
+# working tree (including gitignored scratch like .venv/ and .superpowers/), so
+# ignore everything, re-include just the docs dir + config, then drop the
+# internal, non-MDX docs that live under docs/.
+# .mintignore uses .gitignore-style patterns.
+/*
+!/docs/
+!/docs.json
+
+# Non-published markdown under docs/ (internal design docs + research notes)
+/docs/*.md
+/docs/specs/
+/docs/plans/
+/docs/runbooks/
+/docs/superpowers/
