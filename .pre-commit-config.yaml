@@ -1,0 +1,41 @@
+# Pre-commit hooks that mirror CI exactly (see .github/workflows/ci.yml).
+# Install once after `pip install -e ".[dev]"`:
+#     pre-commit install
+# Run against everything on demand:
+#     pre-commit run --all-files
+#
+# The lint/type hooks are `local` + `language: system` on purpose: they invoke
+# the ruff/mypy already pinned in the [dev] extra (ruff==0.15.22), so a passing
+# pre-commit run is the same tool version CI runs — no second source of truth.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (src tests)
+        entry: ruff check src tests
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: ruff-format
+        name: ruff format --check (src tests)
+        entry: ruff format --check src tests
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: system
+        types: [python]
+        pass_filenames: false

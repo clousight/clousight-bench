@@ -40,6 +40,7 @@ dev = [
     "ruff==0.15.22",
     "mypy>=1.10",
     "types-PyYAML",
+    "pre-commit>=3.7",
 ]
 # In-region data-plane probe (cb-probe server + OSS telemetry sink). The core
 # and CLI never import the probe subpackage, so a bare install stays minimal;

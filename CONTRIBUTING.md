@@ -72,10 +72,15 @@ New adapters must declare one of `reference`, `experimental`, `wired`, or
 
 ```bash
 pip install -e ".[dev]"
+pre-commit install          # optional: run the CI lint/type/format gate on every commit
 ruff check src tests
 pytest -q
 csbench run --domain agent-runtime --task T1.3 --platform local-sim   # local smoke
 ```
+
+The repo ships a `.pre-commit-config.yaml` whose lint/format/type hooks call the
+same `ruff` (pinned in `[dev]`) and `mypy` that CI runs, so a green
+`pre-commit run --all-files` is the same gate as the `test` job.
 
 CI runs lint · test · local baseline smoke on Python 3.10 / 3.11 / 3.12 / 3.13,
 plus an installed-wheel smoke in an isolated Python 3.12 environment.
