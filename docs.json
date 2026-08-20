@@ -1,0 +1,52 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Clousight Bench",
+  "colors": {
+    "primary": "#2f6df6",
+    "light": "#5a8bf8",
+    "dark": "#1e4fd6"
+  },
+  "navigation": {
+    "versions": [
+      {
+        "version": "latest",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": ["docs/index", "docs/architecture"]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "docs/plugins",
+              "docs/probe-carrier",
+              "docs/querying",
+              "docs/reporting",
+              "docs/dataset-tiers"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": ["docs/reference", "docs/RELEASING"]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      { "label": "DeepWiki", "href": "https://deepwiki.com/clousight/clousight-bench" }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "GitHub",
+      "href": "https://github.com/clousight/clousight-bench"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/clousight/clousight-bench"
+    }
+  }
+}
