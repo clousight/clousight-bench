@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Regenerate the machine-derived blocks in ``docs/architecture.md``.
+"""Regenerate the machine-derived blocks in ``docs/architecture.mdx``.
 
 The task inventory and adapter-status table drift the moment a task is added,
 renamed or an adapter changes status. Rather than hand-maintain those facts (and
@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from clousight_bench.core.inventory import inventory  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ARCHITECTURE_DOC = REPO_ROOT / "docs" / "architecture.md"
+ARCHITECTURE_DOC = REPO_ROOT / "docs" / "architecture.mdx"
 
 BEGIN_MARKER = "<!-- BEGIN generated:task-inventory -->"
 END_MARKER = "<!-- END generated:task-inventory -->"
