@@ -1,4 +1,7 @@
-# Clousight Bench
+---
+title: Clousight Bench
+description: Reproducible, evidence-graded benchmarking for cloud products.
+---
 
 **云计算指北 / [Clousight](https://clousight.com) 出品的云产品可复现测评框架.**
 
@@ -39,8 +42,17 @@ Optional time-series store (Parquet + DuckDB): `pip install clousight-bench[stor
 
 ## Learn more
 
-- [Architecture](architecture.md) — the lifecycle, plugin contracts, and evidence model.
-- [API reference](reference.md) — the core data schema and plugin base classes.
-- [Releasing](RELEASING.md) — how versions get published.
-- [Contributing](https://github.com/clousight/clousight-bench/blob/main/CONTRIBUTING.md)
-  and the [Roadmap](https://github.com/clousight/clousight-bench/blob/main/ROADMAP.md).
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/docs/architecture">
+    The lifecycle, plugin contracts, and evidence model.
+  </Card>
+  <Card title="Extending (plugins)" icon="puzzle-piece" href="/docs/plugins">
+    Add a platform, dimension, domain, or workload engine.
+  </Card>
+  <Card title="Querying results" icon="database" href="/docs/querying">
+    DuckDB-backed analytics over the Parquet store.
+  </Card>
+  <Card title="API reference" icon="code" href="/docs/reference">
+    Core data schema and plugin base classes.
+  </Card>
+</CardGroup>

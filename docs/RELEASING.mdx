@@ -1,4 +1,7 @@
-# Releasing
+---
+title: Releasing
+description: How versions get published.
+---
 
 Clousight Bench publishes to [PyPI](https://pypi.org/project/clousight-bench/)
 via a tag-triggered GitHub Actions workflow
@@ -40,5 +43,5 @@ via a tag-triggered GitHub Actions workflow
 Pre-1.0, minor versions may include breaking changes, but the result schema and
 plugin API carry their own version fields (`schema_version`,
 `PLUGIN_API_VERSION`) and are migrated deliberately — see `CHANGELOG.md` and
-`docs/architecture.md`. Changing the scoring of a shipped dimension always
+`docs/architecture`. Changing the scoring of a shipped dimension always
 requires a version bump and a changelog entry.

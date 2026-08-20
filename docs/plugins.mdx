@@ -1,4 +1,7 @@
-# Extending Clousight Bench — the plugin architecture
+---
+title: Extending (plugins)
+description: Add a platform, dimension, domain, or workload engine.
+---
 
 Clousight Bench is a **core engine + entry-point plugins**. The engine knows how
 to run a benchmark, grade evidence, persist schema-0.2 records, and report; it
@@ -92,7 +95,7 @@ and adjust it there — the installed core stays pristine either way.
   immediately — no assembling parts.
 - **It is the template**: the reference domains *are* the best worked example of a
   well-formed plugin; you copy their shape for your own.
-- **One consistent chain**: the [data-plane probe](probe-carrier.md) ships in the
+- **One consistent chain**: the [data-plane probe](/docs/probe-carrier) ships in the
   core package too, so an in-region probe carrier just `pip install
   clousight-bench[probe]` and has the same probe logic the control plane uses.
 - The source is fully open on GitHub for reading, forking, and PRs — but the
