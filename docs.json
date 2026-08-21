@@ -17,9 +17,9 @@
     "display": "header"
   },
   "navigation": {
-    "versions": [
+    "languages": [
       {
-        "version": "latest",
+        "language": "en",
         "groups": [
           {
             "group": "Get started",
@@ -38,6 +38,29 @@
           {
             "group": "Reference",
             "pages": ["docs/reference", "docs/RELEASING"]
+          }
+        ]
+      },
+      {
+        "language": "zh",
+        "groups": [
+          {
+            "group": "快速开始",
+            "pages": ["docs/zh/index", "docs/zh/architecture"]
+          },
+          {
+            "group": "指南",
+            "pages": [
+              "docs/zh/plugins",
+              "docs/zh/probe-carrier",
+              "docs/zh/querying",
+              "docs/zh/reporting",
+              "docs/zh/dataset-tiers"
+            ]
+          },
+          {
+            "group": "参考",
+            "pages": ["docs/zh/reference", "docs/zh/RELEASING"]
           }
         ]
       }

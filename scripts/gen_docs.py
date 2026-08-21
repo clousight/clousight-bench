@@ -33,7 +33,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from clousight_bench.core.inventory import inventory  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ARCHITECTURE_DOC = REPO_ROOT / "docs" / "architecture.mdx"
+# The task-inventory block is mirrored into every language's architecture page.
+# Its content stays English (registry reference data) in all of them.
+ARCHITECTURE_DOCS = [
+    REPO_ROOT / "docs" / "architecture.mdx",
+    REPO_ROOT / "docs" / "zh" / "architecture.mdx",
+]
 
 # MDX (Mintlify) rejects HTML `<!-- -->` comments; use JSX `{/* */}` comments so
 # architecture.mdx stays valid MDX. The splice logic is marker-agnostic.
@@ -109,22 +114,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
 
-    current = ARCHITECTURE_DOC.read_text(encoding="utf-8")
-    updated = build_doc(current)
-
-    if current == updated:
-        print(f"{ARCHITECTURE_DOC.relative_to(REPO_ROOT)}: up to date")
-        return 0
-    if args.check:
-        print(
-            f"{ARCHITECTURE_DOC.relative_to(REPO_ROOT)}: STALE — run "
-            "`python scripts/gen_docs.py` to regenerate the task-inventory block.",
-            file=sys.stderr,
-        )
-        return 1
-    ARCHITECTURE_DOC.write_text(updated, encoding="utf-8")
-    print(f"{ARCHITECTURE_DOC.relative_to(REPO_ROOT)}: regenerated")
-    return 0
+    rc = 0
+    for doc_path in ARCHITECTURE_DOCS:
+        rel = doc_path.relative_to(REPO_ROOT)
+        current = doc_path.read_text(encoding="utf-8")
+        updated = build_doc(current)
+        if current == updated:
+            print(f"{rel}: up to date")
+            continue
+        if args.check:
+            print(
+                f"{rel}: STALE — run `python scripts/gen_docs.py` to regenerate the task-inventory block.",
+                file=sys.stderr,
+            )
+            rc = 1
+            continue
+        doc_path.write_text(updated, encoding="utf-8")
+        print(f"{rel}: regenerated")
+    return rc
 
 
 if __name__ == "__main__":

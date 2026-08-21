@@ -1,0 +1,40 @@
+---
+title: 发布流程
+description: 版本如何发布。
+---
+
+Clousight Bench 通过标签触发的 GitHub Actions 工作流
+(`.github/workflows/release.yml`)，使用
+**PyPI Trusted Publishing (OIDC)** 将包发布到 [PyPI](https://pypi.org/project/clousight-bench/)
+——无需存储长期有效的 API 令牌。
+
+## 一次性设置（每个项目由维护者完成一次）
+
+1. 在 PyPI 上创建（或认领）`clousight-bench` 项目，并添加一个
+   **Trusted Publisher**：
+   - Owner：`clousight`
+   - Repository：`clousight-bench`
+   - Workflow：`release.yml`
+   - Environment：`pypi`
+2. 在 GitHub 仓库设置中，创建名为 `pypi` 的 **Environment**
+   （可选择设置必要的审阅者，以便在发布前添加手动审批门控）。
+
+## 执行发布
+
+1. 更新 `CHANGELOG.md`：将 `Unreleased` 部分移至新版本下，并附上今日日期。
+2. 在 `pyproject.toml` 中更新 `version`（单一来源；发布工作流会验证标签与其一致）。
+3. 通过 Pull Request 将上述改动合并到 `main`。
+4. 打标签并推送：
+
+   ```bash
+   git switch main && git pull
+   git tag -s v0.2.0 -m "clousight-bench 0.2.0"   # tag must equal the pyproject version
+   git push origin v0.2.0
+   ```
+
+5. `release` 工作流会构建 sdist + wheel，运行 `twine check`，然后发布到 PyPI。请关注 Actions 选项卡。
+6. 从该标签创建 GitHub Release，并粘贴对应的变更日志部分。
+
+## 版本策略
+
+1.0 之前，次版本号可能包含破坏性变更，但结果 schema 和插件 API 均携带各自的版本字段（`schema_version`、`PLUGIN_API_VERSION`），并经过有计划的迁移——详见 `CHANGELOG.md` 及 `/docs/zh/architecture`。对已发布维度的评分进行任何修改，始终需要升级版本号并在变更日志中添加相应条目。

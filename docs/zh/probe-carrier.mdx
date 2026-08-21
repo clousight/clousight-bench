@@ -1,0 +1,150 @@
+---
+title: 探针载体
+description: 部署在目标区域的 ECS 数据平面探针载体。
+---
+
+延迟类和负载类指标不能从运维人员的笔记本电脑上采集：WAN 链路和本地代理会引入干扰（TTFT 虚高、幽灵传输错误）。Clousight Bench 将**控制平面**（负责编排、评分和持久化的 `csbench` 进程）与**数据平面**（实际驱动被测平台的负载生成器和度量客户端）分离。数据平面在**目标区域**内的*探针载体*上运行，控制平面永远不介入测量路径。
+
+## 控制平面 ↔ 数据平面通过 OSS 通信（载体无入站端口）
+
+两个平面**仅通过对象存储通信**——载体没有公共入站端口，控制平面也不会主动连接载体：
+
+```
+control plane  ──write job.json──▶  OSS  ◀──poll──  probe carrier   carrier ──▶ platform-under-test
+control plane  ◀──read result────  OSS  ◀──write──  probe carrier   carrier ──▶ OSS (telemetry)
+```
+
+相关模块（均位于核心包 `probe/` 目录下）：`oss_channel`（线路协议——job / result / progress / heartbeat / stop 键）、`agent_loop`（载体侧轮询器）、`oss_dispatch_client`（`OssProbeClient`，控制侧客户端——可直接替换旧版 HTTP `RemoteProbeClient`）。测量数据来自载体→平台的调用（在目标区域内）；OSS 跳转仅承载控制消息和批量遥测数据。
+
+## 载体 = ECS（非容器）
+
+载体需要一个隔离的、位于目标区域的计算资源，且任何开源用户都能在自己的账号中部署，无需私有制品。在阿里云上，这排除了所有**容器**方案，指向普通的 **ECS 实例**：
+
+| 载体 | 需要容器镜像？ | 开源友好 | 与被测平台隔离 |
+|---|---|---|---|
+| ECI / ACS / ACK | **是**——镜像须存入镜像仓库 | ✗ 私有/自定义镜像无法随开源工具分发 | ✓ |
+| FC（函数，OSS zip） | 否 | ✓ | ✗ 与 FC 托管的 AgentRun 共享 FC 平台 |
+| **ECS（虚拟机，官方 OS 镜像）** | **否**——启动官方 OS 镜像 | ✓ **官方 OS + 公共包** | ✓ 专用虚拟机 |
+
+ACS/ACK 是容器服务（ACS 运行*在* ECI 之上），同样依赖容器镜像。容器镜像要么是私有制品（开源工具无法分发），要么需要付费的 ACR 企业版订阅才能自动同步公共基础镜像——无论哪种方式都存在摩擦。**ECS 启动的是阿里云托管的官方 OS 镜像（Aliyun Linux / Ubuntu）——免费、公开、无需镜像仓库、无需自定义镜像**，彻底绕开了容器镜像问题，同时保留了专用、隔离的虚拟机，确保负载生成结果的纯净性。
+
+费用：小规格 ECS 按秒计费（约 ¥0.05–0.1/小时）；它在基准测试活动开始时创建，结束时销毁，与其他按次运行的资源一样。
+
+## 代码即已发布的包（`pip install`）
+
+`clousight-bench` 已是一个 pip 包，因此载体以常规方式安装探针——**无需镜像、无需私有制品、无需二次上传代码副本**：
+
+```
+ECS boots a stock Aliyun OS image (python3 + pip present)
+  user-data (cloud-init):
+    pip install -i <aliyun-pypi-mirror> "clousight-bench[probe]==<control-plane version>"
+    cb-probe            # console entry point -> agent_loop, reads CB_PROBE_* env
+```
+
+- **可复现**：控制平面传递自身版本号，载体运行的是*相同*的探针代码。
+- **开源友好**：安装的是所有人都在使用的公共包。
+- **修改代码 → 仅需发布（开发阶段重新上传 wheel 即可）**——无需在载体侧重新构建任何内容。
+
+## 中国区域限制（为何所有来源均来自阿里云内部）
+
+在 cn-hangzhou 实测验证：**docker hub、github 和 pypi.org 在该区域均受限/屏蔽**。本设计不从上述来源获取任何内容：
+
+| 载体所需内容 | 来源 | 出口方式 |
+|---|---|---|
+| OS 镜像 | 阿里云官方镜像（启动时） | 无 |
+| 探针包 | 正式发布后使用阿里云 PyPI 镜像（`mirrors.cloud.aliyuncs.com/pypi`）；开发阶段使用 **OSS** 上的 wheel 文件 | VPC 内部 |
+| 依赖包（`requests`、`oss2`） | 同一阿里云 PyPI 镜像 | VPC 内部 |
+| 控制通道 + 遥测 | **OSS 内网端点** | VPC 内部 |
+| **AgentRun 端点** | 其公网端点（无 VPC 内网变体） | **NAT** |
+
+只有 AgentRun 跳转需要公网出口，因此需要配置一个 **NAT 网关**——通过独立的 `enable_nat` 标志控制，运行结束后销毁，因为它是唯一按小时计费的组件（详见 terraform 模块）。其他所有流量均走 VPC 内部。
+
+## 可复现 + 可自动化，按次运行
+
+载体不是 terraform 管理的共享基础设施——它是一个**短生命周期的、按活动创建和销毁的资源**，由运行时（SDK/API）负责管理，与 AgentRuntime 实例和 `agent.zip` 制品的处理方式相同。Terraform 仅管理持久化的基础层（VPC/子网/安全组、RAM 身份、`enable_nat` 开关）。
+
+## 跨云通用化
+
+该模式在关键环节保持厂商中立，仅在启动层面与厂商相关：
+
+- **厂商中立**：OSS 中介的控制通道、探针逻辑，以及 `pip install clousight-bench[probe]`。
+- **各厂商特定**：载体启动方式（阿里云 ECS user-data；AWS EC2/Fargate user-data；GCP GCE startup-script）以及对象存储和镜像端点配置。
+
+接入新的云厂商，只需为该厂商编写载体启动器，指向同一个包和对象存储通道——无需构建新的镜像流水线。
+
+## 上线操作手册（阿里云 ECS 载体）
+
+每次运行的一次性检查清单。涉及两个身份：**主账号 AK** 用于执行 `terraform apply`（创建 RAM/NAT）；**基准测试 RAM 用户的静态 AK** 用于执行活动。活动请使用静态 AK——用临时/STS 凭证签名的开发 wheel 预签名 URL 受该令牌有效期限制，可能在启动中途失效。
+
+**0. 查找官方 OS 镜像 ID**（无需私有镜像）：
+
+```bash
+aliyun ecs DescribeImages --RegionId cn-hangzhou --OSType linux \
+  --ImageOwnerAlias system --Architecture x86_64 \
+  | jq -r '.Images.Image[].ImageId' | grep '^aliyun_3' | head
+```
+
+**1. 执行 terraform apply**（探针 RAM + NAT + 镜像），使用主账号 AK：
+
+```bash
+cd infra/terraform/aliyun-iam
+terraform apply \
+  -var enable_probe=true \
+  -var enable_nat=true \
+  -var ecs_image_id=aliyun_3_x64_20G_alibase_XXXX.vhd
+```
+
+预期结果：NAT 网关 + EIP + SNAT、探针 RAM 角色，以及基准测试用户的 `ecs:RunInstances/DescribeInstances/DeleteInstances` 操作策略。NAT/EIP 是唯一按小时计费的资源——完成后请销毁（步骤 8）。
+
+**2. 导出运行配置**并启用开发 wheel 兜底（在运行版本发布到阿里云 PyPI 镜像前）：
+
+```bash
+terraform output -raw csbench_config > /tmp/agent-runtime-aliyun.local.yaml
+# then add one line under `target:` in that file →   probe_dev_wheel: true
+```
+
+配置中已包含 `oss_bucket`、`region`、`eci_vswitch_id`、`eci_security_group_id`、`eci_probe_role`、`ecs_image_id`、`ecs_instance_type`。
+
+**3. 凭证**（基准测试 RAM 用户，静态 AK）：
+
+```bash
+export ALIBABA_CLOUD_ACCESS_KEY_ID=<ram-user-ak>
+export ALIBABA_CLOUD_ACCESS_KEY_SECRET=<secret>
+```
+
+**4. 预检**（可选，成本极低）：
+
+```bash
+csbench doctor --config /tmp/agent-runtime-aliyun.local.yaml --provider aliyun
+```
+
+**5. 先进行单任务实地验证**（成本较小）——包含单个任务的计划（例如 TTFT 探针），使用 `--probe ecs`：
+
+```bash
+csbench run-plan single-task-plan.yaml \
+  --config /tmp/agent-runtime-aliyun.local.yaml \
+  --probe ecs --allow-live --cost-budget 5
+```
+
+**6. 在另一个终端监控进度**：
+
+```bash
+csbench progress --watch          # most-recent campaign; --campaign <id> to pin
+```
+
+**7. 验证**结果：`observations.vantage.carrier == "ecs"` 且 `in_vpc == true`，无 `CarrierError`，探针 OSS 遥测数据已同步至结果目录。
+
+**8. 清理并销毁资源：**
+
+```bash
+csbench sweep --provider aliyun                    # dry-run: list orphans
+csbench sweep --provider aliyun --confirm          # delete stray ECS/AgentRun
+terraform apply -var enable_probe=true -var enable_nat=false \
+  -var ecs_image_id=aliyun_3_x64_20G_alibase_XXXX.vhd   # stop NAT/EIP billing
+```
+
+**故障排查（实地验证时需确认的未知项）：**
+
+- `Forbidden.RamRoleNotExist` / PassRole 403 于首次启动时出现 → 通常是 RAM 传播延迟（2–5 分钟）；该角色必须信任 `ecs.aliyuncs.com`。
+- 实例卡住 / pip 无法拉取 wheel → 实例**没有公网 IP**；出口流量仅通过 NAT。请确认预签名 URL 使用的是 VPC 内网 OSS 地址，且 NAT 能够同时访问 PyPI 镜像和 AgentRun 端点。
+- `DescribeInstances` 字段结构（`status`、`creation_time`、`instance_id`）——请对照实时响应确认载体/reaper 的假设是否正确。

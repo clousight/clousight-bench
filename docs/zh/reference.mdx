@@ -1,0 +1,37 @@
+---
+title: API 参考
+description: 核心数据结果契约与插件扩展入口点（entry point）。
+---
+
+核心编排器执行固定的生命周期；所有产品相关的逻辑均由插件实现。本页列出关键类型及其注册所用的入口点（entry point）。如需查阅具体代码细节，请使用页内 **Ask** 助手或 [DeepWiki](https://deepwiki.com/clousight/clousight-bench)。
+
+## 结果契约
+
+一次运行会输出一条 `ResultRecord`（schema `0.2`）：包含 `status`（`completed` / `failed` /
+`invalid` / `unsupported`）、`measurements`（每项测量值含 `value`、`unit`、
+`evidence`）、`findings`（每项发现项含稳定的 `code`、`severity` 及证据），以及
+`fingerprints`（`benchmark` / `environment` / `implementation` / `record_digest`）。
+完整字段表请参见[架构说明](/docs/zh/architecture)。
+
+## 插件基类
+
+| 基类 | 作用范围 | 注册方式 |
+|---|---|---|
+| `DomainPack` | 产品类别（领域） | `clousight_bench.domains` |
+| `ProviderAdapter` | （领域，云平台）适配器 | 在对应领域包内注册 |
+| `Task` | 测评维度（任务） | 在对应领域包内注册 |
+| `WorkloadEngine` | 负载引擎 | `manifest.yaml` + 可执行文件 |
+
+`Task` 需实现 `config()`（受控输入）、`execute()`（仅采集原始观测值）、`score()`（对采集包做纯函数评分），并携带 `task_revision` / `scorer_revision`。
+
+## 入口点（Entry Points）
+
+第三方包通过在 `pyproject.toml` 中声明以下入口点（entry point）来扩展测试框架：
+
+- `clousight_bench.domains` — 领域包（domain packs）
+- `clousight_bench.runtime_providers` — 云运行时提供商适配器
+- `clousight_bench.resource_reapers` — 孤立资源回收器
+- `clousight_bench.enrichers` — 运行后数据增强器（如定价信息）
+- `clousight_bench.span_exporters` — 追踪 span 导出器
+
+完整示例请参见[扩展（插件）](/docs/zh/plugins)。
