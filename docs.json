@@ -20,6 +20,7 @@
     "languages": [
       {
         "language": "en",
+        "default": true,
         "groups": [
           {
             "group": "Get started",
