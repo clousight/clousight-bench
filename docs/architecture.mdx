@@ -252,45 +252,45 @@ separate private `clousight-bench-pro` repository ships only:
   `PrivateAssetResolver` on the `clousight_bench.asset_resolvers` entry point,
   plus a managed object-store upload (placeholder);
 - `cb-adapters-enterprise` — an empty placeholder for future managed-SaaS and
-  private-cloud / 信创 adapters.
+  private-cloud / domestic-stack adapters.
 
 Nothing in the open core imports, requires or degrades without them.
 
-## 凭证与上手（便捷层）
+## Credentials & onboarding (convenience layer)
 
-原则：**绝不让用户为 benchmark 单独造一套密钥**，复用云自己的默认凭证链。
+Principle: **never require users to generate a separate set of keys for the benchmark** — reuse the cloud provider's own default credential chain.
 
-- `core/credentials.py::resolve_credentials(target, platform)` 只**探测**凭证来源、从不读取/存储密钥值。解析顺序：`auth_env`（逃生口，显式指定 env 名）→ `profile`（CLI 命名档）→ 标准 env 变量 → 凭证文件。返回 `CredentialResolution(ok, source, identity_hint, remediation)`，`identity_hint` 只含变量名/档名，永不含密钥。
-- `ProviderAdapter.resolve_credentials()` 委托给上面的解析器（跨域，`provider` 由 `target.provider` 或平台名前缀推断，如 `aliyun-agentrun`→`aliyun`）。真 adapter 运行时仍交给官方 SDK 的默认链。
-- 各云凭证链登记在 `PROVIDER_CREDENTIALS`（aws / aliyun / huawei / volcengine：标准 env、profile env、凭证文件、SDK 模块、文档链接）。
-- CLI：`csbench init <provider>` 生成私有 `*.local.yaml` + `.env.example` 并写 `.gitignore`（配置无密钥）；`csbench doctor --config x` 分步体检（provider → SDK 可导入？→ 凭证链可解析？→ `mock_base_url` 可达？localhost 直接判失败），每步给可操作补救提示。
+- `core/credentials.py::resolve_credentials(target, platform)` only **probes** the credential source; it never reads or stores key values. Resolution order: `auth_env` (escape hatch — explicitly named env var) → `profile` (named CLI profile) → standard env vars → credential file. Returns `CredentialResolution(ok, source, identity_hint, remediation)`; `identity_hint` contains only the variable name or profile name, never the key material.
+- `ProviderAdapter.resolve_credentials()` delegates to the resolver above (cross-domain; `provider` is inferred from `target.provider` or the platform-name prefix, e.g. `aliyun-agentrun` → `aliyun`). The real adapter runtime still hands off to the official SDK's default chain.
+- Each provider's credential chain is registered in `PROVIDER_CREDENTIALS` (aws / aliyun / huawei / volcengine: standard env vars, profile env, credential file, SDK module, documentation link).
+- CLI: `csbench init <provider>` generates a private `*.local.yaml` + `.env.example` and writes `.gitignore` (configuration contains no secrets); `csbench doctor --config x` runs a step-by-step health check (provider → SDK importable? → credential chain resolvable? → `mock_base_url` reachable? localhost fails immediately), and provides an actionable remediation hint at each step.
 
-**前置校验阶段（PREFLIGHT）**：上述校验不仅是独立命令，还是**生命周期的一个阶段**。`core/preflight.py` 提供 `Check` / `PreflightReport` 与可复用校验函数（`credential_check` / `sdk_check` / `mock_reachable_check`），`doctor` 与 orchestrator **共用同一批函数**（单一真源）。
+**PREFLIGHT phase**: the checks above are not only standalone commands — they are also **a lifecycle phase**. `core/preflight.py` provides `Check` / `PreflightReport` and reusable check functions (`credential_check` / `sdk_check` / `mock_reachable_check`); `doctor` and the orchestrator **share the same functions** (single source of truth).
 
-- `ProviderAdapter.preflight() -> PreflightReport`：默认校验凭证 + provider SDK。跨域可用。
-- `AgentRuntimeAdapter.preflight(task)`：`super()` 之上，对**真云平台**（provider 非空）追加 `mock_base_url` 可达校验 + `check_permissions(task)`。local-sim（provider 为空、自托管 mock）不加这两项，永远通过。
-- orchestrator 在 RESOLVE 之后、SETUP 之前跑 `adapter.preflight(task)`；任一 CRITICAL 失败即**早退**（不 provision），落一条 `ok=False`、`metrics.preflight_ok=False`、`error="preflight failed: ..."`、`notes=` 清单的记录。`--skip-preflight` 关闭该 gate。
+- `ProviderAdapter.preflight() -> PreflightReport`: validates credentials + provider SDK by default. Usable across domains.
+- `AgentRuntimeAdapter.preflight(task)`: on top of `super()`, appends a `mock_base_url` reachability check + `check_permissions(task)` for **real cloud platforms** (non-empty provider). local-sim (empty provider, self-hosted mock) skips both additions and always passes.
+- The orchestrator runs `adapter.preflight(task)` after RESOLVE and before SETUP; any CRITICAL failure triggers an **early exit** (no provisioning), recording a row with `ok=False`, `metrics.preflight_ok=False`, `error="preflight failed: ..."`, and a `notes=` checklist. `--skip-preflight` disables this gate.
 
-### 最小权限：(benchmark × 云) 矩阵映射
+### Least privilege: the (benchmark × cloud) matrix
 
-不同 benchmark 对不同云依赖的最小权限不同，因此权限校验**按 task 映射**，职责拆成两侧：
+The minimum permissions required by a given benchmark differ across cloud providers, so permission validation is **mapped per task**, with responsibilities split across two sides:
 
-- **Task 声明 WHAT**：`Task.required_permissions: tuple[str, ...]` 列出**抽象能力令牌**（与云无关）。令牌定义在 `domains/agent_runtime/permissions.py`：`session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`。当前五维声明：T1.2=`session:create,session:state`；T1.3=`session:create,tool:invoke`；T2.1=`tool:register`；T4.1=`session:create,tool:invoke,trace:read`；T4.2=`session:create,tool:invoke,trace:export`。
-- **Adapter 说 HOW + 验**：每个真云 adapter 定义 `PERMISSION_MAP`（令牌 → 该云的具体最小 IAM/RAM 动作），`required_actions(task)` 把 task 的令牌解析为该云动作集，`_probe_permissions(actions)` 做真实鉴权（默认 `None`=未验证 → WARNING 并列出「本次 benchmark 在该云所需的最小动作」；接真 adapter 覆写为 STS GetCallerIdentity / RAM policy 模拟 / dry-run，返回 `(ok, missing)` → 缺失即 CRITICAL 阻断）。
+- **Task declares WHAT**: `Task.required_permissions: tuple[str, ...]` lists **abstract capability tokens** (cloud-agnostic). Tokens are defined in `domains/agent_runtime/permissions.py`: `session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`. Current per-task declarations: T1.2=`session:create,session:state`; T1.3=`session:create,tool:invoke`; T2.1=`tool:register`; T4.1=`session:create,tool:invoke,trace:read`; T4.2=`session:create,tool:invoke,trace:export`.
+- **Adapter says HOW + verifies**: each real-cloud adapter defines a `PERMISSION_MAP` (token → the concrete minimum IAM/RAM actions for that cloud). `required_actions(task)` resolves the task's tokens into the cloud-specific action set; `_probe_permissions(actions)` performs the actual authorization check (the default implementation returns `None` = unverified → emits a WARNING listing the minimum actions required for this benchmark run on this cloud; real adapter overrides call STS GetCallerIdentity / RAM policy simulation / dry-run and return `(ok, missing)` — any missing action is a CRITICAL blocker).
 
-于是「本次运行的最小权限」= adapter 对 task 令牌的映射；**加维度**只需在 Task 上声明令牌，**加云**只需在 Adapter 上补 `PERMISSION_MAP`，互不侵入。`csbench doctor --domain <d> --platform <p> --task <t>` 直接打印该 (benchmark×云) 的最小动作清单。
+The minimum permissions for a given run equal the adapter's mapping of the task's tokens. **Adding a new benchmark dimension** only requires declaring tokens on the Task; **adding a new cloud** only requires supplying a `PERMISSION_MAP` on the Adapter — the two sides are entirely decoupled. `csbench doctor --domain <d> --platform <p> --task <t>` prints the minimum action list for any (benchmark × cloud) combination directly.
 
-## 测评集分发（三层，一套解析机制）
+## Dataset distribution (three tiers, one resolver)
 
-benchmark 不只是代码，还有**资产**（数据集、语料、held-out 判分键）。方法开源、数据分层、判分键私有——用同一套解析器承载，开放/私有边界只是配置：
+A benchmark is more than code — it also includes **assets** (datasets, corpora, held-out scoring keys). The methodology is open, the data is tiered, and scoring keys are private. All of this is served by a single resolver; the open/private boundary is purely a matter of configuration:
 
-| 层 | `source` | 放哪 | 机制 |
+| Tier | `source` | Location | Mechanism |
 |----|----------|------|------|
-| **内置开源** | `bundled` | `clousight-bench`（相对 workload/task 目录） | 小型、license 干净、随仓库走；有 `sha256` 则校验 |
-| **公开外置** | `remote` | 不 vendored；manifest 声明 `uri + sha256 + license` | 按需下载 → 校验哈希 → 缓存到 `~/.cache/clousight-bench/assets`；`license` 必填（可审计） |
-| **私有商业** | `private` | `clousight-bench-pro` / 数据服务 | 由入口点 `clousight_bench.asset_resolvers` 的解析器（带 token 下载）处理；未装解析器 → 抛 `NeedLicense`（清晰提示，非崩溃） |
+| **Bundled open-source** | `bundled` | `clousight-bench` (relative to the workload/task directory) | Small, clean-licensed, ships with the repository; `sha256` is verified when present |
+| **Public external** | `remote` | Not vendored; manifest declares `uri + sha256 + license` | Downloaded on demand → hash-verified → cached to `~/.cache/clousight-bench/assets`; `license` is required (auditable) |
+| **Private commercial** | `private` | `clousight-bench-pro` / data service | Handled by the resolver registered on the `clousight_bench.asset_resolvers` entry point (token-authenticated download); if no resolver is installed, raises `NeedLicense` (clear user-facing message, not a crash) |
 
-- **manifest `assets:` 段**（workload / task）：
+- **`assets:` section in the manifest** (workload / task):
   ```yaml
   assets:
     - name: tpcds-sf1
@@ -300,20 +300,20 @@ benchmark 不只是代码，还有**资产**（数据集、语料、held-out 判
       license: TPC-EULA
       version: "1"
   ```
-- **`core/assets.py`**：`AssetSpec` + `resolve_asset(spec, base_dir, cache_dir, private_resolver)`；`WorkloadEngine.resolve_assets()` 在 run 前解析全部资产，把 `{name: 本地路径}` 通过 `params["assets"]` 暴露给 workload。
-- **可复现不泄密**：`describe()` 把资产 `identity()`（`name@version + sha256`）折进 config_hash——**只存指纹，不存内容**；判分键内容永不入 record。
-- **判分键抗污染**：一个 task 的方法（怎么判）可开源，但其 held-out 键值可声明为 `source: private`——"怎么判"公开、"标准答案"私有，天然抗背题。
-- **扩展点**：私有解析器实现 `PrivateAssetResolver`（`name` + `resolve(spec, cache_dir)`），经 `clousight_bench.asset_resolvers` 注册；开源核心不带任何实现。`clousight-bench-pro` 的 `cb-dataservice` 提供 `DataServiceAssetResolver`（`CLOUSIGHT_BENCH_TOKEN` 鉴权 + sha256 校验）。
+- **`core/assets.py`**: `AssetSpec` + `resolve_asset(spec, base_dir, cache_dir, private_resolver)`; `WorkloadEngine.resolve_assets()` resolves all assets before a run and exposes `{name: local_path}` to the workload via `params["assets"]`.
+- **Reproducible without leaking secrets**: `describe()` folds each asset's `identity()` (`name@version + sha256`) into the `config_hash` — **only the fingerprint is stored, never the content**; scoring-key content never enters the record.
+- **Scoring-key contamination resistance**: a task's methodology (how to score) can be open-sourced while its held-out key values are declared `source: private` — "how to score" is public, "the answer key" is private, which naturally prevents benchmark leakage.
+- **Extension point**: private resolvers implement `PrivateAssetResolver` (`name` + `resolve(spec, cache_dir)`) and register via `clousight_bench.asset_resolvers`; the open core ships no implementation. The `cb-dataservice` component of `clousight-bench-pro` provides `DataServiceAssetResolver` (`CLOUSIGHT_BENCH_TOKEN` authentication + sha256 verification).
 
-## 数据契约与扩展点
+## Data contract & extension points
 
-`ResultRecord` 承载三条独立通道，互不覆盖，读者按需选取：
+`ResultRecord` carries three independent channels that do not overwrite one another; consumers read whichever they need:
 
-- `metrics`（标量判分）— 报告层聚合、比较用的数字。
-- `series`（时序，`{name: [[t, value], ...]}`）— 高频采样，如逐秒延迟、GPU 利用率。
-- `artifacts`（`{"kind", "path"/"uri", "media", "sha256"}` 指针）— OTel trace、日志包等大文件，record.json 里只存指纹，不存内容。
+- `metrics` (scalar scores) — numbers used by the report layer for aggregation and comparison.
+- `series` (time series, `{name: [[t, value], ...]}`) — high-frequency samples such as per-second latency or GPU utilization.
+- `artifacts` (`{"kind", "path"/"uri", "media", "sha256"}` pointers) — large files such as OTel traces and log bundles; only the fingerprint is stored in `record.json`, not the content.
 
-协议（WorkloadEngine 的 stdout JSONL）新增两类事件，与既有 `metric`/`log`/`result` 并存、互不影响：
+The protocol (WorkloadEngine stdout JSONL) adds two new event types alongside the existing `metric`/`log`/`result` events, with no interference between them:
 
 ```jsonl
 {"type": "sample", "series": "latency_ms", "t": 1.0, "value": 87.2}
@@ -321,31 +321,31 @@ benchmark 不只是代码，还有**资产**（数据集、语料、held-out 判
 {"type": "result", "ok": true}
 ```
 
-`sample` 事件按 `series` 名累积进 `WorkloadResult.series`；`artifact` 事件的 `sha256` 由引擎按 `workload_dir/path` 的文件内容计算，workload 本身不用算哈希。
+`sample` events are accumulated into `WorkloadResult.series` keyed by series name; the `sha256` for `artifact` events is computed by the engine from the file contents at `workload_dir/path` — the workload itself does not need to hash anything.
 
-**落盘**：`record.json` 保持历史路径 `results/<domain>/<platform>/<task_id>-<run_id>.json` 不变（`core/store.py::ResultStore` 负责，`orchestrator._persist` 委托给它，签名不变）。装了可选 `[store]` extra（`duckdb` + `pyarrow`）且记录带 `series` 时，series 会外置为该次 run 目录下的 `series.parquet` 长表，`record.json` 里的 `series` 字段改写为指针 `{"$parquet": "<相对路径>"}`；未装 extra 时 series 原样内嵌在 `record.json`（小规模无损）。
+**Persistence**: `record.json` retains its historical path `results/<domain>/<platform>/<task_id>-<run_id>.json` unchanged (`core/store.py::ResultStore` owns this; `orchestrator._persist` delegates to it and the signature is stable). When the optional `[store]` extra (`duckdb` + `pyarrow`) is installed and the record contains `series` data, the series are externalized as a `series.parquet` tall table in the run directory, and the `series` field in `record.json` is rewritten to a pointer `{"$parquet": "<relative_path>"}`. Without the extra, series are embedded inline in `record.json` (lossless for small volumes).
 
-Parquet 长表列（`cb-dataservice` / SaaS Web 端读取的稳定握手）：
+Parquet tall-table columns (the stable handshake consumed by `cb-dataservice` and the SaaS web frontend):
 
 ```
 run_id | domain | task_id | platform | config_hash | series | t | value | unit
 ```
 
-其中 `unit` 列的取值约定：`ResultStore` 写 Parquet 时，对每个 series `<name>` 从 `metrics["<name>__unit"]` 读取其单位字符串（如 `latency_ms` 系列可在 `metrics` 里放 `"latency_ms__unit": "ms"`）；未提供则为空串 `""`。这是一个**隐式约定而非强制**——不写也能落盘，只是 `unit` 列为空。
+Convention for the `unit` column: when `ResultStore` writes Parquet, it reads the unit string for each series `<name>` from `metrics["<name>__unit"]` (for example, the `latency_ms` series may carry `"latency_ms__unit": "ms"` in `metrics`); if not provided, the column is an empty string `""`. This is an **implicit convention, not enforced** — omitting it still persists the row; the `unit` column is simply empty.
 
-`ResultStore.query_series(sql=None, glob="**/series.parquet")` 用 DuckDB 直接对整个 `results_dir` 下的 Parquet 文件跑 SQL；`glob` 路径以参数绑定传入 `read_parquet(?)`（不做字符串拼接）；缺 `[store]` extra 时抛 `ImportError`。
+`ResultStore.query_series(sql=None, glob="**/series.parquet")` runs SQL directly against all Parquet files under `results_dir` via DuckDB; the `glob` path is passed to `read_parquet(?)` as a bound parameter (no string concatenation); raises `ImportError` when the `[store]` extra is absent.
 
-**扩展点**：`clousight_bench.enrichers` entry-point group 承载 `ResultEnricher` 子类——`name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`。`orchestrator.execute(spec, results_dir=None, enrich=True)` 在构造完 `record`、`_persist` 之前，按 `registry.load_enrichers()` 返回的列表（按 `name` 排序，确定性执行顺序）依次调用。核心不带任何 enricher 实现（如成本预估）——商业插件通过 entry point 注入；CLI `csbench run --no-enrich` 可跳过整个链路。
+**Extension point**: the `clousight_bench.enrichers` entry-point group hosts `ResultEnricher` subclasses — `name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`. `orchestrator.execute(spec, results_dir=None, enrich=True)` invokes them in sequence after the `record` is constructed and before `_persist`, ordered by the list returned from `registry.load_enrichers()` (sorted by `name` for deterministic execution order). The core ships no enricher implementations (such as cost estimation) — commercial plugins are injected via entry point; `csbench run --no-enrich` skips the entire chain.
 
-**插件兼容契约**：`clousight_bench.PLUGIN_API_VERSION = "1.0"`（SemVer）。当 schema 字段、entry-point group 名、`ResultEnricher`/`ResultStore` 签名发生不兼容变更时才升 MAJOR。**包版本与插件 API 版本是两个独立维度**：`clousight_bench.__version__`（当前 `0.2.0`）随每次发布递增，`PLUGIN_API_VERSION` 只在插件面发生不兼容变更时才动，二者不同步演进。Phase 1A 的商业插件 `pyproject.toml` 按当前包版本 pin `clousight-bench>=0.2,<0.3`（`>=1.0,<2.0` 是早期设计文档里按 `PLUGIN_API_VERSION` 主版本设想的目标态写法，尚未随 0.2 开发者预览调整回真实包版本，此处更正）。
+**Plugin compatibility contract**: `clousight_bench.PLUGIN_API_VERSION = "1.0"` (SemVer). MAJOR is bumped only when schema fields, entry-point group names, or `ResultEnricher`/`ResultStore` signatures change incompatibly. **Package version and plugin API version are two independent dimensions**: `clousight_bench.__version__` (currently `0.2.0`) increments with every release; `PLUGIN_API_VERSION` moves only when the plugin-facing surface has a breaking change — the two do not evolve in lockstep. Phase 1A commercial plugin `pyproject.toml` pins against the current package version as `clousight-bench>=0.2,<0.3` (the `>=1.0,<2.0` form seen in early design documents was a target-state sketch written against `PLUGIN_API_VERSION` major versions and was not updated when the 0.2 developer preview shipped; corrected here).
 
-**Pro 三个扩展边界**（由 `clousight-bench-pro` 通过 entry point 注入；开源核心不携带任何实现）：
+**Pro's three extension boundaries** (injected by `clousight-bench-pro` via entry point; the open core carries no implementations):
 
-| 接口 | 职责 | Phase 1A 状态 |
+| Interface | Responsibility | Phase 1A status |
 |---|---|---|
-| `ResultEnricher`（`core/plugin.py`） | 对已生成的 `ResultRecord` 追加派生指标（如成本估算） | 已实现：`clousight_bench.enrichers` entry point，`registry.load_enrichers()` 加载 |
-| `PrivateAssetResolver`（`core/plugin.py`） | 解析私有/授权资产（数据集、held-out 判分键） | 已实现：`clousight_bench.asset_resolvers` entry point；`cb-dataservice` 的 `DataServiceAssetResolver` 已注册 |
-| `ResultPublisher` | 可选的结果发布/签名/团队报告 | **保留/计划中的第三边界，Phase 1A 未实现**——仅见于设计文档（`docs/superpowers/specs/2026-07-25-open-source-core-hardening-design.md`），核心未定义该抽象，Pro 也未注册任何实现 |
+| `ResultEnricher` (`core/plugin.py`) | Appends derived metrics (e.g. cost estimates) to an already-generated `ResultRecord` | Implemented: `clousight_bench.enrichers` entry point, loaded by `registry.load_enrichers()` |
+| `PrivateAssetResolver` (`core/plugin.py`) | Resolves private/licensed assets (datasets, held-out scoring keys) | Implemented: `clousight_bench.asset_resolvers` entry point; `cb-dataservice`'s `DataServiceAssetResolver` is registered |
+| `ResultPublisher` | Optional result publishing, signing, and team reporting | **Reserved/planned third boundary, not implemented in Phase 1A** — appears only in the design document (`docs/superpowers/specs/2026-07-25-open-source-core-hardening-design.md`); the core does not define this abstraction and Pro registers no implementation |
 
 ## Maintaining this document
 

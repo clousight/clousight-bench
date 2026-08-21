@@ -65,14 +65,14 @@ badges, brand-tinted shadows, tabular numerals) and is organized for scanning
 many dimensions at once:
 
 - **Sticky branded header** with the logo, bilingual name, generation timestamp,
-  and the 中 / EN toggle.
+  and a Chinese/English toggle.
 - **Platform overview cards**: a responsive grid — one card per platform with its
   provider logo, execution badge, and its headline metrics (cold start / net cost
   / elasticity knee).
 - **Tabbed grouped comparison matrix**: the agent-runtime profile surfaces *all*
   benchmark measurements as 8 capability groups spread over five tabs —
-  **性能 Performance / 可靠性 Reliability / 可观测 Observability / 成本 Cost /
-  能力 Capability** (each tab shows a per-panel count). Each group is a `.card`
+  **Performance / Reliability / Observability / Cost / Capability** (each tab
+  shows a per-panel count). Each group is a `.card`
   holding a grouped comparison table (metrics as rows × platforms as columns, each
   platform column carrying a brand-color top border) plus its interactive chart.
   The capability matrix renders under the Capability tab.
@@ -82,7 +82,7 @@ many dimensions at once:
 
 ## Brand, language & charts
 
-The report carries the Clousight / 云计算指北 brand: the official 3-layer
+The report carries the Clousight brand: the official 3-layer
 stacked-arrows logo (vendored + base64-inlined), the brand blue scale
 (`hsl(217 71% 51%)`), and Inter / Noto Sans SC fonts *by preference* (system
 fallback, so the file stays self-contained and offline).
@@ -91,7 +91,7 @@ fallback, so the file stays self-contained and offline).
   AWS / Huawei / Tencent / GCP / Azure …, vendored under
   `resources/brand/providers/`) with its execution badge; ≥2 same-execution
   platforms compare side by side.
-- **Full 中 / EN toggle**: the header button switches *all* UI text in place
+- **Full Chinese/English toggle**: the header button switches *all* UI text in place
   (panel titles, capability labels, badges, metric names, chrome) — default
   Chinese. Data (platform ids, numeric values) is never translated.
 - **Premium interactive charts**: self-authored inline SVG (gridlines, y-axis
