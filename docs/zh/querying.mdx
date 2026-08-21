@@ -1,0 +1,106 @@
+---
+title: 查询结果
+description: 基于 DuckDB 的分析层，用于查询 Parquet 结果存储。
+---
+
+每次运行会在 `results/<domain>/<platform>/` 下持久化一条 `0.2` 记录。分析层在读取时将这些记录展平为四个可用 SQL 查询的视图，因此来自**任意**云平台或产品的测量值、发现、成本和时序数据都以相同方式查询——`domain` 和 `platform` 仅作为普通列存在。
+
+`csbench query`（SQL）及任何 parquet/`series` 读取均需要 `[store]` 扩展包：
+
+```bash
+pip install 'clousight-bench[store]'
+```
+
+`csbench export` 导出为 CSV/JSONL（适用于 `records` / `measurements` / `findings`）无需安装该扩展。
+
+## 四个视图
+
+只有 `record_digest` 校验通过的记录才会被纳入（防篡改）；运行计划聚合记录会被跳过。四个视图共享 `run_id / domain / task_id / platform`，因此任意联表查询均可正常工作。
+
+**`records`** — 每次运行一行：
+
+```
+run_id, domain, task_id, platform, task_revision, scorer_revision,
+status, started_at, finished_at,
+benchmark_fp, environment_fp, implementation_fp, record_digest,
+region, mode, execution, cost_usd, list_cost_usd, discount_usd
+```
+
+`execution` 取值为 `simulated`（模拟运行时——模拟云 / 本地模拟 / 本地进程）或 `live`（真实云），或 `unknown`（迁移记录）。模拟与真实记录**指纹隔离**——它们获得不同的环境指纹，永不合并或比较。使用 `WHERE execution = 'live'` 过滤真实云数据。
+
+成本来自定价增强器（`extensions["pricing"]`，若运行未定价则为 NULL）。它通过三个维度上报：`list_cost_usd`（厂商官方定价）、`discount_usd`（折扣层为您节省的金额），以及 `cost_usd`——**净额**，即财务实际支付金额。
+
+### 定价：官方价 / 折扣 / 净额
+
+定价增强器是唯一的成本权威。它将一次运行的用量乘以两个独立的可插拔层：
+
+- `CLOUSIGHT_PRICING_DATA` → 公开的**官方定价**数据源（厂商官方价格；核心包内置少量种子数据）。
+- `CLOUSIGHT_PRICING_DISCOUNTS` → 您的私有**折扣层**（按提供商，可选按提供商+服务，`pct` 字段，以及 `default_pct`）。`net = list × (1 − discount)`；缺省时 `net == list`。
+
+同时查看三者：
+
+```bash
+csbench query "SELECT platform, list_cost_usd, discount_usd, cost_usd AS net
+               FROM records WHERE cost_usd IS NOT NULL"
+```
+
+**`measurements`** — 每条已评分测量值一行：
+
+```
+run_id, domain, task_id, platform, benchmark_fp, environment_fp,
+name, value_num, value_str, unit, evidence, aggregation, sample_count
+```
+
+数值型数据写入 `value_num`；标签/文本型数据（例如 `recovery_mode = "auto-retry"`）写入 `value_str`。
+
+**`findings`** — 每条发现一行：
+
+```
+run_id, domain, task_id, platform, code, severity, summary, evidence
+```
+
+**`series`** — 高频时序数据（来自每次运行的 `series.parquet`）：
+
+```
+run_id, domain, task_id, platform, benchmark_fingerprint, series, t, value, unit
+```
+
+## 示例
+
+跨云比较某一维度：
+
+```bash
+csbench query "SELECT platform, avg(value_num) avg_cold_ms
+               FROM measurements WHERE name='cold_start_ms'
+               GROUP BY platform ORDER BY avg_cold_ms"
+```
+
+按产品和平台汇总成本（避免使用 `cost` 作为别名——它是 DuckDB 关键字）：
+
+```bash
+csbench query "SELECT domain, platform, count(*) runs, sum(cost_usd) total_cost
+               FROM records GROUP BY 1, 2"
+```
+
+将标量值与其时序数据联表：
+
+```bash
+csbench query "SELECT r.platform, s.t, s.value
+               FROM series s JOIN records r USING (run_id)
+               WHERE s.series='warm_start_ms'"
+```
+
+查询整张表的快捷方式，无需编写 SQL：
+
+```bash
+csbench query --table measurements --where "task_id='T1.1'" --format csv
+```
+
+## 导出到外部工具
+
+将长表导出为 parquet / csv / jsonl，供 notebook 或 BI 工具使用：
+
+```bash
+csbench export measurements --out ./measurements.parquet
+csbench export records --out ./records.csv --format csv
+```

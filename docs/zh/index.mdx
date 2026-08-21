@@ -1,0 +1,56 @@
+---
+title: Clousight Bench
+description: 可复现、分证据等级的云产品基准测试。
+---
+
+**[Clousight](https://clousight.com) 的度量标尺 —— 可复现、分证据等级的云产品基准测试。**
+
+Clousight Bench 衡量托管云产品的**平台 runtime 工程能力** —— 会话托管、工具故障恢复、追踪完整性、成本归因 —— 而非模型智能水平。核心编排器执行同一套生命周期：
+
+```
+provision → setup → execute → collect → teardown → score → report
+```
+
+所有产品特定逻辑均以插件形式实现。
+
+## 可复现性契约
+
+每一个数字在被信任之前都会经过分类，每条结果记录均携带
+`config_hash` + `runner_version` + `evidence_layer`：
+
+| 证据层 | 含义 | 可复现性 |
+|---|---|---|
+| **C** | 控制变量测量 | 精确可复现 |
+| **B** | 环境观测 | 方法可复现；数值因环境而异 |
+| **A** | 文档阅读 | 厂商声明，未经实测 |
+| **D** | 营销材料 | 永不作为决策依据 |
+
+结果始终**按维度分别呈现 —— 从不合并为单一分数**。
+
+## 快速上手（无需云账号）
+
+```bash
+pip install clousight-bench
+csbench list --verbose
+csbench run --domain agent-runtime --task T1.3 --platform local-sim
+csbench report
+```
+
+可选时序存储（Parquet + DuckDB）：`pip install clousight-bench[store]`
+
+## 深入了解
+
+<CardGroup cols={2}>
+  <Card title="架构" icon="sitemap" href="/docs/zh/architecture">
+    生命周期、插件契约与证据层模型。
+  </Card>
+  <Card title="扩展（插件）" icon="puzzle-piece" href="/docs/zh/plugins">
+    添加 platform、维度、领域或负载引擎。
+  </Card>
+  <Card title="查询结果" icon="database" href="/docs/zh/querying">
+    基于 Parquet 存储的 DuckDB 分析。
+  </Card>
+  <Card title="API 参考" icon="code" href="/docs/zh/reference">
+    核心数据 schema 与插件基类。
+  </Card>
+</CardGroup>

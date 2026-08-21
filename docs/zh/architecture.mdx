@@ -1,0 +1,260 @@
+---
+title: 架构
+description: 共享生命周期、插件契约与证据模型。
+---
+
+Clousight Bench 对云产品的**运行时工程能力**进行基准测试，而非模型智能。
+其核心思想是：不同云产品的负载差异悬殊，但流水线完全相同。
+
+## 生命周期（所有领域共用）
+
+```
+RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
+        -> SCORE -> ENRICH -> PERSIST -> optional PUBLISH
+```
+
+- **RESOLVE** — 根据 `RunSpec` 查找 DomainPack、任务和适配器。
+- **VALIDATE** — 解析并校验 RunSpec、目标、参数和任务配置（`core/validation.py`）。RESOLVE 和 VALIDATE 失败均属 `UserInputError`：CLI 退出码为 2，**不写入任何记录**。
+- **PREFLIGHT** — `adapter.preflight(task)`：在制备之前检查凭证、SDK、连通性以及本次基准测试在该云上所需的最低权限。CRITICAL 级失败会生成一条 `invalid` 记录，且永远不会进入 SETUP。可通过 `--skip-preflight` 跳过；可使用 `csbench doctor` 单独运行。
+- **SETUP** — `adapter.setup()`：通过 Terraform 制备资源，或通过 SDK/HTTP 建立连接。
+- **EXECUTE** — `task.execute(adapter, params)`：驱动负载，返回仅含原始证据的 `ObservationBundle`。
+- **COLLECT** — `core/observation.py::collect()`：验证 bundle 格式完整且可进行规范化编码。
+- **SCORE** — `task.score(bundle)`：纯函数，生成测量值和发现。评分器失败时保留观测值，并记录一条 SCORE 错误。
+- **ENRICH** — 已安装的各 `ResultEnricher` 相互隔离运行：失败仅记录为 ENRICH 阶段错误，不会改变 `status`。
+- **PERSIST** — `core/store.py`：写临时文件、刷盘、`fsync`、原子重命名；当结果目录不可写时，会将紧急转储写入系统临时目录（路径会被打印出来）。
+- **PUBLISH** — 默认关闭，需注入 `ResultPublisher` 才生效。在 PERSIST 之后运行，写入仅追加的回执；永远不会改写核心记录。
+
+**TEARDOWN 不在上述流程步骤之列。** 它是围绕 SETUP → COLLECT 的强制性 `finally` 边界：一旦进入 SETUP，`adapter.teardown()` 必然执行，包括 `setup()` 中途失败的情况；teardown 失败会被记录为独立的阶段错误，不会覆盖导致失败的 execute 或 collect 错误。
+
+## 结果契约（schema 0.2）
+
+顶层字段固定为：`schema_version`、`run`、`identity`、`environment`、`fingerprints`、`measurements`、`findings`、`observations`、`series`、`artifacts`、`extensions`、`errors`、`status`。
+
+- `status` ∈ `completed` · `failed` · `invalid` · `unsupported`。不存在布尔型 `ok`、顶层 `metrics`、顶层 `evidence_layer`，也没有 `config_hash`。
+- `environment.execution` ∈ `simulated` · `live` · `unknown`，标记数据来自模拟运行时还是真实云端。该字段被折叠进环境指纹，因此模拟结果与真实结果永远不会混入同一分析池。
+- 每条测量值携带 `value`、`unit` 和 `evidence`，可选字段为 `aggregation`、`sample_count` 和 `notes`。
+- 每条发现携带稳定的 `code`、`severity`、`summary`、其 `evidence` 和 `details`。
+- 每条阶段错误携带 `stage`、`code`、`type`、`message` 和 `retryable`。堆栈跟踪永远不存入记录；`csbench run --debug` 会将其写入 `<results>/debug/<run_id>.log`。
+- 所有摘要均为对规范 JSON 编码的完整 SHA-256（`core/canonical.py`）：UTF-8、键排序、无多余空白，NaN/Infinity 被拒绝。
+- `extensions["core"]` 为核心保留；插件在自己的命名空间下写入（例如 `extensions["cb-pricing"]`）。
+
+旧版 schema `1.0` 文件可使用以下命令转换：
+`csbench migrate-results SOURCE --output DEST [--dry-run]`。转换从不原地修改，从不伪造指纹（未知指纹字面保留为 `unknown`），且重复运行结果完全一致（字节级）。`migration-manifest.json` 中的每条记录包含原始路径及其 SHA-256。
+
+## 运行计划与统计（Phase 1C）
+
+单一数字不构成测量。`csbench run --repeat N --warmup W`（`core/runplan.py`）将同一 `RunSpec` 经由上述生命周期运行 `warmup + repeat` 次——每次运行仍为独立的带摘要 `0.2` 记录——随后：
+
+- 丢弃 `warmup` 次运行（冷启动 / JIT / 缓存效应不代表你要发布的稳态），并在每条记录的 `extensions["core"]["run_plan"]` 下标注其角色，使选择可审计、永远不成为指纹；
+- 将正式运行的结果每个测量项汇聚为一个分布（`core/statistics.py`）：数值型 → `n / mean / stdev / min / max / p50 / p95 / cv`，标签型 → 分布 / `mode` / `agreement`；
+- 将 `run_plan_aggregate`（含独立 SHA-256 摘要）写入 `results/aggregates/…`，报告加载器将其识别为记录汇总而跳过。
+
+**可比性经过校验，而非假定。** 只有 `benchmark` 和 `environment` 指纹均匹配的两次运行才会合并。若某计划的 benchmark 或环境在运行中途发生变化，则只对最大的自洽子组做汇聚，并明确说明；`csbench report` 会对混合了不同 benchmark（完全不可比）或不同实现指纹（仅在代码发生变化的前提下可比）的单元格进行标记。只有 `completed` / `unsupported` 的运行会贡献数值——`failed` 的运行会被计数，但没有可汇聚的结论。
+
+Phase 1C **本身不**包含插件 API 版本范围、JSON Schema、合规套件或负载沙箱——这些属于 Phase 1D，现已在开放核心中发布（插件 API 版本范围 + 冲突检测、`RunSpec` / `ResultRecord` / manifest 的 JSON Schema、`csbench conformance`，以及负载沙箱第 1+2 层；详见 `ROADMAP.md` / `CHANGELOG.md`）。Phase 1C 仅对标量 `measurements` 做汇聚，不含时间序列。
+
+## 分层结构
+
+```
+CLI (csbench)
+  └─ Orchestrator (lifecycle state machine)
+       ├─ Registry (entry-point domain discovery)
+       ├─ DomainPack  → Task(s) + Adapter(s)         [per product category]
+       │     └─ Adapter (setup/submit/teardown)      [per (domain, cloud)]
+       │           └─ WorkloadEngine (JSONL, any language)  [per load generator]
+       ├─ Schema (RunSpec / ResultRecord 0.2 / fingerprints / evidence layer)
+       └─ Report (per-dimension matrix + red flags)
+```
+
+## 插件契约
+
+| 契约 | 职责 | 加载方式 |
+|---|---|---|
+| `DomainPack` | 为某类产品声明任务 + 适配器 | `clousight_bench.domains` 入口点 |
+| `ProviderAdapter` | 制备 / 对接 / 拆除被测系统 | 由 DomainPack 引用 |
+| `Task` | 一个基准测试维度：`config()`、`execute()`（原始观测）、`score()`（纯函数）、`task_revision` / `scorer_revision` | 由 DomainPack 引用 |
+| `WorkloadEngine` | 将 manifest 描述的负载生成器作为子进程运行 | `src/clousight_bench/resources/workloads/<name>/manifest.yaml`，通过 `core/resources.py::reference_workload_path()` 解析 |
+| `RuntimeProvider` | 为 `skeleton` 云适配器在真实模式下提供已接线、SDK 支持的传输层 | `clousight_bench.runtime_providers` 入口点，通过 `registry.get_runtime_provider(provider)` 解析 |
+| `CampaignProbeHook` | 为每个 campaign 制备 / 同步 / 回收区域内负载探针（见下文"控制平面与数据平面"） | 通过注册 runtime provider 的 `campaign_probe_hook(provider)` 查找 |
+| `ResourceReaper` | 为 `csbench sweep` 查找并删除带有 harness 标签的孤儿云资源 | `clousight_bench.resource_reapers` 入口点，通过 `registry.load_resource_reapers()` 解析 |
+
+内置包与第三方包（包括闭源商业包）的加载方式完全相同——安装一个 Python 包或放入一个负载目录即可。对接真实云的领域包需要注册一个 `RuntimeProvider`（以及可选的 `CampaignProbeHook` 和 `ResourceReaper`）。开放核心定义这些抽象**并现已附带参考实现**——Aliyun AgentRun 和 AWS AgentCore 的 `RuntimeProvider` 及 `ResourceReaper` 均在源码树内注册（`pyproject.toml`），因此仅凭开放核心即可复现真实云路径。该接缝对第三方 / 商业 provider 以相同方式注册保持开放。
+
+## 控制平面与数据平面
+
+`execute`（接触云端）/ `score`（纯函数）的拆分同时也是控制平面 / 数据平面的拆分。`AgentRuntimeAdapter` 额外暴露一个接缝：`run_data_plane_probe(name, params) -> ObservationBundle`（`domains/agent_runtime/adapters/base.py`）——延迟类"数据平面"任务的 `execute()` 简化为 `return adapter.run_data_plane_probe("<probe>", {...})`，由此由*适配器*而非任务决定测量在何处运行。基础适配器将请求分发到进程内 packer 注册表（`domains/agent_runtime/dataplane_dispatch.py`），这正是 `local-sim` 和所有尚未接线的云所使用的路径。已接线的云可以改写此接缝，将整个测量发送到**目标区域内**运行的负载探针，使运营商的网络和系统代理不影响测量数值，同时返回相同的 `ObservationBundle` 供评分。`score()` 在两种路径下均无需改动。`run-plan` campaign 的探针生命周期由可选的 `CampaignProbeHook` 驱动（在任务循环的 `try/finally` 中启动、同步并回收；默认 `--probe local` 不触碰此路径）。开放核心定义该接缝和 hook 契约，**并在源码树内附带 Aliyun ECI 探针 carrier 及其云传输层的参考实现**；其他 carrier（其他云、第三方或商业）以相同方式注册。
+
+## 证据层
+
+`A` 文档 · `B` 环境观测 · `C` 受控测量 · `D` 市场宣传。
+报告永远不将多个维度合并为单一分数。
+
+## 当前领域
+
+- `agent-runtime` — 会话、工具调用、故障恢复、可观测性、成本、隔离。所有任务均在 `local-sim` 上运行；完整任务列表和适配器状态**由下方注册表生成**（从不手动维护——见"文档维护"）。其覆盖范围包括制备、运行时行为、工具注册、可观测性、成本和租户隔离。适配器采用 `managed`/`transport`/`mode` 拆分，同一套代码既能驱动本地模拟运行时，也能在安装 runtime-provider 插件后驱动真实云；延迟类任务通过 `run_data_plane_probe` 接缝路由（见"控制平面与数据平面"）；能力探针触发 `CapabilityNotSupported` → 记录为一条发现，不会崩溃。
+- **可靠性组——以平台作为 agent 宿主的视角。** 被测单元是*作为固定 agent 宿主的平台*，而非原始调用 API，因此可靠性任务衡量的是当下游工具真正失败或停滞时"平台 + agent"组合能否恢复。**T1.3（故障恢复）/ T1.10（重试风暴）/ T1.12（行头阻塞）** 通过 mock 工具服务器的 `/fault/config` + `/latency/config` 注入故障/延迟（因此在真实 agent→tool HTTP 跳上对平台可见，并像所有其他调用一样使用 mock token 进行认证），为 benchmark agent 配置**固定的重试契约**（`agent_bundle/lc_agent.py` 中的 `AGENT_RETRY_POLICY`：HTTP 5xx → 重试两次，200ms 退避，共 3 次；4xx / 连接失败 → 不重试——作为 agent 指纹的一部分，而非可调旋钮），并通过**读取 mock 自身的调用计数器**（按 correlation-id 分桶，并发请求永不交叉计数）而非从客户端循环推断进行**观测**。每项任务产生**三态平台归因**——例如 T1.3 → `recovered` vs `platform_terminated`（在 agent 恢复前 invoke 被截断）vs 快速失败；T1.10 → `storm_bounded_by` agent / platform / none。**T1.2（状态持久化）/ T1.11（并发写入）** 被*诚实地降级*为 `unsupported` 并附带证据层 A 的发现：基于 FC 的 AgentRun 没有原生会话状态，因此具备状态化平台的云可以在此处合法地得到正面结论——这是一个真实的负面差异化结果，而非伪造的通过。
+- `bigdata-emr` — 最简领域包，证明抽象可推广：通过跨语言负载协议执行 J1.1 wordcount smoke 测试。（这是一个较小的任务/适配器面，并非 `skeleton` 这个 `AdapterStatus` 值——其 `local-process` 适配器为 `reference`；只有 `aws-emr` 适配器是 `skeleton`。）
+
+### 任务与适配器清单
+
+{/* BEGIN generated:task-inventory */}
+{/* Generated by scripts/gen_docs.py from the domain registry (same source as `csbench list --json`). Do not edit by hand; run `python scripts/gen_docs.py`. */}
+
+### `agent-runtime` — 27 tasks
+
+| Task | Title | Evidence |
+|---|---|---|
+| T0.1 | Provisioning (deploy) latency | B |
+| T0.2 | Teardown cleanliness | C |
+| T1.1 | Cold/warm start latency | B |
+| T1.2 | Session state persistence | A |
+| T1.3 | Tool-failure recovery | B |
+| T1.4 | Sustained load & tail latency | B |
+| T1.5 | Warm-pool retention | B |
+| T1.6 | Soak availability | B |
+| T1.7 | Rate limiting | B |
+| T1.8 | Timeout & cancellation | B |
+| T1.9 | Time-to-first-token (TTFT) | B |
+| T1.10 | Retry storm | B |
+| T1.11 | Concurrent state writes | A |
+| T1.12 | Head-of-line blocking | B |
+| T1.13 | Startup-convergence curve (instance reuse) | B |
+| T1.14 | Idle-timeout config honor | B |
+| T2.1 | Tool registration paths | B |
+| T4.1 | Trace span completeness (OpenInference) | C |
+| T4.2 | OTel export compatibility | B |
+| T4.3 | Metrics & logs | B |
+| T4.4 | Span propagation | B |
+| T4.5 | Export latency | B |
+| T5.1 | Cost attribution | B |
+| T5.2 | Elasticity under concurrency | B |
+| T5.3 | Idle / scale-to-zero cost | B |
+| T5.4 | Concurrency ceiling | B |
+| T6.1 | Tenant isolation | B |
+
+**Adapters:** `aliyun-agentrun` experimental · `aws-agentcore` skeleton · `huawei-agentarts` skeleton · `local-sim` reference · `volcengine-agentkit` skeleton
+
+### `bigdata-emr` — 1 task
+
+| Task | Title | Evidence |
+|---|---|---|
+| J1.1 | Batch job smoke (wordcount) | C |
+
+**Adapters:** `aws-emr` skeleton · `local-process` reference
+{/* END generated:task-inventory */}
+
+## 0.2 开发者预览就绪状态
+
+- `reference` 和 `wired` 适配器可以执行。
+- `experimental` 适配器可在预览注意事项下执行。
+- `skeleton` 适配器可被发现，但在 preflight 之前会被拒绝。
+- 当前可运行的参考适配器为 `local-sim` 和 `local-process`。Aliyun AgentRun（及 AWS AgentCore）的 `RuntimeProvider` 已在源码树内注册。`aliyun-agentrun` 适配器为 `experimental`：在 `mode: mock` 下可端到端运行，其 live 路径已完成一次完整的 27 任务真实云 campaign（`cn-hangzhou`，2026-08-15——25 个 `completed` + 2 个诚实的 `unsupported`）。该适配器尚未晋升为 `wired`（该状态保留给经过稳定、多次验证的 live 路径）；AWS AgentCore 及其他云仍为 `skeleton`。
+- 内置负载位于 `clousight_bench.resources.workloads`，通过 `core.resources.reference_workload_path()` 解析，因此 wheel 安装和可编辑安装使用相同的文件。
+
+Phase 1B 发布了 ResultRecord schema `0.2`（见上文"结果契约"）；插件 API `1.0` 保持不变，直到 Phase 1D 中的版本范围协商机制替代它。
+
+本仓库为公开仓库，采用 Apache-2.0 许可；包含完整的开放核心，**包括可复现机制**——Aliyun AgentRun `RuntimeProvider`、ECI 探针 carrier、`ResourceReaper`、Terraform 以及种子 `pricing` enricher。护城河在于*数据与服务*，而非私藏代码。独立的私有仓库 `clousight-bench-pro` 仅包含：
+
+- `cb-pricing` — 更完整 / 更新鲜的私有价格数据源，由开放 `pricing` enricher 通过 `CLOUSIGHT_PRICING_DATA` 环境变量消费（非入口点）；
+- `cb-dataservice` — 令牌门控的私有 / 留出数据集，通过 `clousight_bench.asset_resolvers` 入口点注册为 `PrivateAssetResolver`，以及托管对象存储上传（占位符）；
+- `cb-adapters-enterprise` — 空占位符，用于未来的托管 SaaS 和私有云 / 国产栈适配器。
+
+开放核心不导入、不依赖、也不因缺少上述组件而降级。
+
+## 凭证与入门引导（便捷层）
+
+原则：**永远不要求用户为基准测试单独生成一套密钥**——复用云 provider 自身的默认凭证链。
+
+- `core/credentials.py::resolve_credentials(target, platform)` 仅**探测**凭证来源，从不读取或存储密钥值。解析顺序：`auth_env`（逃生舱——显式命名的环境变量）→ `profile`（命名 CLI profile）→ 标准环境变量 → 凭证文件。返回 `CredentialResolution(ok, source, identity_hint, remediation)`；`identity_hint` 仅包含变量名或 profile 名，从不包含密钥材料。
+- `ProviderAdapter.resolve_credentials()` 委托给上述解析器（跨领域；`provider` 从 `target.provider` 或平台名前缀推断，例如 `aliyun-agentrun` → `aliyun`）。真实适配器运行时仍将凭证解析交由官方 SDK 的默认链处理。
+- 每个 provider 的凭证链注册于 `PROVIDER_CREDENTIALS`（aws / aliyun / huawei / volcengine：标准环境变量、profile 环境变量、凭证文件、SDK 模块、文档链接）。
+- CLI：`csbench init <provider>` 生成私有 `*.local.yaml` + `.env.example` 并写入 `.gitignore`（配置不含密钥）；`csbench doctor --config x` 执行逐步健康检查（provider → SDK 可导入？→ 凭证链可解析？→ `mock_base_url` 可达？localhost 立即失败），并在每一步提供可操作的修复提示。
+
+**PREFLIGHT 阶段**：上述检查不仅是独立命令——它们也是**一个生命周期阶段**。`core/preflight.py` 提供 `Check` / `PreflightReport` 和可复用的检查函数（`credential_check` / `sdk_check` / `mock_reachable_check`）；`doctor` 和编排器**共享相同的函数**（单一事实来源）。
+
+- `ProviderAdapter.preflight() -> PreflightReport`：默认验证凭证 + provider SDK。可跨领域使用。
+- `AgentRuntimeAdapter.preflight(task)`：在 `super()` 基础上，为**真实云平台**（非空 provider）追加 `mock_base_url` 可达性检查 + `check_permissions(task)`。local-sim（空 provider，自托管 mock）跳过两者，始终通过。
+- 编排器在 RESOLVE 之后、SETUP 之前运行 `adapter.preflight(task)`；任何 CRITICAL 失败触发**提前退出**（不制备），记录一行 `ok=False`、`metrics.preflight_ok=False`、`error="preflight failed: ..."`，以及 `notes=` 清单。`--skip-preflight` 禁用此门控。
+
+### 最小权限：（基准测试 × 云）矩阵
+
+给定基准测试所需的最低权限因云 provider 而异，因此权限验证**按任务映射**，职责分属两侧：
+
+- **任务声明 WHAT**：`Task.required_permissions: tuple[str, ...]` 列出**抽象能力令牌**（与云无关）。令牌在 `domains/agent_runtime/permissions.py` 中定义：`session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`。当前每任务声明：T1.2=`session:create,session:state`；T1.3=`session:create,tool:invoke`；T2.1=`tool:register`；T4.1=`session:create,tool:invoke,trace:read`；T4.2=`session:create,tool:invoke,trace:export`。
+- **适配器说明 HOW + 验证**：每个真实云适配器定义 `PERMISSION_MAP`（令牌 → 该云具体的最低 IAM/RAM 操作）。`required_actions(task)` 将任务的令牌解析为云特定的操作集；`_probe_permissions(actions)` 执行实际的授权检查（默认实现返回 `None` = 未验证 → 发出 WARNING，列出本次基准测试在该云上所需的最低操作；真实适配器覆盖此方法，调用 STS GetCallerIdentity / RAM policy 模拟 / dry-run，返回 `(ok, missing)`——任何缺失操作均为 CRITICAL 阻断）。
+
+给定运行的最低权限等于适配器对任务令牌的映射。**新增一个基准测试维度**只需在任务上声明令牌；**新增一个云**只需在适配器上提供 `PERMISSION_MAP`——两侧完全解耦。`csbench doctor --domain <d> --platform <p> --task <t>` 可直接打印任意（基准测试 × 云）组合的最低操作列表。
+
+## 数据集分发（三级，单一解析器）
+
+基准测试不只是代码——它还包含**资产**（数据集、语料库、留出判分键）。方法论公开，数据分级，判分键私有。所有资产均由单一解析器提供；开放/私有边界纯粹取决于配置：
+
+| 级别 | `source` | 位置 | 机制 |
+|----|----------|------|------|
+| **内置开源** | `bundled` | `clousight-bench`（相对于负载/任务目录） | 体积小、许可证清晰，随仓库一起分发；存在 `sha256` 时进行验证 |
+| **公开外部** | `remote` | 不内嵌；manifest 声明 `uri + sha256 + license` | 按需下载 → 哈希验证 → 缓存至 `~/.cache/clousight-bench/assets`；`license` 为必填（可审计） |
+| **私有商业** | `private` | `clousight-bench-pro` / 数据服务 | 由注册在 `clousight_bench.asset_resolvers` 入口点的解析器处理（令牌认证下载）；若未安装解析器，则抛出 `NeedLicense`（清晰的用户提示，不崩溃） |
+
+- **manifest 中的 `assets:` 段**（负载 / 任务）：
+  ```yaml
+  assets:
+    - name: tpcds-sf1
+      source: remote            # bundled | remote | private
+      uri: https://.../tpcds_sf1.tar.zst
+      sha256: "…"
+      license: TPC-EULA
+      version: "1"
+  ```
+- **`core/assets.py`**：`AssetSpec` + `resolve_asset(spec, base_dir, cache_dir, private_resolver)`；`WorkloadEngine.resolve_assets()` 在运行前解析所有资产，并通过 `params["assets"]` 将 `{name: local_path}` 暴露给负载。
+- **可复现且不泄露密钥**：`describe()` 将每个资产的 `identity()`（`name@version + sha256`）折叠进 `config_hash`——**只存储指纹，永远不存储内容**；判分键内容不进入记录。
+- **判分键抗污染**：任务的方法论（如何评分）可以开源，而其留出键值声明为 `source: private`——"如何评分"公开，"答案键"私有，天然防止基准测试泄露。
+- **扩展点**：私有解析器实现 `PrivateAssetResolver`（`name` + `resolve(spec, cache_dir)`）并通过 `clousight_bench.asset_resolvers` 注册；开放核心不提供实现。`clousight-bench-pro` 的 `cb-dataservice` 组件提供 `DataServiceAssetResolver`（`CLOUSIGHT_BENCH_TOKEN` 认证 + sha256 验证）。
+
+## 数据契约与扩展点
+
+`ResultRecord` 携带三个相互独立、互不覆盖的通道；消费者按需读取：
+
+- `metrics`（标量分数）——报告层用于汇聚和比较的数值。
+- `series`（时间序列，`{name: [[t, value], ...]}`）——高频采样，如每秒延迟或 GPU 利用率。
+- `artifacts`（`{"kind", "path"/"uri", "media", "sha256"}` 指针）——大文件，如 OTel 追踪和日志包；`record.json` 中只存储指纹，不存储内容。
+
+负载协议（WorkloadEngine stdout JSONL）在现有 `metric`/`log`/`result` 事件基础上新增两种事件类型，相互不干扰：
+
+```jsonl
+{"type": "sample", "series": "latency_ms", "t": 1.0, "value": 87.2}
+{"type": "artifact", "kind": "otel_trace", "path": "trace.json", "media": "application/json"}
+{"type": "result", "ok": true}
+```
+
+`sample` 事件按序列名累积进 `WorkloadResult.series`；`artifact` 事件的 `sha256` 由引擎从 `workload_dir/path` 的文件内容计算——负载本身无需哈希任何内容。
+
+**持久化**：`record.json` 保持其历史路径 `results/<domain>/<platform>/<task_id>-<run_id>.json` 不变（`core/store.py::ResultStore` 负责此职责；`orchestrator._persist` 委托给它，签名稳定）。当可选的 `[store]` 扩展（`duckdb` + `pyarrow`）已安装且记录含有 `series` 数据时，序列会被外部化为运行目录下的 `series.parquet` 宽表，`record.json` 中的 `series` 字段被改写为指针 `{"$parquet": "<relative_path>"}`。若未安装该扩展，序列将内嵌于 `record.json`（小数据量下无损）。
+
+Parquet 宽表列（`cb-dataservice` 和 SaaS 网页前端消费的稳定握手）：
+
+```
+run_id | domain | task_id | platform | config_hash | series | t | value | unit
+```
+
+`unit` 列约定：`ResultStore` 写入 Parquet 时，从 `metrics["<name>__unit"]` 读取每个序列 `<name>` 的单位字符串（例如 `latency_ms` 序列可在 `metrics` 中携带 `"latency_ms__unit": "ms"`）；若未提供，则该列为空字符串 `""`。这是**隐式约定，不强制执行**——省略该字段仍可持久化行；`unit` 列仅为空。
+
+`ResultStore.query_series(sql=None, glob="**/series.parquet")` 通过 DuckDB 直接对 `results_dir` 下所有 Parquet 文件运行 SQL；`glob` 路径作为绑定参数传给 `read_parquet(?)`（无字符串拼接）；当 `[store]` 扩展缺失时抛出 `ImportError`。
+
+**扩展点**：`clousight_bench.enrichers` 入口点组托管 `ResultEnricher` 子类——`name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`。`orchestrator.execute(spec, results_dir=None, enrich=True)` 在记录构建完成后、`_persist` 之前依次调用它们，顺序由 `registry.load_enrichers()`（按 `name` 排序以确保确定性执行顺序）返回的列表决定。核心不提供任何 enricher 实现（如成本估算）——商业插件通过入口点注入；`csbench run --no-enrich` 跳过整个链路。
+
+**插件兼容性契约**：`clousight_bench.PLUGIN_API_VERSION = "1.0"`（SemVer）。只有当 schema 字段、入口点组名称或 `ResultEnricher`/`ResultStore` 签名发生不兼容变更时，MAJOR 才会递增。**包版本与插件 API 版本是两个独立维度**：`clousight_bench.__version__`（当前为 `0.2.0`）随每次发布递增；`PLUGIN_API_VERSION` 仅在插件面向接口有破坏性变更时移动——两者不同步演进。Phase 1A 商业插件的 `pyproject.toml` 针对当前包版本固定为 `clousight-bench>=0.2,<0.3`（早期设计文档中出现的 `>=1.0,<2.0` 形式是针对 `PLUGIN_API_VERSION` 大版本的目标状态草稿，在 0.2 开发者预览发布时未更新；此处已更正）。
+
+**Pro 的三个扩展边界**（由 `clousight-bench-pro` 通过入口点注入；开放核心不提供实现）：
+
+| 接口 | 职责 | Phase 1A 状态 |
+|---|---|---|
+| `ResultEnricher`（`core/plugin.py`） | 向已生成的 `ResultRecord` 追加派生指标（如成本估算） | 已实现：`clousight_bench.enrichers` 入口点，由 `registry.load_enrichers()` 加载 |
+| `PrivateAssetResolver`（`core/plugin.py`） | 解析私有/许可资产（数据集、留出判分键） | 已实现：`clousight_bench.asset_resolvers` 入口点；`cb-dataservice` 的 `DataServiceAssetResolver` 已注册 |
+| `ResultPublisher` | 可选的结果发布、签名和团队报告 | **第三边界，保留/规划中，Phase 1A 未实现**——仅出现于设计文档（`docs/superpowers/specs/2026-07-25-open-source-core-hardening-design.md`）；核心未定义此抽象，Pro 也未注册任何实现 |
+
+## 文档维护
+
+本文档的一部分由脚本生成，其余部分需要你手动与行为变更同步——在*同一次变更*中更新。
+
+- **生成块**位于 `{/* BEGIN generated:… */}` / `{/* END generated:… */}` 标记之间（目前为任务与适配器清单）。它们由领域注册表渲染——与 `csbench list --json` 的数据来源相同——通过 `scripts/gen_docs.py` 生成。永远不要手动编辑标记内的内容。新增/重命名任务或更改适配器状态后，运行 `python scripts/gen_docs.py` 并提交结果。CI 会运行 `python scripts/gen_docs.py --check` 和 `tests/test_docs_inventory.py`，因此过时的块（手写的"28 tasks"与注册表不符）会导致构建失败，而不会被发布。
+- **散文段落**（标记之外的所有内容）是行为变更完成定义的一部分：当某个任务的测量形状、适配器契约或生命周期规则发生变化时，在同一 PR 中更新描述它的段落。比文档落后一个版本更糟糕的是没有文档——审阅者会停止信任它。每次编辑应尽量小而聚焦；生成块吸收机械性事实，散文只需承载意图。

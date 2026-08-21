@@ -1,0 +1,81 @@
+---
+title: 扩展（插件）
+description: 添加平台、维度、领域或负载引擎。
+---
+
+Clousight Bench 采用**核心引擎 + 入口点插件**的架构。引擎负责运行基准测试、对证据层评分、持久化 schema-0.2 记录并生成报告，但对任何具体的云平台、任务或数据集一无所知。所有领域相关的内容——任务、平台适配器、enricher、reaper——均作为**插件**，在运行时通过 Python 入口点发现。
+
+核心原则：**通过编写插件来定制，而非 fork 核心代码。** 参考领域随包一同发布，使其开箱即用，同时也为你提供可直接复制的规范示例；你自己的逻辑放在你自己的包中。
+
+## 层次结构
+
+| 层次 | 内容 | 分发方式 |
+|---|---|---|
+| **核心包**（`clousight-bench`） | 引擎（编排器、schema/记录格式、CLI、插件注册表）、插件**契约**（`Task`、`AgentRuntimeAdapter`、`RuntimeProviderPlugin`、`ResourceReaper`、`Enricher`、`DomainPack`）、报告/查询/追踪/汇总工具，以及**数据平面探针**运行时。 | pip 可安装，开源（Apache-2.0） |
+| **参考领域** | `agent-runtime`（T0–T6）、`bigdata-emr`（J*）——含电池的基准测试。 | 捆绑在核心包中，但以*插件*方式注册（见下文） |
+| **你的插件** | 你的任务、适配器、领域、enricher、reaper。 | 你发布或本地安装的独立 pip 包 |
+| **商业版（pro）** | 精选数据集、托管服务、SLA、私有适配器。 | 通过相同入口点在顶层安装的私有插件 |
+
+由于参考领域本身也是通过入口点系统注册的，它们并无任何特殊之处——你的插件与之完全平等，是一等公民。
+
+## 入口点分组
+
+在你的包的 `pyproject.toml` 中声明入口点，即可注册插件。引擎通过 `importlib.metadata.entry_points`（`clousight_bench.core.registry`）发现它们：
+
+| 分组 | 提供内容 | 参考示例 |
+|---|---|---|
+| `clousight_bench.domains` | `DomainPack`——一组具名的任务 + 适配器 | `agent-runtime`、`bigdata-emr` |
+| `clousight_bench.runtime_providers` | `RuntimeProviderPlugin`——某个 provider 的真实云传输 + 活动探针钩子 | `aliyun` |
+| `clousight_bench.resource_reapers` | `ResourceReaper`——为 `csbench sweep` 查找并删除孤立云资源 | `aliyun` |
+| `clousight_bench.enrichers` | `Enricher`——运行后对记录进行丰富处理（例如定价） | `pricing` |
+| `clousight_bench.span_exporters` | 用于追踪导出的 span 导出器 | `local` |
+| `clousight_bench.asset_resolvers` | 解析负载资产（数据集、脚本） | — |
+
+适配器的 `status` 字面量（`skeleton` / `reference` / …）不会因安装插件而改变：一个 `skeleton` 适配器在真实模式下变为*可运行*，纯粹是因为 `get_runtime_provider(<provider>)` 现在返回了非 None 的插件——也就是说，安装 provider 插件即可完成连接，无需修改适配器。
+
+## 编写你自己的插件
+
+一个最简的自定义领域放在独立的包中，只需两个文件加一个入口点：
+
+```python
+# my_bench/domain.py
+from clousight_bench.core.domain import DomainPack
+from clousight_bench.core.task import Task, TaskResult
+
+class MyLatencyTask(Task):
+    task_id = "M1.1"
+    title = "my custom latency probe"
+    evidence_layer = "B"
+    capability_tags = ("latency",)
+
+    def execute(self, adapter, params) -> TaskResult:
+        # adapter is resolved from the platform; return measurements + findings
+        ...
+
+class MyDomain(DomainPack):
+    name = "my-bench"
+    description = "my custom benchmark"
+    def tasks(self): return {MyLatencyTask.task_id: MyLatencyTask}
+    def adapters(self): return {...}   # platform -> adapter class
+```
+
+```toml
+# my_bench/pyproject.toml
+[project.entry-points."clousight_bench.domains"]
+my-bench = "my_bench.domain:MyDomain"
+```
+
+```
+pip install ./my_bench        # or from your index
+csbench list                  # → my-bench shows up next to agent-runtime
+csbench run --domain my-bench --task M1.1 --platform local-sim
+```
+
+整个过程中你从未修改已安装的 `clousight-bench`。若要**定制参考任务**，可以在优先级更高的插件中注册同名 id 的任务，或将参考任务的源码（已在 GitHub 上开放）复制到你自己的插件中并在那里修改——无论哪种方式，已安装的核心都保持原样。
+
+## 为什么参考逻辑打包在内而非仅供下载
+
+- **开箱即用**：`pip install clousight-bench` 后即可立即运行 `agent-runtime`，无需拼装各部件。
+- **它就是模板**：参考领域*本身*就是结构良好的插件的最佳范例；你可以照其形态构建自己的插件。
+- **统一的完整链路**：[数据平面探针](/docs/zh/probe-carrier)也随核心包一同发布，因此区域内的探针 carrier 只需 `pip install clousight-bench[probe]`，即可获得与控制平面完全一致的探针逻辑。
+- 源码已在 GitHub 上完全开放，可供阅读、fork 和提交 PR——但*首选*的定制路径是插件包，而非编辑已安装的源码。

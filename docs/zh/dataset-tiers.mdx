@@ -1,0 +1,74 @@
+---
+title: 数据集分层
+description: 内置、带校验和的远程，以及通过解析器访问的私有资产。
+---
+
+本文档定义了基准测试数据集在开源核心与授权/托管分发版之间的划分方式，以及数据集如何声明其所属的层级。这是
+[可复现性契约](/docs/zh/architecture)在数据层面的对应规范：已发布的数字必须可被独立复现，而部分内容必须保持留出状态，以防止基准测试被针对性刷分。
+
+## 核心原则
+
+> **凡复现已发布数字所需的一切，均随开源版本一同发布。护城河在于数据的新鲜度、规模、策划质量，以及对测试集的保留——绝不在于机制本身，也绝不在于已发布数字所基于的种子内容。**
+
+具体而言，一个数据集最多被拆分为两个层级：
+
+| 层级 | 位置 | 用途 | 示例 |
+|---|---|---|---|
+| **开放种子 / 参考集** | 存于核心（内置）或公开 URL（远程，带校验和） | 复现已发布数字；作为独立的公开基准测试使用 | 若干有代表性的数百条记录；带有固定 SHA-256 的公开语料库 |
+| **私有留出集 / 授权集** | 通过授权解析器（私有）获取 | 防刷分测试集；高级规模/覆盖范围；无法再分发的授权语料库 | 留出判分键；大规模或经协商获取的数据集 |
+
+一个数据集可以是**仅开放**（完全公开）、**拆分式**（开放种子 + 私有留出集），或**仅私有**（无法再分发的授权语料库）。它绝不能是**开放评分但方法保密**：如果一个已发布分数基于某些数据计算得出，则必须开放足够多的数据（或一个可信的公开样本）以复现该方法。
+
+## 层级与资产系统的对应关系
+
+各层级依托现有的三源 `AssetSpec`（参见 `clousight_bench.core.assets`），在工作负载/任务的 `manifest.yaml` 中声明：
+
+```yaml
+assets:
+  # open seed — bundled in the package, reproducible offline
+  - name: toolcalls-seed
+    source: bundled
+    uri: ./data/toolcalls-seed.jsonl
+    sha256: "<hex>"          # optional for bundled, required in spirit
+    version: "1.0"
+
+  # open reference — public download, mandatory checksum + license
+  - name: gsm8k-test
+    source: remote
+    uri: https://example.org/gsm8k/test.jsonl
+    sha256: "<hex>"
+    license: "MIT"
+    version: "1.0"
+
+  # private held-out — resolved only when a licensed resolver is installed
+  - name: toolcalls-heldout
+    source: private
+    uri: toolcalls-heldout        # opaque ref the resolver understands
+    sha256: "<hex>"               # still verified after download
+    version: "1.0"
+```
+
+- `bundled` / `remote` 仅依赖开源核心即可解析。`remote` **必须**携带 `license` 和 `sha256`（用于审计与完整性验证）。
+- `private` 委托给已安装的 `PrivateAssetResolver` 处理。若未安装任何解析器，解析将抛出 `NeedLicense`——这是一个明确的错误，而非程序崩溃——因此开放基准测试仍可在其开放层级上正常运行。
+
+## 命名与版本规范
+
+- 在资产名称中添加层级后缀：`*-seed` / `*-test`（开放），`*-heldout`（私有）。跨层级保持相同的基础名称，以便明确关联关系。
+- 每个资产均携带 `version`；内容变更时需递增版本号。一次运行的可复现性标识记录 `{name, version, source, sha256}`——而非内容本身——因此结果始终可溯源，同时不会泄露留出数据。
+- 已发布维度的默认配置必须指向**开放**资产。私有资产只能*提高上限*（更难的拆分、更大规模），而不得作为复现已发布数字的必要条件。
+
+## 防刷分：为何保留留出集
+
+如果全部评分数据集均公开，实现方可对其进行过拟合，导致分数不再衡量真实的运行时性能。留出层级的存在，是为了能够在未见数据上运行相同的方法论：
+
+- **方法**（任务、评分、证据层）是开放且可审查的；
+- **开放种子**让任何人都能复现参考数字，并对我们提出质疑；
+- **留出拆分**在许可证下获取，用于权威性/防刷分运行，经校验和验证但不再分发。
+
+这与标准的训练集公开/测试集留出实践相对应，并适配到运行时基准测试场景。
+
+## 治理
+
+- 发布数据集（或将拆分从私有升级为开放）是维护者决策，须记录于 `CHANGELOG.md`；此操作可能改变已发布数字，因此需要对受影响维度进行版本递增。
+- 切勿将授权或留出内容提交到本仓库。仅通过 `private` 资产 + 解析器进行引用。
+- `remote` 资产的再分发必须遵守其声明的许可证；若无法再分发，则应使用 `private` 而非 `remote`。

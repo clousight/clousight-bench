@@ -1,0 +1,60 @@
+---
+title: 报告
+description: Markdown 与 HTML/ECharts 报告。
+---
+
+除 Markdown 对比报告（`csbench report`）外，Clousight Bench 还可生成本地自包含的 HTML
+报告，将每项指标可视化，并将同类别云产品并排对比。报告由两层构成，层间通过稳定契约衔接：
+
+```
+records  ->  ReportBundle (engine, core)  ->  Renderer  ->  report.html
+```
+
+- **Engine**（`core/reporting/bundle.py`）：组装与 vendor 无关、可 JSON 序列化的 `ReportBundle`——包括每个（域, 任务）的面板、能力矩阵、成本及图表规格（仅数据，不含渲染后的 SVG）。始终属于 core。
+- **Profiles**（`core/reporting/profiles/`）：声明各类别展示哪些面板。`agent-runtime` 内置启动延迟、成本（标价/折扣/净值）、弹性、故障恢复、状态、可观测性等面板；其他域使用通用表格 profile。
+- **Renderer**（`core/reporting/renderers/`）：将 bundle 转换为输出。默认 `HtmlRenderer` 纯依赖标准库——生成含内联 SVG 图表的自包含文档，无 JavaScript，无外部资源。
+
+## 生成报告
+
+```bash
+csbench report --results results --format html --out report.html   # open in a browser
+csbench report --results results --dump-bundle bundle.json          # the raw bundle (any tooling)
+```
+
+`--format markdown`（默认值）行为不变。
+
+## 跨 vendor 对比与执行卫生
+
+当两个同类别 platform 均已运行（例如 `aliyun-agentrun` 与某 AWS agent
+runtime），每个面板将并排渲染并附上对比图表。**面板仅对比具有相同 `execution` 标记的 platform**——模拟（mock）与真实云（live）的记录分开展示，绝不混合绘图；若某个域混用两种模式，将显示红旗警告横幅。这复用了 `execution` 标记的指纹隔离机制，确保 mock 数据永远不会被误认为真实数据。
+
+## 自定义渲染
+
+`ReportBundle` 是稳定契约；以下三种方式可在不修改 engine 的情况下更改输出：
+
+- **主题（`--css file.css`）**——注入追加在默认主题之后的 CSS（优先级更高），用于调整 logo、配色或布局。零依赖。
+- **Renderer 插件**——通过 `clousight_bench.report_renderers` 入口点注册 `ReportRenderer`（需提供 `name`、`output_suffix`、`render(bundle)`），然后使用 `--renderer yourname`。完全可控（PDF、其他 HTML 等）；自行引入依赖。
+- **模板（`--template file.html`）**——通过 jinja2 模板文件渲染 bundle（需安装 `[report]` 扩展：`pip install clousight-bench[report]`）。模板可访问 `bundle`（字典形式）。
+
+engine、默认 HTML renderer、内联 SVG 图表、`--css` 及 `--dump-bundle` 均纯依赖标准库；仅 `--template` 需要额外安装扩展。
+
+## 布局（v3，shadcn）
+
+默认 HTML 报告采用 shadcn 风格的设计系统（CSS token 变量、卡片、徽章、品牌色调阴影、等宽数字），布局针对同时扫描多个维度进行了优化：
+
+- **固定品牌头部**：包含 logo、双语名称、生成时间戳，以及中英文切换按钮。
+- **Platform 概览卡片**：响应式网格——每个 platform 一张卡片，展示其 provider logo、执行徽章及核心指标（冷启动 / 净成本 / 弹性拐点）。
+- **分组对比矩阵（分 Tab）**：agent-runtime profile 将全部基准测试度量拆分为 8 个能力分组，分布在五个 Tab 中——**性能 / 可靠性 / 可观测性 / 成本 / 能力**（每个 Tab 显示面板数量）。每个分组为一个 `.card`，内含按分组排列的对比表格（指标为行 × platform 为列，每列顶部带品牌色边框）及其交互式图表。能力矩阵渲染在"能力"Tab 下。
+- **每个 platform 的摘要卡片**，以及通过 `prefers-color-scheme` 实现的暗色模式。
+- Tab 切换、图表悬停提示及图例系列切换由一段精简（约 2KB）内联脚本驱动——无第三方图表库。
+
+## 品牌、语言与图表
+
+报告承载 Clousight Bench 品牌标识：官方三层叠箭头 logo（vendored 并 base64 内联）、品牌蓝色调（`hsl(217 71% 51%)`），以及 Inter / Noto Sans SC 字体（*优先*使用，回退系统字体，文件保持自包含且可离线使用）。
+
+- **跨 vendor 卡片**：每个 platform 展示其云 provider logo（阿里云 / AWS / 华为 / 腾讯 / GCP / Azure 等，vendored 于 `resources/brand/providers/`）及执行徽章；≥2 个相同执行模式的 platform 并排对比。
+- **完整中英文切换**：头部按钮可就地切换*全部* UI 文字（面板标题、能力标签、徽章、指标名称、界面文案）——默认中文。数据（platform ID、数值）不做翻译。
+- **高品质交互式图表**：自研内联 SVG（网格线、y 轴刻度、圆角品牌渐变柱、图例），配合精简内联脚本实现 Tab 切换、悬停提示及图例系列切换——无第三方图表库。
+- 暗色模式跟随操作系统的 `prefers-color-scheme`。`--css` 仍可覆盖。
+
+所有内容均已内联（logo、provider SVG、CSS、JS）；报告为单一离线文件，无任何外部资源依赖。
