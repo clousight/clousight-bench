@@ -2,6 +2,11 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Clousight Bench",
+  "logo": {
+    "light": "/docs/images/logo.png",
+    "dark": "/docs/images/logo.png"
+  },
+  "favicon": "/docs/images/favicon.png",
   "colors": {
     "primary": "#2f6df6",
     "light": "#5a8bf8",
