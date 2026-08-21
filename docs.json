@@ -9,7 +9,7 @@
   },
   "contextual": {
     "options": ["copy", "view", "chatgpt", "claude"],
-    "display": "toc"
+    "display": "header"
   },
   "navigation": {
     "versions": [
