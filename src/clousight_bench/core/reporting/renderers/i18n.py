@@ -50,7 +50,7 @@ UI_STRINGS = {
     "Source": "数据源",
     "no data": "暂无数据",
     "Data: locally collected": "数据:本地采集",
-    "Clousight Bench report": "指北测评报告",
+    "Clousight Bench report": "Clousight Bench 报告",
     # domains
     "agent-runtime": "智能体运行时",
     "bigdata-emr": "大数据",

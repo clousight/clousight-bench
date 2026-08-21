@@ -1,4 +1,4 @@
-# Clousight Bench · 指北测评
+# Clousight Bench
 
 [![CI](https://github.com/clousight/clousight-bench/actions/workflows/ci.yml/badge.svg)](https://github.com/clousight/clousight-bench/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/clousight-bench.svg)](https://pypi.org/project/clousight-bench/)
@@ -7,7 +7,7 @@
 [![Docs](https://img.shields.io/badge/docs-docs.clousight.com-blue.svg)](https://docs.clousight.com)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/clousight/clousight-bench)
 
-**云计算指北 / [Clousight](https://clousight.com) 出品的云产品可复现测评框架** — agent runtimes today; big data clusters, databases, compute and messaging via the same abstraction.
+**[Clousight](https://clousight.com)'s reproducible benchmark framework for cloud products** — agent runtimes today; big data clusters, databases, compute and messaging via the same abstraction.
 
 > Clousight Bench is the measuring stick of Clousight: open methods anyone can reproduce; evidence-graded results, never a blended vanity score.
 
