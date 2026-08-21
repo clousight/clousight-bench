@@ -23,21 +23,21 @@
         "groups": [
           {
             "group": "Get started",
-            "pages": ["docs/index", "docs/architecture"]
+            "pages": ["index", "architecture"]
           },
           {
             "group": "Guides",
             "pages": [
-              "docs/plugins",
-              "docs/probe-carrier",
-              "docs/querying",
-              "docs/reporting",
-              "docs/dataset-tiers"
+              "plugins",
+              "probe-carrier",
+              "querying",
+              "reporting",
+              "dataset-tiers"
             ]
           },
           {
             "group": "Reference",
-            "pages": ["docs/reference", "docs/RELEASING"]
+            "pages": ["reference", "RELEASING"]
           }
         ]
       },
@@ -46,21 +46,21 @@
         "groups": [
           {
             "group": "快速开始",
-            "pages": ["docs/zh/index", "docs/zh/architecture"]
+            "pages": ["zh/index", "zh/architecture"]
           },
           {
             "group": "指南",
             "pages": [
-              "docs/zh/plugins",
-              "docs/zh/probe-carrier",
-              "docs/zh/querying",
-              "docs/zh/reporting",
-              "docs/zh/dataset-tiers"
+              "zh/plugins",
+              "zh/probe-carrier",
+              "zh/querying",
+              "zh/reporting",
+              "zh/dataset-tiers"
             ]
           },
           {
             "group": "参考",
-            "pages": ["docs/zh/reference", "docs/zh/RELEASING"]
+            "pages": ["zh/reference", "zh/RELEASING"]
           }
         ]
       }
