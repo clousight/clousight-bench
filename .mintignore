@@ -1,14 +1,39 @@
-# The Mintlify site is docs/*.mdx plus docs.json plus the images/ assets. `mint`
-# scans the whole working tree (including gitignored scratch like .venv/ and
-# .superpowers/), so ignore everything, re-include just the docs dir, config and
-# images, then drop the internal, non-MDX docs that live under docs/.
+# The Mintlify site is docs/*.mdx + docs.json + the images/ assets. `mint` scans
+# the whole working tree, so exclude everything else — scratch/build/vendored
+# trees, source trees that carry their own READMEs, repo-root prose, and the
+# internal (non-published) docs under docs/. A blanket `/*` would also strip the
+# images we need to serve, so this is an explicit denylist instead.
 # .mintignore uses .gitignore-style patterns.
-/*
-!/docs/
-!/docs.json
-!/images/
 
-# Non-published markdown under docs/ (internal design docs + research notes)
+# Scratch / build / vendored
+/.git/
+/.github/
+/.venv/
+/.superpowers/
+/.worktrees/
+/.claude/
+/.mypy_cache/
+/.pytest_cache/
+/.ruff_cache/
+/site/
+/dist/
+/build/
+/node_modules/
+
+# Source & project trees (carry their own READMEs / markdown)
+/src/
+/tests/
+/infra/
+/configs/
+/scripts/
+/examples/
+/workloads/
+/results/
+
+# Repo-root prose (README, SECURITY, CONTRIBUTING, CHANGELOG, ...)
+/*.md
+
+# Internal, non-published docs under docs/
 /docs/*.md
 /docs/specs/
 /docs/plans/
