@@ -209,7 +209,6 @@ jobs:
       - name: Install Mintlify CLI
         run: npm i -g mint
       - name: Check for broken links
-        working-directory: docs   # docs.json lives here — it is the Mintlify content root
         run: mint broken-links
       - name: Docs inventory up to date
         run: |
