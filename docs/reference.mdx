@@ -14,7 +14,7 @@ A run emits a `ResultRecord` (schema `0.2`): `status` (`completed` / `failed` /
 `invalid` / `unsupported`), `measurements` (each with `value`, `unit`,
 `evidence`), `findings` (each with a stable `code`, `severity`, evidence), and
 `fingerprints` (`benchmark` / `environment` / `implementation` / `record_digest`).
-See [Architecture](/docs/architecture) for the full field table.
+See [Architecture](/architecture) for the full field table.
 
 ## Plugin base classes
 
@@ -40,4 +40,4 @@ Third-party packages extend the harness by declaring these entry points (see
 - `clousight_bench.enrichers` — post-run enrichers (e.g. pricing)
 - `clousight_bench.span_exporters` — trace span exporters
 
-See [Extending (plugins)](/docs/plugins) for a worked example.
+See [Extending (plugins)](/plugins) for a worked example.
