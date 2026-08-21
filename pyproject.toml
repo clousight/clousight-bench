@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "clousight-bench"
 version = "0.2.0"
-description = "Clousight Bench (指北测评): reproducible, evidence-graded benchmarking for cloud products."
+description = "Clousight Bench: reproducible, evidence-graded benchmarking for cloud products."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }

@@ -271,8 +271,8 @@ class EchartsRenderer(ReportRenderer):
         return (
             "<!DOCTYPE html><html lang=zh><head><meta charset=utf-8>"
             "<meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>Clousight Bench 指北测评</title><style>{_CSS}</style></head><body>"
-            "<div class=topbar><span class=ttl>Clousight Bench · 指北测评</span>"
+            f"<title>Clousight Bench</title><style>{_CSS}</style></head><body>"
+            "<div class=topbar><span class=ttl>Clousight Bench</span>"
             "<span id=ctl style='margin-left:auto;display:flex;align-items:center;gap:.8rem'></span></div>"
             "<div class=wrap id=app></div>"
             f"<script>{_echarts_js()}</script>"

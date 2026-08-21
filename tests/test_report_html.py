@@ -69,4 +69,4 @@ def test_html_v3_shadcn_tabs_cards(report_record):
     assert "冷启动" in html and "cold_start_ms" in html  # metric i18n
     assert "启动延迟" in html and "Startup latency" in html  # panel i18n
     assert "addEventListener" in html
-    assert "云计算指北" in html and "Clousight Bench" in html
+    assert "Clousight Bench" in html and "云计算指北" not in html  # brand is English-only

@@ -25,7 +25,8 @@ BRAND_HSL = {
 BG_HSL, FG_HSL = "210 40% 98%", "222 28% 15%"
 AMBER_HSL, RED_HSL = "38 92% 50%", "0 72% 51%"
 FONT_STACK = 'var(--font-inter), "Inter", "Noto Sans SC", system-ui, sans-serif'
-BRAND_NAME_ZH = "云计算指北 · 指北测评"
+# The brand name is not translated; both locales render it in English.
+BRAND_NAME_ZH = "Clousight Bench"
 BRAND_NAME_EN = "Clousight Bench"
 
 _ADAPTER_PROVIDER = [
