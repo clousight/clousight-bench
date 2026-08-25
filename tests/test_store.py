@@ -34,7 +34,8 @@ def _rec(series=None, measurements=None, facts=None) -> ResultRecord:
         ),
         fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b", implementation="sha256:c"),
         status="completed",
-        measurements=measurements or {"p99_ms": {"value": 9, "unit": "ms", "evidence": "C"}},
+        measurements=measurements
+        or {"p99_ms": {"value": 9, "unit": "ms", "reproducibility_class": "environmental"}},
         series=series or {},
     )
 
@@ -44,7 +45,7 @@ def test_persist_keeps_the_domain_adapter_task_run_layout(tmp_path):
     expected = (tmp_path / "agent-runtime" / "local-sim" / "T1.3-run-x.json").resolve()
     assert path == expected
     data = json.loads(expected.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "0.2"
+    assert data["schema_version"] == "0.3"
     assert data["measurements"]["p99_ms"]["value"] == 9
     assert data["run"]["stages"]["PERSIST"] == "ok"
 
@@ -104,7 +105,9 @@ def test_series_externalized_to_parquet_and_queryable(tmp_path):
     store.persist(
         _rec(
             series={"latency_ms": [[1, 10.0], [2, 20.0]]},
-            measurements={"latency_ms": {"value": 15, "unit": "ms", "evidence": "C"}},
+            measurements={
+                "latency_ms": {"value": 15, "unit": "ms", "reproducibility_class": "environmental"}
+            },
         )
     )
     parquet = tmp_path / "agent-runtime" / "local-sim" / "run-x" / "series.parquet"

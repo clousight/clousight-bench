@@ -1,6 +1,6 @@
-"""Clousight Bench: reproducible, evidence-graded benchmarking for cloud products."""
+"""Clousight Bench: reproducible, reproducibility-classed benchmarking for cloud products."""
 
-RUNNER_VERSION = "0.2.0"
+RUNNER_VERSION = "0.3.0"
 
 # The result contract readers negotiate on (Phase 1B replaced schema "1.0").
 # Re-exported, never re-declared: the record module owns the number it stamps

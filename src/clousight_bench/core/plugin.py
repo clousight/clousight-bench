@@ -9,14 +9,14 @@ but the *pipeline* is identical --
 So the core only orchestrates that lifecycle; everything product-specific lives
 in plugins:
 
-- DomainPack   : one per cloud product category (agent-runtime, bigdata-emr,
-                 database, compute, messaging...). Declares tasks + adapters.
+- DomainPack   : one per cloud product category (agent-runtime, database,
+                 compute, messaging...). Declares tasks + adapters.
 - ProviderAdapter : one per (domain, cloud provider). Knows how to provision,
                  talk to, and tear down the system under test. May shell out
                  to Terraform, call an SDK, or hit HTTP endpoints.
 - Task         : one per benchmark dimension. Written against the domain's
                  adapter interface only -- NEVER against a specific cloud.
-                 Owns its scoring and declares its evidence layer.
+                 Owns its scoring.
 
 Third-party plugins register via the ``clousight_bench.domains`` entry point;
 in-tree domains are registered the same way (see pyproject.toml), so external
@@ -153,7 +153,6 @@ class Task(ABC):
 
     task_id: str = "abstract"
     title: str = ""
-    evidence_layer: str = "C"
     # Bumped whenever the observation procedure or the scoring rules change, so
     # a published number stays attributable to the code that produced it.
     task_revision: str = "0"

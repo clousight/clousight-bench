@@ -5,15 +5,32 @@ from collections.abc import Mapping
 import pytest
 
 from clousight_bench.core.errors import UserInputError
+from clousight_bench.core.observation import Measurement, ObservationBundle, TaskResult
+from clousight_bench.core.plugin import Task
 from clousight_bench.core.schema import RunSpec
 from clousight_bench.core.validation import InvalidRunSpecError, validate_run_spec
-from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import (
-    FaultRecoveryTask,
-)
+
+
+class _StubTask(Task):
+    """Minimal concrete Task used as the test vehicle (no T-code dependency)."""
+
+    task_id = "STUB.1"
+    title = "stub task for machinery tests"
+    task_revision = "1"
+    scorer_revision = "1"
+
+    def config(self, params):
+        return {"params": dict(params)}
+
+    def execute(self, adapter, params):
+        return ObservationBundle(observations={"ok": True})
+
+    def score(self, bundle):
+        return TaskResult(measurements={"ok": Measurement(True, "", reproducibility_class="deterministic")})
 
 
 def test_a_well_formed_spec_validates():
-    validate_run_spec(RunSpec("agent-runtime", "T1.3", "local-sim"), FaultRecoveryTask())
+    validate_run_spec(RunSpec("agent-runtime", "T1.3", "local-sim"), _StubTask())
 
 
 def test_invalid_run_spec_error_is_a_user_input_error():
@@ -26,7 +43,7 @@ def test_invalid_identifiers_are_rejected(field, value):
     spec = RunSpec("agent-runtime", "T1.3", "local-sim")
     setattr(spec, field, value)
     with pytest.raises(InvalidRunSpecError, match=field):
-        validate_run_spec(spec, FaultRecoveryTask())
+        validate_run_spec(spec, _StubTask())
 
 
 @pytest.mark.parametrize(
@@ -37,7 +54,7 @@ def test_non_mapping_target_and_params_are_rejected(field, value):
     spec = RunSpec("agent-runtime", "T1.3", "local-sim")
     setattr(spec, field, value)
     with pytest.raises(InvalidRunSpecError, match=field):
-        validate_run_spec(spec, FaultRecoveryTask())
+        validate_run_spec(spec, _StubTask())
 
 
 def test_mapping_subclasses_are_accepted():
@@ -57,7 +74,7 @@ def test_mapping_subclasses_are_accepted():
     spec = RunSpec("agent-runtime", "T1.3", "local-sim")
     spec.target = _Mapping({"region": "local"})
     spec.params = _Mapping({})
-    validate_run_spec(spec, FaultRecoveryTask())
+    validate_run_spec(spec, _StubTask())
 
 
 @pytest.mark.parametrize("field", ["target", "params"])
@@ -65,7 +82,7 @@ def test_non_finite_numbers_are_rejected_before_the_run(field):
     spec = RunSpec("agent-runtime", "T1.3", "local-sim")
     setattr(spec, field, {"budget": float("inf")})
     with pytest.raises(InvalidRunSpecError, match=field):
-        validate_run_spec(spec, FaultRecoveryTask())
+        validate_run_spec(spec, _StubTask())
 
 
 def test_secret_values_are_redacted_before_canonical_validation():
@@ -75,11 +92,11 @@ def test_secret_values_are_redacted_before_canonical_validation():
         "local-sim",
         params={"api_token": object()},
     )
-    validate_run_spec(spec, FaultRecoveryTask())
+    validate_run_spec(spec, _StubTask())
 
 
 def test_a_task_that_cannot_describe_its_config_is_a_user_error():
-    class _BadConfig(FaultRecoveryTask):
+    class _BadConfig(_StubTask):
         def config(self, params):
             raise KeyError("missing-required-param")
 
@@ -88,7 +105,7 @@ def test_a_task_that_cannot_describe_its_config_is_a_user_error():
 
 
 def test_task_config_must_be_a_mapping():
-    class _BadConfig(FaultRecoveryTask):
+    class _BadConfig(_StubTask):
         def config(self, params):
             return ["not", "a", "mapping"]
 
@@ -97,7 +114,7 @@ def test_task_config_must_be_a_mapping():
 
 
 def test_task_config_must_be_canonically_encodable():
-    class _BadConfig(FaultRecoveryTask):
+    class _BadConfig(_StubTask):
         def config(self, params):
             return {"budget": float("nan")}
 

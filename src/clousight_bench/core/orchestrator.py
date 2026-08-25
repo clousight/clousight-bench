@@ -59,6 +59,7 @@ from clousight_bench.core.fingerprints import (
 )
 from clousight_bench.core.live_guard import ENV_ALLOW_LIVE, live_decision
 from clousight_bench.core.observation import (
+    REPRODUCIBILITY_CLASSES,
     Finding,
     ObservationBundle,
     TaskExecutionError,
@@ -83,6 +84,7 @@ from clousight_bench.core.record import (
     Environment,
     Fingerprints,
     Identity,
+    Provenance,
     ResultRecord,
     RunInfo,
     StageError,
@@ -355,7 +357,6 @@ def execute(
                 code="live.unconfirmed",
                 severity="critical",
                 summary="live run not confirmed: real-cloud execution incurs cost",
-                evidence="B",
                 details={
                     "execution": "live",
                     "remediation": (
@@ -405,7 +406,6 @@ def execute(
                     code="cost.budget_exceeded",
                     severity="critical",
                     summary="cost budget would be exceeded: run stopped before provisioning",
-                    evidence="B",
                     details={
                         "spent_usd": round(spent, 9),
                         "estimate_usd": round(estimate, 9),
@@ -716,6 +716,11 @@ def _prepare(
                 workload_version=identity.workload_version,
                 assets=list(workload["assets"]),
                 params=config,
+                # Provenance is empty for all runs today; when the suite/evaluator
+                # slice populates it, thread the run's actual Provenance here (it
+                # is NOT picked up automatically — the fingerprint only folds what
+                # is passed).
+                provenance=Provenance().to_dict(),
             ),
             environment=environment_fingerprint(
                 region=environment.region,
@@ -807,7 +812,6 @@ def _preflight(
         code="core.preflight_failed",
         severity="critical",
         summary=error.message,
-        evidence="B",
         details={"checks": checks},
     )
     return error, finding
@@ -1204,15 +1208,16 @@ def _validate_enriched_record(candidate: Any, baseline: ResultRecord) -> None:
     for name, measurement in payload["measurements"].items():
         if not isinstance(name, str) or not isinstance(measurement, dict):
             raise TypeError("measurement names and values must be strings and objects")
-        missing = {"value", "unit", "evidence"} - measurement.keys()
+        missing = {"value", "unit"} - measurement.keys()
         if missing:
             raise ValueError(f"measurement {name!r} missing keys {sorted(missing)}")
-        if measurement["evidence"] not in ("A", "B", "C", "D"):
-            raise ValueError(f"measurement {name!r} has invalid evidence")
+        rclass = measurement.get("reproducibility_class")
+        if rclass is not None and rclass not in REPRODUCIBILITY_CLASSES:
+            raise ValueError(f"measurement {name!r} has invalid reproducibility_class")
     for finding in payload["findings"]:
         if not isinstance(finding, dict):
             raise TypeError("findings must contain objects")
-        missing = {"code", "severity", "summary", "evidence", "details"} - finding.keys()
+        missing = {"code", "severity", "summary", "details"} - finding.keys()
         if missing:
             raise ValueError(f"finding missing keys {sorted(missing)}")
     for error in payload["errors"]:

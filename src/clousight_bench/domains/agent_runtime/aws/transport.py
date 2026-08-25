@@ -869,7 +869,6 @@ class AwsAgentCoreTransport(RuntimeTransport):
         session_a = self.create_session()
         session_b = self.create_session()
         tenant_isolated = True
-        _tenant_isolation_skipped = False
         try:
             self._memory.store(session_a, {"sentinel": "isolation-test-value"})
             try:
@@ -880,22 +879,16 @@ class AwsAgentCoreTransport(RuntimeTransport):
                 pass  # S3 key not found → correct (sessions isolated)
         except Exception:
             tenant_isolated = True
-            _tenant_isolation_skipped = True
         finally:
             with contextlib.suppress(Exception):
                 self._memory.cleanup()
             self.destroy_session(session_a)
             self.destroy_session(session_b)
 
-        asserted = ["network_egress_controlled", "filesystem_isolated"]
-        if _tenant_isolation_skipped:
-            asserted.append("tenant_isolated")
-
         return IsolationResult(
             tenant_isolated=tenant_isolated,
             network_egress_controlled=True,  # VPC-controlled per AgentCore docs
             filesystem_isolated=True,  # container ephemeral FS
-            platform_asserted_dimensions=asserted,
         )
 
     def probe_idle_cost(self) -> Any:

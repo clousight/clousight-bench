@@ -38,13 +38,13 @@ class _FakeSigner:
         return f"https://oss-internal.example/{key}?sig=abc&Expires={expires}"
 
 
-_WHEEL = ("clousight_bench-0.2.0-py3-none-any.whl", b"WHEELBYTES")
+_WHEEL = ("clousight_bench-0.3.0-py3-none-any.whl", b"WHEELBYTES")
 
 
 def test_upload_dev_wheel_puts_under_prefix_and_presigns():
     up, sign = _FakeUpload(), _FakeSigner()
     url = dev_wheel.upload_dev_wheel(up, sign, "run-xy", wheel=_WHEEL)
-    key = "clousight-bench/dev-wheels/run-xy/clousight_bench-0.2.0-py3-none-any.whl"
+    key = "clousight-bench/dev-wheels/run-xy/clousight_bench-0.3.0-py3-none-any.whl"
     assert up.puts[key] == b"WHEELBYTES"
     assert key in url and url.startswith("https://oss-internal.example/")
     assert sign.calls == [(key, 3600, "GET")]

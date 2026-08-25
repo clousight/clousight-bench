@@ -15,11 +15,7 @@ Status legend: ✅ done · 🚧 in progress · 📋 planned · 💤 deferred
 - ✅ Cross-language workload protocol (`manifest.yaml` + executable + JSONL on stdout)
 - ✅ Three-tier asset resolution (bundled / remote-with-checksum / private-via-resolver)
 - ✅ Credential preflight reusing each cloud's default chain; `csbench init` / `csbench doctor`
-- ✅ `agent-runtime`: 27 tasks (deploy/teardown, runtime, tools, observability,
-  cost, isolation) runnable end-to-end on the `local-sim` reference adapter
-- ✅ `bigdata-emr` J1.1 smoke via the `local-process` reference adapter
-- ✅ Reports: Markdown + self-contained **HTML/ECharts renderer v2** (bilingual,
-  per-dimension matrix + capability matrix + quadrant/time-series/stacked-bar + red flags)
+- ✅ `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, latency-class data-plane probe seam, reliability group (fault injection via mock server, three-state platform attribution), in-tree `aliyun-agentrun` + `aws-agentcore` runtime providers + ECI probe carrier + reaper + Terraform
 - ✅ Result store & analytics: Parquet series sidecars + DuckDB-backed `csbench query`
   (optional `[store]` extra)
 
@@ -41,8 +37,8 @@ Status legend: ✅ done · 🚧 in progress · 📋 planned · 💤 deferred
 - 🚧 Broaden the `agent-runtime` measurement layer (latency distributions, usage
   metrics, capability matrix) and add more dimensions on the mock runtime.
 - ✅ **First real-cloud run** (`aliyun-agentrun`, now `experimental`): the in-tree
-  RuntimeProvider + ECI probe carrier + reaper + Terraform ran a full 27-task
-  **live** campaign (`cn-hangzhou`, 2026-08-15 — 25 `completed` + 2 honestly
+  RuntimeProvider + ECI probe carrier + reaper + Terraform ran a real-cloud
+  campaign (`cn-hangzhou`, 2026-08-15 — 25 `completed` + 2 honestly
   `unsupported`). The credibility gate is crossed: the first real, evidence-graded
   numbers exist.
 - 🚧 **Harden the live path toward `wired`**: repeat the campaign across
@@ -52,6 +48,20 @@ Status legend: ✅ done · 🚧 in progress · 📋 planned · 💤 deferred
   canonical JSON spec documented in SECURITY.md.
 - ✅ Run plans (`--repeat N --warmup W`), summary statistics (mean/stdev/p95),
   and comparability-aware aggregate columns in the report.
+
+## Suite-first pivot (2026-08, done)
+
+The self-designed 27-task agent-runtime T-code suite and the `bigdata-emr` domain
+were retired. Benchmark jobs will instead be driven by the `benchmark_suite` /
+`evaluator` contract (Sub-project B, forthcoming) — the harness ingests externally-
+defined suites (e.g. SWE-bench) rather than hand-coded dimensions. The live-validated
+cloud infra (runtime providers, ECI probe, reaper, carriers, Terraform) is **kept**
+and carries over for the SWE-bench pilot. Results remain canonical JSON records;
+visualization is deferred to the Sub-project C web viewer.
+
+- 💤 `agent-runtime` 27-task T-code suite — retired; tasks will arrive via `benchmark_suite` (Sub-project B)
+- 💤 `bigdata-emr` domain (J1.1 smoke + `aws-emr` skeleton) — retired; the cross-language workload protocol is kept
+- 💤 HTML/ECharts report renderer (`csbench report`) — retired; Sub-project C web viewer handles visualization
 
 ## Later
 
@@ -67,7 +77,7 @@ Status legend: ✅ done · 🚧 in progress · 📋 planned · 💤 deferred
   determined adversary — review workloads you do not trust (see
   [SECURITY.md](SECURITY.md)).
 - 💤 Remaining real-cloud adapters (`huawei-agentarts`, `volcengine-agentkit`,
-  `aws-emr`) — skeletons are in-tree; wiring is gated on cloud accounts and
+  `aws-agentcore`) — skeletons are in-tree; wiring is gated on cloud accounts and
   deployed benchmark targets.
 - 💤 Additional domain packs (database / compute / messaging).
 - 💤 Security dimensions for `agent-runtime` (code sandbox, egress control,

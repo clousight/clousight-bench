@@ -2,6 +2,26 @@
 
 All notable changes to Clousight Bench are recorded here.
 
+## 0.3.0 — 2026-08-25
+
+### Changed (breaking — result schema 0.2 → 0.3, no backward compatibility)
+
+- Evidence A/B/C/D grading **removed** — every measurement now declares a
+  `reproducibility_class` (`deterministic` / `environmental` / `judge-based`)
+  and an `official` boolean instead. The old `evidence_layer` field is gone.
+- `Provenance` sub-object added to the result: records which recognized suite
+  produced it, at which pinned version (`suite_id`, `suite_version`), whether it
+  ran unmodified (`unmodified`), which evaluator scored it (`evaluator_id`), plus
+  optional `scaffold` and `division` fields. Provenance is folded into the
+  benchmark fingerprint; a record with all-empty provenance produces the same
+  fingerprint as before (empty provenance is omitted from the hashed input).
+- `SCHEMA_VERSION` bumped `0.2` → `0.3`; the reference JSON Schema is
+  `result-record-0.3.schema.json`; the old `result-record-0.2.schema.json` is
+  removed.
+- `csbench migrate-results` command **removed** — old 0.2 records are
+  unsupported. There is no migration path; re-run benchmarks to produce 0.3
+  records.
+
 ## 0.2.0 — 2026-08-17
 
 Developer-preview reset; the first public release.

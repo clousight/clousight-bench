@@ -1526,7 +1526,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
           tenant_isolated — OSS state keys are scoped per session; cross-session
           reads always miss (different key path → OSS 404).
 
-        Platform-asserted (evidence A — not measured without agent-side code):
+        Platform-asserted (not directly measured without agent-side code):
           network_egress_controlled — AgentRun uses VPC-controlled egress per docs.
           filesystem_isolated — FC container ephemeral filesystem per invocation.
 
@@ -1542,7 +1542,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
         session_a = self.create_session()
         session_b = self.create_session()
         tenant_isolated = True
-        _tenant_isolation_skipped = False
         try:
             self._memory.store(session_a, {"sentinel": "isolation-test-value"})
             try:
@@ -1555,7 +1554,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
             # OSS store failed (ACL, permissions, connectivity). Cannot probe isolation.
             # Fall back to platform assertion for this dimension too.
             tenant_isolated = True
-            _tenant_isolation_skipped = True
         finally:
             with contextlib.suppress(Exception):
                 self._memory.cleanup()
@@ -1564,16 +1562,10 @@ class AliyunAgentRunTransport(RuntimeTransport):
 
         # Network egress and filesystem isolation are platform documentation claims.
         # Active probing requires agent-side instrumentation beyond this task's scope.
-        # platform_asserted_dimensions tells the scorer to apply evidence="A" to these.
-        asserted = ["network_egress_controlled", "filesystem_isolated"]
-        if _tenant_isolation_skipped:
-            # OSS unavailable — tenant_isolated also falls back to platform assertion.
-            asserted.append("tenant_isolated")
         return IsolationResult(
             tenant_isolated=tenant_isolated,
             network_egress_controlled=True,  # VPC-isolated per AgentRun docs
             filesystem_isolated=True,  # FC container ephemeral FS
-            platform_asserted_dimensions=asserted,
         )
 
     def probe_scaling(self, levels: list[int]) -> list[ScalePoint]:

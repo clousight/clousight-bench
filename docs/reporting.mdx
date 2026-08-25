@@ -1,104 +1,27 @@
 ---
 title: Reporting
-description: Markdown and HTML/ECharts reports.
+description: Result visualization and comparison reports.
 ---
 
-Beyond the markdown comparison (`csbench report`), a local, self-contained HTML
-report visualizes every metric and compares same-category cloud products side by
-side. It is built in two layers with a stable contract between them:
+The `csbench report` command and the HTML/ECharts renderer were retired in the
+**suite-first pivot (2026-08)**. Results are written as canonical JSON records
+under `results/`; use `csbench query` and `csbench rollup` to inspect and
+compare them.
 
-```
-records  ->  ReportBundle (engine, core)  ->  Renderer  ->  report.html
-```
+Visualization of cross-run, cross-platform comparisons is deferred to the
+Sub-project C web viewer, which will consume the same canonical JSON format.
 
-- **Engine** (`core/reporting/bundle.py`): assembles a vendor-agnostic,
-  JSON-serializable `ReportBundle` — per-(domain, task) panels, a capability
-  matrix, cost, and chart specs (data, never rendered SVG). Always core.
-- **Profiles** (`core/reporting/profiles/`): declare which panels a category
-  shows. `agent-runtime` ships (startup latency, cost list/discount/net,
-  elasticity, fault recovery, state, observability); other domains use a generic
-  table profile.
-- **Renderer** (`core/reporting/renderers/`): turns the bundle into output. The
-  default `HtmlRenderer` is pure stdlib — a self-contained document with inline
-  SVG charts, no JavaScript, no external resources.
-
-## Generate it
+## Query results now
 
 ```bash
-csbench report --results results --format html --out report.html   # open in a browser
-csbench report --results results --dump-bundle bundle.json          # the raw bundle (any tooling)
+# Inspect a run
+csbench query "SELECT platform, task_id, status FROM records ORDER BY started_at DESC LIMIT 20"
+
+# Compare cold-start latency across platforms
+csbench query "SELECT platform, avg(value_num) AS avg_cold_start_ms FROM measurements WHERE name='cold_start_ms' GROUP BY platform"
+
+# Export for a notebook or BI tool
+csbench export measurements --out measurements.parquet
 ```
 
-`--format markdown` (the default) is unchanged.
-
-## Cross-vendor comparison + execution hygiene
-
-When two same-category platforms ran (e.g. `aliyun-agentrun` and an AWS agent
-runtime), each panel renders them side by side with a comparison chart. **A panel
-compares only platforms of the same `execution`** — simulated (mock) and live
-(real cloud) records are shown separately and never charted together; a domain
-that mixes them shows a red-flag banner. This reuses the fingerprint isolation of
-the `execution` marker, so mock numbers can never be mistaken for real ones.
-
-## Customize the rendering
-
-The `ReportBundle` is the stable contract; three ways to change the output
-without touching the engine:
-
-- **Theme (`--css file.css`)** — inject CSS appended after the default theme
-  (wins), for a logo/colors/layout tweak. Zero dependencies.
-- **Renderer plugin** — register a `ReportRenderer` via the
-  `clousight_bench.report_renderers` entry point (`name`, `output_suffix`,
-  `render(bundle)`), then `--renderer yourname`. Full control (PDF, a different
-  HTML, etc.); bring your own dependencies.
-- **Template (`--template file.html`)** — render the bundle through a jinja2
-  template file (needs the `[report]` extra: `pip install
-  clousight-bench[report]`). The template receives `bundle` (the dict form).
-
-The engine, default HTML renderer, inline-SVG charts, `--css`, and
-`--dump-bundle` are all pure stdlib; only `--template` needs the extra.
-
-## Layout (v3, shadcn)
-
-The default HTML report uses a shadcn-style design system (CSS token vars, cards,
-badges, brand-tinted shadows, tabular numerals) and is organized for scanning
-many dimensions at once:
-
-- **Sticky branded header** with the logo, bilingual name, generation timestamp,
-  and a Chinese/English toggle.
-- **Platform overview cards**: a responsive grid — one card per platform with its
-  provider logo, execution badge, and its headline metrics (cold start / net cost
-  / elasticity knee).
-- **Tabbed grouped comparison matrix**: the agent-runtime profile surfaces *all*
-  benchmark measurements as 8 capability groups spread over five tabs —
-  **Performance / Reliability / Observability / Cost / Capability** (each tab
-  shows a per-panel count). Each group is a `.card`
-  holding a grouped comparison table (metrics as rows × platforms as columns, each
-  platform column carrying a brand-color top border) plus its interactive chart.
-  The capability matrix renders under the Capability tab.
-- **Summary cards** per platform, and a dark mode via `prefers-color-scheme`.
-- Tab switching, chart hover tooltips, and legend series toggling run from one
-  compact (~2KB) inline script — no third-party chart library.
-
-## Brand, language & charts
-
-The report carries the Clousight brand: the official 3-layer
-stacked-arrows logo (vendored + base64-inlined), the brand blue scale
-(`hsl(217 71% 51%)`), and Inter / Noto Sans SC fonts *by preference* (system
-fallback, so the file stays self-contained and offline).
-
-- **Cross-vendor cards**: each platform shows its cloud provider logo (Alibaba /
-  AWS / Huawei / Tencent / GCP / Azure …, vendored under
-  `resources/brand/providers/`) with its execution badge; ≥2 same-execution
-  platforms compare side by side.
-- **Full Chinese/English toggle**: the header button switches *all* UI text in place
-  (panel titles, capability labels, badges, metric names, chrome) — default
-  Chinese. Data (platform ids, numeric values) is never translated.
-- **Premium interactive charts**: self-authored inline SVG (gridlines, y-axis
-  ticks, rounded brand-gradient bars, legend) with a compact inline script for
-  tab switching, hover tooltips, and legend series toggling — no third-party
-  chart library.
-- Dark mode follows the OS via `prefers-color-scheme`. `--css` still overrides.
-
-Everything is inlined (logo, provider SVGs, CSS, JS); the report is a single
-offline file with no external resources.
+See [Querying results](/docs/querying) for the full DuckDB-backed analytics reference.

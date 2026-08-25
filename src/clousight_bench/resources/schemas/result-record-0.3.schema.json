@@ -1,17 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Clousight Bench ResultRecord 0.2",
+  "title": "Clousight Bench ResultRecord 0.3",
   "type": "object",
   "required": ["schema_version", "run", "identity", "environment",
     "fingerprints", "measurements", "findings", "observations", "series",
     "artifacts", "extensions", "errors", "status"],
   "properties": {
-    "schema_version": {"const": "0.2"},
+    "schema_version": {"const": "0.3"},
     "status": {"enum": ["completed", "failed", "invalid", "unsupported", "interrupted"]},
     "run": {"type": "object"},
     "identity": {"type": "object"},
     "environment": {"type": "object"},
     "fingerprints": {"type": "object"},
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "suite_id": {"type": "string"},
+        "suite_version": {"type": "string"},
+        "dataset_digest": {"type": "string"},
+        "unmodified": {"type": "boolean"},
+        "evaluator_id": {"type": "string"},
+        "evaluator_official": {"type": "boolean"},
+        "scaffold": {"type": "string"},
+        "division": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
     "measurements": {"type": "object"},
     "findings": {"type": "array"},
     "observations": {"type": "object"},

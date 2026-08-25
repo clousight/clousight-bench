@@ -118,9 +118,10 @@ def aggregate_measurements(
     A measurement is summarised numerically only when *every* record that
     reports it gives a numeric value; one label anywhere makes the whole
     measurement categorical, so a distribution never silently mixes 12.5 with
-    ``"timeout"``. ``unit`` and ``evidence`` are carried through when every
-    record agrees, and blanked with a note when they do not -- a measurement
-    reported at evidence C in one run and B in another is not one distribution.
+    ``"timeout"``. ``unit`` and ``reproducibility_class`` are carried through
+    when every record agrees, and blanked with a note when they do not -- a
+    measurement reported ``deterministic`` in one run and ``environmental`` in
+    another is not one distribution.
     """
     names: list[str] = []
     seen: set[str] = set()
@@ -134,14 +135,14 @@ def aggregate_measurements(
     for name in sorted(names):
         values: list[Any] = []
         units: list[str] = []
-        evidences: list[str] = []
+        classes: list[str] = []
         for measurements in measurement_sets:
             entry = measurements.get(name)
             if not isinstance(entry, dict) or "value" not in entry:
                 continue
             values.append(entry["value"])
             units.append(str(entry.get("unit", "")))
-            evidences.append(str(entry.get("evidence", "")))
+            classes.append(str(entry.get("reproducibility_class", "")))
         if not values:
             continue
 
@@ -158,12 +159,12 @@ def aggregate_measurements(
             summary["unit"] = ""
             notes.append("mixed units across repeats")
 
-        evidence, evidence_ok = _consistent(evidences)
-        if evidence_ok:
-            summary["evidence"] = evidence
+        rclass, rclass_ok = _consistent(classes)
+        if rclass_ok:
+            summary["reproducibility_class"] = rclass
         else:
-            summary["evidence"] = ""
-            notes.append("mixed evidence layers across repeats")
+            summary["reproducibility_class"] = ""
+            notes.append("mixed reproducibility classes across repeats")
 
         if notes:
             summary["notes"] = notes

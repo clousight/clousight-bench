@@ -64,7 +64,6 @@ def reconcile_run_resources(
                 code="teardown.reclaimed",
                 severity="warning",
                 summary="harness reclaimed resources the run left behind",
-                evidence="B",
                 details={"reclaimed": reclaimed_ids, "run_id": run_id},
             )
         )
@@ -77,7 +76,6 @@ def reconcile_run_resources(
                 code="teardown.residual",
                 severity="critical",
                 summary="resources could not be reclaimed and keep billing",
-                evidence="B",
                 details={
                     "residual": unreclaimed,
                     "run_id": run_id,

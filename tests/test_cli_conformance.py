@@ -10,7 +10,7 @@ def test_conformance_command_passes_for_builtin(capsys):
 
 
 def test_conformance_with_platform(capsys):
-    rc = main(["conformance", "--domain", "bigdata-emr", "--platform", "local-process"])
+    rc = main(["conformance", "--domain", "agent-runtime", "--platform", "local-sim"])
     assert rc == 0
 
 

@@ -33,7 +33,6 @@ provision → setup → execute → collect → teardown → score → report
 pip install clousight-bench
 csbench list --verbose
 csbench run --domain agent-runtime --task T1.3 --platform local-sim
-csbench report
 ```
 
 可选时序存储（Parquet + DuckDB）：`pip install clousight-bench[store]`

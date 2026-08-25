@@ -12,7 +12,7 @@ Clousight Bench 采用**核心引擎 + 入口点插件**的架构。引擎负责
 | 层次 | 内容 | 分发方式 |
 |---|---|---|
 | **核心包**（`clousight-bench`） | 引擎（编排器、schema/记录格式、CLI、插件注册表）、插件**契约**（`Task`、`AgentRuntimeAdapter`、`RuntimeProviderPlugin`、`ResourceReaper`、`Enricher`、`DomainPack`）、报告/查询/追踪/汇总工具，以及**数据平面探针**运行时。 | pip 可安装，开源（Apache-2.0） |
-| **参考领域** | `agent-runtime`（T0–T6）、`bigdata-emr`（J*）——含电池的基准测试。 | 捆绑在核心包中，但以*插件*方式注册（见下文） |
+| **参考领域** | `agent-runtime`（T0–T6）——含电池的基准测试。 | 捆绑在核心包中，但以*插件*方式注册（见下文） |
 | **你的插件** | 你的任务、适配器、领域、enricher、reaper。 | 你发布或本地安装的独立 pip 包 |
 | **商业版（pro）** | 精选数据集、托管服务、SLA、私有适配器。 | 通过相同入口点在顶层安装的私有插件 |
 
@@ -24,7 +24,7 @@ Clousight Bench 采用**核心引擎 + 入口点插件**的架构。引擎负责
 
 | 分组 | 提供内容 | 参考示例 |
 |---|---|---|
-| `clousight_bench.domains` | `DomainPack`——一组具名的任务 + 适配器 | `agent-runtime`、`bigdata-emr` |
+| `clousight_bench.domains` | `DomainPack`——一组具名的任务 + 适配器 | `agent-runtime` |
 | `clousight_bench.runtime_providers` | `RuntimeProviderPlugin`——某个 provider 的真实云传输 + 活动探针钩子 | `aliyun` |
 | `clousight_bench.resource_reapers` | `ResourceReaper`——为 `csbench sweep` 查找并删除孤立云资源 | `aliyun` |
 | `clousight_bench.enrichers` | `Enricher`——运行后对记录进行丰富处理（例如定价） | `pricing` |

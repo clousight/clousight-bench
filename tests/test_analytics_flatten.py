@@ -7,7 +7,7 @@ from clousight_bench.core.fingerprints import record_digest
 
 def _write(root: Path, run_id="r1"):
     payload = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "run": {
             "run_id": run_id,
             "started_at": "2026-01-01T00:00:00Z",
@@ -27,18 +27,17 @@ def _write(root: Path, run_id="r1"):
             "cold_start_ms": {
                 "value": 42.0,
                 "unit": "ms",
-                "evidence": "B",
+                "reproducibility_class": "environmental",
                 "aggregation": "p50",
                 "sample_count": 5,
             },
-            "recovery_mode": {"value": "auto-retry", "unit": "", "evidence": "C"},
+            "recovery_mode": {"value": "auto-retry", "unit": "", "reproducibility_class": "deterministic"},
         },
         "findings": [
             {
                 "code": "agent_runtime.scaling_knee",
                 "severity": "warning",
                 "summary": "knee at 8",
-                "evidence": "B",
             }
         ],
         "observations": {},
@@ -76,6 +75,30 @@ def test_flatten_measurements_num_vs_label(tmp_path):
     assert rows["recovery_mode"]["value_str"] == "auto-retry"
 
 
+def test_flatten_measurements_official(tmp_path):
+    # official defaults to True when the measurement omits it; an explicit
+    # non-official (custom-added) metric flattens to False.
+    _write(tmp_path)
+    rows = {m["name"]: m for m in Analytics(tmp_path).flatten("measurements")}
+    assert rows["cold_start_ms"]["official"] is True  # omitted -> default True
+
+    payload = json.loads((tmp_path / "agent-runtime" / "local-sim" / "T1.3-r1.json").read_text())
+    payload["run"]["run_id"] = "r2"
+    payload["measurements"] = {
+        "difficulty_weighted": {
+            "value": 0.7,
+            "unit": "",
+            "reproducibility_class": "deterministic",
+            "official": False,
+        }
+    }
+    payload["fingerprints"]["record_digest"] = record_digest(payload)
+    out = tmp_path / "agent-runtime" / "local-sim" / "T1.3-r2.json"
+    out.write_text(json.dumps(payload), encoding="utf-8")
+    rows = {m["name"]: m for m in Analytics(tmp_path).flatten("measurements")}
+    assert rows["difficulty_weighted"]["official"] is False
+
+
 def test_flatten_findings(tmp_path):
     _write(tmp_path)
     rows = Analytics(tmp_path).flatten("findings")
@@ -86,7 +109,7 @@ def test_flatten_findings(tmp_path):
 
 def test_records_expose_list_and_discount(tmp_path):
     payload = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "run": {"run_id": "rc", "stages": {}},
         "identity": {
             "domain": "agent-runtime",
@@ -116,7 +139,7 @@ def test_records_expose_list_and_discount(tmp_path):
 
 def test_records_expose_execution(tmp_path):
     payload = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "run": {"run_id": "re", "stages": {}},
         "identity": {
             "domain": "agent-runtime",

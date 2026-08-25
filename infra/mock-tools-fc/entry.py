@@ -19,7 +19,7 @@ from pathlib import Path
 # FC custom runtime code lives at /code/
 sys.path.insert(0, str(Path(__file__).parent))  # works both locally and in /code/
 
-from mock_tools import make_handler, ToolState  # noqa: E402
+from mock_tools import ToolState, make_handler  # noqa: E402
 
 port = int(os.environ.get("FC_SERVER_PORT", 9000))
 token = os.environ.get("CSBENCH_MOCK_TOKEN") or None

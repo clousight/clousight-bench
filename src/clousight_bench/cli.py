@@ -4,9 +4,7 @@
     csbench run --domain agent-runtime --task T1.3 \
             --platform local-sim [--config cfg.yaml] [--param k=v ...] [--debug]
     #   --repeat N --warmup W  -> run a plan and print a statistical aggregate
-    csbench report [--results results/] [--out results/comparison.md]
     #   results/publish-receipts.jsonl records publish attempts (append-only)
-    csbench migrate-results old-results/ --output new-results/ [--dry-run]
     csbench init aws [--domain agent-runtime] [--out .]  # scaffold private config + .env.example
     csbench doctor --config x.local.yaml                 # preflight: creds + connectivity
 """
@@ -60,7 +58,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         print("  tasks:")
         for task_id, task_cls in sorted(pack.tasks().items()):
             tags = ", ".join(task_cls.capability_tags) or "—"
-            print(f"    {task_id:<8} {task_cls.title} [evidence={task_cls.evidence_layer}]")
+            print(f"    {task_id:<8} {task_cls.title}")
             print(f"             tags: {tags}")
         print("  platforms:")
         for platform, adapter_cls in sorted(pack.adapters().items()):
@@ -239,101 +237,12 @@ def _load_aggregates(results_dir: Path) -> list[dict]:
     return list(best.values())
 
 
-def _report_bundle(results_dir: str):
-    import datetime as _dt
-
-    from clousight_bench.core.report import _load_results, _load_series
-    from clousight_bench.core.reporting.bundle import build_bundle
-    from clousight_bench.core.reporting.profiles import PROFILES
-
-    results_path = Path(results_dir)
-    records = _load_results(results_path)
-    aggregates = _load_aggregates(results_path)
-    series_by_task = _load_series(results_path)
-    return build_bundle(
-        records,
-        results_dir=str(results_dir),
-        generated_at=_dt.datetime.now().isoformat(timespec="seconds"),
-        profiles=PROFILES,
-        aggregates=aggregates,
-        series_by_task=series_by_task,
-    )
-
-
-def _render_with_template(bundle: object, template_path: str) -> str:
-    from clousight_bench.core.errors import UserInputError
-
-    try:
-        import jinja2
-    except ImportError as exc:
-        raise UserInputError(
-            "--template needs the [report] extra: pip install clousight-bench[report]"
-        ) from exc
-    tmpl = jinja2.Template(Path(template_path).read_text(encoding="utf-8"))
-    return tmpl.render(bundle=bundle.to_dict())  # type: ignore[attr-defined]
-
-
-def _cmd_report(args: argparse.Namespace) -> int:
-    import json as _json
-
-    from clousight_bench.core.errors import UserInputError
-
-    if getattr(args, "dump_bundle", None):
-        bundle = _report_bundle(args.results)
-        Path(args.dump_bundle).write_text(
-            _json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        print(f"wrote bundle {args.dump_bundle}")
-        return 0
-
-    if getattr(args, "format", "markdown") == "html":
-        from clousight_bench.core.registry import load_report_renderers
-
-        renderers = load_report_renderers()
-        renderer = renderers.get(args.renderer)
-        if renderer is None:
-            raise UserInputError(f"unknown renderer {args.renderer!r}; installed: {sorted(renderers)}")
-        bundle = _report_bundle(args.results)
-        if args.template:
-            html = _render_with_template(bundle, args.template)
-        elif args.renderer == "html":
-            css = Path(args.css).read_text(encoding="utf-8") if args.css else ""
-            html = renderer.render(bundle, css=css)  # type: ignore[call-arg]
-        else:
-            html = renderer.render(bundle)
-        out = Path(args.out) if args.out else Path(args.results) / f"report{renderer.output_suffix}"
-        out.write_text(html, encoding="utf-8")
-        print(f"wrote {out}")
-        return 0
-
-    from clousight_bench.core.report import generate_report
-
-    out_md = generate_report(Path(args.results), Path(args.out) if args.out else None)
-    print(out_md)
-    return 0
-
-
 def _cmd_rollup(args: argparse.Namespace) -> int:
     from clousight_bench.core.rollup import rollup
 
     out = rollup(Path(args.run_dir), bucket_s=args.bucket_s)
     print(out)
     return 0
-
-
-def _cmd_migrate(args: argparse.Namespace) -> int:
-    from clousight_bench.core.migrate import MANIFEST_FILE, migrate_tree
-
-    dest = Path(args.output)
-    manifest = migrate_tree(Path(args.source), dest, dry_run=args.dry_run)
-    prefix = "dry-run: " if args.dry_run else ""
-    print(f"{prefix}migrated={manifest.migrated} skipped={manifest.skipped} failed={manifest.failed}")
-    for entry in manifest.entries:
-        if entry.status != "migrated":
-            print(f"  {entry.status}: {entry.source} — {entry.reason}")
-    if not args.dry_run:
-        print(f"manifest: {dest.resolve() / MANIFEST_FILE}")
-    return 1 if manifest.failed else 0
 
 
 def _ensure_gitignore(root: Path, patterns: list[str]) -> None:
@@ -1003,10 +912,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         "fetch": _cmd_fetch,
         "teardown": _cmd_teardown,
         "run": _cmd_run,
-        "report": _cmd_report,
         "trace": _cmd_trace,
         "rollup": _cmd_rollup,
-        "migrate-results": _cmd_migrate,
         "init": _cmd_init,
         "doctor": _cmd_doctor,
         "sweep": _cmd_sweep,
@@ -1145,15 +1052,6 @@ def main(argv: list[str] | None = None) -> int:
         "--interval", type=float, default=2.0, help="seconds between redraws when --watch (default: 2)"
     )
 
-    rep_p = sub.add_parser("report", help="aggregate results into a comparison report")
-    rep_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
-    rep_p.add_argument("--out", help="write markdown here (default: <results>/comparison.md)")
-    rep_p.add_argument("--dump-bundle", help="write the ReportBundle as JSON to this path")
-    rep_p.add_argument("--format", choices=["markdown", "html"], default="html")
-    rep_p.add_argument("--renderer", default="echarts", help="report renderer name (default: echarts)")
-    rep_p.add_argument("--css", help="CSS file injected into the HTML (overrides the default theme)")
-    rep_p.add_argument("--template", help="jinja2 HTML template file (needs the [report] extra)")
-
     trace_p = sub.add_parser("trace", help="inspect the execution traces of runs")
     trace_sub = trace_p.add_subparsers(dest="trace_cmd", required=True)
     tl = trace_sub.add_parser("list", help="list traces (one row per run)")
@@ -1172,22 +1070,6 @@ def main(argv: list[str] | None = None) -> int:
     roll_p = sub.add_parser("rollup", help="downsample a run's series.parquet (needs the [store] extra)")
     roll_p.add_argument("run_dir", help="directory containing series.parquet")
     roll_p.add_argument("--bucket-s", type=int, default=1, help="bucket width in seconds (default: 1)")
-
-    mig_p = sub.add_parser(
-        "migrate-results",
-        help="convert schema 1.0 result files into schema 0.2 (never in place)",
-    )
-    mig_p.add_argument("source", help="directory containing schema 1.0 result JSON")
-    mig_p.add_argument(
-        "--output",
-        required=True,
-        help="fresh destination directory; must be outside SOURCE",
-    )
-    mig_p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="report what would be migrated without writing anything",
-    )
 
     init_p = sub.add_parser("init", help="scaffold a private config + .env.example for a provider")
     init_p.add_argument("provider", help="cloud provider (aws, aliyun, huawei, volcengine)")

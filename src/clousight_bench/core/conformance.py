@@ -17,7 +17,6 @@ from dataclasses import dataclass
 
 from clousight_bench import PLUGIN_API_VERSION
 from clousight_bench.core.canonical import canonical_json
-from clousight_bench.core.observation import EVIDENCE_LAYERS
 from clousight_bench.core.registry import check_domain_conflicts, get_domain
 from clousight_bench.core.versioning import VersioningError, range_contains
 
@@ -73,13 +72,6 @@ def _check_task(tid: str, task_cls: type) -> list[CheckResult]:
 
     meta_ok = bool(getattr(task, "task_id", "")) and bool(getattr(task, "title", ""))
     out.append(CheckResult(f"{label}:meta", meta_ok, "" if meta_ok else "task_id/title must be non-empty"))
-
-    ev = getattr(task, "evidence_layer", "")
-    out.append(
-        CheckResult(
-            f"{label}:evidence", ev in EVIDENCE_LAYERS, f"evidence_layer {ev!r} not in {EVIDENCE_LAYERS}"
-        )
-    )
 
     revs_ok = bool(getattr(task, "task_revision", "")) and bool(getattr(task, "scorer_revision", ""))
     out.append(CheckResult(f"{label}:revisions", revs_ok, "task_revision/scorer_revision must be set"))

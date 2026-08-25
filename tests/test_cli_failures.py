@@ -102,7 +102,6 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
 
     class _Task(Task):
         task_id = "TS"
-        evidence_layer = "C"
 
         def config(self, params):
             return {}
@@ -111,7 +110,11 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
             return ObservationBundle(series={"latency_ms": [[1, 10.0], [2, 12.5]]})
 
         def score(self, observations):
-            return TaskResult(measurements={"latency_ms": Measurement(value=12.5, unit="ms", evidence="C")})
+            return TaskResult(
+                measurements={
+                    "latency_ms": Measurement(value=12.5, unit="ms", reproducibility_class="environmental")
+                }
+            )
 
     class _Domain(DomainPack):
         domain = "fake-domain"

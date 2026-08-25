@@ -18,7 +18,6 @@ class _Adapter(ProviderAdapter):
 
 class _Good(Task):
     task_id = "TX"
-    evidence_layer = "C"
     task_revision = "3"
     scorer_revision = "4"
 
@@ -42,7 +41,9 @@ class _Good(Task):
     def score(self, observations):
         hits = observations.observations["hits"]
         return TaskResult(
-            measurements={"hits": Measurement(value=hits, unit="count", evidence="C")},
+            measurements={
+                "hits": Measurement(value=hits, unit="count", reproducibility_class="deterministic")
+            },
             findings=[]
             if hits
             else [
@@ -50,7 +51,6 @@ class _Good(Task):
                     code="tx.no_hits",
                     severity="critical",
                     summary="nothing observed",
-                    evidence="C",
                 )
             ],
             notes=f"hits={hits}",
@@ -97,7 +97,8 @@ def test_a_task_composes_execute_collect_and_score(monkeypatch):
     assert result.measurements["hits"].to_dict() == {
         "value": 2,
         "unit": "count",
-        "evidence": "C",
+        "reproducibility_class": "deterministic",
+        "official": True,
     }
     assert result.findings == []
     assert result.notes == "hits=2"

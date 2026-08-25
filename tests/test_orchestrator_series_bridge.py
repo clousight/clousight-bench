@@ -13,7 +13,6 @@ class _Adapter(ProviderAdapter):
 
 class _Task(Task):
     task_id = "TX"
-    evidence_layer = "C"
 
     def config(self, params):
         return {}
@@ -25,7 +24,9 @@ class _Task(Task):
         )
 
     def score(self, observations):
-        return TaskResult(measurements={"p99_ms": Measurement(value=1, unit="ms", evidence="C")})
+        return TaskResult(
+            measurements={"p99_ms": Measurement(value=1, unit="ms", reproducibility_class="environmental")}
+        )
 
 
 class _Domain(DomainPack):

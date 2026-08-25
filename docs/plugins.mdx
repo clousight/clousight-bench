@@ -18,7 +18,7 @@ so you have a canonical example to copy; your own logic lives in your own packag
 | Layer | What it contains | Distribution |
 |---|---|---|
 | **Core package** (`clousight-bench`) | The engine (orchestrator, schema/record format, CLI, plugin registry), the plugin **contracts** (`Task`, `AgentRuntimeAdapter`, `RuntimeProviderPlugin`, `ResourceReaper`, `Enricher`, `DomainPack`), the report/query/trace/rollup tooling, and the **data-plane probe** runtime. | pip-installable, open source (Apache-2.0) |
-| **Reference domains** | `agent-runtime` (T0–T6), `bigdata-emr` (J*) — the batteries-included benchmarks. | Bundled in the core package, but registered *as plugins* (see below) |
+| **Reference domains** | `agent-runtime` (T0–T6) — the batteries-included benchmark. | Bundled in the core package, but registered *as plugins* (see below) |
 | **Your plugins** | Your tasks / adapters / domains / enrichers / reapers. | A separate pip package you publish or install locally |
 | **Commercial (pro)** | Curated datasets, managed service, SLA, private adapters. | Private plugins installed on top via the same entry points |
 
@@ -34,7 +34,7 @@ Register a plugin by advertising an entry point in your package's
 
 | Group | Provides | Reference example |
 |---|---|---|
-| `clousight_bench.domains` | A `DomainPack` — a named set of tasks + adapters | `agent-runtime`, `bigdata-emr` |
+| `clousight_bench.domains` | A `DomainPack` — a named set of tasks + adapters | `agent-runtime` |
 | `clousight_bench.runtime_providers` | A `RuntimeProviderPlugin` — real-cloud transport + campaign probe hook for a provider | `aliyun` |
 | `clousight_bench.resource_reapers` | A `ResourceReaper` — finds/deletes orphaned cloud resources for `csbench sweep` | `aliyun` |
 | `clousight_bench.enrichers` | An `Enricher` — post-run enrichment of records (e.g. pricing) | `pricing` |

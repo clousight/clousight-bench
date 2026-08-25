@@ -14,7 +14,7 @@ from typing import Any
 
 from clousight_bench.core.canonical import canonical_json
 
-EVIDENCE_LAYERS: tuple[str, ...] = ("A", "B", "C", "D")
+REPRODUCIBILITY_CLASSES: tuple[str, ...] = ("deterministic", "environmental", "judge-based")
 SEVERITIES: tuple[str, ...] = ("info", "warning", "critical")
 
 
@@ -24,25 +24,38 @@ class ObservationError(ValueError):
 
 @dataclass
 class Measurement:
-    """One scored number or label, with the evidence that backs it."""
+    """One scored number or label.
+
+    ``reproducibility_class`` records how a re-run would behave: ``deterministic``
+    (re-runs identically), ``environmental`` (a timing/cost/resource number that
+    drifts with the environment) or ``judge-based`` (an LLM-as-judge score). It
+    may be left blank (unclassified). ``official`` marks whether the number is a
+    published, comparable result.
+    """
 
     value: Any
     unit: str
-    evidence: str
+    reproducibility_class: str = ""
+    official: bool = True
     aggregation: str = ""
     sample_count: int | None = None
     notes: str = ""
 
     def __post_init__(self) -> None:
-        if self.evidence not in EVIDENCE_LAYERS:
-            raise ObservationError(f"evidence must be one of {EVIDENCE_LAYERS}, got {self.evidence!r}")
+        if self.reproducibility_class and self.reproducibility_class not in REPRODUCIBILITY_CLASSES:
+            raise ObservationError(
+                f"reproducibility_class must be one of {REPRODUCIBILITY_CLASSES} or empty, "
+                f"got {self.reproducibility_class!r}"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
             "value": self.value,
             "unit": self.unit,
-            "evidence": self.evidence,
         }
+        if self.reproducibility_class:
+            out["reproducibility_class"] = self.reproducibility_class
+        out["official"] = self.official
         if self.aggregation:
             out["aggregation"] = self.aggregation
         if self.sample_count is not None:
@@ -59,7 +72,6 @@ class Finding:
     code: str
     severity: str
     summary: str
-    evidence: str
     details: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -67,15 +79,12 @@ class Finding:
             raise ObservationError("finding code must be a stable, non-empty string")
         if self.severity not in SEVERITIES:
             raise ObservationError(f"severity must be one of {SEVERITIES}, got {self.severity!r}")
-        if self.evidence not in EVIDENCE_LAYERS:
-            raise ObservationError(f"evidence must be one of {EVIDENCE_LAYERS}, got {self.evidence!r}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "code": self.code,
             "severity": self.severity,
             "summary": self.summary,
-            "evidence": self.evidence,
             "details": self.details,
         }
 
