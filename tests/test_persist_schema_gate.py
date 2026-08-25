@@ -1,4 +1,4 @@
-"""PERSIST refuses to write a record that fails the 0.2 schema, dumping it raw."""
+"""PERSIST refuses to write a record that fails the 0.3 schema, dumping it raw."""
 
 import tempfile
 from pathlib import Path
@@ -35,7 +35,7 @@ def _rec() -> ResultRecord:
         environment=Environment(region="", mode="local", python_version="3.12.0", os_name="Linux", facts={}),
         fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b", implementation="sha256:c"),
         status="completed",
-        measurements={"p99_ms": {"value": 9, "unit": "ms", "evidence": "C"}},
+        measurements={"p99_ms": {"value": 9, "unit": "ms", "reproducibility_class": "environmental"}},
         series={},
     )
 
@@ -47,7 +47,9 @@ def test_valid_record_persists(tmp_path):
 
 def test_invalid_status_is_rejected_and_dumped(tmp_path):
     emergency_dir = Path(tempfile.gettempdir()).resolve() / EMERGENCY_DIR_NAME
-    before = set(emergency_dir.glob("INVALID-*run-x.json")) if emergency_dir.exists() else set()
+    # The store never overwrites a dump, so a repeated run-x gets a "-<n>" collision
+    # suffix; match it (trailing *) so accumulated dumps don't defeat the diff.
+    before = set(emergency_dir.glob("INVALID-*run-x*.json")) if emergency_dir.exists() else set()
 
     rec = _rec()
     rec.status = "bogus"  # not in the enum -> fails the schema
@@ -57,9 +59,9 @@ def test_invalid_status_is_rejected_and_dumped(tmp_path):
         # the normal path was not written
         assert not (tmp_path / "agent-runtime" / "local-sim" / "T1.3-run-x.json").exists()
         # the raw record was emergency-dumped so nothing is lost
-        after = set(emergency_dir.glob("INVALID-*run-x.json"))
+        after = set(emergency_dir.glob("INVALID-*run-x*.json"))
         new = after - before
         assert new, "expected an emergency dump of the rejected record"
     finally:
-        for p in set(emergency_dir.glob("INVALID-*run-x.json")) - before:
+        for p in set(emergency_dir.glob("INVALID-*run-x*.json")) - before:
             p.unlink(missing_ok=True)

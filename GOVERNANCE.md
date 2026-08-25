@@ -36,7 +36,13 @@ attributable.
 These are the invariants that define the project; changes that violate them will
 not be merged:
 
-- Every result carries `config_hash` + `runner_version` + `evidence_layer`.
+- Every result is attributable: it carries its benchmark, environment, and
+  implementation fingerprints, and every measured dimension declares its
+  **reproducibility class** (`deterministic` / `environmental` / `judge-based`).
+- Suite provenance is honest: a result records which recognized suite produced
+  it, at which pinned version, run unmodified, and which evaluator scored it.
+  Clousight stewards the tool; it is not the judge of who wins — suite authority
+  belongs to the upstream, and results are decentralized and self-verifiable.
 - Results are reported **per dimension** — never a blended cross-dimension score.
 - Secrets are never stored in a `RunSpec`, config, or result file; they are
   referenced by environment-variable name and resolved through the cloud's own

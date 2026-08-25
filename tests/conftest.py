@@ -5,6 +5,73 @@ from pathlib import Path
 import pytest
 
 from clousight_bench.core.fingerprints import record_digest
+from clousight_bench.core.observation import Measurement, ObservationBundle, TaskResult
+from clousight_bench.core.plugin import Task
+
+
+class _StubTask(Task):
+    """Minimal concrete Task used to drive orchestrator-level machinery tests.
+
+    Suite-first pivot retired the 27 T-code dimensions; tests that exercise
+    generic orchestrator behaviour (lifecycle, tracing, runplan, timeout, …)
+    register this stub as "T1.3" (and "T1.1") so their RunSpec strings don't
+    change. The stub produces a single "ok" measurement, which is sufficient
+    for infra assertions.
+    """
+
+    task_id = "T1.3"  # keep the string so all existing RunSpec(..., "T1.3", ...) work
+    title = "stub task (suite-first pivot)"
+    task_revision = "0"
+    scorer_revision = "0"
+    requires_mock_server = False
+
+    def config(self, params):
+        return {"params": dict(params)}
+
+    def execute(self, adapter, params):
+        return ObservationBundle(observations={"ok": True})
+
+    def score(self, bundle):
+        return TaskResult(measurements={"ok": Measurement(True, "", reproducibility_class="deterministic")})
+
+
+class _StubTask11(_StubTask):
+    """Like _StubTask but registered as 'T1.1' for test_plugin_registry."""
+
+    task_id = "T1.1"
+
+
+_STUB_TASKS_SKIP = frozenset(
+    [
+        # These tests check the PRODUCTION registry (docs and CLI surface) and must
+        # see the real (zero-task) domain, not the stub. The autouse skips them.
+        "test_docs_inventory",
+    ]
+)
+
+
+@pytest.fixture(autouse=True)
+def _inject_stub_tasks(request, monkeypatch):
+    """Register _StubTask as "T1.3" and "T1.1" in AgentRuntimeDomain for each test.
+
+    Suite-first pivot retired the 27 T-code dimensions; tests that exercise
+    generic orchestrator behaviour (runplan, tracing, timeout, interrupt, …)
+    register these stubs so their RunSpec("agent-runtime", "T1.3", …) strings
+    stay unchanged. Tests that verify the production registry (docs inventory)
+    are exempted so they see the real zero-task domain.
+    """
+    module = request.module.__name__.split(".")[-1]
+    if module in _STUB_TASKS_SKIP:
+        return  # don't patch — let the test see the real (empty) domain
+
+    from clousight_bench.domains.agent_runtime import AgentRuntimeDomain
+
+    monkeypatch.setattr(
+        AgentRuntimeDomain,
+        "tasks",
+        lambda self: {_StubTask.task_id: _StubTask, _StubTask11.task_id: _StubTask11},
+    )
+
 
 # Skip optional-dependency tests when their extra isn't installed. The in-region
 # probe + Aliyun provider modules import `requests` (the [probe] / [aliyun]
@@ -26,9 +93,9 @@ if importlib.util.find_spec("requests") is None:
 
 
 def _write_analytics_record(root: Path, run_id: str = "r1") -> None:
-    """Write one digest-valid 0.2 record for the analytics tests."""
+    """Write one digest-valid 0.3 record for the analytics tests."""
     payload = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "run": {
             "run_id": run_id,
             "started_at": "2026-01-01T00:00:00Z",
@@ -48,18 +115,17 @@ def _write_analytics_record(root: Path, run_id: str = "r1") -> None:
             "cold_start_ms": {
                 "value": 42.0,
                 "unit": "ms",
-                "evidence": "B",
+                "reproducibility_class": "environmental",
                 "aggregation": "p50",
                 "sample_count": 5,
             },
-            "recovery_mode": {"value": "auto-retry", "unit": "", "evidence": "C"},
+            "recovery_mode": {"value": "auto-retry", "unit": "", "reproducibility_class": "deterministic"},
         },
         "findings": [
             {
                 "code": "agent_runtime.scaling_knee",
                 "severity": "warning",
                 "summary": "knee at 8",
-                "evidence": "B",
             }
         ],
         "observations": {},
@@ -87,7 +153,7 @@ def _make_report_record(
     from clousight_bench.core.record import ResultRecord
 
     payload = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "run": {
             "run_id": f"{adapter}-{task_id}-{execution}",
             "started_at": "2026-01-01T00:00:00Z",
@@ -118,7 +184,8 @@ def _make_report_record(
             "implementation": "sha256:c",
         },
         "measurements": {
-            k: {"value": v, "unit": "", "evidence": "B"} for k, v in (measurements or {}).items()
+            k: {"value": v, "unit": "", "reproducibility_class": "environmental"}
+            for k, v in (measurements or {}).items()
         },
         "findings": [],
         "observations": {},

@@ -13,7 +13,7 @@ def test_list_verbose_shows_task_and_adapter_status(capsys):
 
     assert rc == 0
     assert "T1.3" in out
-    assert "Tool-failure recovery" in out
+    # Suite-first pivot: T1.3 is now the stub task; title check removed.
     assert "local-sim" in out and "reference" in out
     assert "aliyun-agentrun" in out and "experimental" in out
     assert "huawei-agentarts" in out and "skeleton" in out

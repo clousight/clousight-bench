@@ -22,7 +22,6 @@ from clousight_bench.core.plugin import (
 from clousight_bench.core.versioning import range_contains
 
 if TYPE_CHECKING:
-    from clousight_bench.core.reporting.renderers.base import ReportRenderer
     from clousight_bench.core.tracing import SpanExporter
 
 ENTRY_POINT_GROUP = "clousight_bench.domains"
@@ -31,7 +30,6 @@ ASSET_RESOLVER_ENTRY_POINT_GROUP = "clousight_bench.asset_resolvers"
 RUNTIME_PROVIDER_ENTRY_POINT_GROUP = "clousight_bench.runtime_providers"
 RESOURCE_REAPER_ENTRY_POINT_GROUP = "clousight_bench.resource_reapers"
 SPAN_EXPORTER_ENTRY_POINT_GROUP = "clousight_bench.span_exporters"
-REPORT_RENDERER_ENTRY_POINT_GROUP = "clousight_bench.report_renderers"
 
 
 class RegistryError(UserInputError):
@@ -243,18 +241,3 @@ def load_asset_resolvers() -> list[PrivateAssetResolver]:
     return sorted(resolvers, key=lambda r: r.name)
 
 
-def load_report_renderers() -> dict[str, ReportRenderer]:
-    """Report renderers keyed by name. Core provides the built-in ``html``; a
-    commercial/third-party pack adds more via the ``clousight_bench.report_renderers``
-    entry point (e.g. a PDF or a themed HTML renderer)."""
-    from clousight_bench.core.reporting.renderers.base import ReportRenderer
-    from clousight_bench.core.reporting.renderers.echarts import EchartsRenderer
-    from clousight_bench.core.reporting.renderers.html import HtmlRenderer
-
-    renderers: dict[str, ReportRenderer] = {"html": HtmlRenderer(), "echarts": EchartsRenderer()}
-    for ep in entry_points(group=REPORT_RENDERER_ENTRY_POINT_GROUP):
-        inst = ep.load()()
-        if not isinstance(inst, ReportRenderer):
-            raise RegistryError(f"entry point {ep.name!r} is not a ReportRenderer")
-        renderers[inst.name] = inst
-    return renderers

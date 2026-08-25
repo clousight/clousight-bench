@@ -1,11 +1,13 @@
-"""ResultRecord 0.2: the shape every reader and every plugin agrees on."""
+"""ResultRecord 0.3: the shape every reader and every plugin agrees on."""
 
 import pytest
 
 from clousight_bench.core.record import (
+    SCHEMA_VERSION,
     Environment,
     Fingerprints,
     Identity,
+    Provenance,
     RecordError,
     ResultRecord,
     RunInfo,
@@ -47,10 +49,6 @@ def _record(**overrides):
     return ResultRecord(**base)
 
 
-def test_schema_version_is_exactly_0_2():
-    assert _record().to_dict()["schema_version"] == "0.2"
-
-
 def test_top_level_keys_are_the_fixed_contract():
     assert set(_record().to_dict()) == {
         "schema_version",
@@ -58,6 +56,7 @@ def test_top_level_keys_are_the_fixed_contract():
         "identity",
         "environment",
         "fingerprints",
+        "provenance",
         "measurements",
         "findings",
         "observations",
@@ -116,13 +115,12 @@ def test_stage_error_rejects_an_unknown_stage():
 
 def test_round_trip_is_lossless():
     record = _record(
-        measurements={"p99_ms": {"value": 9, "unit": "ms", "evidence": "C"}},
+        measurements={"p99_ms": {"value": 9, "unit": "ms", "reproducibility_class": "environmental"}},
         findings=[
             {
                 "code": "x.y",
                 "severity": "warning",
                 "summary": "s",
-                "evidence": "C",
                 "details": {},
             }
         ],
@@ -162,6 +160,57 @@ def test_observation_artifact_pointer_survives_round_trip():
     assert ResultRecord.from_dict(record.to_dict()).observations == pointer
 
 
-def test_from_dict_rejects_a_legacy_record_with_a_migration_hint():
-    with pytest.raises(RecordError, match="migrate-results"):
+def test_from_dict_rejects_a_legacy_record_with_schema_version_error():
+    with pytest.raises(RecordError, match="no migration path"):
         ResultRecord.from_dict({"schema_version": "1.0", "domain": "d"})
+
+
+def test_schema_version_is_0_3():
+    assert SCHEMA_VERSION == "0.3"
+
+
+def test_provenance_defaults():
+    p = Provenance()
+    assert p.suite_id == ""
+    assert p.suite_version == ""
+    assert p.dataset_digest == ""
+    assert p.unmodified is True
+    assert p.evaluator_id == ""
+    assert p.evaluator_official is True
+    assert p.scaffold == ""
+    assert p.division == ""
+
+
+def test_provenance_is_empty_when_all_defaults():
+    assert Provenance().is_empty() is True
+    assert Provenance(suite_id="x").is_empty() is False
+
+
+def test_provenance_roundtrip():
+    p = Provenance(
+        suite_id="s1", suite_version="v2", evaluator_id="e3", unmodified=False, evaluator_official=False
+    )
+    p2 = Provenance.from_dict(p.to_dict())
+    assert p2 == p
+
+
+def test_provenance_from_dict_tolerant():
+    p = Provenance.from_dict({})
+    assert p == Provenance()
+
+
+def test_record_carries_empty_provenance_by_default():
+    record = _record()
+    assert record.provenance == Provenance()
+    assert "provenance" in record.to_dict()
+
+
+def test_record_provenance_roundtrips():
+    record = _record()
+    record2 = ResultRecord.from_dict(record.to_dict())
+    assert record2.provenance == Provenance()
+
+
+def test_from_dict_rejects_0_2_payload():
+    with pytest.raises(RecordError, match="no migration path"):
+        ResultRecord.from_dict({"schema_version": "0.2"})

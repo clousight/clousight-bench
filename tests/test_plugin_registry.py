@@ -13,7 +13,7 @@ from clousight_bench.core.schema import RunSpec
 def test_builtin_domains_discovered():
     domains = load_domains()
     assert "agent-runtime" in domains
-    assert "bigdata-emr" in domains
+    assert "bigdata-emr" not in domains
 
 
 def test_agent_runtime_surface():
@@ -22,12 +22,6 @@ def test_agent_runtime_surface():
     adapters = pack.adapters()
     for name in ("local-sim", "aliyun-agentrun", "huawei-agentarts", "volcengine-agentkit"):
         assert name in adapters
-
-
-def test_bigdata_surface():
-    pack = get_domain("bigdata-emr")
-    assert "J1.1" in pack.tasks()
-    assert set(pack.adapters()) >= {"local-process", "aws-emr"}
 
 
 def test_redact_scrubs_secrets():
@@ -40,7 +34,6 @@ def test_redact_scrubs_secrets():
 
 def test_adapter_status_distinguishes_reference_from_skeleton():
     agent = get_domain("agent-runtime").adapters()
-    bigdata = get_domain("bigdata-emr").adapters()
 
     assert agent["local-sim"].status == "reference"
     assert agent["local-sim"].provider is None
@@ -55,10 +48,6 @@ def test_adapter_status_distinguishes_reference_from_skeleton():
     assert not agent["huawei-agentarts"].is_runnable()
     assert agent["volcengine-agentkit"].status == "skeleton"
     assert agent["volcengine-agentkit"].provider == "volcengine"
-    assert bigdata["local-process"].status == "reference"
-    assert bigdata["local-process"].provider is None
-    assert bigdata["aws-emr"].status == "skeleton"
-    assert bigdata["aws-emr"].provider == "aws"
 
 
 def test_orchestrator_rejects_skeleton_before_preflight(tmp_path):

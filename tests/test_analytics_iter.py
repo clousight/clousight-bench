@@ -7,7 +7,7 @@ from clousight_bench.core.fingerprints import record_digest
 
 def _write_record(root: Path, run_id: str, tamper: bool = False) -> None:
     payload = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "run": {"run_id": run_id, "stages": {}},
         "identity": {
             "domain": "agent-runtime",

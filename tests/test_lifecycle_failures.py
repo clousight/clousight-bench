@@ -39,7 +39,6 @@ class _Adapter(ProviderAdapter):
 class _Task(Task):
     task_id = "TX"
     title = "fake"
-    evidence_layer = "C"
     task_revision = "1"
     scorer_revision = "1"
 
@@ -57,7 +56,11 @@ class _Task(Task):
     def score(self, observations):
         return TaskResult(
             measurements={
-                "hits": Measurement(value=observations.observations["hits"], unit="count", evidence="C")
+                "hits": Measurement(
+                    value=observations.observations["hits"],
+                    unit="count",
+                    reproducibility_class="deterministic",
+                )
             },
             notes="ok",
         )
@@ -238,7 +241,6 @@ def test_enricher_cannot_rewrite_core_scoring(tmp_path, monkeypatch, target):
                         "code": "forged",
                         "severity": "info",
                         "summary": "forged",
-                        "evidence": "C",
                         "details": {},
                     }
                 )
@@ -507,7 +509,9 @@ def test_non_canonical_scored_measurement_fails_score_and_keeps_observations(
         _Task,
         "score",
         lambda self, observations: TaskResult(
-            measurements={"bad": Measurement(value=bad_value, unit="", evidence="C")}
+            measurements={
+                "bad": Measurement(value=bad_value, unit="", reproducibility_class="deterministic")
+            }
         ),
     )
     record = _run(tmp_path)
@@ -528,7 +532,9 @@ def test_numpy_like_scored_measurement_fails_score(tmp_path, monkeypatch):
         _Task,
         "score",
         lambda self, observations: TaskResult(
-            measurements={"bad": Measurement(value=NumpyLike(), unit="", evidence="C")}
+            measurements={
+                "bad": Measurement(value=NumpyLike(), unit="", reproducibility_class="deterministic")
+            }
         ),
     )
     record = _run(tmp_path)

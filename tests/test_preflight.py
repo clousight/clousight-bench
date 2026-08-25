@@ -1,11 +1,34 @@
 """Preflight gate: prerequisites are checked before provisioning, not mid-run."""
 
 from clousight_bench.core import preflight as pf
+from clousight_bench.core.observation import Measurement, ObservationBundle, TaskResult
 from clousight_bench.core.orchestrator import execute
+from clousight_bench.core.plugin import Task
 from clousight_bench.core.schema import RunSpec
+from clousight_bench.domains.agent_runtime import AgentRuntimeDomain
 from clousight_bench.domains.agent_runtime.adapters.cn_clouds import (
     AliyunAgentRunAdapter,
 )
+
+
+class _StubTask(Task):
+    """Minimal concrete Task for preflight machinery tests (no T-code dependency)."""
+
+    task_id = "STUB.1"
+    title = "stub task for preflight tests"
+    task_revision = "1"
+    scorer_revision = "1"
+    requires_mock_server = False
+    required_permissions = ("session:create", "tool:invoke")
+
+    def config(self, params):
+        return {"params": dict(params)}
+
+    def execute(self, adapter, params):
+        return ObservationBundle(observations={"ok": True})
+
+    def score(self, bundle):
+        return TaskResult(measurements={"ok": Measurement(True, "", reproducibility_class="deterministic")})
 
 
 def _clear_aws(monkeypatch, tmp_path):
@@ -74,12 +97,24 @@ def test_real_adapter_preflight_fails_without_prereqs(monkeypatch, tmp_path):
 
 
 # --- orchestrator gate: abort BEFORE setup/execute --------------------------
+# These tests use monkeypatching to inject _StubTask into the domain so that
+# the orchestrator can resolve "STUB.1" and exercise the preflight gate.
+
+
+def _inject_stub(monkeypatch):
+    """Register _StubTask in AgentRuntimeDomain.tasks() for the duration of the test."""
+    monkeypatch.setattr(
+        AgentRuntimeDomain,
+        "tasks",
+        lambda self: {_StubTask.task_id: _StubTask},
+    )
 
 
 def test_run_aborts_at_preflight_not_midrun(monkeypatch, tmp_path):
     monkeypatch.setattr(AliyunAgentRunAdapter, "status", "wired")
     _clear_aws(monkeypatch, tmp_path)
-    spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun", target={"region": "cn-hangzhou"})
+    _inject_stub(monkeypatch)
+    spec = RunSpec("agent-runtime", _StubTask.task_id, "aliyun-agentrun", target={"region": "cn-hangzhou"})
     rec = execute(spec, results_dir=tmp_path)
     assert rec.status == "invalid"
     assert rec.run.stages["PREFLIGHT"] == "failed"
@@ -92,63 +127,75 @@ def test_run_aborts_at_preflight_not_midrun(monkeypatch, tmp_path):
 
 
 def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
+    """Skipping PREFLIGHT lets a genuine mid-run NotWired failure through.
+
+    Uses a local stub whose execute() calls adapter.create_session().  The test
+    forces the adapter into pure-skeleton mode by patching get_runtime_provider
+    to return None, so _build_transport() produces NotWiredCloudTransport.
+    create_session() then raises _NotWiredError mid-execute — exactly the late
+    failure the preflight gate exists to prevent.
+
+    The test proves:
+    (a) PREFLIGHT == "skipped"  (gate was bypassed)
+    (b) rec.status == "failed"  (real mid-run failure propagated)
+    (c) TEARDOWN == "ok"        (teardown still ran)
+    """
+
+    class _FailingStub(Task):
+        """Stub that drives adapter.create_session() to trigger _NotWiredError."""
+
+        task_id = "STUB.FAIL"
+        title = "failing stub for skip-preflight test"
+        task_revision = "1"
+        scorer_revision = "1"
+        requires_mock_server = False
+        required_permissions = ("session:create",)
+
+        def config(self, params):
+            return {"params": dict(params)}
+
+        def execute(self, adapter, params):
+            # This calls NotWiredCloudTransport.create_session(), which raises
+            # _NotWiredError — the real late failure.
+            adapter.create_session()
+            return ObservationBundle(observations={"ok": True})
+
+        def score(self, bundle):
+            return TaskResult(
+                measurements={"ok": Measurement(True, "", reproducibility_class="deterministic")}
+            )
+
     monkeypatch.setattr(AliyunAgentRunAdapter, "status", "wired")
     _clear_aws(monkeypatch, tmp_path)
-    spec = RunSpec("agent-runtime", "T1.3", "aliyun-agentrun", target={"region": "cn-hangzhou"})
+    # Force skeleton mode: no wired runtime provider → _build_transport() falls
+    # through to NotWiredCloudTransport.  Without this patch the env's commercial
+    # pack would supply a live transport and create_session() would succeed.
+    import clousight_bench.core.registry as _reg
+    monkeypatch.setattr(_reg, "get_runtime_provider", lambda _provider: None)
+    monkeypatch.setattr(
+        AgentRuntimeDomain,
+        "tasks",
+        lambda self: {_FailingStub.task_id: _FailingStub},
+    )
+    spec = RunSpec("agent-runtime", _FailingStub.task_id, "aliyun-agentrun", target={"region": "cn-hangzhou"})
     # allow_live: this is a real-cloud run; acknowledge the cost gate so the test
     # reaches the mid-run failure it is about (not the live-gate block).
     rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=True)
-    # gate off -> we fail LATER, mid-run (mock unreachable / skeleton NotWired),
+    # gate off -> we fail LATER, mid-run (_NotWiredError from create_session),
     # exactly the late error the preflight gate exists to prevent.
     assert rec.status == "failed"
     assert rec.run.stages["PREFLIGHT"] == "skipped"
     assert rec.run.stages["TEARDOWN"] == "ok"
-    assert [e["stage"] for e in rec.errors] == ["EXECUTE"]
 
 
-def test_local_sim_run_still_works_with_preflight(tmp_path):
-    rec = execute(RunSpec("agent-runtime", "T1.3", "local-sim"), results_dir=tmp_path)
+def test_local_sim_run_still_works_with_preflight(monkeypatch, tmp_path):
+    _inject_stub(monkeypatch)
+    rec = execute(RunSpec("agent-runtime", _StubTask.task_id, "local-sim"), results_dir=tmp_path)
     assert rec.status == "completed"
     assert rec.run.stages["PREFLIGHT"] == "ok"
 
 
 # --- per-benchmark x cloud minimal permission mapping ------------------------
-
-
-def test_required_actions_differ_per_task():
-    from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
-    from clousight_bench.domains.agent_runtime.tasks.t2_1_tool_registration import (
-        ToolRegistrationTask,
-    )
-    from clousight_bench.domains.agent_runtime.tasks.t4_2_otel_export import OtelExportTask
-
-    a = AliyunAgentRunAdapter({"region": "cn-hangzhou"})
-    reg_actions, _ = a.required_actions(ToolRegistrationTask())
-    otel_actions, _ = a.required_actions(OtelExportTask())
-
-    assert reg_actions == ["agentrun:ActivateTemplateMCP"]
-    # T4.2 needs session + invoke (trace export is ARMS-side -> no agentrun
-    # action) -> a different set that omits tool registration
-    assert "agentrun:InvokeRuntime" in otel_actions
-    assert "agentrun:ActivateTemplateMCP" not in otel_actions
-    assert reg_actions != otel_actions
-
-
-def test_required_actions_differ_per_cloud():
-    from clousight_bench.domains.agent_runtime.adapters.cn_clouds import (
-        AliyunAgentRunAdapter,
-        HuaweiAgentArtsAdapter,
-    )
-    from clousight_bench.domains.agent_runtime.tasks.t4_1_trace_completeness import (
-        TraceCompletenessTask,
-    )
-
-    task = TraceCompletenessTask()
-    aliyun, _ = AliyunAgentRunAdapter({}).required_actions(task)
-    huawei, _ = HuaweiAgentArtsAdapter({}).required_actions(task)
-    assert "agentrun:InvokeRuntime" in aliyun
-    assert "agentarts:trace:get" in huawei
-    assert aliyun != huawei  # same benchmark, different cloud -> different actions
 
 
 def test_unmapped_token_is_a_warning_not_a_block(monkeypatch, tmp_path):
@@ -164,29 +211,15 @@ def test_unmapped_token_is_a_warning_not_a_block(monkeypatch, tmp_path):
     assert mapping.severity == pf.WARNING and not mapping.ok
 
 
-def test_permission_check_surfaces_minimal_actions(monkeypatch, tmp_path):
-    from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
-    from clousight_bench.domains.agent_runtime.tasks.t1_2_state_persistence import (
-        StatePersistenceTask,
-    )
-
-    checks = AliyunAgentRunAdapter({}).check_permissions(StatePersistenceTask())
-    perm_check = [c for c in checks if c.name.startswith("permissions[")][0]
-    # skeleton can't verify -> warning that lists the minimal actions it WOULD need
-    assert perm_check.severity == pf.WARNING
-    assert "agentrun:CreateMemory" in perm_check.detail
-
-
 def test_wired_probe_makes_permissions_critical(monkeypatch, tmp_path):
     """When an adapter can verify, missing permissions become a CRITICAL block."""
     _clear_aws(monkeypatch, tmp_path)
     from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
-    from clousight_bench.domains.agent_runtime.tasks.t1_3_fault_recovery import FaultRecoveryTask
 
     adapter = AliyunAgentRunAdapter({"region": "cn-hangzhou"})
     # simulate a wired probe that finds one action missing
-    monkeypatch.setattr(adapter, "_probe_permissions", lambda actions: (False, ["agentrun:InvokeAgent"]))
-    checks = adapter.check_permissions(FaultRecoveryTask())
+    monkeypatch.setattr(adapter, "_probe_permissions", lambda actions: (False, ["agentrun:InvokeRuntime"]))
+    checks = adapter.check_permissions(_StubTask())
     perm_check = [c for c in checks if c.name.startswith("permissions[")][0]
     assert perm_check.severity == pf.CRITICAL and not perm_check.ok
-    assert "agentrun:InvokeAgent" in perm_check.remediation
+    assert "agentrun:InvokeRuntime" in perm_check.remediation

@@ -27,7 +27,7 @@ def inventory() -> dict[str, Any]:
             {
               "domain": str,
               "description": str,
-              "tasks": [{"task_id", "title", "evidence_layer", "capability_tags"}],
+              "tasks": [{"task_id", "title", "capability_tags"}],
               "platforms": [{"platform", "status", "provider", "target_example"}],
             },
             ...
@@ -47,7 +47,6 @@ def inventory() -> dict[str, Any]:
                     {
                         "task_id": tid,
                         "title": tcls.title,
-                        "evidence_layer": tcls.evidence_layer,
                         "capability_tags": list(tcls.capability_tags),
                     }
                     for tid, tcls in sorted(pack.tasks().items())

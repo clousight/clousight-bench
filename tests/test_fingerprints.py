@@ -11,6 +11,7 @@ from clousight_bench.core.record import (
     Environment,
     Fingerprints,
     Identity,
+    Provenance,
     ResultRecord,
     RunInfo,
 )
@@ -204,3 +205,94 @@ def test_record_digest_does_not_mutate_the_payload():
 
 def test_redaction_constant_is_the_one_used_by_fingerprints():
     assert REDACTED == "<redacted>"
+
+
+# ---------------------------------------------------------------------------
+# Provenance folding into benchmark_fingerprint
+# ---------------------------------------------------------------------------
+
+
+def _empty_provenance_dict() -> dict:
+    return Provenance().to_dict()
+
+
+def _real_provenance_dict(**overrides) -> dict:
+    d = _empty_provenance_dict()
+    d.update(overrides)
+    return d
+
+
+def test_empty_provenance_leaves_digest_unchanged():
+    """Critical regression guard: empty/all-default provenance must produce the
+    same digest as calling benchmark_fingerprint with no provenance arg."""
+    # Call the underlying function directly to test the provenance= kwarg
+    from clousight_bench.core.fingerprints import benchmark_fingerprint as bf
+
+    base_kwargs = dict(
+        task_id="T1.3",
+        task_revision="2",
+        scorer_revision="2",
+        workload="wordcount-py",
+        workload_version="0.1.0",
+        assets=[{"name": "corpus", "version": "1", "source": "bundled", "sha256": "ab"}],
+        params={"rows": 100, "seed": 42},
+    )
+    digest_no_prov = bf(**base_kwargs)
+    digest_empty_prov = bf(**base_kwargs, provenance=_empty_provenance_dict())
+    assert digest_no_prov == digest_empty_prov, (
+        "Empty provenance must NOT change the benchmark digest (backward-compat guard)"
+    )
+
+
+def test_real_provenance_changes_digest():
+    """A non-default provenance must change the benchmark digest."""
+    from clousight_bench.core.fingerprints import benchmark_fingerprint as bf
+
+    base_kwargs = dict(
+        task_id="T1.3",
+        task_revision="2",
+        scorer_revision="2",
+        workload="wordcount-py",
+        workload_version="0.1.0",
+        assets=[{"name": "corpus", "version": "1", "source": "bundled", "sha256": "ab"}],
+        params={"rows": 100, "seed": 42},
+    )
+    digest_no_prov = bf(**base_kwargs)
+    digest_with_prov = bf(**base_kwargs, provenance=_real_provenance_dict(suite_id="swe-bench"))
+    assert digest_no_prov != digest_with_prov
+
+
+def test_real_provenance_is_deterministic():
+    """Same provenance input must produce the same digest twice."""
+    from clousight_bench.core.fingerprints import benchmark_fingerprint as bf
+
+    base_kwargs = dict(
+        task_id="T1.3",
+        task_revision="2",
+        scorer_revision="2",
+        workload="wordcount-py",
+        workload_version="0.1.0",
+        assets=[{"name": "corpus", "version": "1", "source": "bundled", "sha256": "ab"}],
+        params={"rows": 100, "seed": 42},
+    )
+    prov = _real_provenance_dict(suite_id="swe-bench", suite_version="1.0")
+    assert bf(**base_kwargs, provenance=prov) == bf(**base_kwargs, provenance=prov)
+
+
+def test_unmodified_flag_changes_digest():
+    """Flipping unmodified from True to False must change the digest."""
+    from clousight_bench.core.fingerprints import benchmark_fingerprint as bf
+
+    base_kwargs = dict(
+        task_id="T1.3",
+        task_revision="2",
+        scorer_revision="2",
+        workload="wordcount-py",
+        workload_version="0.1.0",
+        assets=[{"name": "corpus", "version": "1", "source": "bundled", "sha256": "ab"}],
+        params={"rows": 100, "seed": 42},
+    )
+    # Need a non-empty provenance (suite_id set) so provenance is included
+    prov_unmodified = _real_provenance_dict(suite_id="swe-bench", unmodified=True)
+    prov_modified = _real_provenance_dict(suite_id="swe-bench", unmodified=False)
+    assert bf(**base_kwargs, provenance=prov_unmodified) != bf(**base_kwargs, provenance=prov_modified)

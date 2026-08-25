@@ -8,7 +8,7 @@ from clousight_bench.core.fingerprints import record_digest
 
 def _write_record(path: Path, measurements: dict, tamper: bool = False) -> None:
     payload = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "run": {
             "run_id": "run-test",
             "started_at": "2026-01-01T00:00:00Z",
@@ -34,7 +34,10 @@ def _write_record(path: Path, measurements: dict, tamper: bool = False) -> None:
             "execution": "simulated",
         },
         "fingerprints": {"benchmark": "sha256:b", "environment": "sha256:e", "implementation": "sha256:i"},
-        "measurements": {k: {"value": v, "unit": "ms", "evidence": "B"} for k, v in measurements.items()},
+        "measurements": {
+            k: {"value": v, "unit": "ms", "reproducibility_class": "environmental"}
+            for k, v in measurements.items()
+        },
         "findings": [],
         "observations": {},
         "series": {},

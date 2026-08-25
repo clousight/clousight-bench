@@ -38,7 +38,7 @@ def _rec(**overrides) -> ResultRecord:
         environment=Environment(region="", mode="local", python_version="3.12.0", os_name="Linux"),
         fingerprints=Fingerprints(benchmark="sha256:a", environment="sha256:b", implementation="sha256:c"),
         status="completed",
-        measurements={"p99_ms": {"value": 9, "unit": "ms", "evidence": "C"}},
+        measurements={"p99_ms": {"value": 9, "unit": "ms", "reproducibility_class": "environmental"}},
     )
     base.update(overrides)
     return ResultRecord(**base)
@@ -232,7 +232,9 @@ def test_a_non_canonical_payload_degrades_to_a_minimal_record(tmp_path, capsys):
 
 
 def test_drop_scored_level_is_failed_and_keeps_the_core_marker(tmp_path, capsys):
-    record = _rec(measurements={"bad": {"value": object(), "unit": "", "evidence": "C"}})
+    record = _rec(
+        measurements={"bad": {"value": object(), "unit": "", "reproducibility_class": "deterministic"}}
+    )
     path = ResultStore(tmp_path).persist(record)
     data = _written(path)
 
@@ -260,12 +262,12 @@ def test_fourth_level_minimum_is_always_canonical(tmp_path):
             adapter_status="reference",
             core_version="0.2.0",
         ),
-        measurements={"bad": {"value": Hostile(), "unit": "", "evidence": "C"}},
+        measurements={"bad": {"value": Hostile(), "unit": "", "reproducibility_class": "deterministic"}},
         errors=[{"message": Hostile()}],
     )
     payload = ResultStore(tmp_path)._degraded_payload(record)
 
-    assert payload["schema_version"] == "0.2"
+    assert payload["schema_version"] == "0.3"
     assert payload["status"] == "failed"
     assert payload["run"]["stages"]["PERSIST"] == "failed"
     assert record_digest(payload) == payload["fingerprints"]["record_digest"]

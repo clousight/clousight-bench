@@ -448,7 +448,7 @@ def run_soak(
 #   instance recycled (recycled/cold)      — full rebuild, ~86s on the next call
 # The idle→destroy threshold is configurable via CreateAgentRuntime's
 # ``sessionIdleTimeoutSeconds`` but its DEFAULT is deliberately undocumented, so an
-# empirical sweep (evidence B) is the only way to learn "how long until it goes
+# empirical sweep is the only way to learn "how long until it goes
 # cold again". These constants classify a wake latency into a tier relative to the
 # measured warm baseline; all are overridable per-probe via params.
 RETENTION_WARMUP = 5

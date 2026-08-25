@@ -38,7 +38,8 @@ csbench logs    camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml
 
 # 3. When status shows done=DONE, pull results (JSON + parquet sidecars):
 csbench fetch   camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml --dest results/prod-smoke
-csbench report  --results results/prod-smoke
+# Inspect results (csbench report was retired; use query or open the JSON directly):
+csbench query   --results results/prod-smoke --format table
 
 # 4. Confirm self-destruct: the controller reaps runtime+NAT+self on DONE.
 #    Verify 0 residual (should print 0):

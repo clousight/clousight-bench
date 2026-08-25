@@ -1,4 +1,4 @@
-"""ResultRecord 0.2: one benchmark result, fully attributable.
+"""ResultRecord 0.3: one benchmark result, fully attributable.
 
 Everything a reader needs to trust a number is a top-level field: which
 benchmark ran (``identity`` + ``fingerprints.benchmark``), where it ran
@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-SCHEMA_VERSION = "0.2"
+SCHEMA_VERSION = "0.3"
 
 STATUSES: tuple[str, ...] = ("completed", "failed", "invalid", "unsupported", "interrupted")
 STAGES: tuple[str, ...] = (
@@ -38,7 +38,7 @@ EXECUTIONS: tuple[str, ...] = ("simulated", "live", "unknown")
 
 
 class RecordError(ValueError):
-    """A record or one of its parts violates the 0.2 contract."""
+    """A record or one of its parts violates the 0.3 contract."""
 
 
 @dataclass
@@ -211,8 +211,53 @@ class Fingerprints:
 
 
 @dataclass
+class Provenance:
+    """Credibility chain: which recognized suite produced the number, whether the
+    run was unmodified, and which evaluator scored it.  Empty for non-suite runs;
+    feeds the opaque benchmark fingerprint.
+    """
+
+    suite_id: str = ""
+    suite_version: str = ""
+    dataset_digest: str = ""
+    unmodified: bool = True
+    evaluator_id: str = ""
+    evaluator_official: bool = True
+    scaffold: str = ""
+    division: str = ""
+
+    def is_empty(self) -> bool:
+        return self == Provenance()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "suite_id": self.suite_id,
+            "suite_version": self.suite_version,
+            "dataset_digest": self.dataset_digest,
+            "unmodified": self.unmodified,
+            "evaluator_id": self.evaluator_id,
+            "evaluator_official": self.evaluator_official,
+            "scaffold": self.scaffold,
+            "division": self.division,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Provenance:
+        return cls(
+            suite_id=str(data.get("suite_id", "")),
+            suite_version=str(data.get("suite_version", "")),
+            dataset_digest=str(data.get("dataset_digest", "")),
+            unmodified=bool(data.get("unmodified", True)),
+            evaluator_id=str(data.get("evaluator_id", "")),
+            evaluator_official=bool(data.get("evaluator_official", True)),
+            scaffold=str(data.get("scaffold", "")),
+            division=str(data.get("division", "")),
+        )
+
+
+@dataclass
 class ResultRecord:
-    """One benchmark result in schema 0.2.
+    """One benchmark result in schema 0.3.
 
     ``observations`` holds the raw evidence a re-score would replay. When that
     evidence is too large to inline, a Task stores an artifact pointer instead
@@ -233,6 +278,7 @@ class ResultRecord:
     artifacts: list[dict[str, Any]] = field(default_factory=list)
     extensions: dict[str, Any] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
+    provenance: Provenance = field(default_factory=Provenance)
     schema_version: str = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -248,6 +294,7 @@ class ResultRecord:
             "identity": self.identity.to_dict(),
             "environment": self.environment.to_dict(),
             "fingerprints": self.fingerprints.to_dict(),
+            "provenance": self.provenance.to_dict(),
             "measurements": dict(self.measurements),
             "findings": list(self.findings),
             "observations": dict(self.observations),
@@ -268,9 +315,8 @@ class ResultRecord:
         version = str(data.get("schema_version", ""))
         if version != SCHEMA_VERSION:
             raise RecordError(
-                f"unsupported schema_version {version!r}; run "
-                f"`csbench migrate-results <dir> --output <dir>` to convert it to "
-                f"{SCHEMA_VERSION!r}"
+                f"unsupported schema_version {version!r}; expected {SCHEMA_VERSION!r}"
+                " (no migration path — re-run the benchmark to produce a current record)"
             )
         return cls(
             run=RunInfo.from_dict(data["run"]),
@@ -285,4 +331,5 @@ class ResultRecord:
             artifacts=list(data.get("artifacts", [])),
             extensions=dict(data.get("extensions", {})),
             errors=list(data.get("errors", [])),
+            provenance=Provenance.from_dict(data.get("provenance", {})),
         )

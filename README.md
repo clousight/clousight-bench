@@ -11,13 +11,14 @@
 
 > Clousight Bench is the measuring stick of Clousight: open methods anyone can reproduce; evidence-graded results, never a blended vanity score.
 
-> **0.2.0 Developer Preview.** The local reference baselines are runnable, and
+> **0.2.0 Developer Preview.** The local reference baseline is runnable, and
 > every cloud adapter runs end-to-end in `mode: mock` with no account. The Aliyun
 > AgentRun adapter is `experimental` — its in-tree runtime provider (with its ECI
-> probe carrier, reaper and Terraform) has run a full 27-task **live** campaign
-> (`cn-hangzhou`, 2026-08-15: 25 completed + 2 honestly unsupported). It is not
-> yet promoted to `wired` (reserved for a repeatedly-validated path); the other
-> clouds are skeletons.
+> probe carrier, reaper and Terraform) ran a real-cloud campaign
+> (`cn-hangzhou`, 2026-08-15: 25 completed + 2 honestly unsupported); it carries
+> forward for the SWE-bench pilot. The self-designed agent-runtime task suite and
+> bigdata-emr domain were retired in the suite-first pivot (see Status); the cloud
+> infra is kept. The other clouds are skeletons.
 
 **Repository status.** This repository is public and Apache-2.0 licensed.
 `main` is protected: every change lands through a pull request that passes
@@ -32,11 +33,10 @@ Run `csbench list --verbose` to inspect task metadata and adapter readiness.
 | Adapter | Status | Runnable |
 |---|---|---|
 | `local-sim` | reference | yes |
-| `local-process` | reference | yes |
 | `aliyun-agentrun` | experimental | preview (live-validated) |
 | `huawei-agentarts` | skeleton | no |
 | `volcengine-agentkit` | skeleton | no |
-| `aws-emr` | skeleton | no |
+| `aws-agentcore` | skeleton | no |
 
 Adapter status is part of the public contract:
 `reference` and `wired` can run; `experimental` can run with preview caveats;
@@ -46,7 +46,7 @@ exercises the whole harness against the in-process simulated runtime with no
 account; and in real mode it becomes runnable once a **runtime provider** is
 registered for that cloud through the `clousight_bench.runtime_providers` entry
 point. The open core already ships and registers that provider in-tree for
-`aliyun-agentrun` (`experimental` — validated by a full 27-task live campaign) and
+`aliyun-agentrun` (`experimental` — live-cloud validated) and
 `aws-agentcore`; additional clouds wire the same way — an open-core or third-party
 pack registering a provider, not patching the adapter, is what wires them.
 
@@ -77,15 +77,8 @@ crashed" are different results. We publish **per-dimension results, never a
 single blended score** — blended agent-benchmark rankings have near-zero
 cross-benchmark agreement.
 
-Results written by an older version use schema `1.0`. Convert them with:
-
-```bash
-csbench migrate-results old-results/ --output new-results/
-```
-
-The migrator never writes in place, never fabricates a fingerprint (unknown
-ones are the literal string `unknown`), and produces byte-identical output when
-run twice.
+Schema `1.0` records from older versions are no longer supported. Re-run the
+benchmark to produce a current `0.3` record.
 
 One run is not a measurement. Repeat a benchmark and get a distribution:
 
@@ -97,7 +90,7 @@ csbench run --domain agent-runtime --task T1.3 --platform local-sim \
 The warmup run is discarded; the five measured runs are reduced to `mean`,
 `stdev`, `p95` and `cv` (numeric) or a value distribution (labels), and only
 runs that share a `benchmark` and `environment` fingerprint are ever pooled.
-`csbench report` flags any cell whose numbers are not actually comparable.
+Results are canonical JSON records — `csbench query` and `csbench rollup` make them comparable across runs.
 
 ## Why another benchmark framework
 
@@ -111,8 +104,8 @@ The core only orchestrates that lifecycle. Everything product-specific is a plug
 
 | Plugin | One per | Examples |
 |---|---|---|
-| **DomainPack** | product category | `agent-runtime`; `bigdata-emr` (available: `local-process` reference, `aws-emr` skeleton); database / compute / messaging (planned) |
-| **ProviderAdapter** | (domain, cloud) | `local-sim`, `local-process`, `aliyun-agentrun`, `huawei-agentarts`, `volcengine-agentkit`, `aws-emr` |
+| **DomainPack** | product category | `agent-runtime`; database / compute / messaging (planned) |
+| **ProviderAdapter** | (domain, cloud) | `local-sim`, `aliyun-agentrun`, `huawei-agentarts`, `volcengine-agentkit`, `aws-agentcore` |
 | **WorkloadEngine** | load generator | any language, process boundary: `manifest.yaml` + executable + JSONL on stdout. Wrap YCSB / TPC-DS / OpenMessaging Benchmark / fio instead of reimplementing them. |
 
 Domains register via the `clousight_bench.domains` entry point — third-party packs install like any Python package and appear in `csbench list`.
@@ -131,12 +124,6 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/csbench run --domain agent-runtime --task T1.3 --platform local-sim
 .venv/bin/csbench run --domain agent-runtime --task T1.3 --platform local-sim \
     --config configs/local-sim.fail-fast.yaml
-
-# J1.1 wordcount through the packaged local-process workload:
-.venv/bin/csbench run --domain bigdata-emr --task J1.1 --platform local-process
-
-# aggregate everything under results/ into a comparison report
-.venv/bin/csbench report
 ```
 
 可选时序存储（Parquet + DuckDB）：`pip install clousight-bench[store]`
@@ -153,6 +140,8 @@ csbench export measurements --out m.parquet
 测评集分发（内置 / 公开远程下载校验 / 私有授权）见 `examples/asset-manifests/`（`assets:` 三层模板 + 公开数据集样例）。
 
 Expected: the default (auto-retry) run ends `recovery_mode=auto-retry, final_state=completed`; the fail-fast run ends `recovery_mode=fail-fast, final_state=aborted`. The mock tool universe is pinned and fault injection is counter-based (the Nth call fails, no randomness), so the run is replayable by construction.
+
+> **Suite-first pivot (2026-08):** The self-designed agent-runtime T-code task suite (27 tasks) and the bigdata-emr domain were retired in favour of the forthcoming `benchmark_suite`/`evaluator` contract (Sub-project B), which drives jobs from externally-defined suites (e.g. SWE-bench). The live-validated Aliyun/AWS cloud infra (runtime providers, ECI probe, reaper, carriers, Terraform) is kept and carries over for the SWE-bench pilot. Results remain canonical JSON records; visualization will be handled by the Sub-project C web viewer.
 
 ## Benchmarking a real platform
 
@@ -188,13 +177,12 @@ for your own account, network and region. That is the point.
 
 ## Status
 
-- [x] Core: lifecycle orchestrator, unified `RunSpec`/`ResultRecord` schema, entry-point plugin registry, cross-language workload protocol, Markdown + self-contained HTML/ECharts comparison report, DuckDB-backed `csbench query`, cost budget + live-run gate + resource reaper (`csbench sweep`)
+- [x] Core: lifecycle orchestrator, unified `RunSpec`/`ResultRecord` schema, entry-point plugin registry, cross-language workload protocol, DuckDB-backed `csbench query`, cost budget + live-run gate + resource reaper (`csbench sweep`)
 - [x] Onboarding: `csbench init` (scaffold private config + `.env.example`, auto-gitignored) and `csbench doctor` (preflight credentials + connectivity); credentials reuse the cloud's default chain (env / profile / role), never stored in configs
-- [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, **27 tasks** end-to-end on `local-sim`, spanning provisioning (T0.1/T0.2), runtime behaviour (T1.1 cold/warm start · T1.2 state persistence · T1.3 fault recovery · T1.4 sustained load & tail · T1.5 warm retention · T1.6 soak · T1.7 rate limiting · T1.8 timeout/cancellation · T1.9 TTFT · T1.10 retry storm · T1.11 concurrent state writes · T1.12 head-of-line blocking · T1.13 startup-convergence curve · T1.14 idle-timeout config honor), tools (T2.1 registration paths), observability (T4.1 trace completeness · T4.2 OTel export · T4.3 metrics/log signals · T4.4 span propagation · T4.5 export latency), cost (T5.1 attribution · T5.2 elasticity · T5.3 idle/scale-to-zero · T5.4 concurrency ceiling) and isolation (T6.1). Latency-class "data-plane" tasks run through the `run_data_plane_probe` adapter seam, so a wired cloud can sink the load generation into an in-region probe instead of the operator's machine.
-- [x] `agent-runtime` **first real-cloud run**: `aliyun-agentrun` (`experimental`) ran a full 27-task **live** campaign (`cn-hangzhou`, 2026-08-15 — 25 completed + 2 honestly unsupported) via its in-tree runtime provider + ECI probe carrier + reaper + Terraform. Not yet promoted to `wired` (reserved for a repeatedly-validated path).
+- [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, latency-class data-plane probe seam (`run_data_plane_probe`), reliability group (fault injection via mock `/fault/config` + `/latency/config`, three-state platform attribution), in-tree `aliyun-agentrun` and `aws-agentcore` runtime providers + ECI probe carrier + reaper + Terraform
+- [x] `agent-runtime` **first real-cloud run**: `aliyun-agentrun` (`experimental`) ran a real-cloud campaign (`cn-hangzhou`, 2026-08-15 — 25 completed + 2 honestly unsupported). Not yet promoted to `wired` (reserved for a repeatedly-validated path).
 - [ ] `agent-runtime`: wire the remaining clouds — `huawei-agentarts` / `volcengine-agentkit` / `aws-agentcore` remain skeletons, wired the same way via the `clousight_bench.runtime_providers` entry point.
-- [x] `bigdata-emr`: J1.1 wordcount smoke via the cross-language workload protocol and `local-process` reference adapter
-- [ ] `bigdata-emr`: wire the `aws-emr` Terraform-backed adapter (skeleton in-tree)
+- [x] **Suite-first pivot (2026-08):** The self-designed 27-task agent-runtime suite and `bigdata-emr` domain were retired. Benchmark tasks will be driven by the `benchmark_suite`/`evaluator` contract (Sub-project B, forthcoming). The cross-language workload protocol is kept. Cloud infra carries over for the SWE-bench pilot.
 - [ ] database / compute / messaging domain packs
 
 ## Contributing

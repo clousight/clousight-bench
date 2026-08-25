@@ -170,10 +170,6 @@ class IsolationResult:
     tenant_isolated: bool  # workloads of different tenants are isolated
     network_egress_controlled: bool  # outbound network is restricted by default
     filesystem_isolated: bool  # the workload filesystem is private/ephemeral
-    # Dimensions whose value comes from platform documentation, not live measurement.
-    # Adapters that hardcode a dimension list its name here so the scorer can apply
-    # evidence="A" instead of evidence="B" and exclude it from measured_score.
-    platform_asserted_dimensions: list = field(default_factory=list)
 
 
 @dataclass

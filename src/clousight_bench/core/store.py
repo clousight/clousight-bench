@@ -43,7 +43,7 @@ from clousight_bench.core.persistence import (
     atomic_write_text,
     emergency_write_text,
 )
-from clousight_bench.core.record import ResultRecord, StageError
+from clousight_bench.core.record import SCHEMA_VERSION, ResultRecord, StageError
 from clousight_bench.core.redaction import (
     SensitiveDataError,
     find_identity_leaks,
@@ -235,19 +235,19 @@ class ResultStore:
         return payload
 
     def _assert_schema(self, record: ResultRecord, payload: dict[str, Any]) -> None:
-        """Refuse to persist a record that fails the published 0.2 schema.
+        """Refuse to persist a record that fails the published 0.3 schema.
 
         Hard fail -- but never lose the produced record: dump it raw first so no
         measurement vanishes because the shape was wrong."""
         try:
-            validate_against_schema(payload, "result-record-0.2")
+            validate_against_schema(payload, "result-record-0.3")
         except SchemaValidationError:
             name = f"INVALID-{record.identity.domain}-{record.identity.task_id}-{record.run.run_id}.json"
             try:
                 dump_path = _emergency_write_unique(name, _dump(payload))
                 print(
                     f"clousight-bench: run {record.run.run_id} produced a record that "
-                    f"fails the 0.2 schema; raw record dumped to {dump_path}",
+                    f"fails the 0.3 schema; raw record dumped to {dump_path}",
                     file=sys.stderr,
                 )
             except Exception:  # noqa: BLE001 - the dump is best-effort
@@ -477,7 +477,7 @@ def _emergency_write_unique(name: str, text: str) -> Path:
 
 
 def _minimal_payload(record: ResultRecord) -> dict[str, Any]:
-    """Build a hand-owned canonical 0.2 record when every plugin field is bad."""
+    """Build a hand-owned canonical 0.3 record when every plugin field is bad."""
 
     def text(value: Any) -> str:
         try:
@@ -487,7 +487,7 @@ def _minimal_payload(record: ResultRecord) -> dict[str, Any]:
         return scrub_identity_text(rendered)
 
     payload: dict[str, Any] = {
-        "schema_version": "0.2",
+        "schema_version": SCHEMA_VERSION,
         "run": {
             "run_id": text(record.run.run_id),
             "started_at": text(record.run.started_at),
@@ -518,6 +518,16 @@ def _minimal_payload(record: ResultRecord) -> dict[str, Any]:
             "environment": "unknown",
             "implementation": "unknown",
             "record_digest": "",
+        },
+        "provenance": {
+            "suite_id": "",
+            "suite_version": "",
+            "dataset_digest": "",
+            "unmodified": True,
+            "evaluator_id": "",
+            "evaluator_official": True,
+            "scaffold": "",
+            "division": "",
         },
         "status": "failed",
         "measurements": {},

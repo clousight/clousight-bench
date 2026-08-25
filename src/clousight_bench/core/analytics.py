@@ -48,11 +48,12 @@ _COLUMNS: dict[str, list[str]] = {
         "value_num",
         "value_str",
         "unit",
-        "evidence",
+        "reproducibility_class",
+        "official",
         "aggregation",
         "sample_count",
     ],
-    "findings": ["run_id", "domain", "task_id", "platform", "code", "severity", "summary", "evidence"],
+    "findings": ["run_id", "domain", "task_id", "platform", "code", "severity", "summary"],
     "series": [
         "run_id",
         "domain",
@@ -179,7 +180,8 @@ class Analytics:
                     "value_num": num,
                     "value_str": s,
                     "unit": m.get("unit", ""),
-                    "evidence": m.get("evidence", ""),
+                    "reproducibility_class": m.get("reproducibility_class", ""),
+                    "official": m.get("official", True),
                     "aggregation": m.get("aggregation", ""),
                     "sample_count": m.get("sample_count"),
                 }
@@ -199,7 +201,6 @@ class Analytics:
                     "code": f.get("code"),
                     "severity": f.get("severity"),
                     "summary": f.get("summary"),
-                    "evidence": f.get("evidence"),
                 }
 
     def _series_rows(self) -> list[dict[str, Any]]:

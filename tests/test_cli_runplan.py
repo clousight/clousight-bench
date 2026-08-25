@@ -27,7 +27,7 @@ def test_a_plain_run_still_prints_one_record(tmp_path, capsys):
     )
     out = json.loads(capsys.readouterr().out)
     assert rc == 0
-    assert out["schema_version"] == "0.2"
+    assert out["schema_version"] == "0.3"
     assert "run_plan" not in out.get("extensions", {}).get("core", {})
 
 
@@ -54,7 +54,8 @@ def test_repeat_prints_an_aggregate_and_persists_it(tmp_path, capsys):
     assert out["kind"] == "run_plan_aggregate"
     assert len(out["runs"]["measured"]) == 3
     assert len(out["runs"]["warmup"]) == 1
-    assert out["measurements"]["observed_attempts"]["n"] == 3
+    # Suite-first pivot: stub task emits "ok" measurement, not "observed_attempts".
+    assert out["measurements"]["ok"]["n"] == 3
     assert list((tmp_path / AGGREGATES_DIRNAME).rglob("*.json"))
 
 

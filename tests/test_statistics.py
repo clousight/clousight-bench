@@ -1,5 +1,5 @@
 """Statistical aggregation is pure, honest about small samples, and never
-silently mixes a number with a label or one evidence layer with another."""
+silently mixes a number with a label or one reproducibility class with another."""
 
 import pytest
 
@@ -62,15 +62,15 @@ def test_empty_samples_are_rejected_not_guessed():
         summarize_categorical([])
 
 
-def _m(value, unit="ms", evidence="C"):
-    return {"value": value, "unit": unit, "evidence": evidence}
+def _m(value, unit="ms", reproducibility_class="environmental"):
+    return {"value": value, "unit": unit, "reproducibility_class": reproducibility_class}
 
 
 def test_aggregate_pools_a_measurement_across_records():
     out = aggregate_measurements([{"lat": _m(10.0)}, {"lat": _m(20.0)}, {"lat": _m(30.0)}])
     assert out["lat"]["kind"] == "numeric"
     assert out["lat"]["mean"] == 20.0
-    assert out["lat"]["unit"] == "ms" and out["lat"]["evidence"] == "C"
+    assert out["lat"]["unit"] == "ms" and out["lat"]["reproducibility_class"] == "environmental"
 
 
 def test_one_label_anywhere_makes_the_whole_measurement_categorical():
@@ -79,13 +79,16 @@ def test_one_label_anywhere_makes_the_whole_measurement_categorical():
     assert out["x"]["n"] == 2
 
 
-def test_mixed_units_and_evidence_are_blanked_with_a_note():
+def test_mixed_units_and_classes_are_blanked_with_a_note():
     out = aggregate_measurements(
-        [{"x": _m(1.0, unit="ms", evidence="C")}, {"x": _m(2.0, unit="s", evidence="B")}]
+        [
+            {"x": _m(1.0, unit="ms", reproducibility_class="environmental")},
+            {"x": _m(2.0, unit="s", reproducibility_class="deterministic")},
+        ]
     )
-    assert out["x"]["unit"] == "" and out["x"]["evidence"] == ""
+    assert out["x"]["unit"] == "" and out["x"]["reproducibility_class"] == ""
     assert "mixed units across repeats" in out["x"]["notes"]
-    assert "mixed evidence layers across repeats" in out["x"]["notes"]
+    assert "mixed reproducibility classes across repeats" in out["x"]["notes"]
 
 
 def test_a_measurement_absent_from_some_records_pools_only_where_present():

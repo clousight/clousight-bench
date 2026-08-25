@@ -39,7 +39,8 @@ def _record(
         environment=Environment("", "local", "3.12.0", "Linux"),
         fingerprints=Fingerprints(benchmark, environment, implementation, "sha256:d"),
         status=status,
-        measurements=measurements or {"lat": {"value": 1.0, "unit": "ms", "evidence": "C"}},
+        measurements=measurements
+        or {"lat": {"value": 1.0, "unit": "ms", "reproducibility_class": "environmental"}},
     )
 
 
@@ -60,7 +61,8 @@ def test_execute_plan_persists_every_run_and_excludes_warmups(tmp_path):
     assert len(aggregate.runs["warmup"]) == 2
     assert len(aggregate.runs["measured"]) == 3
     # Statistics pool only the 3 measured runs.
-    assert aggregate.measurements["observed_attempts"]["n"] == 3
+    # (Suite-first pivot: stub task emits "ok" measurement, not "observed_attempts".)
+    assert aggregate.measurements["ok"]["n"] == 3
     assert aggregate.status_counts == {"completed": 3}
     assert aggregate.comparable is True
 
@@ -95,10 +97,14 @@ def test_the_aggregate_is_persisted_with_its_own_digest(tmp_path):
 
 def test_build_aggregate_only_pools_completed_and_unsupported_runs():
     plan = RunPlan(_SPEC, repeat=3)
+
+    def _lat(value):
+        return {"lat": {"value": value, "unit": "ms", "reproducibility_class": "environmental"}}
+
     measured = [
-        _record("r1", measurements={"lat": {"value": 10.0, "unit": "ms", "evidence": "C"}}),
+        _record("r1", measurements=_lat(10.0)),
         _record("r2", status="failed"),
-        _record("r3", measurements={"lat": {"value": 20.0, "unit": "ms", "evidence": "C"}}),
+        _record("r3", measurements=_lat(20.0)),
     ]
     aggregate = build_aggregate("plan-x", plan, [], measured)
     assert aggregate.status_counts == {"completed": 2, "failed": 1}

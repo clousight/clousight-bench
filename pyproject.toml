@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "clousight-bench"
-version = "0.2.0"
-description = "Clousight Bench: reproducible, evidence-graded benchmarking for cloud products."
+version = "0.3.0"
+description = "Clousight Bench: reproducible, reproducibility-classed benchmarking for cloud products."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -78,7 +78,6 @@ aws = [
 ]
 store = ["duckdb>=1.0", "pyarrow>=16"]
 validate = ["jsonschema>=4.20"]
-report = ["jinja2>=3.1"]
 
 [project.scripts]
 csbench = "clousight_bench.cli:main"
@@ -87,7 +86,6 @@ cb-controller = "clousight_bench.core.controller_main:main"
 
 [project.entry-points."clousight_bench.domains"]
 agent-runtime = "clousight_bench.domains.agent_runtime:AgentRuntimeDomain"
-bigdata-emr = "clousight_bench.domains.bigdata_emr:BigDataEmrDomain"
 
 [project.entry-points."clousight_bench.enrichers"]
 pricing = "clousight_bench.enrichers.pricing:PricingEnricher"
@@ -107,8 +105,7 @@ aws = "clousight_bench.domains.agent_runtime.aws.reaper:AwsResourceReaper"
 packages = ["src/clousight_bench"]
 artifacts = ["src/clousight_bench/resources/schemas/*.json",
              "src/clousight_bench/resources/brand/*.png",
-             "src/clousight_bench/resources/brand/providers/*.svg",
-             "src/clousight_bench/core/reporting/assets/*.js"]
+             "src/clousight_bench/resources/brand/providers/*.svg"]
 
 [tool.ruff]
 line-length = 110
@@ -121,9 +118,6 @@ select = ["E", "F", "I", "W", "UP"]
 # Tests legitimately use local (mid-file) imports for isolation and lambda
 # fakes/factories; those are noise there, not a code-quality signal.
 "tests/*" = ["E402", "E731"]
-# The echarts renderer embeds a JS app + CSS as string literals; those lines
-# can't be wrapped without breaking the asset, so line-length is noise here.
-"src/clousight_bench/core/reporting/renderers/echarts.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

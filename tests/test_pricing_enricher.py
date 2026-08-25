@@ -38,7 +38,7 @@ def _record(adapter="local-sim", region="", measurements=None, extensions=None):
 
 
 def _usage(**units):
-    return {u: {"value": v, "unit": u, "evidence": "B"} for u, v in units.items()}
+    return {u: {"value": v, "unit": u, "reproducibility_class": "environmental"} for u, v in units.items()}
 
 
 def test_cost_computed_from_vcpu_hours():
@@ -59,7 +59,8 @@ def test_uncovered_usage_listed_but_does_not_crash():
 
 
 def test_no_usage_leaves_record_untouched():
-    rec = _record("local-sim", "", {"recovery_mode": {"value": "auto-retry", "evidence": "C"}})
+    usage = {"recovery_mode": {"value": "auto-retry", "reproducibility_class": "deterministic"}}
+    rec = _record("local-sim", "", usage)
     out = PricingEnricher().enrich(rec)
     assert "pricing" not in out.extensions
 

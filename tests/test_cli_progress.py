@@ -1,5 +1,5 @@
 """`csbench run-plan` writes a campaign manifest; `csbench progress` reads it.
-The manifest never leaks into the record loaders (report/query)."""
+The manifest never leaks into the record loaders (query)."""
 
 import json
 
@@ -60,16 +60,3 @@ def test_progress_with_no_campaign_is_a_clear_error(tmp_path, capsys):
     assert "no campaigns" in capsys.readouterr().err
 
 
-def test_manifest_does_not_pollute_the_report_loader(tmp_path, capsys):
-    plan = _plan(tmp_path)
-    results = tmp_path / "results"
-    main(["run-plan", str(plan), "--results", str(results)])
-    capsys.readouterr()
-
-    from clousight_bench.core.report import _load_results
-
-    records = _load_results(results)
-    # Two tasks -> two terminal records; the manifest must not appear as one,
-    # nor be reported as a skipped/broken record on stderr.
-    assert len(records) == 2
-    assert CAMPAIGNS_DIRNAME not in capsys.readouterr().err

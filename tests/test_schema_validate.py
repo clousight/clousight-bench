@@ -27,9 +27,9 @@ def test_runspec_missing_field_rejected():
 
 
 def test_result_record_bad_status_rejected():
-    bad = {"schema_version": "0.2", "status": "bogus"}
+    bad = {"schema_version": "0.3", "status": "bogus"}
     with pytest.raises(SchemaValidationError):
-        validate_against_schema(bad, "result-record-0.2")
+        validate_against_schema(bad, "result-record-0.3")
 
 
 def test_manifest_good_passes():
@@ -43,12 +43,12 @@ def test_result_schema_status_enum_matches_writer():
     # The published schema must never drift from the record writer's STATUSES.
     from clousight_bench.core.record import STATUSES
 
-    schema = load_schema("result-record-0.2")
+    schema = load_schema("result-record-0.3")
     assert set(schema["properties"]["status"]["enum"]) == set(STATUSES)
 
 
 def test_result_schema_version_matches_writer():
     from clousight_bench.core.record import SCHEMA_VERSION
 
-    schema = load_schema("result-record-0.2")
+    schema = load_schema("result-record-0.3")
     assert schema["properties"]["schema_version"]["const"] == SCHEMA_VERSION

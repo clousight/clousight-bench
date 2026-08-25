@@ -4,6 +4,7 @@ import pytest
 
 from clousight_bench.core.canonical import CanonicalJSONError
 from clousight_bench.core.observation import (
+    REPRODUCIBILITY_CLASSES,
     Finding,
     Measurement,
     ObservationBundle,
@@ -14,16 +15,34 @@ from clousight_bench.core.observation import (
 )
 
 
-def test_measurement_requires_value_unit_and_evidence():
-    m = Measurement(value=12.5, unit="ms", evidence="C")
-    assert m.to_dict() == {"value": 12.5, "unit": "ms", "evidence": "C"}
+def test_reproducibility_vocabulary_is_the_three_known_classes():
+    assert REPRODUCIBILITY_CLASSES == ("deterministic", "environmental", "judge-based")
+
+
+def test_measurement_requires_value_and_unit_and_defaults_official_true():
+    m = Measurement(value=12.5, unit="ms")
+    assert m.official is True
+    assert m.reproducibility_class == ""
+    # unclassified: reproducibility_class is omitted, official is always emitted
+    assert m.to_dict() == {"value": 12.5, "unit": "ms", "official": True}
+
+
+def test_measurement_emits_reproducibility_class_when_set():
+    m = Measurement(value=1, unit="ms", reproducibility_class="environmental")
+    assert m.to_dict() == {
+        "value": 1,
+        "unit": "ms",
+        "reproducibility_class": "environmental",
+        "official": True,
+    }
 
 
 def test_measurement_emits_optional_fields_only_when_set():
     m = Measurement(
         value=1,
         unit="ms",
-        evidence="C",
+        reproducibility_class="environmental",
+        official=False,
         aggregation="p99",
         sample_count=100,
         notes="warm",
@@ -31,31 +50,38 @@ def test_measurement_emits_optional_fields_only_when_set():
     assert m.to_dict() == {
         "value": 1,
         "unit": "ms",
-        "evidence": "C",
+        "reproducibility_class": "environmental",
+        "official": False,
         "aggregation": "p99",
         "sample_count": 100,
         "notes": "warm",
     }
 
 
-def test_measurement_rejects_an_unknown_evidence_layer():
-    with pytest.raises(ObservationError, match="evidence"):
-        Measurement(value=1, unit="", evidence="Z")
+def test_measurement_rejects_an_unknown_reproducibility_class():
+    with pytest.raises(ObservationError, match="reproducibility_class"):
+        Measurement(value=1, unit="", reproducibility_class="A")
 
 
-def test_finding_requires_a_stable_code_and_known_severity():
+def test_measurement_accepts_each_known_class():
+    for cls in REPRODUCIBILITY_CLASSES:
+        assert Measurement(value=1, unit="", reproducibility_class=cls).reproducibility_class == cls
+
+
+def test_finding_requires_a_stable_code_and_known_severity_and_has_no_evidence():
     f = Finding(
         code="agent_runtime.state_ephemeral",
         severity="warning",
         summary="state lost on resume",
-        evidence="C",
         details={"n": 1},
     )
     assert f.to_dict()["code"] == "agent_runtime.state_ephemeral"
+    assert "evidence" not in f.to_dict()
+    assert "reproducibility_class" not in f.to_dict()
     with pytest.raises(ObservationError, match="code"):
-        Finding(code="", severity="warning", summary="s", evidence="C")
+        Finding(code="", severity="warning", summary="s")
     with pytest.raises(ObservationError, match="severity"):
-        Finding(code="c", severity="fatal", summary="s", evidence="C")
+        Finding(code="c", severity="fatal", summary="s")
 
 
 def test_collect_accepts_a_well_formed_bundle_and_returns_it():

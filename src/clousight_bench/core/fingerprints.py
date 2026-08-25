@@ -15,6 +15,28 @@ from clousight_bench.core.canonical import canonical_json, digest
 
 UNKNOWN = "unknown"
 
+# Mirrors Provenance() defaults from record.py — kept local to avoid import cycles.
+_PROVENANCE_DEFAULTS: dict[str, Any] = {
+    "suite_id": "",
+    "suite_version": "",
+    "dataset_digest": "",
+    "unmodified": True,
+    "evaluator_id": "",
+    "evaluator_official": True,
+    "scaffold": "",
+    "division": "",
+}
+
+
+def _provenance_nondefault(p: dict[str, Any]) -> bool:
+    """Return True iff any provenance key differs from its default value.
+
+    Contract: pass either None or a COMPLETE provenance dict (all 8 keys) —
+    a partial dict is treated as non-default because missing bool keys become
+    None, which != True (the bool default).
+    """
+    return any(p.get(k) != v for k, v in _PROVENANCE_DEFAULTS.items())
+
 
 def _safe(value: Any) -> Any:
     """Redact secrets and exact machine identities before hashing."""
@@ -42,18 +64,20 @@ def benchmark_fingerprint(
     workload_version: str,
     assets: list[dict[str, str]],
     params: dict[str, Any],
+    provenance: dict[str, Any] | None = None,
 ) -> str:
-    safe = _safe(
-        {
-            "task_id": task_id,
-            "task_revision": task_revision,
-            "scorer_revision": scorer_revision,
-            "workload": workload,
-            "workload_version": workload_version,
-            "assets": assets,
-            "params": params,
-        }
-    )
+    payload: dict[str, Any] = {
+        "task_id": task_id,
+        "task_revision": task_revision,
+        "scorer_revision": scorer_revision,
+        "workload": workload,
+        "workload_version": workload_version,
+        "assets": assets,
+        "params": params,
+    }
+    if provenance is not None and _provenance_nondefault(provenance):
+        payload["provenance"] = provenance
+    safe = _safe(payload)
     safe["assets"] = sorted(safe["assets"], key=canonical_json)
     return digest(safe)
 

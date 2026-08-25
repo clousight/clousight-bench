@@ -38,7 +38,6 @@ class _Adapter(ProviderAdapter):
 class _Task(Task):
     task_id = "TX"
     title = "fake"
-    evidence_layer = "C"
     task_revision = "1"
     scorer_revision = "1"
     execute_raises = False
@@ -62,7 +61,11 @@ class _Task(Task):
             raise ZeroDivisionError("scorer bug")
         return TaskResult(
             measurements={
-                "hits": Measurement(value=observations.observations["hits"], unit="count", evidence="C")
+                "hits": Measurement(
+                    value=observations.observations["hits"],
+                    unit="count",
+                    reproducibility_class="deterministic",
+                )
             },
             notes="ok",
             task_revision=self.task_revision,
@@ -95,12 +98,17 @@ def _run(tmp_path, **kwargs):
     return orch.execute(RunSpec("fake-domain", "TX", "fake"), results_dir=tmp_path, **kwargs)
 
 
-def test_happy_path_produces_a_completed_0_2_record(tmp_path):
+def test_happy_path_produces_a_completed_0_3_record(tmp_path):
     record = _run(tmp_path)
-    assert record.schema_version == "0.2"
+    assert record.schema_version == "0.3"
     assert record.status == "completed"
     assert record.errors == []
-    assert record.measurements["hits"] == {"value": 3, "unit": "count", "evidence": "C"}
+    assert record.measurements["hits"] == {
+        "value": 3,
+        "unit": "count",
+        "reproducibility_class": "deterministic",
+        "official": True,
+    }
     assert record.observations == {"hits": 3}
     assert record.identity.task_revision == "1"
     assert record.identity.adapter_status == "reference"
