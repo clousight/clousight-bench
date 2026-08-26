@@ -48,7 +48,7 @@ csbench query "SELECT platform, list_cost_usd, discount_usd, cost_usd AS net
 
 ```
 run_id, domain, task_id, platform, benchmark_fp, environment_fp,
-name, value_num, value_str, unit, evidence, aggregation, sample_count
+name, value_num, value_str, unit, reproducibility_class, official, aggregation, sample_count
 ```
 
 数值型数据写入 `value_num`；标签/文本型数据（例如 `recovery_mode = "auto-retry"`）写入 `value_str`。
@@ -56,7 +56,7 @@ name, value_num, value_str, unit, evidence, aggregation, sample_count
 **`findings`** — 每条发现一行：
 
 ```
-run_id, domain, task_id, platform, code, severity, summary, evidence
+run_id, domain, task_id, platform, code, severity, summary
 ```
 
 **`series`** — 高频时序数据（来自每次运行的 `series.parquet`）：
@@ -93,7 +93,7 @@ csbench query "SELECT r.platform, s.t, s.value
 查询整张表的快捷方式，无需编写 SQL：
 
 ```bash
-csbench query --table measurements --where "task_id='T1.1'" --format csv
+csbench query --table measurements --where "name='swe-bench.resolved'" --format csv
 ```
 
 ## 导出到外部工具

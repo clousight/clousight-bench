@@ -102,6 +102,7 @@ from clousight_bench.core.registry import (
 from clousight_bench.core.resource_reconcile import reconcile_run_resources
 from clousight_bench.core.schema import RunSpec, new_run_id, utc_now
 from clousight_bench.core.store import ResultStore
+from clousight_bench.core.suite_task import SuiteTask
 from clousight_bench.core.tracing import build_run_trace, export_trace, new_trace_id
 from clousight_bench.core.validation import validate_run_spec
 
@@ -130,6 +131,7 @@ class _Prepared:
     environment: Environment
     fingerprints: Fingerprints
     errors: list[StageError] = field(default_factory=list)
+    provenance: Provenance = field(default_factory=Provenance)
 
 
 def _ms(start: float) -> float:
@@ -225,7 +227,7 @@ def execute(
     errors: list[StageError] = []
 
     # RESOLVE -- raises UserInputError; no record is written.
-    pack, task, adapter_cls = _resolve(spec)
+    pack, task, adapter_cls = _resolve(spec, results_dir)
     stages["RESOLVE"] = "ok"
 
     # VALIDATE -- raises UserInputError; no record is written. The validated
@@ -621,18 +623,64 @@ def _resolve_cost_budget(cost_budget: float | None, target: Mapping[str, Any]) -
     return float(env) if env else None
 
 
-def _resolve(spec: RunSpec) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
+def _resolve(
+    spec: RunSpec,
+    results_dir: Path | None = None,
+) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
+    """Resolve a RunSpec to (DomainPack, Task, adapter_cls).
+
+    ``results_dir`` is forwarded to SuiteTask as ``artifacts_root=results_dir/artifacts``
+    so that all suite artifacts are staged under the run's results directory and persisted
+    records contain only relative paths (no absolute temp paths).
+    """
     pack = get_domain(spec.domain)
-    task_classes = pack.tasks()
-    if spec.task_id not in task_classes:
-        raise UnknownTaskError(f"task {spec.task_id!r} not in domain {spec.domain!r}: {sorted(task_classes)}")
+
+    # --- Suite branch: task_id="suite:<id>" bypasses pack.tasks() entirely ---
+    if spec.task_id.startswith("suite:"):
+        from clousight_bench.core.registry import load_benchmark_suites, load_evaluators
+
+        suite_id = spec.task_id.removeprefix("suite:")
+        suites = load_benchmark_suites()
+        if suite_id not in suites:
+            raise UnknownTaskError(
+                f"suite {suite_id!r} is not a registered benchmark suite: {sorted(suites)}"
+            )
+        suite = suites[suite_id]
+        wanted = spec.params.get("evaluator")  # explicit evaluator_id override
+        candidates = [
+            e
+            for e in load_evaluators()
+            if e.supports(suite_id, spec.platform) and (wanted is None or e.evaluator_id == wanted)
+        ]
+        if not candidates:
+            raise UnknownTaskError(
+                f"no registered evaluator supports suite {suite_id!r}"
+                + (f" with evaluator_id {wanted!r}" if wanted else "")
+            )
+        # Prefer official evaluators; load_evaluators() is name-sorted so ties are stable.
+        evaluator = sorted(candidates, key=lambda e: (not e.official, e.evaluator_id))[0]
+        mock = str(spec.target.get("mode", "mock")) == "mock"
+        artifacts_root = (Path(results_dir) / "artifacts") if results_dir is not None else None
+        task: Task = SuiteTask(
+            suite, evaluator, mock=mock, params=dict(spec.params), artifacts_root=artifacts_root
+        )
+        # fall through to the shared adapter gate below with this task
+    else:
+        # --- Normal task branch: look up task_id in the domain pack ---
+        task_classes = pack.tasks()
+        if spec.task_id not in task_classes:
+            raise UnknownTaskError(
+                f"task {spec.task_id!r} not in domain {spec.domain!r}: {sorted(task_classes)}"
+            )
+        task = task_classes[spec.task_id]()
+
+    # --- Shared adapter lookup + instance-level runnability gate ---
     adapter_classes = pack.adapters()
     if spec.platform not in adapter_classes:
         raise UnknownPlatformError(
             f"platform {spec.platform!r} not in domain {spec.domain!r}: {sorted(adapter_classes)}"
         )
     adapter_cls = adapter_classes[spec.platform]
-    task = task_classes[spec.task_id]()
     # Instance-level gate: skeleton adapters may still be runnable in a simulated
     # mode (e.g. a cloud in ``mode: mock``), which only the target reveals. Only
     # a successfully constructed instance is gated; if construction itself fails
@@ -706,6 +754,11 @@ def _prepare(
         execution=adapter.execution_mode() if adapter is not None else "unknown",
     )
 
+    _task_provenance = Provenance().to_dict()
+    try:
+        _task_provenance = task.provenance().to_dict()
+    except Exception as exc:  # noqa: BLE001
+        record_failure("provenance_failed", exc)
     try:
         fingerprints = Fingerprints(
             benchmark=benchmark_fingerprint(
@@ -716,11 +769,7 @@ def _prepare(
                 workload_version=identity.workload_version,
                 assets=list(workload["assets"]),
                 params=config,
-                # Provenance is empty for all runs today; when the suite/evaluator
-                # slice populates it, thread the run's actual Provenance here (it
-                # is NOT picked up automatically — the fingerprint only folds what
-                # is passed).
-                provenance=Provenance().to_dict(),
+                provenance=_task_provenance,
             ),
             environment=environment_fingerprint(
                 region=environment.region,
@@ -746,6 +795,7 @@ def _prepare(
         environment=environment,
         fingerprints=fingerprints,
         errors=errors,
+        provenance=Provenance.from_dict(_task_provenance),
     )
 
 
@@ -932,6 +982,7 @@ def _build_record(
         artifacts=list(bundle.artifacts) if isinstance(bundle.artifacts, list) else [],
         extensions=extensions,
         errors=[e.to_dict() for e in errors],
+        provenance=prepared.provenance,
     )
 
 

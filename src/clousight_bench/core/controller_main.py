@@ -43,7 +43,11 @@ _ECS_METADATA_INSTANCE_ID_URL = "http://100.100.100.200/latest/meta-data/instanc
 
 def build_run_task(platform: str, results_dir: str | Path, *, allow_live: bool = True) -> RunTask:
     """A RunTask that runs one task through the full lifecycle and returns its
-    serialized result (JSON + optional parquet sidecar) as a TaskOutcome."""
+    serialized result (JSON + optional parquet sidecar) as a TaskOutcome.
+
+    Per-task params (``LaunchSpec.tasks[].params``) overlay the campaign-wide
+    ``spec.params``; the campaign ``cost_budget`` is forwarded into ``execute``
+    (in-region runs are live by design — the operator gated at submit time)."""
     rdir = Path(results_dir)
 
     def run_task(task_id: str, spec: Any) -> TaskOutcome:
@@ -52,9 +56,9 @@ def build_run_task(platform: str, results_dir: str | Path, *, allow_live: bool =
             task_id=task_id,
             platform=platform,
             target=dict(spec.target),
-            params=dict(spec.params),
+            params={**dict(spec.params), **spec.task_params(task_id)},
         )
-        record = execute(run_spec, results_dir=rdir, allow_live=allow_live)
+        record = execute(run_spec, results_dir=rdir, allow_live=allow_live, cost_budget=spec.cost_budget)
         result_json = record.to_json().encode("utf-8")
         sidecar = (
             rdir / record.identity.domain / record.identity.adapter / record.run.run_id / "series.parquet"
@@ -63,7 +67,12 @@ def build_run_task(platform: str, results_dir: str | Path, *, allow_live: bool =
         ok = record.status in _OK_STATUSES
         error = None if ok else (record.status if not record.errors else str(record.errors[0]))
         return TaskOutcome(
-            task_id=task_id, ok=ok, result_json=result_json, series_parquet=parquet, error=error
+            task_id=task_id,
+            ok=ok,
+            result_json=result_json,
+            series_parquet=parquet,
+            error=error,
+            run_id=record.run.run_id,
         )
 
     return run_task

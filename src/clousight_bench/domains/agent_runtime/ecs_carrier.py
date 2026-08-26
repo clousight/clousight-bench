@@ -28,6 +28,9 @@ def build_controller_user_data(
     python_pkg: str = "python3.11",
     pip_index_url: str = "https://mirrors.cloud.aliyuncs.com/pypi/simple/",
     extra_deps: Iterable[str] = (),
+    install_docker: bool = False,
+    docker_registry_mirror: str = "",
+    hf_endpoint: str = "",
 ) -> str:
     """Base64 cloud-init user-data for the PROD controller instance.
 
@@ -35,6 +38,11 @@ def build_controller_user_data(
     extra (so the controller can write parquet sidecars in-cloud) and runs
     ``cb-controller`` (``core.controller_main``) instead of the probe loop. Env
     vars follow the ``CB_*`` names ``controller_main.build`` reads.
+
+    The driver-host knobs (``install_docker`` / ``docker_registry_mirror`` /
+    ``hf_endpoint``) are the Python twin of the ``controller_*`` terraform vars in
+    ``infra/terraform/aliyun-iam/controller.tf`` — they MUST emit the exact same
+    shell lines, and the output is byte-for-byte unchanged when all are default.
     """
     py = python_pkg
     lines = [
@@ -45,6 +53,20 @@ def build_controller_user_data(
         f"export CB_REGION='{region}'",
         f"export CB_RESULTS_DIR='{results_dir}'",
         f"export CB_PLATFORM='{platform}'",
+    ]
+    if hf_endpoint:
+        lines.append(f"export HF_ENDPOINT='{hf_endpoint}'")
+    if docker_registry_mirror:
+        # daemon.json lands BEFORE docker is installed/started so the first pull
+        # already goes through the in-region mirror.
+        lines.append("mkdir -p /etc/docker")
+        lines.append(
+            f'echo \'{{"registry-mirrors": ["{docker_registry_mirror}"]}}\' > /etc/docker/daemon.json'
+        )
+    if install_docker:
+        lines.append("yum install -y docker || dnf install -y docker")
+        lines.append("systemctl enable --now docker")
+    lines += [
         f"yum install -y '{py}'",
         f"{py} -m ensurepip --upgrade",
     ]

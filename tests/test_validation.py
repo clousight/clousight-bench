@@ -30,7 +30,7 @@ class _StubTask(Task):
 
 
 def test_a_well_formed_spec_validates():
-    validate_run_spec(RunSpec("agent-runtime", "T1.3", "local-sim"), _StubTask())
+    validate_run_spec(RunSpec("agent-runtime", "stub.ok", "local-sim"), _StubTask())
 
 
 def test_invalid_run_spec_error_is_a_user_input_error():
@@ -40,7 +40,7 @@ def test_invalid_run_spec_error_is_a_user_input_error():
 @pytest.mark.parametrize("field", ["domain", "task_id", "platform"])
 @pytest.mark.parametrize("value", ["", "   ", None, 7])
 def test_invalid_identifiers_are_rejected(field, value):
-    spec = RunSpec("agent-runtime", "T1.3", "local-sim")
+    spec = RunSpec("agent-runtime", "stub.ok", "local-sim")
     setattr(spec, field, value)
     with pytest.raises(InvalidRunSpecError, match=field):
         validate_run_spec(spec, _StubTask())
@@ -51,7 +51,7 @@ def test_invalid_identifiers_are_rejected(field, value):
     [("target", ["not", "a", "mapping"]), ("params", "nope")],
 )
 def test_non_mapping_target_and_params_are_rejected(field, value):
-    spec = RunSpec("agent-runtime", "T1.3", "local-sim")
+    spec = RunSpec("agent-runtime", "stub.ok", "local-sim")
     setattr(spec, field, value)
     with pytest.raises(InvalidRunSpecError, match=field):
         validate_run_spec(spec, _StubTask())
@@ -71,7 +71,7 @@ def test_mapping_subclasses_are_accepted():
         def __len__(self):
             return len(self._values)
 
-    spec = RunSpec("agent-runtime", "T1.3", "local-sim")
+    spec = RunSpec("agent-runtime", "stub.ok", "local-sim")
     spec.target = _Mapping({"region": "local"})
     spec.params = _Mapping({})
     validate_run_spec(spec, _StubTask())
@@ -79,7 +79,7 @@ def test_mapping_subclasses_are_accepted():
 
 @pytest.mark.parametrize("field", ["target", "params"])
 def test_non_finite_numbers_are_rejected_before_the_run(field):
-    spec = RunSpec("agent-runtime", "T1.3", "local-sim")
+    spec = RunSpec("agent-runtime", "stub.ok", "local-sim")
     setattr(spec, field, {"budget": float("inf")})
     with pytest.raises(InvalidRunSpecError, match=field):
         validate_run_spec(spec, _StubTask())
@@ -88,7 +88,7 @@ def test_non_finite_numbers_are_rejected_before_the_run(field):
 def test_secret_values_are_redacted_before_canonical_validation():
     spec = RunSpec(
         "agent-runtime",
-        "T1.3",
+        "stub.ok",
         "local-sim",
         params={"api_token": object()},
     )
@@ -101,7 +101,7 @@ def test_a_task_that_cannot_describe_its_config_is_a_user_error():
             raise KeyError("missing-required-param")
 
     with pytest.raises(InvalidRunSpecError, match="config"):
-        validate_run_spec(RunSpec("agent-runtime", "T1.3", "local-sim"), _BadConfig())
+        validate_run_spec(RunSpec("agent-runtime", "stub.ok", "local-sim"), _BadConfig())
 
 
 def test_task_config_must_be_a_mapping():
@@ -110,7 +110,7 @@ def test_task_config_must_be_a_mapping():
             return ["not", "a", "mapping"]
 
     with pytest.raises(InvalidRunSpecError, match="config.*mapping"):
-        validate_run_spec(RunSpec("agent-runtime", "T1.3", "local-sim"), _BadConfig())
+        validate_run_spec(RunSpec("agent-runtime", "stub.ok", "local-sim"), _BadConfig())
 
 
 def test_task_config_must_be_canonically_encodable():
@@ -119,4 +119,4 @@ def test_task_config_must_be_canonically_encodable():
             return {"budget": float("nan")}
 
     with pytest.raises(InvalidRunSpecError, match="task config"):
-        validate_run_spec(RunSpec("agent-runtime", "T1.3", "local-sim"), _BadConfig())
+        validate_run_spec(RunSpec("agent-runtime", "stub.ok", "local-sim"), _BadConfig())

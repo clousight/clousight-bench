@@ -1,55 +1,81 @@
 ---
 title: Clousight Bench
-description: 可复现、分证据等级的云产品基准测试。
+description: 公认基准套件,在受管云产品上可复现地运行。
 ---
 
-**[Clousight](https://clousight.com) 的度量标尺 —— 可复现、分证据等级的云产品基准测试。**
+**[Clousight](https://clousight.com) 的度量标尺 —— 原封不动地运行公认基准套件
+(首个为 SWE-bench Verified),测的是受管云产品,每个数字都带可校验的来源链。**
 
-Clousight Bench 衡量托管云产品的**平台 runtime 工程能力** —— 会话托管、工具故障恢复、追踪完整性、成本归因 —— 而非模型智能水平。核心编排器执行同一套生命周期：
+Clousight Bench 从不重新计分、从不混合分数。判定由套件自己的 harness 产出;
+框架补上**云产品维度**(运行时行为、延迟、轨迹、成本)和可复现性记账:
+哪个套件、哪个固定数据集版本、哪个评测器、哪个脚手架 —— 全部折叠进可 diff 的内容指纹。
 
 ```
-provision → setup → execute → collect → teardown → score → report
+BenchmarkSuite.resolve → prepare → run   (套件自己的 harness,原封不动)
+        ▼
+Evaluator.evaluate(RawArtifacts)          (纯函数、离线、命名空间化的测量值)
+        ▼
+schema-0.3 记录 → csbench serve(Web 查看器)/ csbench query(SQL)
 ```
 
-所有产品特定逻辑均以插件形式实现。
+一切与套件或产品相关的东西都是插件。
 
 ## 可复现性契约
 
-每一个数字在被信任之前都会经过分类，每条结果记录均携带
-`config_hash` + `runner_version` + `evidence_layer`：
+每条记录携带 `provenance` 块(套件 id、固定数据集版本、评测器 id、`unmodified`
+标志、脚手架)以及三个独立指纹(`benchmark` / `environment` / `implementation`),
+让你能判断两个数字是否可比。每个测量值携带 `reproducibility_class`:
 
-| 证据层 | 含义 | 可复现性 |
-|---|---|---|
-| **C** | 控制变量测量 | 精确可复现 |
-| **B** | 环境观测 | 方法可复现；数值因环境而异 |
-| **A** | 文档阅读 | 厂商声明，未经实测 |
-| **D** | 营销材料 | 永不作为决策依据 |
+| 类别 | 含义 |
+|---|---|
+| **deterministic** | 同输入同结果 —— 如 `swe-bench.resolved` |
+| **environmental** | 方法可复现;数值随网络/地域/账号变化 —— 如成本、延迟 |
+| **judge-based** | 判定链路中有 LLM 或人工 |
 
-结果始终**按维度分别呈现 —— 从不合并为单一分数**。
+官方测量值(`official=true`)是上游套件自己的判定,置于套件命名空间下;
+自定义评测器被结构性地约束在自己的命名空间。结果永远**按维度呈现,绝不混分**。
 
-## 快速上手（无需云账号）
+## 快速开始(无需云账号、无需 docker)
 
 ```bash
 pip install clousight-bench
-csbench list --verbose
-csbench run --domain agent-runtime --task T1.3 --platform local-sim
+csbench list                       # 已注册的套件、评测器、适配器
+
+# 以 mock 模式把 SWE-bench Verified 跑过完整的 stage 机器:
+cat > mock.yaml <<'EOF'
+target:
+  mode: mock
+EOF
+csbench run --domain agent-runtime --task suite:swe-bench \
+    --platform local-sim --config mock.yaml
+
+# 打开 Web 查看器(中英切换、深浅主题、轨迹瀑布图):
+csbench serve
 ```
 
-可选时序存储（Parquet + DuckDB）：`pip install clousight-bench[store]`
+mock 运行走的是真实代码路径,基于套件自带的 fixture 产出 schema-0.3 记录;
+`csbench serve` 在 `http://127.0.0.1:8787` 渲染。可选分析存储(Parquet + DuckDB):
+`pip install clousight-bench[store]`。
 
 ## 深入了解
 
 <CardGroup cols={2}>
   <Card title="架构" icon="sitemap" href="/docs/zh/architecture">
-    生命周期、插件契约与证据层模型。
+    生命周期、插件契约与来源模型。
   </Card>
-  <Card title="扩展（插件）" icon="puzzle-piece" href="/docs/zh/plugins">
-    添加 platform、维度、领域或负载引擎。
+  <Card title="SWE-bench 实跑手册" icon="rocket" href="/docs/zh/swe-bench-live-runbook">
+    在阿里云 ECS driver host 上真实运行套件。
+  </Card>
+  <Card title="Web 查看器" icon="chart-gantt" href="/docs/zh/viewer">
+    记录浏览 + 轨迹对话流与瀑布图。
+  </Card>
+  <Card title="扩展(插件)" icon="puzzle-piece" href="/docs/zh/plugins">
+    新增套件、评测器、平台适配器或领域。
   </Card>
   <Card title="查询结果" icon="database" href="/docs/zh/querying">
-    基于 Parquet 存储的 DuckDB 分析。
+    基于 DuckDB 的规范记录分析。
   </Card>
   <Card title="API 参考" icon="code" href="/docs/zh/reference">
-    核心数据 schema 与插件基类。
+    核心数据模式与插件基类。
   </Card>
 </CardGroup>

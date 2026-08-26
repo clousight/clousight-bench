@@ -171,6 +171,7 @@ def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
     # through to NotWiredCloudTransport.  Without this patch the env's commercial
     # pack would supply a live transport and create_session() would succeed.
     import clousight_bench.core.registry as _reg
+
     monkeypatch.setattr(_reg, "get_runtime_provider", lambda _provider: None)
     monkeypatch.setattr(
         AgentRuntimeDomain,

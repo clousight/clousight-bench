@@ -18,7 +18,7 @@ def test_builtin_domains_discovered():
 
 def test_agent_runtime_surface():
     pack = get_domain("agent-runtime")
-    assert "T1.3" in pack.tasks()
+    assert "stub.ok" in pack.tasks()
     adapters = pack.adapters()
     for name in ("local-sim", "aliyun-agentrun", "huawei-agentarts", "volcengine-agentkit"):
         assert name in adapters
@@ -55,7 +55,7 @@ def test_orchestrator_rejects_skeleton_before_preflight(tmp_path):
     # is now provider-backed in the open core, so use a still-skeleton platform.
     with pytest.raises(AdapterNotRunnableError, match="huawei-agentarts.*skeleton"):
         execute(
-            RunSpec("agent-runtime", "T1.3", "huawei-agentarts"),
+            RunSpec("agent-runtime", "stub.ok", "huawei-agentarts"),
             results_dir=tmp_path,
             preflight=False,
         )
@@ -67,7 +67,7 @@ def test_orchestrator_allows_skeleton_cloud_in_mock_mode(tmp_path):
     # this exercises the full identity/endpoint/permission plumbing without an
     # account. Real mode stays gated (see the test above).
     rec = execute(
-        RunSpec("agent-runtime", "T1.3", "aliyun-agentrun", target={"mode": "mock"}),
+        RunSpec("agent-runtime", "stub.ok", "aliyun-agentrun", target={"mode": "mock"}),
         results_dir=tmp_path,
         preflight=False,
     )
@@ -125,7 +125,7 @@ def test_wired_provider_flips_real_mode_runnable(tmp_path, monkeypatch):
     # Default (real) mode, previously refused as skeleton, now runs on the wired
     # transport -- completing proves it did NOT fall back to not-wired.
     rec = execute(
-        RunSpec("agent-runtime", "T1.1", "aliyun-agentrun"),
+        RunSpec("agent-runtime", "stub.alt", "aliyun-agentrun"),
         results_dir=tmp_path,
         preflight=False,
         allow_live=True,  # real-cloud run: acknowledge the live-run cost gate

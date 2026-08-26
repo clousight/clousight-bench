@@ -78,14 +78,23 @@ aws = [
 ]
 store = ["duckdb>=1.0", "pyarrow>=16"]
 validate = ["jsonschema>=4.20"]
+# Upstream SWE-bench evaluation harness. Required only for the real Docker-backed
+# run() path; mock_artifacts() and resolve() work without it.
+swebench = ["swebench>=3.0"]
 
 [project.scripts]
 csbench = "clousight_bench.cli:main"
 cb-probe = "clousight_bench.domains.agent_runtime.probe.agent_loop:main"
 cb-controller = "clousight_bench.core.controller_main:main"
 
+[project.entry-points."clousight_bench.benchmark_suites"]
+swe-bench = "clousight_bench.suites.swe_bench.suite:SweBenchSuite"
+
 [project.entry-points."clousight_bench.domains"]
 agent-runtime = "clousight_bench.domains.agent_runtime:AgentRuntimeDomain"
+
+[project.entry-points."clousight_bench.evaluators"]
+official-swe-evaluator = "clousight_bench.suites.swe_bench.evaluator:OfficialSweEvaluator"
 
 [project.entry-points."clousight_bench.enrichers"]
 pricing = "clousight_bench.enrichers.pricing:PricingEnricher"
@@ -104,8 +113,10 @@ aws = "clousight_bench.domains.agent_runtime.aws.reaper:AwsResourceReaper"
 [tool.hatch.build.targets.wheel]
 packages = ["src/clousight_bench"]
 artifacts = ["src/clousight_bench/resources/schemas/*.json",
+             "src/clousight_bench/resources/viewer/dist/**",
              "src/clousight_bench/resources/brand/*.png",
-             "src/clousight_bench/resources/brand/providers/*.svg"]
+             "src/clousight_bench/resources/brand/providers/*.svg",
+             "src/clousight_bench/suites/swe_bench/fixtures/*"]
 
 [tool.ruff]
 line-length = 110
@@ -128,6 +139,7 @@ testpaths = ["tests"]
 # non-required job.
 addopts = "-m 'not live and not slow'"
 markers = [
+  "real_registry: opt this test out of the autouse stub-task injection (sees the real zero-task domain)",
     "live: exercises a real cloud endpoint / network (needs credentials); skipped by default, run with -m live",
     "slow: heavy real-sleep / timing-sensitive integration test; skipped by the fast gate, run with -m slow",
 ]

@@ -22,6 +22,7 @@ from clousight_bench.core.plugin import (
 from clousight_bench.core.versioning import range_contains
 
 if TYPE_CHECKING:
+    from clousight_bench.core.suite import BenchmarkSuite, Evaluator
     from clousight_bench.core.tracing import SpanExporter
 
 ENTRY_POINT_GROUP = "clousight_bench.domains"
@@ -241,3 +242,31 @@ def load_asset_resolvers() -> list[PrivateAssetResolver]:
     return sorted(resolvers, key=lambda r: r.name)
 
 
+BENCHMARK_SUITE_ENTRY_POINT_GROUP = "clousight_bench.benchmark_suites"
+EVALUATOR_ENTRY_POINT_GROUP = "clousight_bench.evaluators"
+
+
+def load_benchmark_suites() -> dict[str, BenchmarkSuite]:
+    from clousight_bench.core.suite import BenchmarkSuite
+
+    suites: dict[str, BenchmarkSuite] = {}
+    for ep in entry_points(group=BENCHMARK_SUITE_ENTRY_POINT_GROUP):
+        inst = ep.load()()
+        if not isinstance(inst, BenchmarkSuite):
+            raise RegistryError(f"entry point {ep.name!r} is not a BenchmarkSuite")
+        if inst.suite_id in suites:
+            raise DuplicatePluginError(f"suite {inst.suite_id!r} provided twice")
+        suites[inst.suite_id] = inst
+    return suites
+
+
+def load_evaluators() -> list[Evaluator]:
+    from clousight_bench.core.suite import Evaluator
+
+    out: list[Evaluator] = []
+    for ep in sorted(entry_points(group=EVALUATOR_ENTRY_POINT_GROUP), key=lambda e: e.name):
+        inst = ep.load()()
+        if not isinstance(inst, Evaluator):
+            raise RegistryError(f"entry point {ep.name!r} is not an Evaluator")
+        out.append(inst)
+    return out

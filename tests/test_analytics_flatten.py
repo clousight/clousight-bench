@@ -16,7 +16,7 @@ def _write(root: Path, run_id="r1"):
         },
         "identity": {
             "domain": "agent-runtime",
-            "task_id": "T1.3",
+            "task_id": "stub.ok",
             "adapter": "local-sim",
             "task_revision": "2",
             "scorer_revision": "2",
@@ -50,7 +50,7 @@ def _write(root: Path, run_id="r1"):
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     p = root / "agent-runtime" / "local-sim"
     p.mkdir(parents=True, exist_ok=True)
-    (p / f"T1.3-{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    (p / f"stub.ok-{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_flatten_records(tmp_path):
@@ -82,7 +82,7 @@ def test_flatten_measurements_official(tmp_path):
     rows = {m["name"]: m for m in Analytics(tmp_path).flatten("measurements")}
     assert rows["cold_start_ms"]["official"] is True  # omitted -> default True
 
-    payload = json.loads((tmp_path / "agent-runtime" / "local-sim" / "T1.3-r1.json").read_text())
+    payload = json.loads((tmp_path / "agent-runtime" / "local-sim" / "stub.ok-r1.json").read_text())
     payload["run"]["run_id"] = "r2"
     payload["measurements"] = {
         "difficulty_weighted": {
@@ -93,7 +93,7 @@ def test_flatten_measurements_official(tmp_path):
         }
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
-    out = tmp_path / "agent-runtime" / "local-sim" / "T1.3-r2.json"
+    out = tmp_path / "agent-runtime" / "local-sim" / "stub.ok-r2.json"
     out.write_text(json.dumps(payload), encoding="utf-8")
     rows = {m["name"]: m for m in Analytics(tmp_path).flatten("measurements")}
     assert rows["difficulty_weighted"]["official"] is False
@@ -143,7 +143,7 @@ def test_records_expose_execution(tmp_path):
         "run": {"run_id": "re", "stages": {}},
         "identity": {
             "domain": "agent-runtime",
-            "task_id": "T1.1",
+            "task_id": "stub.alt",
             "adapter": "aliyun-agentrun",
             "task_revision": "1",
             "scorer_revision": "1",
@@ -162,5 +162,5 @@ def test_records_expose_execution(tmp_path):
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     p = tmp_path / "agent-runtime" / "aliyun-agentrun"
     p.mkdir(parents=True)
-    (p / "T1.1-re.json").write_text(json.dumps(payload), encoding="utf-8")
+    (p / "stub.alt-re.json").write_text(json.dumps(payload), encoding="utf-8")
     assert Analytics(tmp_path).flatten("records")[0]["execution"] == "simulated"

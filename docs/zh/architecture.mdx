@@ -26,14 +26,14 @@ RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
 
 **TEARDOWN 不在上述流程步骤之列。** 它是围绕 SETUP → COLLECT 的强制性 `finally` 边界：一旦进入 SETUP，`adapter.teardown()` 必然执行，包括 `setup()` 中途失败的情况；teardown 失败会被记录为独立的阶段错误，不会覆盖导致失败的 execute 或 collect 错误。
 
-## 结果契约（schema 0.2）
+## 结果契约（schema 0.3）
 
 顶层字段固定为：`schema_version`、`run`、`identity`、`environment`、`fingerprints`、`measurements`、`findings`、`observations`、`series`、`artifacts`、`extensions`、`errors`、`status`。
 
 - `status` ∈ `completed` · `failed` · `invalid` · `unsupported`。不存在布尔型 `ok`、顶层 `metrics`、顶层 `evidence_layer`，也没有 `config_hash`。
 - `environment.execution` ∈ `simulated` · `live` · `unknown`，标记数据来自模拟运行时还是真实云端。该字段被折叠进环境指纹，因此模拟结果与真实结果永远不会混入同一分析池。
-- 每条测量值携带 `value`、`unit` 和 `evidence`，可选字段为 `aggregation`、`sample_count` 和 `notes`。
-- 每条发现携带稳定的 `code`、`severity`、`summary`、其 `evidence` 和 `details`。
+- 每条测量值携带 `value`、`unit` 和 `official`，可选字段为 `reproducibility_class`、`aggregation`、`sample_count` 和 `notes`。
+- 每条发现携带稳定的 `code`、`severity`、`summary` 和 `details`。
 - 每条阶段错误携带 `stage`、`code`、`type`、`message` 和 `retryable`。堆栈跟踪永远不存入记录；`csbench run --debug` 会将其写入 `<results>/debug/<run_id>.log`。
 - 所有摘要均为对规范 JSON 编码的完整 SHA-256（`core/canonical.py`）：UTF-8、键排序、无多余空白，NaN/Infinity 被拒绝。
 - `extensions["core"]` 为核心保留；插件在自己的命名空间下写入（例如 `extensions["cb-pricing"]`）。
@@ -42,7 +42,7 @@ Schema `1.0` 记录不再受支持。请重新运行基准测试以生成当前�
 
 ## 运行计划与统计（Phase 1C）
 
-单一数字不构成测量。`csbench run --repeat N --warmup W`（`core/runplan.py`）将同一 `RunSpec` 经由上述生命周期运行 `warmup + repeat` 次——每次运行仍为独立的带摘要 `0.2` 记录——随后：
+单一数字不构成测量。`csbench run --repeat N --warmup W`（`core/runplan.py`）将同一 `RunSpec` 经由上述生命周期运行 `warmup + repeat` 次——每次运行仍为独立的带摘要 `0.3` 记录——随后：
 
 - 丢弃 `warmup` 次运行（冷启动 / JIT / 缓存效应不代表你要发布的稳态），并在每条记录的 `extensions["core"]["run_plan"]` 下标注其角色，使选择可审计、永远不成为指纹；
 - 将正式运行的结果每个测量项汇聚为一个分布（`core/statistics.py`）：数值型 → `n / mean / stdev / min / max / p50 / p95 / cv`，标签型 → 分布 / `mode` / `agreement`；
@@ -61,8 +61,8 @@ CLI (csbench)
        ├─ DomainPack  → Task(s) + Adapter(s)         [per product category]
        │     └─ Adapter (setup/submit/teardown)      [per (domain, cloud)]
        │           └─ WorkloadEngine (JSONL, any language)  [per load generator]
-       ├─ Schema (RunSpec / ResultRecord 0.2 / fingerprints / evidence layer)
-       └─ Report (per-dimension matrix + red flags)
+       ├─ Schema (RunSpec / ResultRecord 0.3 / fingerprints / provenance)
+       └─ Viewer (csbench serve: 记录/来源/轨迹)
 ```
 
 ## 插件契约
@@ -88,10 +88,19 @@ CLI (csbench)
 `A` 文档 · `B` 环境观测 · `C` 受控测量 · `D` 市场宣传。
 报告永远不将多个维度合并为单一分数。
 
+## Suite / Evaluator 契约层
+
+除领域-任务流水线外，Clousight Bench 还为**外部定义的基准套件**（如 SWE-bench）提供第二套契约：
+
+- **`BenchmarkSuite`** 原封不动地驱动上游 harness，并返回不透明的 `RawArtifacts`（一个目录 + 命名文件的 manifest）。核心将 artifacts 视为黑盒；只有配对的 evaluator 才理解其内容。
+- **`Evaluator`** 以纯函数方式（无云、无凭证）读取 `RawArtifacts`，返回 `dict[str, Measurement]`，其中每个 key 均以 `"<suite_id>.<metric_name>"` 命名空间（官方 evaluator）或 `"<evaluator_id>.<metric_name>"` 命名空间（自定义 evaluator）。
+- **命名空间 / official 不变量**：`conformance.check_evaluator(evaluator, suite_id, measurements)` 验证官方 evaluator 仅在套件命名空间下发出 `official=True` 的测量值，自定义 evaluator 仅在自身 id 下发出 `official=False` 的测量值，且自定义 evaluator 不得抢注已注册套件的命名空间。返回 `list[CheckResult]`；CLI 侧可用 `csbench conformance --suite <suite_id>` 对套件的 mock 工件跑全部已注册 evaluator，也可与 `run_conformance` 组合用于 CI 门控。
+- **`SuiteTask` + `Provenance`**：将溯源元数据（suite_id、suite_version、evaluator_id、unmodified 标志）线程化传递到每个 `TaskResult`，并折叠进基准指纹，确保来自不同套件版本或 evaluator 的记录永远不会混入同一分析池。
+- **SWE-bench 试点**（切片 1）：`SweBenchSuite`（注册入口点 `swe-bench`）+ `OfficialSweEvaluator`（发出 `swe-bench.resolved` 和 `swe-bench.cost_per_resolved`）+ 内置 fixtures（支持离线 / CI 使用）。真实 Docker 支持的 `run()` 路径需要 `[swebench]` 可选包，并由 `@pytest.mark.slow` 门控。
+
 ## 当前领域
 
 - `agent-runtime` — 会话、工具调用、故障恢复、可观测性、成本、隔离。所有任务均在 `local-sim` 上运行；完整任务列表和适配器状态**由下方注册表生成**（从不手动维护——见"文档维护"）。其覆盖范围包括制备、运行时行为、工具注册、可观测性、成本和租户隔离。适配器采用 `managed`/`transport`/`mode` 拆分，同一套代码既能驱动本地模拟运行时，也能在安装 runtime-provider 插件后驱动真实云；延迟类任务通过 `run_data_plane_probe` 接缝路由（见"控制平面与数据平面"）；能力探针触发 `CapabilityNotSupported` → 记录为一条发现，不会崩溃。
-- **可靠性组——以平台作为 agent 宿主的视角。** 被测单元是*作为固定 agent 宿主的平台*，而非原始调用 API，因此可靠性任务衡量的是当下游工具真正失败或停滞时"平台 + agent"组合能否恢复。**T1.3（故障恢复）/ T1.10（重试风暴）/ T1.12（行头阻塞）** 通过 mock 工具服务器的 `/fault/config` + `/latency/config` 注入故障/延迟（因此在真实 agent→tool HTTP 跳上对平台可见，并像所有其他调用一样使用 mock token 进行认证），为 benchmark agent 配置**固定的重试契约**（`agent_bundle/lc_agent.py` 中的 `AGENT_RETRY_POLICY`：HTTP 5xx → 重试两次，200ms 退避，共 3 次；4xx / 连接失败 → 不重试——作为 agent 指纹的一部分，而非可调旋钮），并通过**读取 mock 自身的调用计数器**（按 correlation-id 分桶，并发请求永不交叉计数）而非从客户端循环推断进行**观测**。每项任务产生**三态平台归因**——例如 T1.3 → `recovered` vs `platform_terminated`（在 agent 恢复前 invoke 被截断）vs 快速失败；T1.10 → `storm_bounded_by` agent / platform / none。**T1.2（状态持久化）/ T1.11（并发写入）** 被*诚实地降级*为 `unsupported` 并附带证据层 A 的发现：基于 FC 的 AgentRun 没有原生会话状态，因此具备状态化平台的云可以在此处合法地得到正面结论——这是一个真实的负面差异化结果，而非伪造的通过。
 ### 任务与适配器清单
 
 {/* BEGIN generated:task-inventory */}
@@ -113,7 +122,7 @@ CLI (csbench)
 - 当前可运行的参考适配器为 `local-sim`。Aliyun AgentRun（及 AWS AgentCore）的 `RuntimeProvider` 已在源码树内注册。`aliyun-agentrun` 适配器为 `experimental`：在 `mode: mock` 下可端到端运行，其 live 路径已完成一次真实云 campaign（`cn-hangzhou`，2026-08-15——25 个 `completed` + 2 个诚实的 `unsupported`）。该适配器尚未晋升为 `wired`（该状态保留给经过稳定、多次验证的 live 路径）；AWS AgentCore 及其他云仍为 `skeleton`。
 - 内置负载位于 `clousight_bench.resources.workloads`，通过 `core.resources.reference_workload_path()` 解析，因此 wheel 安装和可编辑安装使用相同的文件。
 
-Phase 1B 发布了 ResultRecord schema `0.2`（见上文"结果契约"）；插件 API `1.0` 保持不变，直到 Phase 1D 中的版本范围协商机制替代它。
+Phase 1B 发布了 ResultRecord schema `0.3`（见上文"结果契约"）；插件 API `1.0` 保持不变，直到 Phase 1D 中的版本范围协商机制替代它。
 
 本仓库为公开仓库，采用 Apache-2.0 许可；包含完整的开放核心，**包括可复现机制**——Aliyun AgentRun `RuntimeProvider`、ECI 探针 carrier、`ResourceReaper`、Terraform 以及种子 `pricing` enricher。护城河在于*数据与服务*，而非私藏代码。独立的私有仓库 `clousight-bench-pro` 仅包含：
 
@@ -142,7 +151,7 @@ Phase 1B 发布了 ResultRecord schema `0.2`（见上文"结果契约"）；插�
 
 给定基准测试所需的最低权限因云 provider 而异，因此权限验证**按任务映射**，职责分属两侧：
 
-- **任务声明 WHAT**：`Task.required_permissions: tuple[str, ...]` 列出**抽象能力令牌**（与云无关）。令牌在 `domains/agent_runtime/permissions.py` 中定义：`session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`。当前每任务声明：T1.2=`session:create,session:state`；T1.3=`session:create,tool:invoke`；T2.1=`tool:register`；T4.1=`session:create,tool:invoke,trace:read`；T4.2=`session:create,tool:invoke,trace:export`。
+- **任务声明 WHAT**：`Task.required_permissions: tuple[str, ...]` 列出**抽象能力令牌**（与云无关）。令牌在 `domains/agent_runtime/permissions.py` 中定义：`session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`。(套件优先转向后不再有自设任务;suite 任务按需声明这些令牌。)
 - **适配器说明 HOW + 验证**：每个真实云适配器定义 `PERMISSION_MAP`（令牌 → 该云具体的最低 IAM/RAM 操作）。`required_actions(task)` 将任务的令牌解析为云特定的操作集；`_probe_permissions(actions)` 执行实际的授权检查（默认实现返回 `None` = 未验证 → 发出 WARNING，列出本次基准测试在该云上所需的最低操作；真实适配器覆盖此方法，调用 STS GetCallerIdentity / RAM policy 模拟 / dry-run，返回 `(ok, missing)`——任何缺失操作均为 CRITICAL 阻断）。
 
 给定运行的最低权限等于适配器对任务令牌的映射。**新增一个基准测试维度**只需在任务上声明令牌；**新增一个云**只需在适配器上提供 `PERMISSION_MAP`——两侧完全解耦。`csbench doctor --domain <d> --platform <p> --task <t>` 可直接打印任意（基准测试 × 云）组合的最低操作列表。

@@ -36,6 +36,8 @@ from clousight_bench.core.schema import RunSpec
 
 
 def _cmd_list(args: argparse.Namespace) -> int:
+    from clousight_bench.core.registry import load_benchmark_suites, load_evaluators
+
     domains = load_domains()
     if not domains:
         print("no domain packs installed")
@@ -47,12 +49,35 @@ def _cmd_list(args: argparse.Namespace) -> int:
 
         print(_json.dumps(inventory(), indent=2, ensure_ascii=False))
         return 0
+
+    # Benchmark suites are the primary way to run something post-pivot: show
+    # them FIRST, with a copy-pasteable task id.
+    suites = load_benchmark_suites()
+    if suites:
+        print("benchmark suites:")
+        for sid, suite in sorted(suites.items()):
+            print(f"  suite:{sid:<18} {suite.suite_version}")
+        evaluators = load_evaluators()
+        if evaluators:
+            names = ", ".join(
+                f"{e.evaluator_id} ({'official' if e.official else 'custom'})" for e in evaluators
+            )
+            print(f"  evaluators : {names}")
+        first = sorted(suites)[0]
+        print(
+            f"  run one    : csbench run --domain agent-runtime --task suite:{first}"
+            " --platform local-sim --config <yaml with 'target: {mode: mock}'>"
+        )
+        print()
+
     for name, pack in sorted(domains.items()):
         print(f"domain: {name}")
         if pack.description:
             print(f"  {pack.description}")
         if not args.verbose:
-            print(f"  tasks     : {', '.join(sorted(pack.tasks()))}")
+            task_ids = sorted(pack.tasks())
+            tasks_line = ", ".join(task_ids) if task_ids else "(none — runs arrive as suite:<id> jobs)"
+            print(f"  tasks     : {tasks_line}")
             print(f"  platforms : {', '.join(sorted(pack.adapters()))}")
             continue
         print("  tasks:")
@@ -473,10 +498,8 @@ def _cmd_sweep(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_conformance(args: argparse.Namespace) -> int:
-    from clousight_bench.core.conformance import run_conformance
-
-    results = run_conformance(args.domain, getattr(args, "platform", None))
+def _print_check_results(results: list, label: str) -> int:
+    """Print CheckResult objects and return the number of failures."""
     failed = 0
     for r in results:
         mark = "✓" if r.ok else "✗"
@@ -486,7 +509,83 @@ def _cmd_conformance(args: argparse.Namespace) -> int:
         print(line)
         failed += 0 if r.ok else 1
     total = len(results)
-    print(f"\nconformance: {total - failed}/{total} checks passed for {args.domain!r}")
+    print(f"\nconformance: {total - failed}/{total} checks passed for {label!r}")
+    return failed
+
+
+def _cmd_conformance(args: argparse.Namespace) -> int:
+    suite_id: str | None = getattr(args, "suite", None)
+    domain: str | None = getattr(args, "domain", None)
+
+    if suite_id is not None:
+        return _cmd_conformance_suite(suite_id)
+
+    # The mutually-exclusive required group guarantees one of the two is set,
+    # but narrow explicitly (works under python -O, satisfies mypy).
+    if domain is None:
+        print("error: --domain or --suite is required", file=sys.stderr)
+        return 2
+    from clousight_bench.core.conformance import run_conformance
+
+    results = run_conformance(domain, getattr(args, "platform", None))
+    failed = _print_check_results(results, domain)
+    return 0 if failed == 0 else 1
+
+
+def _cmd_conformance_suite(suite_id: str) -> int:
+    """Run conformance checks for every evaluator that supports ``suite_id``."""
+    import shutil
+    import tempfile
+
+    from clousight_bench.core.conformance import CheckResult, check_evaluator
+    from clousight_bench.core.registry import load_benchmark_suites, load_evaluators
+
+    suites = load_benchmark_suites()
+    if suite_id not in suites:
+        available = ", ".join(sorted(suites)) or "<none installed>"
+        print(
+            f"error: suite {suite_id!r} not found. Available suites: {available}",
+            file=sys.stderr,
+        )
+        return 2
+
+    suite = suites[suite_id]
+    tmp_dir = tempfile.mkdtemp(prefix="csbench-conformance-")
+    known_suite_ids = sorted(suites)
+    evaluators = load_evaluators()
+
+    supporting = [ev for ev in evaluators if ev.supports(suite_id, "")]
+
+    all_results: list[CheckResult] = []
+    try:
+        if not supporting:
+            all_results.append(
+                CheckResult(
+                    "suite:has-evaluator",
+                    False,
+                    f"no evaluator registered for suite {suite_id!r}",
+                )
+            )
+        else:
+            raw = suite.mock_artifacts({"_tmp_dir": tmp_dir})
+            for ev in supporting:
+                ev_label = getattr(ev, "evaluator_id", str(ev))
+                print(f"\n[evaluator: {ev_label}]")
+                measurements = ev.evaluate(raw)
+                results = check_evaluator(ev, suite_id, measurements, known_suite_ids=known_suite_ids)
+                for r in results:
+                    mark = "✓" if r.ok else "✗"
+                    line = f"  {mark} {r.name}"
+                    if r.detail and not r.ok:
+                        line += f" -- {r.detail}"
+                    print(line)
+                all_results.extend(results)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    failed = sum(1 for r in all_results if not r.ok)
+    total = len(all_results)
+    print(f"\nconformance: {total - failed}/{total} checks passed for suite {suite_id!r}")
     return 0 if failed == 0 else 1
 
 
@@ -784,6 +883,19 @@ def _cmd_progress(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    from clousight_bench.viewer.server import create_server, serve_until_interrupt
+
+    # Bind first so the printed URL is the ACTUAL bound address (--port 0 picks
+    # an ephemeral port; the placeholder 0 must never be shown to the user).
+    server = create_server(Path(args.results), host=args.host, port=args.port)
+    host_raw, bound_port = server.server_address[0], server.server_address[1]
+    bound_host = host_raw.decode() if isinstance(host_raw, bytes) else host_raw  # AF_INET → str
+    print(f"viewer: http://{bound_host}:{bound_port} (results: {args.results}) — Ctrl-C to stop")
+    serve_until_interrupt(server)
+    return 0
+
+
 # ---- prod profile (ecs-resident orchestrator) helpers + commands ------------
 _PROD_TF_DIR = "infra/terraform/aliyun-iam"
 
@@ -824,11 +936,27 @@ def _prod_runtime_deleter(target: dict):
     return _del
 
 
-def _prod_wheel_builder(target: dict):
-    """Build+upload the private dev wheel; return (campaign_id) -> (url, extra_deps)."""
+def _controller_extra_deps(needs_swebench: bool) -> list[str]:
+    """Controller pip deps: the full orchestrator needs probe + aliyun SDKs + store.
 
-    def _build(campaign_id: str) -> tuple[str, list[str]]:
-        from clousight_bench.domains.agent_runtime.dev_wheel import deps_for_extras, upload_dev_wheel
+    ``needs_swebench=True`` (any ``suite:`` task in the plan) additionally pulls
+    the ``[swebench]`` harness extra so the driver host can actually evaluate —
+    without it the suite fails at run() with "swebench extra not installed".
+    """
+    from clousight_bench.domains.agent_runtime.dev_wheel import deps_for_extras
+
+    extras = ["probe", "aliyun", "store"] + (["swebench"] if needs_swebench else [])
+    fallback = ["requests>=2.28", "oss2>=2.18", "duckdb>=1.0", "pyarrow>=16"]
+    if needs_swebench:
+        fallback.append("swebench>=3.0")
+    return deps_for_extras(extras) or fallback
+
+
+def _prod_wheel_builder(target: dict):
+    """Build+upload the private dev wheel; return (campaign_id, needs_swebench) -> (url, deps)."""
+
+    def _build(campaign_id: str, needs_swebench: bool = False) -> tuple[str, list[str]]:
+        from clousight_bench.domains.agent_runtime.dev_wheel import upload_dev_wheel
         from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
         bucket = str(target.get("oss_bucket") or "")
@@ -836,14 +964,7 @@ def _prod_wheel_builder(target: dict):
         upload = Oss2Client(bucket, region)  # public endpoint for the PUT
         sign = Oss2Client(bucket, region, internal=True)  # internal endpoint for the presign
         url = upload_dev_wheel(upload, sign, campaign_id, expires=7200)
-        # controller runs the full orchestrator → needs probe + aliyun SDKs + store
-        extra_deps = deps_for_extras(["probe", "aliyun", "store"]) or [
-            "requests>=2.28",
-            "oss2>=2.18",
-            "duckdb>=1.0",
-            "pyarrow>=16",
-        ]
-        return url, extra_deps
+        return url, _controller_extra_deps(needs_swebench)
 
     return _build
 
@@ -923,6 +1044,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         "verify": _cmd_verify,
         "run-plan": _cmd_run_plan,
         "progress": _cmd_progress,
+        "serve": _cmd_serve,
     }
     return handlers[args.command](args)
 
@@ -1052,6 +1174,13 @@ def main(argv: list[str] | None = None) -> int:
         "--interval", type=float, default=2.0, help="seconds between redraws when --watch (default: 2)"
     )
 
+    serve_p = sub.add_parser("serve", help="local read-only web viewer over a results directory")
+    serve_p.add_argument(
+        "--results", default=str(DEFAULT_RESULTS_DIR), help="results directory (default: results)"
+    )
+    serve_p.add_argument("--port", type=int, default=8787, help="port to listen on (default: 8787)")
+    serve_p.add_argument("--host", default="127.0.0.1", help="bind address (default: 127.0.0.1)")
+
     trace_p = sub.add_parser("trace", help="inspect the execution traces of runs")
     trace_sub = trace_p.add_subparsers(dest="trace_cmd", required=True)
     tl = trace_sub.add_parser("list", help="list traces (one row per run)")
@@ -1098,9 +1227,15 @@ def main(argv: list[str] | None = None) -> int:
         help="only resources older than this many seconds (protects in-flight runs)",
     )
 
-    conf_p = sub.add_parser("conformance", help="check an installed domain plugin against the contract")
-    conf_p.add_argument("--domain", required=True)
-    conf_p.add_argument("--platform", default=None, help="also assert this platform's adapter is declared")
+    conf_p = sub.add_parser("conformance", help="check an installed domain plugin or suite evaluator")
+    _conf_mode = conf_p.add_mutually_exclusive_group(required=True)
+    _conf_mode.add_argument("--domain", default=None, help="domain plugin to check")
+    _conf_mode.add_argument(
+        "--suite", default=None, help="suite id; checks every registered evaluator for it"
+    )
+    conf_p.add_argument(
+        "--platform", default=None, help="(domain mode only) assert this platform's adapter is declared"
+    )
 
     ver_p = sub.add_parser("verify", help="verify record_digest integrity for all result files")
     ver_p.add_argument(

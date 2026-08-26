@@ -36,6 +36,7 @@ teardown → score → report`); everything product-specific is a plugin.
 | You want to add... | Do this |
 |---|---|
 | A **platform** | one `ProviderAdapter` subclass + one `configs/*.example.yaml`. Surface the platform's own retry/session/trace behavior; never reimplement task or scoring logic. |
+| A **suite** | one `BenchmarkSuite` + one `Evaluator` plugin (entry points `clousight_bench.benchmark_suites` / `.evaluators`); the SWE-bench pilot in `suites/swe_bench/` is the template. The suite drives its own upstream harness unmodified; the evaluator is a pure function over `RawArtifacts`. |
 | A **dimension** | one `Task` subclass with `config()` (the controlled inputs), `execute()` (raw observation only), `score()` (a pure function of the bundle), `task_revision` / `scorer_revision`, and optionally `environment_facts()` and `workload_identity()`. |
 | A **product category** | one `DomainPack` registered via the `clousight_bench.domains` entry point. |
 | A **load generator** | one `src/clousight_bench/resources/workloads/<name>/` dir: `manifest.yaml` + an executable speaking the JSONL protocol. Resolve it with `clousight_bench.core.resources.reference_workload_path(name)` — never build the path by concatenating it onto the repository root, since that breaks under a wheel install. Wrap a mature tool (YCSB / TPC-DS / sysbench) rather than reinventing it. |
@@ -55,8 +56,9 @@ teardown → score → report`); everything product-specific is a plugin.
   `RunSpec`, an observation, an environment fact or a finding. Reference
   credentials by env-var name; `ResultStore` refuses to persist a record that
   contains this machine's identity.
-- Every `Measurement` needs a `value`, a `unit` and an `evidence` layer; every
-  `Finding` needs a stable `code`, a `severity` and its evidence.
+- Every `Measurement` needs a `value`, a `unit`, a `reproducibility_class`
+  (`deterministic` / `environmental` / `judge-based`) and an `official` flag; every
+  `Finding` needs a stable `code` and a `severity`.
 - Report per-dimension; never emit a blended cross-dimension score.
 - An adapter's `teardown()` must be idempotent: the lifecycle calls it whenever
   `setup()` was entered, including when `setup()` itself failed half-way.
@@ -75,7 +77,8 @@ pip install -e ".[dev]"
 pre-commit install          # optional: run the CI lint/type/format gate on every commit
 ruff check src tests
 pytest -q
-csbench run --domain agent-runtime --task T1.3 --platform local-sim   # local smoke
+csbench run --domain agent-runtime --task suite:swe-bench --platform local-sim \
+    --config <yaml with 'target: {mode: mock}'>   # local smoke (mock suite run)
 ```
 
 The repo ships a `.pre-commit-config.yaml` whose lint/format/type hooks call the

@@ -10,9 +10,13 @@ def _channel():
     return CampaignChannel(InMemoryOssClient(), "camp-1", now=lambda: 1.0)
 
 
+def _tasks(*ids: str) -> list[dict]:
+    return [{"task_id": t, "params": {}} for t in ids]
+
+
 def test_serial_loop_completes_and_fails_per_task():
     ch = _channel()
-    ch.write_launch(LaunchSpec(campaign_id="camp-1", tasks=["T1.9", "T1.13"], params={}, target={}))
+    ch.write_launch(LaunchSpec(campaign_id="camp-1", tasks=_tasks("T1.9", "T1.13"), params={}, target={}))
 
     def run_task(task_id, spec):
         if task_id == "T1.13":
@@ -33,7 +37,7 @@ def test_serial_loop_completes_and_fails_per_task():
 
 def test_all_pass_writes_done():
     ch = _channel()
-    ch.write_launch(LaunchSpec(campaign_id="camp-1", tasks=["A"], params={}, target={}))
+    ch.write_launch(LaunchSpec(campaign_id="camp-1", tasks=_tasks("A"), params={}, target={}))
     CampaignController(
         ch,
         lambda tid, spec: TaskOutcome(task_id=tid, ok=True, result_json=b"{}"),
@@ -46,7 +50,7 @@ def test_all_pass_writes_done():
 
 def test_ok_false_outcome_marks_failed():
     ch = _channel()
-    ch.write_launch(LaunchSpec(campaign_id="camp-1", tasks=["A"], params={}, target={}))
+    ch.write_launch(LaunchSpec(campaign_id="camp-1", tasks=_tasks("A"), params={}, target={}))
     CampaignController(
         ch,
         lambda tid, spec: TaskOutcome(task_id=tid, ok=False, result_json=b"", error="nope"),
@@ -59,7 +63,7 @@ def test_ok_false_outcome_marks_failed():
 
 def test_stop_signal_breaks_before_next_task():
     ch = _channel()
-    ch.write_launch(LaunchSpec(campaign_id="camp-1", tasks=["A", "B"], params={}, target={}))
+    ch.write_launch(LaunchSpec(campaign_id="camp-1", tasks=_tasks("A", "B"), params={}, target={}))
     ch.signal_stop()
     CampaignController(
         ch,
@@ -69,3 +73,28 @@ def test_stop_signal_breaks_before_next_task():
     ).run()
     # stopped before running anything
     assert ch.read_manifest().counts().get("pending") == 2
+
+
+def test_repeated_task_results_key_by_run_id_never_overwrite():
+    """The same task_id executed twice lands as two distinct OSS result objects."""
+    ch = _channel()
+    ch.write_launch(
+        LaunchSpec(
+            campaign_id="camp-1",
+            tasks=[{"task_id": "A", "params": {}}, {"task_id": "A", "params": {}}],
+            params={},
+            target={},
+        )
+    )
+    seq = iter(["run-1", "run-2"])
+
+    def run_task(task_id, spec):
+        rid = next(seq)
+        return TaskOutcome(task_id=task_id, ok=True, result_json=b'{"run":"%s"}' % rid.encode(), run_id=rid)
+
+    CampaignController(ch, run_task, now=lambda: 1.0, ledger_bytes=lambda: b"L").run()
+
+    names = sorted(ch.list_results())
+    assert names == ["A--run-1", "A--run-2"], names
+    assert ch.read_result("A--run-1")[0] == b'{"run":"run-1"}'
+    assert ch.read_result("A--run-2")[0] == b'{"run":"run-2"}'

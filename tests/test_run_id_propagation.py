@@ -22,7 +22,7 @@ def test_orchestrator_sets_run_id_on_the_adapter(tmp_path, monkeypatch):
 
     monkeypatch.setattr(LocalSimAdapter, "setup", spy)
     rec = execute(
-        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
+        RunSpec("agent-runtime", "stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
         results_dir=tmp_path,
     )
     assert seen["run_id"] == rec.run.run_id

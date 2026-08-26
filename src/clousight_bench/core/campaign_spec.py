@@ -22,13 +22,27 @@ DEFAULT_WATCHDOG_TIMEOUT_S = 5400.0
 
 @dataclass
 class LaunchSpec:
-    """The campaign launch request written by ``submit``, read by the controller."""
+    """The campaign launch request written by ``submit``, read by the controller.
+
+    ``tasks`` entries are ``{"task_id": str, "params": dict}`` mappings so suite
+    tasks (``suite:<id>``) can carry per-task params (subset, model, ...) beside
+    the campaign-wide ``params``. ``cost_budget`` is the campaign-wide hard cap
+    forwarded into ``orchestrator.execute`` for every task.
+    """
 
     campaign_id: str
-    tasks: list[str]
+    tasks: list[dict[str, Any]]
     params: dict[str, Any]
     target: dict[str, Any]
     watchdog_timeout_s: float = DEFAULT_WATCHDOG_TIMEOUT_S
+    cost_budget: float | None = None
+
+    def task_params(self, task_id: str) -> dict[str, Any]:
+        """The per-task params for ``task_id`` (``{}`` when the entry has none)."""
+        for entry in self.tasks:
+            if entry["task_id"] == task_id:
+                return dict(entry.get("params") or {})
+        raise KeyError(f"unknown task_id {task_id!r}")
 
     def to_json(self) -> bytes:
         return json.dumps(asdict(self), ensure_ascii=False).encode("utf-8")
@@ -38,10 +52,11 @@ class LaunchSpec:
         d = json.loads(data)
         return cls(
             campaign_id=str(d["campaign_id"]),
-            tasks=list(d["tasks"]),
+            tasks=[{"task_id": str(e["task_id"]), "params": dict(e.get("params") or {})} for e in d["tasks"]],
             params=dict(d.get("params") or {}),
             target=dict(d.get("target") or {}),
             watchdog_timeout_s=float(d.get("watchdog_timeout_s", DEFAULT_WATCHDOG_TIMEOUT_S)),
+            cost_budget=(float(d["cost_budget"]) if d.get("cost_budget") is not None else None),
         )
 
 

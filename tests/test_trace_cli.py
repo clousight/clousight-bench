@@ -9,7 +9,7 @@ from clousight_bench.core.traceview import find_trace, render_show, trace_summar
 
 def _run(tmp_path):
     return execute(
-        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
+        RunSpec("agent-runtime", "stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
         results_dir=tmp_path,
     )
 

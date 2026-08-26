@@ -4,7 +4,7 @@ description: Add a platform, dimension, domain, or workload engine.
 ---
 
 Clousight Bench is a **core engine + entry-point plugins**. The engine knows how
-to run a benchmark, grade evidence, persist schema-0.2 records, and report; it
+to run a benchmark, attribute provenance, and persist schema-0.3 records; it
 knows nothing about any specific cloud, task, or dataset. Everything
 domain-specific — tasks, platform adapters, enrichers, reapers — is a **plugin**
 discovered at runtime through Python entry points.
@@ -58,7 +58,7 @@ from clousight_bench.core.task import Task, TaskResult
 class MyLatencyTask(Task):
     task_id = "M1.1"
     title = "my custom latency probe"
-    evidence_layer = "B"
+    # measurements declare reproducibility_class="environmental" at score time
     capability_tags = ("latency",)
 
     def execute(self, adapter, params) -> TaskResult:

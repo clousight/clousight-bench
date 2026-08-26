@@ -16,7 +16,7 @@ from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssCl
 def test_full_prod_flow_in_memory(tmp_path):
     oss = InMemoryOssClient()
     plan = tmp_path / "plan.yaml"
-    plan.write_text("tasks:\n  - task: T1.13\n  - task: T2.1\n", encoding="utf-8")
+    plan.write_text("tasks:\n  - task_id: T1.13\n  - task_id: T2.1\n", encoding="utf-8")
     config = tmp_path / "cfg.yaml"
     config.write_text('params: {}\ntarget: {"provider": "aliyun"}\n', encoding="utf-8")
 

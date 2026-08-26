@@ -87,14 +87,16 @@ class CampaignChannel:
     def _results_prefix(self) -> str:
         return self._key("results") + "/"
 
-    def write_result(self, task_id: str, json_bytes: bytes, parquet_bytes: bytes | None) -> None:
-        self._oss.put_object(self._results_prefix() + f"{task_id}.json", json_bytes)
+    def write_result(self, name: str, json_bytes: bytes, parquet_bytes: bytes | None) -> None:
+        """``name`` is an opaque result key — the controller uses ``<task_id>--<run_id>``
+        so repeated executions of the same task never overwrite each other."""
+        self._oss.put_object(self._results_prefix() + f"{name}.json", json_bytes)
         if parquet_bytes is not None:
-            self._oss.put_object(self._results_prefix() + f"{task_id}.series.parquet", parquet_bytes)
+            self._oss.put_object(self._results_prefix() + f"{name}.series.parquet", parquet_bytes)
 
-    def read_result(self, task_id: str) -> tuple[bytes, bytes | None]:
-        j = self._oss.get_object(self._results_prefix() + f"{task_id}.json")
-        p = self._get(self._results_prefix() + f"{task_id}.series.parquet")
+    def read_result(self, name: str) -> tuple[bytes, bytes | None]:
+        j = self._oss.get_object(self._results_prefix() + f"{name}.json")
+        p = self._get(self._results_prefix() + f"{name}.series.parquet")
         return j, p
 
     def list_results(self) -> list[str]:

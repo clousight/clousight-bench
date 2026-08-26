@@ -7,7 +7,7 @@ from clousight_bench.core.schema import RunSpec
 
 def test_lifecycle_stages_are_timed(tmp_path):
     rec = execute(
-        RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
+        RunSpec("agent-runtime", "stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}}),
         results_dir=tmp_path,
     )
     timings = rec.run.stage_timings

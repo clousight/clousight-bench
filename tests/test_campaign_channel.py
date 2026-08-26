@@ -12,7 +12,12 @@ def _chan(now=None):
 def test_launch_round_trip():
     ch = _chan()
     assert ch.read_launch() is None
-    spec = LaunchSpec(campaign_id="camp-1", tasks=["T1.9"], params={}, target={"provider": "aliyun"})
+    spec = LaunchSpec(
+        campaign_id="camp-1",
+        tasks=[{"task_id": "T1.9", "params": {}}],
+        params={},
+        target={"provider": "aliyun"},
+    )
     ch.write_launch(spec)
     assert ch.read_launch() == spec
 

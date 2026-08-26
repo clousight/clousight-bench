@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "total_instances": 3,
+  "resolved_instances": 2,
+  "submitted_instances": 3,
+  "resolved_ids": [
+    "django__django-11099",
+    "pytest-dev__pytest-7205"
+  ],
+  "unresolved_ids": [
+    "sympy__sympy-20590"
+  ],
+  "submitted_ids": [
+    "django__django-11099",
+    "sympy__sympy-20590",
+    "pytest-dev__pytest-7205"
+  ],
+  "error_ids": [],
+  "empty_patch_ids": []
+}

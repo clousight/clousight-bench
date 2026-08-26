@@ -2,6 +2,85 @@
 
 All notable changes to Clousight Bench are recorded here.
 
+## [Unreleased] — real-cloud SWE-bench on Aliyun (B slice 2)
+
+### Added
+
+- **Real SUT path** (`suites/swe_bench/sut_client.py`): the suite's non-mock run
+  invokes an AgentRun-hosted agent per issue and captures REAL predictions,
+  trajectory (sut_span v2, mapped from the agent's OpenInference spans) and token
+  usage — `swe-bench.cost_per_resolved` is now computed from real usage.
+- **SWE agent modes** (`agent_bundle/agent.py`, `protocol.py`): `oracle` (echoes
+  the dataset gold patch — pipeline validation, provenance-labeled) and `llm`
+  (DashScope OpenAI-compatible endpoint; key via `DASHSCOPE_API_KEY` on the
+  driver, forwarded at provision time; degrades to an error span, never crashes).
+- **Docker-capable ECS driver host**: terraform knobs (`controller_install_docker`,
+  `controller_system_disk_size`, `controller_docker_registry_mirror`,
+  `controller_hf_endpoint`) + suite-aware `LaunchSpec` (`{task_id, params}` task
+  entries, `cost_budget`) so `csbench submit` can run `suite:swe-bench` in-region.
+- **Real dataset pin**: SWE-bench Verified at the real HF commit `c104f840…`;
+  bundled fixtures carry the REAL gold patches (deliberate benchmark-identity
+  change — golden fingerprint pin updated).
+- **Live smoke plan + bilingual runbook**: `configs/swe-bench-smoke.plan.yaml`,
+  `docs/swe-bench-live-runbook.mdx` (+ zh) with the live-verification checklist
+  and cn-region gotchas.
+
+### Changed (pre-slice-2 hardening, merged separately)
+
+- Suite contract hardening: first-class `suite:<id>` bridge in the orchestrator,
+  prepare/run state chain, faithful upstream harness invocation (exact report
+  path, schema-v2 keys, `--dataset_name` pinning), `Task.provenance()` protocol
+  with the real dataset digest in the benchmark fingerprint (golden pin test),
+  relative staged artifacts, span schema v2 enforcement, `csbench conformance
+  --suite`, `Telemetry` removed from `Evaluator.evaluate`, scoped docker teardown.
+## [Unreleased] — local results viewer (sub-project C, slice 1)
+
+### Added
+
+- **`csbench serve`** (`viewer/`): zero-dependency local web viewer over a results
+  directory — record list, record detail (measurements / provenance / stages /
+  errors), and a Jaeger-style SUT trajectory waterfall rendered from the staged
+  `trajectory.jsonl` (sut_span v2). Read-only, binds 127.0.0.1 by default; strict
+  path containment on artifact reads; single embedded `index.html` (no build step,
+  no external requests).
+
+## [Unreleased] — benchmark-suite / evaluator contract (slice 1)
+
+### Added
+
+- **`BenchmarkSuite` / `Evaluator` contract** (`core/suite.py`): ABCs for driving
+  externally-defined suites (e.g. SWE-bench) unmodified and scoring them with
+  namespaced `Measurement` dicts. `Evaluator.evaluate` returns
+  `dict[str, Measurement]` (namespaced key → measurement).
+- **`SuiteTask` + `Provenance`** (`core/suite_task.py`): threads provenance
+  (suite_id, suite_version, evaluator_id, unmodified flag) through every
+  `TaskResult`; folded into the benchmark fingerprint.
+- **SWE-bench Verified pilot** (`suites/swe_bench/`): `SweBenchSuite` (registered
+  entry point `swe-bench`) + `MockAgent` (gold/empty/random patch kinds) + bundled
+  fixtures + `[swebench]` optional extra gating the real Docker path.
+- **`OfficialSweEvaluator`**: emits `swe-bench.resolved` (ratio, deterministic,
+  official=True) and `swe-bench.cost_per_resolved` (usd, environmental, official=True)
+  under the `swe-bench.` namespace.
+- **SUT span schema** (`TraceRecord`): records SUT-side OpenTelemetry spans as
+  auditable evidence alongside the benchmark result.
+- **`conformance.check_evaluator(evaluator, suite_id, measurements)`**: verifies
+  the namespace/official invariant — official evaluators emit only `official=True`
+  keys under `"<suite_id>."`, custom evaluators only `official=False` under
+  `"<evaluator_id>."`. Returns `list[CheckResult]`; integrated into the conformance
+  test suite.
+- **Gated real-Docker smoke** (`tests/test_swe_bench_real_smoke.py`,
+  `@pytest.mark.slow`): exercises `SweBenchSuite.run()` end-to-end with Docker;
+  deselected from the default fast gate.
+
+### Fixed
+
+- `suite.py run()`: the two gate conditions (missing extra vs. wrong placement) now
+  raise separate `RuntimeError`s naming the real cause.
+- `suite.py run()`: the upstream harness report is located via a best-effort glob
+  (`<run_id>*.json` → `*.json` → recurse) and normalised into the suite's canonical
+  `results.json` shape (`{per_instance, resolved, total}`), instead of assuming a
+  plain `results.json` filename that the harness does not produce.
+
 ## 0.3.0 — 2026-08-25
 
 ### Changed (breaking — result schema 0.2 → 0.3, no backward compatibility)

@@ -216,6 +216,22 @@ jobs:
           pip install -e .
           python scripts/gen_docs.py --check
 
+  viewer-dist:
+    # The committed viewer dist/ must be the exact build of web/ — a stale
+    # bundle silently shipping in the wheel is a release bug.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Rebuild viewer dist
+        run: cd web && npm ci && npm run build
+      - name: Committed dist must be byte-identical to the rebuild
+        run: git diff --exit-code -- src/clousight_bench/resources/viewer/dist
+
   slow-tests:
     # The heavy real-sleep / timing-sensitive integration tests (`-m slow`), split
     # out of the required test matrix so the fast gate stays quick and their

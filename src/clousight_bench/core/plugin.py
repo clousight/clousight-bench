@@ -29,6 +29,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Literal
 
 from clousight_bench.core.observation import ObservationBundle, TaskResult
+from clousight_bench.core.record import Provenance
 from clousight_bench.core.redaction import redact
 from clousight_bench.core.schema import ResultRecord
 
@@ -193,6 +194,10 @@ class Task(ABC):
         ``assets``.
         """
         return {"workload": "", "workload_version": "", "assets": []}
+
+    def provenance(self) -> Provenance:
+        """The credibility chain for this run; non-suite tasks return the empty default."""
+        return Provenance()
 
 
 class DomainPack(ABC):

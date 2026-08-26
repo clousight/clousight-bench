@@ -1,0 +1,97 @@
+---
+title: Results viewer
+description: Local read-only web viewer over a results directory — record list, record detail, trajectory transcript and waterfall.
+---
+
+`csbench serve` starts a small local web server on top of a results directory
+and serves an embedded single-page viewer. It is strictly **read-only**: the
+server only reads record JSON files and trajectory artifacts, never writes.
+
+## Usage
+
+```bash
+csbench serve                          # ./results on http://127.0.0.1:8787
+csbench serve --results out/results    # another results directory
+csbench serve --port 0                 # ephemeral port; the printed URL shows the actual bound port
+csbench serve --host 0.0.0.0           # bind non-localhost — the viewer has NO auth; do NOT expose publicly
+```
+
+The command prints the actual bound address (useful with `--port 0`) and runs
+until Ctrl-C.
+
+## Interface
+
+The header has a **language switcher** (EN | 中文 — every UI string is
+bilingual; the choice persists in `localStorage` and defaults to the browser
+language) and a **theme toggle** (🌙/☀️ — follows the system
+`prefers-color-scheme` until toggled, then persists).
+
+## What it shows
+
+- **Record list** (`#/`) — one row per run: run id (links to the detail page),
+  task, adapter, status badge, suite badge when the run came from a suite,
+  scalar measurement chips inline, and a 🧵 link when a trajectory artifact
+  exists. A client-side filter box narrows rows by run id / task / adapter /
+  status / suite.
+- **Record detail** (`#/record/<run_id>`) — cards for measurements (value,
+  unit, official ✓/—, reproducibility class), provenance (suite id/version,
+  evaluator, scaffold, dataset digest with a copy button), a horizontal stage
+  strip (status-colored steps with timings), recorded errors (hidden when
+  empty), and artifacts (kind, media, sha256 with a copy button).
+- **Trace page** (`#/record/<run_id>/trace`) — two tabs over the trajectory
+  spans; the header shows the span count and total duration:
+  - **Transcript** (the default) — spans as conversation-style cards in
+    `t_start` order: a kind icon (🧠 `llm_call` / 🔧 `tool_call`), the parent
+    chain as a breadcrumb, and a right-aligned timing trail
+    `+<offset> · <duration>`. Error spans get a red edge and their error
+    message. Clicking a card toggles its attributes as JSON with a copy
+    button.
+  - **Waterfall** — an ECharts custom-series chart: every span as a
+    time-positioned bar on a millisecond (or second, for long traces) axis,
+    colored by kind with error bars in the destructive color, labels indented
+    by span depth. Hovering a bar shows `name · kind · duration · status`;
+    clicking a bar opens the same attributes panel as the transcript, and the
+    selection survives switching tabs.
+
+## Development and build
+
+The viewer is a React 18 + TypeScript + Vite + Tailwind app under `web/`. Its
+production build is **committed** at
+`src/clousight_bench/resources/viewer/dist/` and shipped inside the wheel, so
+installing the package never requires Node.
+
+```bash
+scripts/build_viewer.sh    # npm ci + npm run build -> resources/viewer/dist/
+cd web && npm run dev      # Vite dev server (point it at a running csbench serve for the API)
+```
+
+After changing anything under `web/`, rebuild and commit the regenerated
+`dist/` in the same change — tests validate the committed artifact, not the
+sources alone.
+
+## Scope and security
+
+- Binds `127.0.0.1` by default. It has no authentication — do not expose it
+  on a public interface.
+- The built app is **offline-first**: everything (React, ECharts, styles,
+  both locale dictionaries) is bundled into the committed `dist/`, system
+  font stack only, and **no external requests** — a build-time guard plus a
+  test enforce that no dist file contains an absolute URL.
+- It is served under a strict CSP (`script-src 'self'; style-src 'self'`)
+  with nothing inline (tests enforce that `index.html` has no inline scripts,
+  styles, or handlers), and server-provided strings are always rendered as
+  text, never as markup (`dangerouslySetInnerHTML` is banned by test).
+- Static serving is containment-checked inside the packaged `dist/`
+  directory; `..` traversal and unknown extensions return 404.
+- The API is read-only: `GET /api/records`, `GET /api/record/<run_id>`,
+  `GET /api/record/<run_id>/trajectory`. Artifact reads are contained inside
+  the results directory.
+
+## Trajectory data
+
+The trace page reads the record's `trajectory` artifact
+(`application/jsonl`): one span object per line with
+`span_id / trace_id / parent_id / name / kind / t_start / t_end / status /
+attrs`. See the result-record schema
+(`src/clousight_bench/resources/schemas/result-record-0.3.schema.json`) for
+how artifacts are referenced from a record.

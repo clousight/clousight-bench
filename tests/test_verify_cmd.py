@@ -17,7 +17,7 @@ def _write_record(path: Path, measurements: dict, tamper: bool = False) -> None:
         },
         "identity": {
             "domain": "agent-runtime",
-            "task_id": "T1.1",
+            "task_id": "stub.alt",
             "adapter": "local-sim",
             "task_revision": "1",
             "scorer_revision": "1",
@@ -59,8 +59,8 @@ def _args(results_dir: str) -> argparse.Namespace:
 def test_all_pass_returns_0(tmp_path, capsys):
     domain = tmp_path / "agent-runtime" / "local-sim"
     domain.mkdir(parents=True)
-    _write_record(domain / "T1.1-run-abc.json", {"lat": 42.0})
-    _write_record(domain / "T1.1-run-def.json", {"lat": 43.0})
+    _write_record(domain / "stub.alt-run-abc.json", {"lat": 42.0})
+    _write_record(domain / "stub.alt-run-def.json", {"lat": 43.0})
     rc = _cmd_verify(_args(str(tmp_path)))
     out = capsys.readouterr().out
     assert rc == 0
@@ -71,13 +71,13 @@ def test_all_pass_returns_0(tmp_path, capsys):
 def test_tampered_file_returns_1(tmp_path, capsys):
     domain = tmp_path / "agent-runtime" / "local-sim"
     domain.mkdir(parents=True)
-    _write_record(domain / "T1.1-run-good.json", {"lat": 42.0})
-    _write_record(domain / "T1.1-run-bad.json", {"lat": 42.0}, tamper=True)
+    _write_record(domain / "stub.alt-run-good.json", {"lat": 42.0})
+    _write_record(domain / "stub.alt-run-bad.json", {"lat": 42.0}, tamper=True)
     rc = _cmd_verify(_args(str(tmp_path)))
     out = capsys.readouterr().out
     assert rc == 1
     assert "1 ok, 1 failed" in out
-    assert "T1.1-run-bad.json" in out
+    assert "stub.alt-run-bad.json" in out
     assert "stored:" in out
     assert "computed:" in out
 
@@ -95,7 +95,9 @@ def test_unreadable_json_counts_as_failure(tmp_path, capsys):
 def test_aggregate_files_are_skipped_not_failed(tmp_path, capsys):
     agg_dir = tmp_path / "aggregates" / "agent-runtime" / "local-sim"
     agg_dir.mkdir(parents=True)
-    (agg_dir / "T1.1-plan-abc.json").write_text(json.dumps({"kind": "run_plan_aggregate"}), encoding="utf-8")
+    (agg_dir / "stub.alt-plan-abc.json").write_text(
+        json.dumps({"kind": "run_plan_aggregate"}), encoding="utf-8"
+    )
     rc = _cmd_verify(_args(str(tmp_path)))
     out = capsys.readouterr().out
     assert rc == 0

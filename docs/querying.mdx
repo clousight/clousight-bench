@@ -64,7 +64,7 @@ csbench query "SELECT platform, list_cost_usd, discount_usd, cost_usd AS net
 
 ```
 run_id, domain, task_id, platform, benchmark_fp, environment_fp,
-name, value_num, value_str, unit, evidence, aggregation, sample_count
+name, value_num, value_str, unit, reproducibility_class, official, aggregation, sample_count
 ```
 
 Numeric values go to `value_num`; label/text values (e.g.
@@ -73,7 +73,7 @@ Numeric values go to `value_num`; label/text values (e.g.
 **`findings`** — one row per finding:
 
 ```
-run_id, domain, task_id, platform, code, severity, summary, evidence
+run_id, domain, task_id, platform, code, severity, summary
 ```
 
 **`series`** — the high-frequency time series (from each run's
@@ -112,7 +112,7 @@ csbench query "SELECT r.platform, s.t, s.value
 Shortcut for a whole table, no SQL:
 
 ```bash
-csbench query --table measurements --where "task_id='T1.1'" --format csv
+csbench query --table measurements --where "name='swe-bench.resolved'" --format csv
 ```
 
 ## Exporting for external tools

@@ -12,14 +12,13 @@ from clousight_bench.core.plugin import Task
 class _StubTask(Task):
     """Minimal concrete Task used to drive orchestrator-level machinery tests.
 
-    Suite-first pivot retired the 27 T-code dimensions; tests that exercise
-    generic orchestrator behaviour (lifecycle, tracing, runplan, timeout, …)
-    register this stub as "T1.3" (and "T1.1") so their RunSpec strings don't
-    change. The stub produces a single "ok" measurement, which is sufficient
-    for infra assertions.
+    Tests that exercise generic orchestrator behaviour (lifecycle, tracing,
+    runplan, timeout, …) register this stub as "stub.ok" (and "stub.alt").
+    The stub produces a single "ok" measurement, which is sufficient for
+    infra assertions.
     """
 
-    task_id = "T1.3"  # keep the string so all existing RunSpec(..., "T1.3", ...) work
+    task_id = "stub.ok"
     title = "stub task (suite-first pivot)"
     task_revision = "0"
     scorer_revision = "0"
@@ -36,9 +35,9 @@ class _StubTask(Task):
 
 
 class _StubTask11(_StubTask):
-    """Like _StubTask but registered as 'T1.1' for test_plugin_registry."""
+    """A second stub id for tests that need two distinct tasks."""
 
-    task_id = "T1.1"
+    task_id = "stub.alt"
 
 
 _STUB_TASKS_SKIP = frozenset(
@@ -52,17 +51,19 @@ _STUB_TASKS_SKIP = frozenset(
 
 @pytest.fixture(autouse=True)
 def _inject_stub_tasks(request, monkeypatch):
-    """Register _StubTask as "T1.3" and "T1.1" in AgentRuntimeDomain for each test.
+    """Register _StubTask as "stub.ok" and "stub.alt" in AgentRuntimeDomain for each test.
 
     Suite-first pivot retired the 27 T-code dimensions; tests that exercise
     generic orchestrator behaviour (runplan, tracing, timeout, interrupt, …)
-    register these stubs so their RunSpec("agent-runtime", "T1.3", …) strings
+    register these stubs so their RunSpec("agent-runtime", "stub.ok", …) strings
     stay unchanged. Tests that verify the production registry (docs inventory)
     are exempted so they see the real zero-task domain.
     """
     module = request.module.__name__.split(".")[-1]
     if module in _STUB_TASKS_SKIP:
         return  # don't patch — let the test see the real (empty) domain
+    if request.node.get_closest_marker("real_registry") is not None:
+        return  # per-test opt-out: the test asserts on the real (zero-task) domain
 
     from clousight_bench.domains.agent_runtime import AgentRuntimeDomain
 
@@ -104,7 +105,7 @@ def _write_analytics_record(root: Path, run_id: str = "r1") -> None:
         },
         "identity": {
             "domain": "agent-runtime",
-            "task_id": "T1.3",
+            "task_id": "stub.ok",
             "adapter": "local-sim",
             "task_revision": "2",
             "scorer_revision": "2",
@@ -138,7 +139,7 @@ def _write_analytics_record(root: Path, run_id: str = "r1") -> None:
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     p = root / "agent-runtime" / "local-sim"
     p.mkdir(parents=True, exist_ok=True)
-    (p / f"T1.3-{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    (p / f"stub.ok-{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 @pytest.fixture

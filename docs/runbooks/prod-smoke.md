@@ -13,14 +13,24 @@ orchestration logic offline; this runbook proves the live wiring
 - `configs/agent-runtime-aliyun.local.yaml` with `target.oss_bucket` + `target.region` (gitignored, has secrets).
 - MAIN-account AK for terraform: `export ALICLOUD_ACCESS_KEY=... ALICLOUD_SECRET_KEY=... ALICLOUD_REGION=cn-hangzhou`.
 - Sub-account AK (for the controller's SDK calls, injected via the instance role) is provisioned by `controller.tf`.
-- A slim plan, e.g. `configs/prod-smoke.plan.yaml`:
+- A slim plan, e.g. `configs/prod-smoke.plan.yaml` (submit-plan task entries are
+  `{task_id, params}` mappings; `params` is optional per task):
   ```yaml
   version: "1"
   domain: agent-runtime
   platform: aliyun-agentrun
+  # cost_budget: 25.0             # optional campaign-wide hard cap (USD), forwarded to every task
+  # driver:                       # optional: make the controller a docker-capable suite driver host
+  #   install_docker: true        # -> -var controller_install_docker=true
+  #   system_disk_size: 120       # GiB (default 40)
+  #   docker_registry_mirror: "https://mirror.example.com"
+  #   hf_endpoint: "https://hf-mirror.com"
+  #   instance_type: "ecs.c6.xlarge"
   tasks:
-    - task: T1.13   # startup curve, ~27s
-    - task: T2.1    # tool registration
+    - task_id: T1.13   # startup curve, ~27s
+    - task_id: T2.1    # tool registration
+    # - task_id: "suite:swe-bench"
+    #   params: {subset: verified-50}
   ```
 
 ## Happy path

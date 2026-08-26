@@ -1989,10 +1989,18 @@ class AliyunAgentRunTransport(RuntimeTransport):
         idle_timeout_s = (spec or {}).get("session_idle_timeout_s")
         if idle_timeout_s is not None:
             body.session_idle_timeout_seconds = int(idle_timeout_s)
-        # Carry the run-id for cost reconciliation via environment variable.
+        # Provision-time env: caller-supplied variables (e.g. llm-mode
+        # DASHSCOPE_API_KEY forwarded by the suite's SUT client) merged with the
+        # cost-reconciliation run-id tag. CLOUSIGHT_RUN_ID stays authoritative —
+        # a spec entry can never override it.
+        env_vars: dict[str, str] = {
+            str(k): str(v) for k, v in dict((spec or {}).get("environment_variables") or {}).items()
+        }
         run_id = getattr(self._adapter, "run_id", None)
         if run_id:
-            body.environment_variables = {"CLOUSIGHT_RUN_ID": run_id}
+            env_vars["CLOUSIGHT_RUN_ID"] = run_id
+        if env_vars:
+            body.environment_variables = env_vars
         # Enable ARMS tracing if arms_license_key is configured (T4.x trace probes).
         arms_key = str(target.get("arms_license_key") or "")
         if arms_key:

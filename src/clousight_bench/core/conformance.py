@@ -13,7 +13,9 @@ schema -- so a successful ``csbench run`` already proves records conform.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from clousight_bench import PLUGIN_API_VERSION
 from clousight_bench.core.canonical import canonical_json
@@ -91,6 +93,95 @@ def _check_task(tid: str, task_cls: type) -> list[CheckResult]:
         out.append(CheckResult(f"{label}:config", False, f"config({{}}) failed: {exc}"))
 
     return out
+
+
+def check_evaluator(
+    evaluator: object,
+    suite_id: str,
+    measurements: dict[str, Any],
+    *,
+    known_suite_ids: Sequence[str] = (),
+) -> list[CheckResult]:
+    """Conformance checks for a suite evaluator.
+
+    Verifies the namespace/official invariant over a provided measurement dict:
+
+    - Official evaluators (``official=True``) must emit ONLY keys namespaced
+      ``"<suite_id>."`` and all measurements must have ``official=True``.
+    - Custom evaluators (``official=False``) must emit ONLY keys namespaced
+      ``"<evaluator_id>."`` and all measurements must have ``official=False``.
+
+    A third check ``evaluator:no-suite-squatting`` is always appended.  For
+    custom evaluators (``official=False``) it verifies that no emitted key
+    starts with ``"<sid>."`` for any ``sid`` in ``known_suite_ids``.  For
+    official evaluators it is a no-op passing check (output shape is stable).
+
+    Args:
+        evaluator: An ``Evaluator`` instance.
+        suite_id: The canonical suite id (e.g. ``"swe-bench"``).
+        measurements: The ``dict[str, Measurement]`` returned by
+            ``evaluator.evaluate()``.
+        known_suite_ids: All registered suite ids; used to detect namespace
+            squatting by unofficial evaluators.
+    """
+    results: list[CheckResult] = []
+    is_official: bool = bool(getattr(evaluator, "official", False))
+    evaluator_id: str = str(getattr(evaluator, "evaluator_id", ""))
+
+    expected_prefix = f"{suite_id}." if is_official else f"{evaluator_id}."
+    expected_official = is_official
+
+    bad_ns: list[str] = []
+    bad_flag: list[str] = []
+
+    for key, m in measurements.items():
+        if not key.startswith(expected_prefix):
+            bad_ns.append(key)
+        m_official = bool(getattr(m, "official", False))
+        if m_official != expected_official:
+            bad_flag.append(key)
+
+    ns_ok = len(bad_ns) == 0
+    flag_ok = len(bad_flag) == 0
+
+    ns_detail = (
+        ""
+        if ns_ok
+        else (f"keys outside expected namespace {expected_prefix!r}: " + ", ".join(repr(k) for k in bad_ns))
+    )
+    flag_detail = (
+        ""
+        if flag_ok
+        else (
+            f"measurements with wrong official flag (expected {expected_official}): "
+            + ", ".join(repr(k) for k in bad_flag)
+        )
+    )
+
+    results.append(CheckResult("evaluator:namespace", ns_ok, ns_detail))
+    results.append(CheckResult("evaluator:official-flag", flag_ok, flag_detail))
+
+    # Anti-squatting check: always emit a CheckResult so output shape is stable.
+    if is_official:
+        results.append(
+            CheckResult("evaluator:no-suite-squatting", True, "official evaluator; squatting check n/a")
+        )
+    else:
+        squatted: list[str] = []
+        for sid in known_suite_ids:
+            prefix = f"{sid}."
+            for key in measurements:
+                if key.startswith(prefix):
+                    squatted.append(key)
+        sq_ok = len(squatted) == 0
+        sq_detail = (
+            ""
+            if sq_ok
+            else ("custom evaluator squats known suite namespace(s): " + ", ".join(repr(k) for k in squatted))
+        )
+        results.append(CheckResult("evaluator:no-suite-squatting", sq_ok, sq_detail))
+
+    return results
 
 
 def _check_platform(pack, platform: str) -> CheckResult:

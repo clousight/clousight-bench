@@ -26,11 +26,41 @@
       },
       "additionalProperties": false
     },
-    "measurements": {"type": "object"},
+    "measurements": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["value", "unit"],
+        "properties": {
+          "value": {},
+          "unit": {"type": "string"},
+          "reproducibility_class": {"type": "string"},
+          "official": {"type": "boolean"},
+          "aggregation": {"type": "string"},
+          "sample_count": {"type": ["integer", "null"]},
+          "notes": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
     "findings": {"type": "array"},
     "observations": {"type": "object"},
     "series": {"type": ["object", "array"]},
-    "artifacts": {"type": "array"},
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "media", "sha256"],
+        "properties": {
+          "kind": {"type": "string"},
+          "media": {"type": "string"},
+          "sha256": {"type": "string"},
+          "path": {"type": "string"},
+          "uri": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
     "extensions": {"type": "object"},
     "errors": {"type": "array"}
   }
