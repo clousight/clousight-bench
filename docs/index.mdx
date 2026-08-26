@@ -1,55 +1,85 @@
 ---
 title: Clousight Bench
-description: Reproducible, evidence-graded benchmarking for cloud products.
+description: Recognized benchmark suites, run reproducibly against managed cloud products.
 ---
 
-**The measuring stick of [Clousight](https://clousight.com) — reproducible, evidence-graded benchmarks for cloud products.**
+**The measuring stick of [Clousight](https://clousight.com) — recognized benchmark
+suites (SWE-bench Verified first), run unmodified against managed cloud products,
+with a verifiable provenance chain on every number.**
 
-Clousight Bench measures the **platform runtime engineering** of managed cloud
-products — session hosting, tool-failure recovery, trace completeness, cost
-attribution — not model intelligence. The core orchestrates one lifecycle:
+Clousight Bench never re-scores a suite and never blends scores. The suite's own
+harness produces the verdict; the framework adds the **cloud-product dimension**
+(runtime behavior, latency, trajectory, cost) and the reproducibility bookkeeping:
+which suite, which pinned dataset revision, which evaluator, which scaffold —
+folded into content fingerprints you can diff.
 
 ```
-provision → setup → execute → collect → teardown → score → report
+BenchmarkSuite.resolve → prepare → run   (the suite's OWN harness, unmodified)
+        ▼
+Evaluator.evaluate(RawArtifacts)          (pure, offline, namespaced measurements)
+        ▼
+schema-0.3 record → csbench serve (web viewer) / csbench query (SQL)
 ```
 
-Everything product-specific is a plugin.
+Everything suite- or product-specific is a plugin.
 
 ## The reproducibility contract
 
-Every number is classified before you trust it, and every result record carries
-`config_hash` + `runner_version` + `evidence_layer`:
+Every record carries a `provenance` block (suite id, pinned dataset revision,
+evaluator id, `unmodified` flag, scaffold) plus three independent fingerprints
+(`benchmark` / `environment` / `implementation`), so you can tell whether two
+numbers are even comparable. Every measurement carries a `reproducibility_class`:
 
-| Evidence layer | Meaning | Reproducibility |
-|---|---|---|
-| **C** | Controlled-variable measurement | Precisely reproducible |
-| **B** | Environment observation | Method reproducible; numbers vary by environment |
-| **A** | Documentation reading | Vendor-stated, not measured |
-| **D** | Marketing material | Never load-bearing |
+| Class | Meaning |
+|---|---|
+| **deterministic** | Same inputs, same number — e.g. `swe-bench.resolved` |
+| **environmental** | Method reproducible; numbers vary by network/region/account — e.g. cost, latency |
+| **judge-based** | An LLM or human judgement is in the loop |
 
-Results are always reported **per dimension — never a blended score**.
+Official measurements (`official=true`) are the upstream suite's own verdict under
+the suite's namespace; custom evaluators are structurally confined to their own
+namespace. Results are always **per dimension — never a blended score**.
 
-## Quick start (no cloud account)
+## Quick start (no cloud account, no docker)
 
 ```bash
 pip install clousight-bench
-csbench list --verbose
-csbench run --domain agent-runtime --task T1.3 --platform local-sim
+csbench list                       # registered suites, evaluators, adapters
+
+# run SWE-bench Verified through the full stage machine, in mock mode:
+cat > mock.yaml <<'EOF'
+target:
+  mode: mock
+EOF
+csbench run --domain agent-runtime --task suite:swe-bench \
+    --platform local-sim --config mock.yaml
+
+# open the web viewer (EN | 中文, dark/light, trajectory waterfall):
+csbench serve
 ```
 
-Optional time-series store (Parquet + DuckDB): `pip install clousight-bench[store]`
+The mock run exercises the real code path over the suite's bundled fixtures and
+persists a schema-0.3 record; `csbench serve` renders it at
+`http://127.0.0.1:8787`. Optional analytics store (Parquet + DuckDB):
+`pip install clousight-bench[store]`.
 
 ## Learn more
 
 <CardGroup cols={2}>
   <Card title="Architecture" icon="sitemap" href="/docs/architecture">
-    The lifecycle, plugin contracts, and evidence model.
+    The lifecycle, plugin contracts, and the provenance model.
+  </Card>
+  <Card title="SWE-bench live runbook" icon="rocket" href="/docs/swe-bench-live-runbook">
+    Run the suite for real on an Aliyun ECS driver host.
+  </Card>
+  <Card title="Web viewer" icon="chart-gantt" href="/docs/viewer">
+    Record browser + trace transcript & waterfall.
   </Card>
   <Card title="Extending (plugins)" icon="puzzle-piece" href="/docs/plugins">
-    Add a platform, dimension, domain, or workload engine.
+    Add a suite, evaluator, platform adapter, or domain.
   </Card>
   <Card title="Querying results" icon="database" href="/docs/querying">
-    DuckDB-backed analytics over the Parquet store.
+    DuckDB-backed analytics over the canonical records.
   </Card>
   <Card title="API reference" icon="code" href="/docs/reference">
     Core data schema and plugin base classes.

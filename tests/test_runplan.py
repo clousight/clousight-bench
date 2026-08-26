@@ -21,7 +21,7 @@ from clousight_bench.core.runplan import (
 )
 from clousight_bench.core.schema import RunSpec
 
-_SPEC = RunSpec("agent-runtime", "T1.3", "local-sim", target={"recovery": {"mode": "auto-retry"}})
+_SPEC = RunSpec("agent-runtime", "stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
 
 def _record(
@@ -35,7 +35,7 @@ def _record(
 ):
     return ResultRecord(
         run=RunInfo(run_id, "2026-01-01T00:00:00Z", "2026-01-01T00:00:01Z", {"PERSIST": "ok"}),
-        identity=Identity("agent-runtime", "T1.3", "1", "1", "local-sim", "reference", "0.2.0"),
+        identity=Identity("agent-runtime", "stub.ok", "1", "1", "local-sim", "reference", "0.2.0"),
         environment=Environment("", "local", "3.12.0", "Linux"),
         fingerprints=Fingerprints(benchmark, environment, implementation, "sha256:d"),
         status=status,
@@ -87,7 +87,7 @@ def test_warmup_and_measured_share_the_same_benchmark_fingerprint(tmp_path):
 
 def test_the_aggregate_is_persisted_with_its_own_digest(tmp_path):
     aggregate = execute_plan(RunPlan(_SPEC, repeat=2), results_dir=tmp_path, plan_id="plan-agg")
-    path = tmp_path / AGGREGATES_DIRNAME / "agent-runtime" / "local-sim" / "T1.3-plan-agg.json"
+    path = tmp_path / AGGREGATES_DIRNAME / "agent-runtime" / "local-sim" / "stub.ok-plan-agg.json"
     assert path.is_file()
     payload = json.loads(path.read_text())
     assert payload["kind"] == "run_plan_aggregate"

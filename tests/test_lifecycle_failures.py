@@ -509,9 +509,7 @@ def test_non_canonical_scored_measurement_fails_score_and_keeps_observations(
         _Task,
         "score",
         lambda self, observations: TaskResult(
-            measurements={
-                "bad": Measurement(value=bad_value, unit="", reproducibility_class="deterministic")
-            }
+            measurements={"bad": Measurement(value=bad_value, unit="", reproducibility_class="deterministic")}
         ),
     )
     record = _run(tmp_path)

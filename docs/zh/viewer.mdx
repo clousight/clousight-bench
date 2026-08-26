@@ -1,0 +1,52 @@
+---
+title: 结果查看器
+description: 基于结果目录的本地只读 Web 查看器——记录列表、记录详情、轨迹对话记录与瀑布图。
+---
+
+`csbench serve` 在结果目录之上启动一个小型本地 Web 服务器，并提供一个内嵌的单页查看器。它是严格**只读**的：服务器只读取记录 JSON 文件和轨迹 artifact，绝不写入。
+
+## 用法
+
+```bash
+csbench serve                          # 在 http://127.0.0.1:8787 上提供 ./results
+csbench serve --results out/results    # 指定其他结果目录
+csbench serve --port 0                 # 临时端口；打印的 URL 显示实际绑定的端口
+csbench serve --host 0.0.0.0           # 绑定非 localhost —— 查看器没有鉴权,切勿暴露到公网
+```
+
+该命令会打印实际绑定的地址（配合 `--port 0` 很有用），并持续运行直到按 Ctrl-C。
+
+## 界面
+
+页头提供**语言切换器**（EN | 中文——所有 UI 字符串均为双语；选择持久化到 `localStorage`，默认跟随浏览器语言）和**主题切换按钮**（🌙/☀️——在手动切换前跟随系统 `prefers-color-scheme`，切换后持久化）。
+
+## 展示内容
+
+- **记录列表**（`#/`）——每次运行一行：运行 ID（链接到详情页）、任务、适配器、状态徽章、来自套件的运行会显示套件徽章、内联标量测量值标签，以及存在轨迹 artifact 时的 🧵 链接。客户端过滤框可按运行 ID / 任务 / 适配器 / 状态 / 套件筛选。
+- **记录详情**（`#/record/<run_id>`）——卡片式布局：测量值（数值、单位、官方 ✓/—、可复现性等级）、来源信息（套件 ID/版本、评测器、脚手架、带复制按钮的数据集摘要）、水平阶段条（按状态着色的步骤与耗时）、记录的错误（为空时隐藏），以及产物（类型、媒体类型、带复制按钮的 sha256）。
+- **轨迹页**（`#/record/<run_id>/trace`）——轨迹 span 之上的两个标签页；页头显示 span 数量和总时长：
+  - **对话记录**（默认）——span 按 `t_start` 顺序渲染为对话式卡片：kind 图标（🧠 `llm_call` / 🔧 `tool_call`）、父链面包屑，以及右对齐的时间尾注 `+<偏移> · <时长>`。错误 span 带红色边缘并显示错误信息。点击卡片可展开其属性 JSON（带复制按钮）。
+  - **瀑布图**——ECharts 自定义系列图表：每个 span 渲染为按时间定位的条形，坐标轴以毫秒（长轨迹为秒）计，按 kind 着色，错误条形使用警示色，标签按 span 深度缩进。悬停条形显示 `名称 · 类型 · 时长 · 状态`；点击条形展开与对话记录相同的属性面板，且切换标签页时选中状态保持不变。
+
+## 开发与构建
+
+查看器是位于 `web/` 下的 React 18 + TypeScript + Vite + Tailwind 应用。其生产构建产物**已提交**在 `src/clousight_bench/resources/viewer/dist/` 并随 wheel 一起发布，因此安装本包永远不需要 Node。
+
+```bash
+scripts/build_viewer.sh    # npm ci + npm run build -> resources/viewer/dist/
+cd web && npm run dev      # Vite 开发服务器（API 指向一个运行中的 csbench serve）
+```
+
+修改 `web/` 下的任何内容后，需在同一变更中重新构建并提交生成的 `dist/`——测试校验的是已提交的构建产物，而不仅是源码。
+
+## 范围与安全
+
+- 默认绑定 `127.0.0.1`。没有任何鉴权——请勿暴露到公网接口。
+- 构建后的应用是**离线优先**的：一切（React、ECharts、样式、两套语言词典）都打包进已提交的 `dist/`，只使用系统字体栈，**无任何外部请求**——构建期守卫加测试共同强制所有 dist 文件不含绝对 URL。
+- 它在严格 CSP（`script-src 'self'; style-src 'self'`）下提供服务，无任何内联内容（测试强制 `index.html` 不含内联脚本、样式或事件处理器）；服务器提供的字符串始终以纯文本渲染，绝不作为标记解析（`dangerouslySetInnerHTML` 被测试禁用）。
+- 静态文件服务在打包的 `dist/` 目录内做包含性检查；`..` 路径穿越和未知扩展名返回 404。
+- API 只读：`GET /api/records`、`GET /api/record/<run_id>`、`GET /api/record/<run_id>/trajectory`。artifact 读取被限制在结果目录内部。
+
+## 轨迹数据
+
+轨迹页读取记录的 `trajectory` artifact（`application/jsonl`）：每行一个 span 对象，包含 `span_id / trace_id / parent_id / name / kind / t_start / t_end / status / attrs`。记录如何引用 artifact 参见结果记录 schema（`src/clousight_bench/resources/schemas/result-record-0.3.schema.json`）。

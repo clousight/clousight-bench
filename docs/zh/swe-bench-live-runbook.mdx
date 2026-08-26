@@ -1,0 +1,153 @@
+---
+title: SWE-bench 真实云冒烟 Runbook
+description: 在真实阿里云基础设施上跑通 3 实例 SWE-bench Verified 冒烟 — 提交、验证、拉取、清理。
+---
+
+本 Runbook 使用已提交的计划文件 `configs/swe-bench-smoke.plan.yaml` —— 3 个真实的
+SWE-bench Verified 实例，**oracle** 模式（gold patch 回放，零 LLM 花费）——
+完成一次完整的真实云流程：AgentRun 托管的 agent 产出 predictions，上游 `swebench`
+harness 在 ECS 驱动机上用 Docker 评测，结果经 OSS 回到你的笔记本。
+
+计划文件的*形状*已经离线验证过：`tests/test_swe_submit_e2e.py` 用真实的
+`csbench submit` 代码路径提交这个文件本身，并以 mock 模式端到端执行其中的任务条目。
+只有真实运行才能验证的是接线本身 —— Docker、数据集下载、AgentRun 调用、计费 ——
+这正是本 Runbook 的目的。
+
+## 前置条件
+
+- **阿里云余额 ≥ ¥100。** 低于该余额时后付费 ECS 创建会被拒绝 —— submit 会在
+  `terraform apply` 阶段以一个看似配额问题的报错失败。
+- **RAM 凭证。** 主账号 AK 供 terraform 使用（`ALICLOUD_ACCESS_KEY` /
+  `ALICLOUD_SECRET_KEY` / `ALICLOUD_REGION`）；controller 自身的 SDK 调用走
+  `controller.tf` 创建的子账号实例角色。
+- **`configs/agent-runtime-aliyun.local.yaml`**（已 gitignore，绝不提交），需包含
+  `target.region`、`target.oss_bucket`、`target.auth_env` 下的凭证*环境变量名*，
+  以及用于遥测的 `target.arms_license_key`。
+- **该本地配置中必须写 `target.mode: real`。** 缺失时 suite 桥接默认走 mock ——
+  你会为一个全价 ECS campaign 付费，而它只是在回放内置 fixture
+  （提交带 `suite:` 任务且非 real 时，`csbench submit` 会打印醒目警告）。
+- **ARMS license key** 写在该本地配置中（trace/metric 上报）。
+- **仅 `llm` 模式 —— key 投递在 prod submit 路径上尚未接线。**
+  `DASHSCOPE_API_KEY` 必须在 **provision 时刻存在于驱动机的环境**里：SUT client
+  会把它转发进 CreateAgentRuntime 的 provision env，但今天的 prod cloud-init
+  **不会**把它送到驱动机上。两个可行方案：(i) 以 `controller_debug=true` 提交，
+  SSH 登录 controller，在 campaign 认领 suite 任务*之前* 在 orchestrator 的环境里
+  `export DASHSCOPE_API_KEY=...`；或 (ii) 用本地驱动（非 submit）的执行方式跑 llm
+  模式，让你自己的 shell 环境携带该 key。oracle 模式完全不需要 LLM key。
+
+## 计划文件
+
+`configs/swe-bench-smoke.plan.yaml`（已提交；只含占位符 —— 真实值全部放在
+gitignore 的本地配置里）：
+
+```yaml
+version: "1"
+domain: agent-runtime
+platform: aliyun-agentrun
+cost_budget: 10.0
+driver:
+  install_docker: true
+  system_disk_size: 120
+  docker_registry_mirror: "https://REPLACE-WITH-YOUR-ID.mirror.aliyuncs.com"
+  hf_endpoint: "https://hf-mirror.com"
+tasks:
+  - task_id: "suite:swe-bench"
+    params:
+      agent_kind: oracle          # 换成 `llm` 即付费的 Qwen 变体
+      instance_ids:
+        - django__django-11099
+        - sympy__sympy-20590
+        - pytest-dev__pytest-7205
+```
+
+提交前把 `docker_registry_mirror` 换成你的 ACR 加速地址（ACR 控制台 → 镜像加速器）。
+未知的 `driver:` 键会在 submit 时被直接拒绝。
+
+## 命令序列
+
+```bash
+# 1. 提交 —— 把 launch spec 写入 OSS，terraform apply 拉起 controller + NAT。
+csbench submit configs/swe-bench-smoke.plan.yaml \
+  --config configs/agent-runtime-aliyun.local.yaml \
+  --watchdog-timeout 5400
+# 打印 campaign_id，例如 camp-ab12cd34
+
+# 2. 笔记本可以离线。之后轮询进度（只读 OSS）：
+csbench status  camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml
+csbench logs    camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml
+
+# 3. status 显示 done 后，拉取结果：
+csbench fetch   camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml \
+  --dest results/swe-smoke
+
+# 4. 兜底清理 —— 只要没确认自毁完成，就一定要执行：
+csbench teardown camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml
+```
+
+## 真实运行验证清单（8 项）
+
+首次真实运行请逐项核对 —— 每一项都覆盖一个 mock 模式测试无法触达的接缝：
+
+1. **Harness 报告文件名与键。** 安装 `swebench>=3.0` 时，报告写在
+   `<report_dir>/<model_name>.<run_id>.json`（模型名中的斜杠会变成 `__`），顶层键为 `resolved_instances` /
+   `total_instances` / `resolved_ids`。schema 漂移会让 suite 大声失败 ——
+   这一项通过即证明版本兼容。
+2. **数据集经 HF 镜像自动下载。** `princeton-nlp/SWE-bench_Verified` 必须经由
+   `hf_endpoint`（hf-mirror.com）下载，而不是卡死在 huggingface.co。在 controller
+   日志里确认下载记录。
+3. **oracle → resolved == N。** gold patch 回放必须解决**全部 3 个**实例
+   （`swe-bench.resolved == 1.0`）。任何缺口都是环境或 harness 问题，绝不是
+   “agent 质量”。
+4. **Docker 镜像占用。** harness 会为每个实例构建数 GiB 的镜像。在驱动机上用
+   `docker system df` 确认 120 GiB 磁盘余量充足。
+5. **`sys.executable` 解析。** harness 以
+   `sys.executable -m swebench.harness.run_evaluation` 方式拉起 —— controller 上
+   它就是 cloud-init 安装的系统 python3.11（没有 venv）。确认 `swebench` 在其中
+   可导入：它由计划驱动的 extras 安装（计划里任何 `suite:` 任务都会把
+   `[swebench]` extra 加进 controller 依赖）。
+6. **placement 保持 local。** 驱动机上 `driver.placement == "local"` ——
+   harness 容器必须跑在 Docker 所在之处；其他取值会被 suite 硬性拒绝。
+7. **容器命名与 teardown 匹配。** harness 容器名为
+   `sweb.eval.<instance_id>.<run_id>`；suite teardown 通过
+   `docker ps --filter name=<run_id>` 清理。确认 run_id 出现在活跃容器名里，
+   这样清理只命中本次运行的容器，不会误伤。
+8. **Harness stderr 透出。** 制造（或检查任意一次）失败：报错必须携带 harness
+   stderr 的最后 2000 个字符 —— 是真实原因，而不是一个裸的退出码。
+
+## 国内 region 的坑
+
+- **Docker Hub 被墙。** `driver.docker_registry_mirror`（ACR 加速器）是**必填**的 ——
+  没有它所有镜像拉取都会失败。
+- **huggingface.co 不稳定。** 保持 `driver.hf_endpoint: https://hf-mirror.com`
+  供数据集自动下载。
+- **NAT 网关 + EIP 按小时计费。** 拉取结果后立即 teardown —— 不要让跑完的
+  campaign 基础设施空转过夜。
+- **FC 冷启动约 86 秒。** 把多个任务合并进同一个 campaign 摊薄冷启动，
+  不要一个任务一个 campaign。
+
+## 预期结果
+
+| 模式 | `swe-bench.resolved` | `swe-bench.cost_per_resolved` | `provenance.scaffold` |
+|------|----------------------|-------------------------------|------------------------|
+| `oracle` | `== 1.0`（3/3） | 无 —— 零 LLM 花费 | `oracle@slice2` |
+| `llm` | `>= 0`（真实 agent，可能失手） | 来自真实 usage 事件的**真实**数值 | `qwen-llm@slice2` |
+
+## 解读结果
+
+`csbench fetch` 会把每个任务写成一个 JSON 记录（产生时间序列的任务另有 parquet
+边车）放进 `--dest`。然后：
+
+```bash
+# 以表格查看 measurements（需要 [store] extra）
+csbench query --table measurements --results results/swe-smoke --format table
+
+# 查看运行的阶段树 trace
+csbench trace list --results results/swe-smoke
+# 这里的 <run_id> 是记录的 run id（来自 csbench trace list），不是容器名里的 harness csbench-<8hex> id。
+csbench trace show <run_id> --results results/swe-smoke
+```
+
+重点核对：measurement 键 `swe-bench.resolved` 和（llm 模式下的）
+`swe-bench.cost_per_resolved`；`provenance.suite_id == "swe-bench"`；
+`provenance.scaffold` 与上表一致。原始记录（`suite:swe-bench.json`）还带有
+artifact 清单 —— predictions、results、trajectory、usage 文件及其 sha256 哈希。

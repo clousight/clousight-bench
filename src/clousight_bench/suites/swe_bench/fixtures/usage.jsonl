@@ -1,0 +1,4 @@
+{"kind": "llm_tokens", "value": 1200, "unit": "tokens", "attrs": {"role": "prompt", "instance_id": "django__django-11099"}}
+{"kind": "llm_tokens", "value": 340, "unit": "tokens", "attrs": {"role": "completion", "instance_id": "django__django-11099"}}
+{"kind": "llm_tokens", "value": 980, "unit": "tokens", "attrs": {"role": "prompt", "instance_id": "sympy__sympy-20590"}}
+{"kind": "llm_tokens", "value": 210, "unit": "tokens", "attrs": {"role": "completion", "instance_id": "sympy__sympy-20590"}}

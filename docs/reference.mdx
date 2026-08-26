@@ -12,7 +12,7 @@ or [DeepWiki](https://deepwiki.com/clousight/clousight-bench).
 
 A run emits a `ResultRecord` (schema `0.2`): `status` (`completed` / `failed` /
 `invalid` / `unsupported`), `measurements` (each with `value`, `unit`,
-`evidence`), `findings` (each with a stable `code`, `severity`, evidence), and
+`reproducibility_class`, `official`), `findings` (each with a stable `code`, `severity`), and
 `fingerprints` (`benchmark` / `environment` / `implementation` / `record_digest`).
 See [Architecture](/docs/architecture) for the full field table.
 

@@ -7,18 +7,22 @@
 [![Docs](https://img.shields.io/badge/docs-docs.clousight.com-blue.svg)](https://docs.clousight.com)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/clousight/clousight-bench)
 
-**[Clousight](https://clousight.com)'s reproducible benchmark framework for cloud products** — agent runtimes today; big data clusters, databases, compute and messaging via the same abstraction.
+**[Clousight](https://clousight.com)'s reproducible benchmark harness for cloud products** —
+it runs **recognized benchmark suites unmodified** (SWE-bench Verified first) against
+**managed cloud SUTs** (agent runtimes today), and every number it publishes carries a
+verifiable provenance chain: which suite, which pinned dataset revision, which evaluator,
+which scaffold — folded into a content fingerprint you can diff.
 
-> Clousight Bench is the measuring stick of Clousight: open methods anyone can reproduce; evidence-graded results, never a blended vanity score.
+> Clousight Bench never re-scores a suite and never blends scores. The suite's own
+> harness produces the verdict; we add the cloud-product dimension (runtime behavior,
+> latency, trajectory, cost) and the reproducibility bookkeeping around it.
 
-> **0.2.0 Developer Preview.** The local reference baseline is runnable, and
-> every cloud adapter runs end-to-end in `mode: mock` with no account. The Aliyun
-> AgentRun adapter is `experimental` — its in-tree runtime provider (with its ECI
-> probe carrier, reaper and Terraform) ran a real-cloud campaign
-> (`cn-hangzhou`, 2026-08-15: 25 completed + 2 honestly unsupported); it carries
-> forward for the SWE-bench pilot. The self-designed agent-runtime task suite and
-> bigdata-emr domain were retired in the suite-first pivot (see Status); the cloud
-> infra is kept. The other clouds are skeletons.
+> **0.3.0 Developer Preview.** The whole pipeline runs locally with no cloud account
+> (`mode: mock`). The Aliyun AgentRun adapter is `experimental` and live-validated
+> (`cn-hangzhou` real-cloud campaigns); the docker-capable ECS driver host, the
+> AgentRun SUT agent (oracle/llm modes) and the SWE-bench Verified suite are code
+> complete — the first live SWE-bench smoke is gated only on account preconditions
+> (see the [live runbook](docs/swe-bench-live-runbook.mdx)). Other clouds are skeletons.
 
 **Repository status.** This repository is public and Apache-2.0 licensed.
 `main` is protected: every change lands through a pull request that passes
@@ -28,166 +32,152 @@ deletion are blocked, and the rules bind administrators too. Commercial plugins
 are developed in a separate private repository and are not required to run
 anything in this one.
 
-Run `csbench list --verbose` to inspect task metadata and adapter readiness.
-
-| Adapter | Status | Runnable |
-|---|---|---|
-| `local-sim` | reference | yes |
-| `aliyun-agentrun` | experimental | preview (live-validated) |
-| `huawei-agentarts` | skeleton | no |
-| `volcengine-agentkit` | skeleton | no |
-| `aws-agentcore` | skeleton | no |
-
-Adapter status is part of the public contract:
-`reference` and `wired` can run; `experimental` can run with preview caveats;
-`skeleton` is discoverable for contributors but is rejected before preflight.
-A `skeleton` cloud has two runnable paths without editing its adapter: `mode: mock`
-exercises the whole harness against the in-process simulated runtime with no
-account; and in real mode it becomes runnable once a **runtime provider** is
-registered for that cloud through the `clousight_bench.runtime_providers` entry
-point. The open core already ships and registers that provider in-tree for
-`aliyun-agentrun` (`experimental` — live-cloud validated) and
-`aws-agentcore`; additional clouds wire the same way — an open-core or third-party
-pack registering a provider, not patching the adapter, is what wires them.
-
-## The reproducibility contract (read this first)
-
-Every number this framework produces is classified before you trust it:
-
-- **Controlled-variable measurement (evidence layer C)** — the tested variable is controlled by our runner and mock services. **Precisely reproducible**: run the same code against your own account and challenge our numbers.
-- **Environment observation (evidence layer B)** — cold starts, network-sensitive latency. The *method* is reproducible; the *numbers* depend on your network / hardware / region.
-- **Documentation reading (evidence layer A)** — vendor-stated limits we did not measure.
-- **Marketing material (evidence layer D)** — never used as load-bearing evidence.
-
-Every result record is schema `0.2` and is attributable on three independent
-axes, so you can tell whether two numbers are even comparable:
-
-| Field | Answers |
-|---|---|
-| `fingerprints.benchmark` | *what* was measured — task, scorer, workload, assets, controlled params |
-| `fingerprints.environment` | *where* — region, mode and the environment facts the task declares |
-| `fingerprints.implementation` | *which code* — core, domain pack, adapter and installed plugins |
-| `fingerprints.record_digest` | the content digest of the record itself |
-
-Each measurement carries its own `value`, `unit` and `evidence` layer, and each
-finding carries a stable `code`, a `severity` and its evidence. A run ends in
-exactly one `status`: `completed`, `failed`, `invalid` or `unsupported` — there
-is no boolean `ok`, because "the platform does not support this" and "the run
-crashed" are different results. We publish **per-dimension results, never a
-single blended score** — blended agent-benchmark rankings have near-zero
-cross-benchmark agreement.
-
-Schema `1.0` records from older versions are no longer supported. Re-run the
-benchmark to produce a current `0.3` record.
-
-One run is not a measurement. Repeat a benchmark and get a distribution:
-
-```bash
-csbench run --domain agent-runtime --task T1.3 --platform local-sim \
-  --repeat 5 --warmup 1
-```
-
-The warmup run is discarded; the five measured runs are reduced to `mean`,
-`stdev`, `p95` and `cv` (numeric) or a value distribution (labels), and only
-runs that share a `benchmark` and `environment` fingerprint are ever pooled.
-Results are canonical JSON records — `csbench query` and `csbench rollup` make them comparable across runs.
-
-## Why another benchmark framework
-
-Existing benchmarks pin the runtime and swap the model to report accuracy. Nobody independently benchmarks the **platform runtime engineering** — session hosting, tool-failure recovery, trace completeness, cost attribution — of managed cloud products. Clousight Bench does, and the abstraction generalizes: workloads differ wildly across cloud products, but the pipeline is identical:
-
-```
-provision -> setup -> execute -> collect -> teardown -> score -> report
-```
-
-The core only orchestrates that lifecycle. Everything product-specific is a plugin:
-
-| Plugin | One per | Examples |
-|---|---|---|
-| **DomainPack** | product category | `agent-runtime`; database / compute / messaging (planned) |
-| **ProviderAdapter** | (domain, cloud) | `local-sim`, `aliyun-agentrun`, `huawei-agentarts`, `volcengine-agentkit`, `aws-agentcore` |
-| **WorkloadEngine** | load generator | any language, process boundary: `manifest.yaml` + executable + JSONL on stdout. Wrap YCSB / TPC-DS / OpenMessaging Benchmark / fio instead of reimplementing them. |
-
-Domains register via the `clousight_bench.domains` entry point — third-party packs install like any Python package and appear in `csbench list`.
-
-## Quick start (no cloud account needed)
+## Quick start (no cloud account, no docker)
 
 ```bash
 git clone https://github.com/clousight/clousight-bench.git && cd clousight-bench
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
-# what is installed?
+# what is installed? (registered suites, evaluators, adapters)
 .venv/bin/csbench list
 
-# T1.3 tool-failure recovery against the local simulated runtime:
-# a deterministic fault hits the 3rd tool call; watch two runtime policies react
-.venv/bin/csbench run --domain agent-runtime --task T1.3 --platform local-sim
-.venv/bin/csbench run --domain agent-runtime --task T1.3 --platform local-sim \
-    --config configs/local-sim.fail-fast.yaml
+# run SWE-bench Verified through the full stage machine in mock mode:
+cat > mock.yaml <<'EOF'
+target:
+  mode: mock
+EOF
+.venv/bin/csbench run --domain agent-runtime --task suite:swe-bench \
+    --platform local-sim --config mock.yaml
+
+# open the web viewer: record list, provenance, trajectory waterfall (EN | 中文)
+.venv/bin/csbench serve
 ```
 
-可选时序存储（Parquet + DuckDB）：`pip install clousight-bench[store]`
+The mock run exercises the real code path — RESOLVE → PREFLIGHT → SETUP → EXECUTE →
+SCORE → PERSIST — over the suite's bundled fixture artifacts, and persists a schema-0.3
+record with `swe-bench.resolved` and a full provenance block. `csbench serve` renders
+it at `http://127.0.0.1:8787` (React UI, bilingual, dark/light, strict CSP, read-only).
 
-查询与分析（跨云/跨产品统一）——把结果展平成 `records` / `measurements` / `findings` / `series` 四张视图跑 SQL，或导出给 notebook/BI（详见 [docs/querying.md](docs/querying.md)）：
+One run is not a measurement — repeat and pool:
 
 ```bash
-csbench query "SELECT platform, avg(value_num) FROM measurements WHERE name='cold_start_ms' GROUP BY platform"
-csbench export measurements --out m.parquet
+csbench run --domain agent-runtime --task suite:swe-bench --platform local-sim \
+    --config mock.yaml --repeat 5 --warmup 1
 ```
 
-成本按 **list（厂商原始价）→ discount（折扣）→ net（真实应付）** 三维呈现：公开价 feed 走 `CLOUSIGHT_PRICING_DATA`，私有折扣走 `CLOUSIGHT_PRICING_DISCOUNTS`（详见 [docs/querying.md](docs/querying.md)）。
+Only runs sharing a `benchmark` **and** `environment` fingerprint are ever pooled.
 
-测评集分发（内置 / 公开远程下载校验 / 私有授权）见 `examples/asset-manifests/`（`assets:` 三层模板 + 公开数据集样例）。
+## The reproducibility contract (read this first)
 
-Expected: the default (auto-retry) run ends `recovery_mode=auto-retry, final_state=completed`; the fail-fast run ends `recovery_mode=fail-fast, final_state=aborted`. The mock tool universe is pinned and fault injection is counter-based (the Nth call fails, no randomness), so the run is replayable by construction.
+Every schema-0.3 record is attributable on independent axes, so you can tell whether
+two numbers are even comparable:
 
-> **Suite-first pivot (2026-08):** The self-designed agent-runtime T-code task suite (27 tasks) and the bigdata-emr domain were retired in favour of the forthcoming `benchmark_suite`/`evaluator` contract (Sub-project B), which drives jobs from externally-defined suites (e.g. SWE-bench). The live-validated Aliyun/AWS cloud infra (runtime providers, ECI probe, reaper, carriers, Terraform) is kept and carries over for the SWE-bench pilot. Results remain canonical JSON records; visualization will be handled by the Sub-project C web viewer.
+| Field | Answers |
+|---|---|
+| `provenance` | *which suite* — suite id + pinned dataset revision, evaluator id, `unmodified` flag, scaffold |
+| `fingerprints.benchmark` | *what* was measured — task, suite revision, dataset digest, controlled params |
+| `fingerprints.environment` | *where* — region, mode (`mock`/`real`), environment facts |
+| `fingerprints.implementation` | *which code* — core, domain pack, adapter, installed plugins |
+| `fingerprints.record_digest` | the content digest of the record itself |
+
+Each measurement carries `value`, `unit`, a `reproducibility_class`
+(`deterministic` / `environmental` / `judge-based`) and an `official` flag —
+official measurements are the upstream suite's own verdict under the suite's
+namespace (`swe-bench.resolved`); custom evaluators are structurally confined to
+their own namespace (`csbench conformance --suite` enforces it). A run ends in
+exactly one `status`: `completed`, `failed`, `invalid` or `unsupported` — there is
+no boolean `ok`, because "the platform does not support this" and "the run crashed"
+are different results. We publish **per-dimension results, never a single blended
+score**.
+
+## Architecture
+
+```
+BenchmarkSuite.resolve → prepare → run   (the suite's OWN upstream harness, unmodified)
+        │                        │
+        │                 SUT invocation (cloud agent runtime; real trajectory + tokens)
+        ▼                        ▼
+Evaluator.evaluate(RawArtifacts) — pure, offline, namespaced Measurements
+        ▼
+schema-0.3 record  →  csbench serve (web viewer)  /  csbench query (SQL)
+```
+
+The core only orchestrates the lifecycle. Everything product- or suite-specific is a plugin:
+
+| Plugin | One per | Examples |
+|---|---|---|
+| **BenchmarkSuite** | recognized suite | `swe-bench` (SWE-bench Verified, pinned HF revision) |
+| **Evaluator** | scoring view | `official-swe-evaluator` (pure passthrough of the upstream verdict) |
+| **DomainPack** | product category | `agent-runtime` (the cloud-infra shell: adapters, probes, reaper) |
+| **ProviderAdapter** | (domain, cloud) | `local-sim`, `aliyun-agentrun`, `aws-agentcore`, … |
+| **WorkloadEngine** | load generator | any language: `manifest.yaml` + executable + JSONL on stdout |
+
+All of them register via entry points (`clousight_bench.benchmark_suites`,
+`.evaluators`, `.domains`, `.runtime_providers`) — third-party packs install like any
+Python package and appear in `csbench list`.
+
+| Adapter | Status | Runnable |
+|---|---|---|
+| `local-sim` | reference | yes |
+| `aliyun-agentrun` | experimental | preview (live-validated) |
+| `aws-agentcore` | skeleton (provider in-tree) | mock |
+| `huawei-agentarts` | skeleton | mock |
+| `volcengine-agentkit` | skeleton | mock |
+
+`skeleton` clouds run end-to-end in `mode: mock` with no account and become live-runnable
+when a **runtime provider** registers via `clousight_bench.runtime_providers`.
 
 ## Benchmarking a real platform
 
-Credentials are **never** stored in configs. Clousight Bench reuses the cloud's
-own default credential chain — the same env vars / CLI profile / role you already
-use for `aws`, `aliyun`, etc. — so you don't mint a benchmark-only secret.
+Credentials are **never** stored in configs — the cloud's own default credential
+chain (env vars / CLI profile / attached role) is reused. The real-cloud SWE-bench
+path runs on a **docker-capable ECS driver host** provisioned by `csbench submit`
+(OSS-only control plane, self-destructing controller, terraform backstop):
 
 ```bash
-# 1. scaffold a private config + .env.example (auto-gitignored, no secrets)
-csbench init aws                 # or: aliyun / huawei / volcengine
-#    -> agent-runtime-aws.local.yaml  +  .env.example
-
-# 2. provide credentials via ANY of:
-#      export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...   (or copy .env.example -> .env)
-#      set target.profile in the config                          (a named CLI profile)
-#      an attached role / SSO / instance metadata                (nothing to set)
-
-# 3. expose the pinned mock tool universe where the cloud runtime can reach it
-#    (localhost is NOT reachable from a cloud runtime — use a tunnel / cloud function)
-python -m clousight_bench.domains.agent_runtime.mock_tools --port 8770
-#    then set mock_base_url in the config to that public URL
-
-# 4. preflight — checks provider, SDK, credential chain, and mock reachability
-csbench doctor --config agent-runtime-aws.local.yaml
-
-# 5. run
-csbench run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config your.local.yaml
+csbench init aliyun                 # scaffold a private config (auto-gitignored)
+csbench doctor --config agent-runtime-aliyun.local.yaml
+csbench submit configs/swe-bench-smoke.plan.yaml --config agent-runtime-aliyun.local.yaml
+csbench status <campaign-id> --config ...   # then: logs / fetch / teardown
 ```
 
-Adapters surface the runtime's own retry / session / trace behavior and must
-**never** touch tasks or scoring. You pay your own cloud bill; you get numbers
-for your own account, network and region. That is the point.
+The step-by-step live runbook — preconditions, cn-region gotchas (docker registry
+mirror, HF mirror), the live-verification checklist and expected outcomes — is
+[docs/swe-bench-live-runbook.mdx](docs/swe-bench-live-runbook.mdx) (EN | 中文).
+Adapters surface the runtime's own behavior and must **never** touch suites or
+scoring. You pay your own cloud bill; you get numbers for your own account,
+network and region. That is the point.
+
+## Analysis & viewing
+
+```bash
+csbench serve                 # web viewer: records, provenance, trajectory waterfall
+csbench query "SELECT platform, avg(value_num) FROM measurements WHERE name='swe-bench.resolved' GROUP BY platform"
+csbench export measurements --out m.parquet   # optional [store] extra: Parquet + DuckDB
+```
+
+Cost is presented as **list → discount → net** (public price feed via
+`CLOUSIGHT_PRICING_DATA`, private discounts via `CLOUSIGHT_PRICING_DISCOUNTS`;
+see [docs/querying.md](docs/querying.md)).
 
 ## Status
 
-- [x] Core: lifecycle orchestrator, unified `RunSpec`/`ResultRecord` schema, entry-point plugin registry, cross-language workload protocol, DuckDB-backed `csbench query`, cost budget + live-run gate + resource reaper (`csbench sweep`)
-- [x] Onboarding: `csbench init` (scaffold private config + `.env.example`, auto-gitignored) and `csbench doctor` (preflight credentials + connectivity); credentials reuse the cloud's default chain (env / profile / role), never stored in configs
-- [x] `agent-runtime`: fault-injectable mock tool server, `local-sim` adapter, latency-class data-plane probe seam (`run_data_plane_probe`), reliability group (fault injection via mock `/fault/config` + `/latency/config`, three-state platform attribution), in-tree `aliyun-agentrun` and `aws-agentcore` runtime providers + ECI probe carrier + reaper + Terraform
-- [x] `agent-runtime` **first real-cloud run**: `aliyun-agentrun` (`experimental`) ran a real-cloud campaign (`cn-hangzhou`, 2026-08-15 — 25 completed + 2 honestly unsupported). Not yet promoted to `wired` (reserved for a repeatedly-validated path).
-- [ ] `agent-runtime`: wire the remaining clouds — `huawei-agentarts` / `volcengine-agentkit` / `aws-agentcore` remain skeletons, wired the same way via the `clousight_bench.runtime_providers` entry point.
-- [x] **Suite-first pivot (2026-08):** The self-designed 27-task agent-runtime suite and `bigdata-emr` domain were retired. Benchmark tasks will be driven by the `benchmark_suite`/`evaluator` contract (Sub-project B, forthcoming). The cross-language workload protocol is kept. Cloud infra carries over for the SWE-bench pilot.
-- [ ] database / compute / messaging domain packs
+- [x] Core: lifecycle orchestrator, `RunSpec`/`ResultRecord` schema 0.3 with provenance-folded fingerprints, entry-point plugin registry, cross-language workload protocol, DuckDB-backed `csbench query`, cost budget + live-run gate + resource reaper (`csbench sweep`)
+- [x] **Suite contract (Sub-project B)**: `BenchmarkSuite`/`Evaluator` ABCs, `suite:<id>` runs, SWE-bench Verified at a pinned HF revision with real gold-patch fixtures, official evaluator + namespace conformance, real SUT invocation on Aliyun AgentRun (oracle/llm agent modes) with real trajectory + token capture
+- [x] **Driver host (Sub-project A)**: docker-capable ECS controller (`csbench submit`), suite-aware LaunchSpec, OSS-only control plane, self-destruct reaper
+- [x] **Web viewer (Sub-project C)**: `csbench serve` — React UI (prebuilt, shipped in the wheel), record list/detail, transcript + ECharts waterfall trace views, EN | 中文, dark/light, strict CSP, offline-first
+- [ ] First **live** SWE-bench smoke on Aliyun (code complete; gated on account preconditions — see the runbook)
+- [ ] Wire the remaining clouds (`huawei-agentarts` / `volcengine-agentkit` / `aws-agentcore` live paths)
+- [ ] More suites (τ-bench and friends) through the same contract; database / compute / messaging domain packs
 
 ## Contributing
 
-Sign your commits (`git commit -s`, [DCO](https://developercertificate.org/)). Adding a platform = one adapter file + one example config; adding a dimension = one task file with its scoring and declared evidence layer; adding a product category = one DomainPack. PRs that change task or scoring logic for a shipped dimension require a version bump and a changelog entry — published numbers must stay attributable.
+Sign your commits (`git commit -s`, [DCO](https://developercertificate.org/)).
+Adding a suite = one `BenchmarkSuite` + one `Evaluator` (the SWE-bench pilot in
+`suites/swe_bench/` is the template); adding a platform = one adapter file + one
+example config; adding a product category = one DomainPack. PRs that change suite
+wiring or scoring for a shipped suite require a version bump and a changelog entry —
+published numbers must stay attributable.
 
 This checkout has no `origin` remote — commit/push/PR/merge go through `scripts/gitsync.sh` (requires the `clousight-dev` `gh` account and forces commit identity to that account's noreply email; `push` refuses `main` — land via a feature-branch PR with squash merge; run `cp .gitsync.env.example .gitsync.env` once to set the target repo).
 

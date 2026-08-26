@@ -1,6 +1,6 @@
 """The pinned 5xx-retry policy on the agent's stub/reliability path (handle_invoke).
 
-The reliability tasks (T1.3/T1.10/T1.12) drive the agent through handle_invoke
+The reliability tasks (stub.ok/T1.10/T1.12) drive the agent through handle_invoke
 (no arms_config), and observe the agent's retries via the mock's per-correlation
 call counter. So handle_invoke MUST honor the same pinned contract as lc_agent:
   max_retries=2  → 3 total attempts on persistent 5xx

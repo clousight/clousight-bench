@@ -1,0 +1,46 @@
+# SWE-bench live smoke plan — 3 real Verified instances, oracle mode (zero LLM cost).
+#
+#   csbench submit configs/swe-bench-smoke.plan.yaml \
+#     --config configs/agent-runtime-aliyun.local.yaml --watchdog-timeout 5400
+#
+# The --config file supplies `target:` (region, oss_bucket, credentials env-var
+# names ...). It is gitignored — REAL values never live in this committed plan.
+# Full walkthrough: docs/swe-bench-live-runbook.mdx (中文: docs/zh/).
+# This exact file is proven executable by tests/test_swe_submit_e2e.py.
+version: "1"
+domain: agent-runtime
+platform: aliyun-agentrun
+
+# Campaign-wide hard cap in USD; the controller stops before provisioning a
+# billable task that would cross it.
+cost_budget: 10.0
+
+# The controller ECS doubles as the docker-capable SWE-bench driver host.
+# Every key maps to a `-var controller_*` terraform var; unknown keys are
+# rejected at submit time.
+driver:
+  install_docker: true          # the upstream harness runs docker on the driver
+  system_disk_size: 120         # GiB — 3 instance images + base easily exceed the 40 default
+  # cn-region gotcha: docker hub is unreachable — an ACR mirror is REQUIRED.
+  # Get yours from the ACR console ("镜像加速器"); placeholder id below.
+  docker_registry_mirror: "https://REPLACE-WITH-YOUR-ID.mirror.aliyuncs.com"
+  # cn-region gotcha: huggingface.co is unreliable — pin the mirror for the
+  # SWE-bench_Verified dataset auto-download.
+  hf_endpoint: "https://hf-mirror.com"
+  # image builds need ≥4c8g — the default e-c1m2.large is too small for the harness.
+  instance_type: "ecs.c6.xlarge"
+
+tasks:
+  - task_id: "suite:swe-bench"
+    params:
+      # oracle = gold-patch replay through the REAL AgentRun SUT + REAL harness:
+      # proves the whole pipe with zero LLM spend. Expected: resolved == 1.0.
+      # Switch to `llm` for the paid Qwen variant (needs DASHSCOPE_API_KEY on
+      # the driver; yields a real swe-bench.cost_per_resolved).
+      agent_kind: oracle
+      # The 3 bundled real SWE-bench Verified rows
+      # (src/clousight_bench/suites/swe_bench/fixtures/instances_subset.json).
+      instance_ids:
+        - django__django-11099
+        - sympy__sympy-20590
+        - pytest-dev__pytest-7205

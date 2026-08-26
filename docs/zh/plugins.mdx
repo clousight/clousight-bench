@@ -45,7 +45,7 @@ from clousight_bench.core.task import Task, TaskResult
 class MyLatencyTask(Task):
     task_id = "M1.1"
     title = "my custom latency probe"
-    evidence_layer = "B"
+    # 测量值在 score 阶段声明 reproducibility_class="environmental"
     capability_tags = ("latency",)
 
     def execute(self, adapter, params) -> TaskResult:

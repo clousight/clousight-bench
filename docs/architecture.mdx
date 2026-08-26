@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: The shared lifecycle, plugin contracts, and evidence model.
+description: The shared lifecycle, plugin contracts, and provenance model.
 ---
 
 Clousight Bench benchmarks the **runtime engineering of cloud products**, not
@@ -25,7 +25,7 @@ RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
   `csbench doctor`.
 - **SETUP** — `adapter.setup()`: provision (Terraform) or connect (SDK/HTTP).
 - **EXECUTE** — `task.execute(adapter, params)`: drive the workload, return an
-  `ObservationBundle` of raw evidence only.
+  `ObservationBundle` of raw observations only.
 - **COLLECT** — `core/observation.py::collect()`: prove the bundle is well
   formed and canonically encodable.
 - **SCORE** — `task.score(bundle)`: a pure function producing measurements and
@@ -44,7 +44,7 @@ including when `setup()` failed half-way, and a teardown failure is recorded as
 its own stage error without overwriting the execute or collect error that
 caused it.
 
-## Result contract (schema 0.2)
+## Result contract (schema 0.3)
 
 Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
 `fingerprints`, `measurements`, `findings`, `observations`, `series`,
@@ -56,10 +56,9 @@ Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
 - `environment.execution` ∈ `simulated` · `live` · `unknown` marks whether the
   numbers came from a simulated runtime or a real cloud. It is folded into the
   environment fingerprint, so simulated and live results never pool together.
-- Every measurement carries `value`, `unit` and `evidence`, optionally
-  `aggregation`, `sample_count` and `notes`.
-- Every finding carries a stable `code`, a `severity`, a `summary`, its
-  `evidence` and `details`.
+- Every measurement carries `value`, `unit` and `official`, optionally
+  `reproducibility_class`, `aggregation`, `sample_count` and `notes`.
+- Every finding carries a stable `code`, a `severity`, a `summary` and `details`.
 - Every stage error carries `stage`, `code`, `type`, `message` and `retryable`.
   Tracebacks are never stored in a record; `csbench run --debug` writes them to
   `<results>/debug/<run_id>.log`.
@@ -76,7 +75,7 @@ a current `0.3` record.
 
 A single number is not a measurement. `csbench run --repeat N --warmup W`
 (`core/runplan.py`) runs the same `RunSpec` `warmup + repeat` times through the
-lifecycle above — every run is still its own digested `0.2` record — then:
+lifecycle above — every run is still its own digested `0.3` record — then:
 
 - discards the `warmup` runs (cold-start / JIT / cache effects are not the
   steady state you publish), tagging each record's role under
@@ -110,8 +109,8 @@ CLI (csbench)
        ├─ DomainPack  → Task(s) + Adapter(s)         [per product category]
        │     └─ Adapter (setup/submit/teardown)      [per (domain, cloud)]
        │           └─ WorkloadEngine (JSONL, any language)  [per load generator]
-       ├─ Schema (RunSpec / ResultRecord 0.2 / fingerprints / evidence layer)
-       └─ Report (per-dimension matrix + red flags)
+       ├─ Schema (RunSpec / ResultRecord 0.3 / fingerprints / provenance)
+       └─ Viewer (csbench serve: records, provenance, trace)
 ```
 
 ## Plugin contracts
@@ -162,10 +161,39 @@ Aliyun ECI probe carrier and its cloud transport in-tree**; additional carriers
 `A` docs · `B` environment observation · `C` controlled measurement · `D` marketing.
 Reports never blend dimensions into one score.
 
+## Suite / evaluator contract layer
+
+Alongside the domain-task pipeline, Clousight Bench ships a second contract for
+**externally-defined benchmark suites** such as SWE-bench:
+
+- **`BenchmarkSuite`** drives an upstream harness unmodified and returns opaque
+  `RawArtifacts` (a directory + manifest of named files).  Core treats the
+  artifacts as a black box; only the paired evaluator understands them.
+- **`Evaluator`** reads `RawArtifacts` as a pure function (no cloud, no
+  credentials) and returns `dict[str, Measurement]` where every key is namespaced
+  `"<suite_id>.<metric_name>"` (official evaluators) or
+  `"<evaluator_id>.<metric_name>"` (custom evaluators).
+- **Namespace / official invariant**: `conformance.check_evaluator(evaluator,
+  suite_id, measurements)` verifies that official evaluators emit only
+  `official=True` measurements under the suite namespace, and custom evaluators
+  emit only `official=False` measurements under their own id — and that custom
+  evaluators never squat a registered suite's namespace.  Returns
+  `list[CheckResult]`; run it from the CLI with `csbench conformance --suite
+  <suite_id>` (exercises every registered evaluator over the suite's mock
+  artifacts), or compose with `run_conformance` for CI gates.
+- **`SuiteTask` + `Provenance`**: threads provenance metadata (suite_id,
+  suite_version, evaluator_id, unmodified flag) through every `TaskResult` and
+  folds it into the benchmark fingerprint, so records from different suite
+  versions or evaluators are never pooled.
+- **SWE-bench pilot** (slice 1): `SweBenchSuite` (registered entry point
+  `swe-bench`) + `OfficialSweEvaluator` (emits `swe-bench.resolved` and
+  `swe-bench.cost_per_resolved`) + bundled fixtures for offline / CI use.  The
+  real Docker-backed `run()` path requires the `[swebench]` extra and is gated
+  behind `@pytest.mark.slow`.
+
 ## Current domains
 
-- `agent-runtime` — sessions, tool calling, fault recovery, observability, cost, isolation. All tasks run on `local-sim`; the full task list and adapter statuses are **generated from the registry below** (never hand-maintained — see "Maintaining this document"). It spans provisioning, runtime behaviour, tool registration, observability, cost and tenant isolation. Adapters use a `managed`/`transport`/`mode` split so the same code drives the local simulated runtime or, once a runtime-provider plugin is installed, a real cloud; latency-class tasks route through the `run_data_plane_probe` seam (see "Control plane vs. data plane"); capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash.
-- **Reliability group — platform-as-agent-host stance.** The unit under test is *the platform as a host for a fixed agent*, not the raw invoke API, so the reliability tasks measure whether the "platform + agent" combination recovers when a downstream tool genuinely fails or stalls. **T1.3 (fault recovery) / T1.10 (retry storm) / T1.12 (head-of-line)** inject faults/latency through the mock tool server's `/fault/config` + `/latency/config` (so they are *platform-visible* on the real agent→tool HTTP hop, authenticated with the mock token like every other call), give the benchmark agent a **pinned retry contract** (`AGENT_RETRY_POLICY` in `agent_bundle/lc_agent.py`: HTTP 5xx → retry twice, 200 ms backoff, 3 attempts total; 4xx / connection failures → no retry — part of the agent fingerprint, not a tunable knob), and **observe by reading the mock's own call counter** (correlation-id bucketed so concurrent requests never cross-count) rather than inferring from the client loop. Each yields a **three-state platform attribution** — e.g. T1.3 → `recovered` vs `platform_terminated` (invoke cut before the agent could recover) vs fail-fast; T1.10 → `storm_bounded_by` agent / platform / none. **T1.2 (state persistence) / T1.11 (concurrent writes)** are *honestly downgraded* to `unsupported` with an evidence-A finding: FC-based AgentRun has no native session state, so a stateful platform legitimately scores a positive result here — a truthful differentiating negative, not a fabricated pass.
+- `agent-runtime` — the cloud-infra shell for managed agent runtimes: adapters, runtime providers, probes, reaper. Since the suite-first pivot it registers **no self-designed tasks** — benchmark runs arrive as `suite:<id>` jobs through the benchmark-suite contract. Adapters use a `managed`/`transport`/`mode` split so the same code drives the local simulated runtime or, once a runtime-provider plugin is installed, a real cloud; capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash. The adapter statuses below are **generated from the registry** (never hand-maintained — see "Maintaining this document").
 ### Task & adapter inventory
 
 {/* BEGIN generated:task-inventory */}
@@ -195,7 +223,7 @@ Reports never blend dimensions into one score.
   resolved with `core.resources.reference_workload_path()`, so wheel and
   editable installs use the same files.
 
-Phase 1B ships ResultRecord schema `0.2` (see "Result contract" above); plugin
+Phase 1B ships ResultRecord schema `0.3` (see "Result contract" above); plugin
 API `1.0` stays until its range-negotiation replacement in Phase 1D.
 
 This repository is public and Apache-2.0 licensed; it contains the whole open
@@ -234,7 +262,7 @@ Principle: **never require users to generate a separate set of keys for the benc
 
 The minimum permissions required by a given benchmark differ across cloud providers, so permission validation is **mapped per task**, with responsibilities split across two sides:
 
-- **Task declares WHAT**: `Task.required_permissions: tuple[str, ...]` lists **abstract capability tokens** (cloud-agnostic). Tokens are defined in `domains/agent_runtime/permissions.py`: `session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`. Current per-task declarations: T1.2=`session:create,session:state`; T1.3=`session:create,tool:invoke`; T2.1=`tool:register`; T4.1=`session:create,tool:invoke,trace:read`; T4.2=`session:create,tool:invoke,trace:export`.
+- **Task declares WHAT**: `Task.required_permissions: tuple[str, ...]` lists **abstract capability tokens** (cloud-agnostic). Tokens are defined in `domains/agent_runtime/permissions.py`: `session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`. (No self-designed tasks remain after the suite-first pivot; suite tasks declare these tokens as needed.)
 - **Adapter says HOW + verifies**: each real-cloud adapter defines a `PERMISSION_MAP` (token → the concrete minimum IAM/RAM actions for that cloud). `required_actions(task)` resolves the task's tokens into the cloud-specific action set; `_probe_permissions(actions)` performs the actual authorization check (the default implementation returns `None` = unverified → emits a WARNING listing the minimum actions required for this benchmark run on this cloud; real adapter overrides call STS GetCallerIdentity / RAM policy simulation / dry-run and return `(ok, missing)` — any missing action is a CRITICAL blocker).
 
 The minimum permissions for a given run equal the adapter's mapping of the task's tokens. **Adding a new benchmark dimension** only requires declaring tokens on the Task; **adding a new cloud** only requires supplying a `PERMISSION_MAP` on the Adapter — the two sides are entirely decoupled. `csbench doctor --domain <d> --platform <p> --task <t>` prints the minimum action list for any (benchmark × cloud) combination directly.

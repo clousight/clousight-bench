@@ -58,6 +58,8 @@ def decode_request(openai_body: dict[str, Any]) -> dict[str, Any]:
         result["fail_after_n_calls"] = int(payload["fail_after_n_calls"])
     if payload.get("_session_id"):
         result["_session_id"] = str(payload["_session_id"])
+    if payload.get("swe"):
+        result["swe"] = payload["swe"]
     return result
 
 
@@ -74,6 +76,52 @@ def decode_result(openai_resp: dict[str, Any]) -> dict[str, Any]:
         return json.loads(content) if content else {}
     except (ValueError, TypeError):
         return {}
+
+
+def encode_swe_invoke(
+    instance: dict[str, Any],
+    *,
+    agent_mode: str,
+    llm_model: str = "qwen-plus",
+) -> dict[str, Any]:
+    """OpenAI chat body carrying a SWE-bench instance for the deployed agent.
+
+    The user message content is JSON ``{"swe": {...}}``. ``gold_patch`` is
+    included ONLY in oracle mode — llm mode must never leak the answer into
+    the runtime.
+    """
+    swe: dict[str, Any] = {
+        "instance_id": str(instance.get("instance_id") or ""),
+        "problem_statement": str(instance.get("problem_statement") or ""),
+        "hints": str(instance.get("hints_text") or ""),
+        "agent_mode": agent_mode,
+        "llm_model": llm_model,
+    }
+    if agent_mode == "oracle":
+        swe["gold_patch"] = str(instance.get("patch") or "")
+    return {"model": MODEL, "messages": [{"role": "user", "content": json.dumps({"swe": swe})}]}
+
+
+def decode_swe_result(response_body: dict[str, Any]) -> dict[str, Any]:
+    """Decode the agent's SWE response, tolerant of missing keys.
+
+    Returns ``{"model_patch": str, "spans": list, "usage": {prompt/completion/
+    total_tokens ints}}`` with ""/[]/zeros defaults.
+    """
+    result = decode_result(response_body)
+    raw_usage = result.get("usage") or {}
+    usage: dict[str, int] = {}
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        try:
+            usage[key] = int(raw_usage.get(key) or 0)
+        except (TypeError, ValueError):
+            usage[key] = 0
+    spans = result.get("_spans")
+    return {
+        "model_patch": str(result.get("model_patch") or ""),
+        "spans": list(spans) if isinstance(spans, list) else [],
+        "usage": usage,
+    }
 
 
 def encode_invoke_stream(

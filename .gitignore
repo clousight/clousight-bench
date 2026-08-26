@@ -3,6 +3,8 @@ __pycache__/
 *.egg-info/
 .eggs/
 dist/
+# ...but the built viewer IS committed (shipped in the wheel) — carve it out
+!src/clousight_bench/resources/viewer/dist/
 build/
 .venv/
 venv/
@@ -24,6 +26,9 @@ site/
 *.tfstate
 *.tfstate.backup
 .worktrees/
+
+# Viewer frontend sub-project (web/): sources are committed, deps are not
+web/node_modules/
 
 # Terraform / infra build artifacts
 *.tfvars

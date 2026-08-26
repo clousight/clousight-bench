@@ -16,7 +16,7 @@ def test_orchestrator_applies_enrichers(monkeypatch, tmp_path):
             return record
 
     monkeypatch.setattr(orch, "load_enrichers", lambda: [Tagger()])
-    rec = orch.execute(RunSpec("agent-runtime", "T1.3", "local-sim"), results_dir=tmp_path)
+    rec = orch.execute(RunSpec("agent-runtime", "stub.ok", "local-sim"), results_dir=tmp_path)
     assert rec.extensions["tagger"] == {"applied": True}
     assert rec.run.stages["ENRICH"] == "ok"
 
@@ -32,6 +32,6 @@ def test_orchestrator_skips_enrichers_when_disabled(monkeypatch, tmp_path):
         return []
 
     monkeypatch.setattr(orch, "load_enrichers", _boom)
-    rec = orch.execute(RunSpec("agent-runtime", "T1.3", "local-sim"), results_dir=tmp_path, enrich=False)
+    rec = orch.execute(RunSpec("agent-runtime", "stub.ok", "local-sim"), results_dir=tmp_path, enrich=False)
     assert called["n"] == 0
     assert rec.run.stages["ENRICH"] == "skipped"

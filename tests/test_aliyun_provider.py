@@ -72,6 +72,47 @@ def test_provision_request_omits_tag_without_run_id():
     assert req.body.environment_variables is None
 
 
+def test_provision_request_merges_spec_environment_variables():
+    # Caller-supplied provision env (e.g. llm-mode DASHSCOPE_API_KEY forwarded by
+    # the suite's SUT client) rides alongside the run-id tag.
+    a = AliyunAgentRunAdapter({"region": "cn-hangzhou"})
+    a.run_id = "run-20260821-000000-abcdef"
+    req = AliyunAgentRunTransport(a)._create_runtime_request(
+        {
+            "artifact_ref": "oss://b/o.zip",
+            "environment_variables": {"DASHSCOPE_API_KEY": "sk-x"},
+        }
+    )
+    assert req.body.environment_variables == {
+        "DASHSCOPE_API_KEY": "sk-x",
+        "CLOUSIGHT_RUN_ID": "run-20260821-000000-abcdef",
+    }
+
+
+def test_provision_request_run_id_stays_authoritative_over_spec():
+    # A spec entry must never override the cost-reconciliation run-id tag.
+    a = AliyunAgentRunAdapter({"region": "cn-hangzhou"})
+    a.run_id = "run-real"
+    req = AliyunAgentRunTransport(a)._create_runtime_request(
+        {
+            "artifact_ref": "oss://b/o.zip",
+            "environment_variables": {"CLOUSIGHT_RUN_ID": "run-spoofed"},
+        }
+    )
+    assert req.body.environment_variables == {"CLOUSIGHT_RUN_ID": "run-real"}
+
+
+def test_provision_request_spec_env_without_run_id():
+    a = AliyunAgentRunAdapter({"region": "cn-hangzhou"})  # no run_id
+    req = AliyunAgentRunTransport(a)._create_runtime_request(
+        {
+            "artifact_ref": "oss://b/o.zip",
+            "environment_variables": {"DASHSCOPE_API_KEY": "sk-x"},
+        }
+    )
+    assert req.body.environment_variables == {"DASHSCOPE_API_KEY": "sk-x"}
+
+
 def test_mock_mode_ignores_wired_provider():
     # mode: mock still uses the in-process simulator regardless of the wired
     # provider, so provisioning is exercisable with no account.

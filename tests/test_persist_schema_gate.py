@@ -25,7 +25,7 @@ def _rec() -> ResultRecord:
         run=RunInfo(run_id="run-x", started_at=utc_now(), finished_at=utc_now()),
         identity=Identity(
             domain="agent-runtime",
-            task_id="T1.3",
+            task_id="stub.ok",
             task_revision="2",
             scorer_revision="2",
             adapter="local-sim",
@@ -57,7 +57,7 @@ def test_invalid_status_is_rejected_and_dumped(tmp_path):
         with pytest.raises(SchemaValidationError):
             ResultStore(tmp_path).persist(rec)
         # the normal path was not written
-        assert not (tmp_path / "agent-runtime" / "local-sim" / "T1.3-run-x.json").exists()
+        assert not (tmp_path / "agent-runtime" / "local-sim" / "stub.ok-run-x.json").exists()
         # the raw record was emergency-dumped so nothing is lost
         after = set(emergency_dir.glob("INVALID-*run-x*.json"))
         new = after - before

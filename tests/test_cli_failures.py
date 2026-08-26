@@ -13,7 +13,7 @@ def _run(tmp_path, *extra):
             "--domain",
             "agent-runtime",
             "--task",
-            "T1.3",
+            "stub.ok",
             "--platform",
             "local-sim",
             "--results",
@@ -52,7 +52,7 @@ def test_stdout_matches_the_persisted_record_byte_for_byte_in_meaning(tmp_path, 
     printed = json.loads(capsys.readouterr().out)
 
     assert rc == 0
-    files = list((tmp_path / "agent-runtime" / "local-sim").glob("T1.3-*.json"))
+    files = list((tmp_path / "agent-runtime" / "local-sim").glob("stub.ok-*.json"))
     assert len(files) == 1
     on_disk = json.loads(files[0].read_text(encoding="utf-8"))
 

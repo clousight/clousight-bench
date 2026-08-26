@@ -15,7 +15,7 @@ def _plan(tmp_path):
         "domain": "agent-runtime",
         "platform": "local-sim",
         "target": {"startup": {"cold_ms": 50, "warm_ms": 5}, "recovery": {"mode": "auto-retry"}},
-        "tasks": [{"task": "T1.1", "repeat": 1}, {"task": "T1.3", "repeat": 1}],
+        "tasks": [{"task": "stub.alt", "repeat": 1}, {"task": "stub.ok", "repeat": 1}],
     }
     p = tmp_path / "plan.yaml"
     p.write_text(yaml.safe_dump(plan))
@@ -36,7 +36,7 @@ def test_run_plan_writes_a_manifest_then_progress_reads_it(tmp_path, capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "2/2 done" in out
-    assert "T1.1" in out and "T1.3" in out
+    assert "stub.alt" in out and "stub.ok" in out
 
 
 def test_progress_json_emits_the_manifest(tmp_path, capsys):
@@ -50,7 +50,7 @@ def test_progress_json_emits_the_manifest(tmp_path, capsys):
     data = json.loads(capsys.readouterr().out)
     assert data["kind"] == "campaign_manifest"
     assert data["total_tasks"] == 2
-    assert {t["task_id"] for t in data["tasks"]} == {"T1.1", "T1.3"}
+    assert {t["task_id"] for t in data["tasks"]} == {"stub.alt", "stub.ok"}
     assert all(t["status"] == "completed" for t in data["tasks"])
 
 
@@ -58,5 +58,3 @@ def test_progress_with_no_campaign_is_a_clear_error(tmp_path, capsys):
     rc = main(["progress", "--results", str(tmp_path)])
     assert rc == 2
     assert "no campaigns" in capsys.readouterr().err
-
-

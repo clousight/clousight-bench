@@ -13,7 +13,12 @@
     "dark": "#1e4fd6"
   },
   "contextual": {
-    "options": ["copy", "view", "chatgpt", "claude"],
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude"
+    ],
     "display": "header"
   },
   "navigation": {
@@ -24,21 +29,28 @@
         "groups": [
           {
             "group": "Get started",
-            "pages": ["docs/index", "docs/architecture"]
+            "pages": [
+              "docs/index",
+              "docs/architecture"
+            ]
           },
           {
             "group": "Guides",
             "pages": [
               "docs/plugins",
               "docs/probe-carrier",
+              "docs/swe-bench-live-runbook",
+              "docs/viewer",
               "docs/querying",
-              "docs/reporting",
               "docs/dataset-tiers"
             ]
           },
           {
             "group": "Reference",
-            "pages": ["docs/reference", "docs/RELEASING"]
+            "pages": [
+              "docs/reference",
+              "docs/RELEASING"
+            ]
           }
         ]
       },
@@ -47,21 +59,28 @@
         "groups": [
           {
             "group": "快速开始",
-            "pages": ["docs/zh/index", "docs/zh/architecture"]
+            "pages": [
+              "docs/zh/index",
+              "docs/zh/architecture"
+            ]
           },
           {
             "group": "指南",
             "pages": [
               "docs/zh/plugins",
               "docs/zh/probe-carrier",
+              "docs/zh/swe-bench-live-runbook",
+              "docs/zh/viewer",
               "docs/zh/querying",
-              "docs/zh/reporting",
               "docs/zh/dataset-tiers"
             ]
           },
           {
             "group": "参考",
-            "pages": ["docs/zh/reference", "docs/zh/RELEASING"]
+            "pages": [
+              "docs/zh/reference",
+              "docs/zh/RELEASING"
+            ]
           }
         ]
       }
@@ -69,7 +88,10 @@
   },
   "navbar": {
     "links": [
-      { "label": "DeepWiki", "href": "https://deepwiki.com/clousight/clousight-bench" }
+      {
+        "label": "DeepWiki",
+        "href": "https://deepwiki.com/clousight/clousight-bench"
+      }
     ],
     "primary": {
       "type": "button",

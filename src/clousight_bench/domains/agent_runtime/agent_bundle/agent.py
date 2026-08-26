@@ -263,14 +263,163 @@ def handle_invoke_traced(body: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+# ---------------------------------------------------------------------------
+# SWE mode (SWE-bench oracle / llm)
+# ---------------------------------------------------------------------------
+
+DASHSCOPE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+SWE_SYSTEM_PROMPT = (
+    "You are an expert software engineer. Given a bug report for a repository, "
+    "produce a unified diff patch that fixes the problem. "
+    "Output ONLY the unified diff (starting with 'diff --git' or '--- '), "
+    "with no explanation, no commentary, and no markdown code fences."
+)
+
+_ZERO_USAGE: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
+def _extract_diff(reply: str) -> str:
+    """Pull the unified diff out of an LLM reply.
+
+    Diff markers win over fences: take from the first ``diff --git`` / ``--- ``
+    LINE onward (dropping a trailing line-start closing fence), so an earlier
+    prose fence can never shadow the real diff and a fence CHARACTER inside the
+    diff body never truncates it.  A reply with no diff marker anywhere yields
+    ``""`` — "no patch produced" — never prose masquerading as a patch.
+    """
+    lines = reply.strip().split("\n")
+    start = next(
+        (i for i, ln in enumerate(lines) if ln.startswith("diff --git") or ln.startswith("--- ")),
+        None,
+    )
+    if start is None:
+        return ""
+    body = lines[start:]
+    # Drop a trailing closing fence (must be at line start — ``` inside a diff
+    # that patches markdown is content, not a fence).
+    end = next((i for i, ln in enumerate(body) if ln.startswith("```")), len(body))
+    return "\n".join(body[:end]).strip()
+
+
+def _normalize_usage(raw: dict[str, Any]) -> dict[str, int]:
+    usage: dict[str, int] = {}
+    for key in _ZERO_USAGE:
+        try:
+            usage[key] = int(raw.get(key) or 0)
+        except (TypeError, ValueError):
+            usage[key] = 0
+    return usage
+
+
+def _swe_span_dict(span: _Span, status: str, error: str = "") -> dict[str, Any]:
+    """Embeddable span dict, same shape as the tool-plan path plus status/error."""
+    if error:
+        span.set_attr("error", error)
+    out: dict[str, Any] = {
+        "trace_id": span.trace_id,
+        "span_id": span.span_id,
+        "parent_span_id": span.parent_span_id,
+        "name": span.name,
+        "kind": span.kind,
+        "status": status,
+        "attributes": {**span.attrs},
+    }
+    if error:
+        out["error"] = error
+    return out
+
+
+def _call_dashscope(model: str, problem: str, hints: str, api_key: str) -> tuple[str, dict, str]:
+    """POST to the DashScope OpenAI-compatible endpoint.
+
+    Returns ``(reply_text, raw_usage, error)``; on any HTTP failure error is a
+    non-empty summary and the other fields are empty — never raises.
+    """
+    user_content = problem if not hints else f"{problem}\n\nHints:\n{hints}"
+    body = json.dumps(
+        {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": SWE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        }
+    ).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+    req = urlrequest.Request(DASHSCOPE_URL, data=body, method="POST", headers=headers)
+    try:
+        with urlrequest.urlopen(req, timeout=120) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:  # noqa: BLE001 - the runtime must never crash
+        return "", {}, f"dashscope request failed: {exc}"[:500]
+    choices = data.get("choices") or []
+    message = choices[0].get("message") or {} if choices and isinstance(choices[0], dict) else {}
+    return str(message.get("content") or ""), dict(data.get("usage") or {}), ""
+
+
+def handle_swe(swe: dict[str, Any]) -> dict[str, Any]:
+    """Run a SWE-bench instance in oracle or llm mode.
+
+    oracle → echo the gold patch verbatim (one CHAIN span, zero usage).
+    llm    → ask DashScope for a unified diff (one LLM span, usage from the API).
+    Failures (missing DASHSCOPE_API_KEY, HTTP errors) yield an empty patch and a
+    status="error" span — the runtime never raises.
+    """
+    trace_id = uuid.uuid4().hex + uuid.uuid4().hex[:16]
+    instance_id = str(swe.get("instance_id") or "")
+    if str(swe.get("agent_mode") or "") == "oracle":
+        span = _Span(trace_id, "swe-oracle", "CHAIN")
+        span.set_attr("swe.instance_id", instance_id)
+        span.finish()
+        return {
+            "model_patch": str(swe.get("gold_patch") or ""),
+            "usage": dict(_ZERO_USAGE),
+            "_spans": [_swe_span_dict(span, "ok")],
+        }
+    model = str(swe.get("llm_model") or "qwen-plus")
+    span = _Span(trace_id, "swe-llm", "LLM")
+    span.set_attr("llm.model_name", model)
+    span.set_attr("swe.instance_id", instance_id)
+    api_key = os.environ.get("DASHSCOPE_API_KEY") or ""
+    if not api_key:
+        span.finish()
+        return {
+            "model_patch": "",
+            "usage": dict(_ZERO_USAGE),
+            "_spans": [_swe_span_dict(span, "error", "DASHSCOPE_API_KEY not set")],
+        }
+    reply, raw_usage, error = _call_dashscope(
+        model, str(swe.get("problem_statement") or ""), str(swe.get("hints") or ""), api_key
+    )
+    span.finish()
+    if error:
+        return {
+            "model_patch": "",
+            "usage": dict(_ZERO_USAGE),
+            "_spans": [_swe_span_dict(span, "error", error)],
+        }
+    return {
+        "model_patch": _extract_diff(reply),
+        "usage": _normalize_usage(raw_usage),
+        "_spans": [_swe_span_dict(span, "ok")],
+    }
+
+
 def handle_chat_completion(openai_body: dict[str, Any]) -> dict[str, Any]:
     """OpenAI /chat/completions wrapper: decode the tool plan, run the agent.
 
-    When ``arms_config`` is present, runs the full LangChain LCEL chain with
-    OpenInference instrumentation (T4.x tracing mode).  Falls back to the stub
-    path when LangChain is unavailable or arms_config is absent.
+    A payload carrying a ``swe`` key routes to the SWE-bench mode (oracle/llm).
+    Otherwise, when ``arms_config`` is present, runs the full LangChain LCEL
+    chain with OpenInference instrumentation (T4.x tracing mode).  Falls back to
+    the stub path when LangChain is unavailable or arms_config is absent.
     """
     req = protocol.decode_request(openai_body)
+    if req.get("swe"):
+        swe = req["swe"]
+        # A crafted/corrupt non-dict payload degrades like a config error,
+        # never crashes an in-process caller.
+        return protocol.encode_result(handle_swe(swe if isinstance(swe, dict) else {}))
     if req.get("arms_config"):
         # Try LangChain mode first (genuine CHAIN/LLM/TOOL spans)
         try:

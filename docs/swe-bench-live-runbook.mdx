@@ -1,0 +1,160 @@
+---
+title: SWE-bench live smoke runbook
+description: Run the 3-instance SWE-bench Verified smoke on real Aliyun infrastructure — submit, verify, fetch, teardown.
+---
+
+This runbook takes the committed plan `configs/swe-bench-smoke.plan.yaml` — 3 real
+SWE-bench Verified instances in **oracle** mode (gold-patch replay, zero LLM spend) —
+through a full real-cloud pass: the AgentRun-hosted agent produces the predictions,
+the upstream `swebench` harness evaluates them in Docker on an ECS driver host, and
+the results land back on your laptop via OSS.
+
+The plan's *shape* is already proven offline: `tests/test_swe_submit_e2e.py` submits
+the exact committed file through the real `csbench submit` code path and executes its
+task entry end-to-end in mock mode. What only a live run can prove is the wiring —
+Docker, the dataset download, the AgentRun invocation, billing — hence this runbook.
+
+## Preconditions
+
+- **Aliyun balance ≥ ¥100.** Postpaid ECS creation is rejected below this account
+  balance — the submit will fail at `terraform apply` with an opaque quota-like error.
+- **RAM credentials.** MAIN-account AK exported for terraform
+  (`ALICLOUD_ACCESS_KEY` / `ALICLOUD_SECRET_KEY` / `ALICLOUD_REGION`); the controller's
+  own SDK calls use the sub-account instance role that `controller.tf` provisions.
+- **`configs/agent-runtime-aliyun.local.yaml`** (gitignored, never committed) with
+  `target.region`, `target.oss_bucket`, the credential *env-var names* under
+  `target.auth_env`, and `target.arms_license_key` for telemetry.
+- **`target.mode: real` in that local config.** Without it the suite bridge defaults
+  to mock — you would pay for a full-price ECS campaign that replays canned fixtures
+  (`csbench submit` prints a loud warning if a `suite:` task is submitted non-real).
+- **ARMS license key** present in that local config (trace/metric export).
+- **`llm` mode only — key delivery is NOT yet wired for prod submit.**
+  `DASHSCOPE_API_KEY` must be present in the **DRIVER host's environment at
+  provision time**: the SUT client forwards it into the CreateAgentRuntime
+  provision env, but prod cloud-init does **not** deliver it to the driver today.
+  Two working options: (i) submit with `controller_debug=true`, SSH to the
+  controller and `export DASHSCOPE_API_KEY=...` into the orchestrator's
+  environment *before* the campaign claims the suite task; or (ii) run llm mode
+  from a locally-driven (non-submit) execution where your own shell environment
+  carries the key. Oracle mode needs no LLM key at all.
+
+## The plan
+
+`configs/swe-bench-smoke.plan.yaml` (committed; placeholders only — real values live
+in the gitignored local config):
+
+```yaml
+version: "1"
+domain: agent-runtime
+platform: aliyun-agentrun
+cost_budget: 10.0
+driver:
+  install_docker: true
+  system_disk_size: 120
+  docker_registry_mirror: "https://REPLACE-WITH-YOUR-ID.mirror.aliyuncs.com"
+  hf_endpoint: "https://hf-mirror.com"
+tasks:
+  - task_id: "suite:swe-bench"
+    params:
+      agent_kind: oracle          # switch to `llm` for the paid Qwen variant
+      instance_ids:
+        - django__django-11099
+        - sympy__sympy-20590
+        - pytest-dev__pytest-7205
+```
+
+Fill in `docker_registry_mirror` with your ACR accelerator address (ACR console →
+镜像加速器) before submitting. Unknown `driver:` keys are rejected at submit time.
+
+## Command sequence
+
+```bash
+# 1. Submit — writes the launch spec to OSS, terraform-applies controller + NAT.
+csbench submit configs/swe-bench-smoke.plan.yaml \
+  --config configs/agent-runtime-aliyun.local.yaml \
+  --watchdog-timeout 5400
+# prints the campaign_id, e.g. camp-ab12cd34
+
+# 2. The laptop may go offline. Poll progress (reads OSS only):
+csbench status  camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml
+csbench logs    camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml
+
+# 3. When status shows done, pull the records:
+csbench fetch   camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml \
+  --dest results/swe-smoke
+
+# 4. Backstop cleanup — ALWAYS run if self-destruct is not confirmed:
+csbench teardown camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml
+```
+
+## Live-verification checklist (8 points)
+
+Work through these on the first live pass — each one covers a seam that mock-mode
+tests cannot reach:
+
+1. **Harness report filename + keys.** With installed `swebench>=3.0` the report is
+   written to `<report_dir>/<model_name>.<run_id>.json` (slashes in the model
+   name become `__`) with top-level keys
+   `resolved_instances` / `total_instances` / `resolved_ids`. The suite fails loudly
+   on schema drift — a clean pass here pins the version as compatible.
+2. **Dataset auto-download via the HF mirror.** `princeton-nlp/SWE-bench_Verified`
+   must download through `hf_endpoint` (hf-mirror.com), not hang on huggingface.co.
+   Check the controller logs for the download lines.
+3. **Oracle → resolved == N.** Gold-patch replay must resolve **all 3** instances
+   (`swe-bench.resolved == 1.0`). Anything less is an environment or harness problem,
+   never "agent quality".
+4. **Docker image footprint.** The harness builds per-instance images (GiBs each).
+   `docker system df` on the driver must show comfortable headroom on the 120 GiB disk.
+5. **`sys.executable` resolution.** The harness is spawned as
+   `sys.executable -m swebench.harness.run_evaluation` — on the controller this is
+   the SYSTEM python3.11 that cloud-init installed (there is no venv). Confirm
+   `swebench` imports there: it is installed via the plan-driven extras (any
+   `suite:` task in the plan adds the `[swebench]` extra to the controller deps).
+6. **Placement stays local.** `driver.placement == "local"` on the driver host —
+   the harness containers run where Docker runs; the suite hard-rejects anything else.
+7. **Container naming matches teardown.** Harness containers are named
+   `sweb.eval.<instance_id>.<run_id>`; suite teardown removes containers via
+   `docker ps --filter name=<run_id>`. Verify the run_id appears in the live container
+   names so cleanup catches exactly this run's containers and nothing else.
+8. **Harness stderr surfacing.** Force one failure (or inspect any real one): the
+   error must carry the last 2000 chars of harness stderr — a real cause, not a bare
+   exit code.
+
+## cn-region gotchas
+
+- **Docker Hub is blocked.** `driver.docker_registry_mirror` (an ACR accelerator) is
+  **required** — without it every image pull fails.
+- **huggingface.co is unreliable.** Keep `driver.hf_endpoint: https://hf-mirror.com`
+  for the dataset auto-download.
+- **NAT gateway + EIP bill per hour.** Fetch, then tear down promptly — do not leave
+  a finished campaign's infra idling overnight.
+- **FC cold start is ~86 s.** Amortize it by batching several tasks into one campaign
+  instead of one campaign per task.
+
+## Expected outcomes
+
+| mode | `swe-bench.resolved` | `swe-bench.cost_per_resolved` | `provenance.scaffold` |
+|------|----------------------|-------------------------------|------------------------|
+| `oracle` | `== 1.0` (3/3) | absent — zero LLM spend | `oracle@slice2` |
+| `llm` | `>= 0` (real agent, may miss) | **real** value from actual usage events | `qwen-llm@slice2` |
+
+## Reading the results
+
+`csbench fetch` writes one JSON record per task (plus parquet sidecars where a task
+produces series) into `--dest`. Then:
+
+```bash
+# measurements as a table (needs the [store] extra)
+csbench query --table measurements --results results/swe-smoke --format table
+
+# stage-tree trace of the run
+csbench trace list --results results/swe-smoke
+# <run_id> here is the RECORD's run id (from `csbench trace list`), not the
+# harness `csbench-<8hex>` id used in container names.
+csbench trace show <run_id> --results results/swe-smoke
+```
+
+Look for: measurement keys `swe-bench.resolved` and (llm mode) `swe-bench.cost_per_resolved`;
+`provenance.suite_id == "swe-bench"`; `provenance.scaffold` as in the table above. The raw
+record (`suite:swe-bench.json`) also carries the artifact manifest — predictions, results,
+trajectory, and usage files with sha256 hashes.

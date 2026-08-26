@@ -17,7 +17,7 @@ from clousight_bench.core.campaign import (
 )
 
 
-def _manifest(campaign_id="campaign-x", tasks=("T0.1", "T1.1", "T1.3")):
+def _manifest(campaign_id="campaign-x", tasks=("T0.1", "stub.alt", "stub.ok")):
     return CampaignManifest(
         campaign_id=campaign_id,
         plan_file="plan.yaml",
@@ -35,12 +35,12 @@ def test_new_manifest_prefills_every_task_as_pending():
 
 def test_running_then_done_records_outcome():
     m = _manifest()
-    m.mark_running("T1.1")
-    assert m._task("T1.1").status == "running"
-    assert m._task("T1.1").started_at is not None
+    m.mark_running("stub.alt")
+    assert m._task("stub.alt").status == "running"
+    assert m._task("stub.alt").started_at is not None
 
-    m.mark_done("T1.1", status="completed", plan_id="plan-1", status_counts={"completed": 3})
-    t = m._task("T1.1")
+    m.mark_done("stub.alt", status="completed", plan_id="plan-1", status_counts={"completed": 3})
+    t = m._task("stub.alt")
     assert t.status == "completed"
     assert t.plan_id == "plan-1"
     assert t.status_counts == {"completed": 3}
@@ -50,9 +50,9 @@ def test_running_then_done_records_outcome():
 
 def test_failed_task_keeps_its_error():
     m = _manifest()
-    m.mark_running("T1.3")
-    m.mark_done("T1.3", status="failed", error="boom")
-    t = m._task("T1.3")
+    m.mark_running("stub.ok")
+    m.mark_done("stub.ok", status="failed", error="boom")
+    t = m._task("stub.ok")
     assert t.status == "failed"
     assert t.error == "boom"
 
@@ -60,7 +60,7 @@ def test_failed_task_keeps_its_error():
 def test_mark_done_rejects_non_terminal_status():
     m = _manifest()
     with pytest.raises(ValueError):
-        m.mark_done("T1.1", status="running")
+        m.mark_done("stub.alt", status="running")
 
 
 def test_unknown_task_raises():

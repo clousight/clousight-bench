@@ -28,6 +28,30 @@ variable "controller_system_disk_category" {
   description = "System disk category for the controller. Must be one the instance type + zone support (cloud_essd/cloud_auto for e-/u1-series in cn-hangzhou-b); the provider default cloud_efficiency is rejected by RunInstances."
 }
 
+variable "controller_install_docker" {
+  type        = bool
+  default     = false
+  description = "Install + enable docker on the controller so it can act as a suite driver host (SWE-bench eval containers). Default false preserves the docker-less orchestration-only host."
+}
+
+variable "controller_system_disk_size" {
+  type        = number
+  default     = 40
+  description = "Controller system disk size in GiB. Suite driver runs pulling eval images need headroom (e.g. 120); 40 is the pre-driver default."
+}
+
+variable "controller_docker_registry_mirror" {
+  type        = string
+  default     = ""
+  description = "Docker registry mirror URL written to /etc/docker/daemon.json BEFORE docker starts (docker.io is throttled/unreachable from cn regions). Empty → no daemon.json."
+}
+
+variable "controller_hf_endpoint" {
+  type        = string
+  default     = ""
+  description = "HF_ENDPOINT exported into the controller process env (e.g. https://hf-mirror.com — huggingface.co is unreachable from cn regions). Empty → not exported."
+}
+
 variable "controller_wheel_url" {
   type        = string
   default     = ""
@@ -163,6 +187,22 @@ locals {
     "python3.11 -m pip install -i '${local._mirror}' 'clousight-bench[probe,store]'"
   ]
 
+  # Driver-host lines — the Python twin is build_controller_user_data in
+  # ecs_carrier.py; keep the emitted shell lines byte-identical there.
+  _hf_lines = var.controller_hf_endpoint != "" ? [
+    "export HF_ENDPOINT='${var.controller_hf_endpoint}'",
+  ] : []
+  # daemon.json lands BEFORE docker is installed/started so the first pull
+  # already goes through the in-region mirror.
+  _docker_mirror_lines = var.controller_docker_registry_mirror != "" ? [
+    "mkdir -p /etc/docker",
+    "echo '{\"registry-mirrors\": [\"${var.controller_docker_registry_mirror}\"]}' > /etc/docker/daemon.json",
+  ] : []
+  _docker_install_lines = var.controller_install_docker ? [
+    "yum install -y docker || dnf install -y docker",
+    "systemctl enable --now docker",
+  ] : []
+
   controller_user_data = base64encode(join("\n", concat(
     [
       "#!/bin/sh",
@@ -182,6 +222,11 @@ locals {
       # (artifact.py pip-installs langchain/otel at execute time). PyPI is
       # throttled from cn-hangzhou; pip reads PIP_INDEX_URL natively.
       "export PIP_INDEX_URL='${local._mirror}'",
+    ],
+    local._hf_lines,
+    local._docker_mirror_lines,
+    local._docker_install_lines,
+    [
       "yum install -y python3.11",
       "python3.11 -m ensurepip --upgrade",
     ],
@@ -191,17 +236,18 @@ locals {
 }
 
 resource "alicloud_instance" "controller" {
-  count                      = var.enable_controller ? 1 : 0
-  instance_name              = "clousight-bench-controller-${var.campaign_id}"
-  image_id                   = data.alicloud_images.controller[0].images[0].id
-  instance_type              = var.controller_instance_type
+  count         = var.enable_controller ? 1 : 0
+  instance_name = "clousight-bench-controller-${var.campaign_id}"
+  image_id      = data.alicloud_images.controller[0].images[0].id
+  instance_type = var.controller_instance_type
   # e-/u1-series (and most current gens) do NOT support the provider-default
   # cloud_efficiency system disk in cn-hangzhou-b — only cloud_essd/cloud_auto.
   # Omitting this made RunInstances fail with InvalidSystemDiskCategory.
-  system_disk_category       = var.controller_system_disk_category
-  vswitch_id                 = alicloud_vswitch.bench[0].id
-  security_groups            = [alicloud_security_group.bench[0].id]
-  role_name = alicloud_ram_role.controller[0].role_name
+  system_disk_category = var.controller_system_disk_category
+  system_disk_size     = var.controller_system_disk_size
+  vswitch_id           = alicloud_vswitch.bench[0].id
+  security_groups      = [alicloud_security_group.bench[0].id]
+  role_name            = alicloud_ram_role.controller[0].role_name
   # Production: 0 (no public IP, VPC-internal, egress via NAT). Debug: 5 Mbps
   # public IP so we can SSH in and read cb-controller's boot errors.
   internet_max_bandwidth_out = var.controller_debug ? 5 : 0

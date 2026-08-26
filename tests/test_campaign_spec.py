@@ -1,22 +1,49 @@
 """Tests for campaign launch spec + manifest dataclasses (ecs prod profile)."""
 
+import pytest
+
 from clousight_bench.core.campaign_spec import CampaignManifest, LaunchSpec, TaskEntry
 
 
 def test_launch_spec_json_round_trip():
     spec = LaunchSpec(
         campaign_id="camp-1",
-        tasks=["T1.9", "T1.13"],
+        tasks=[
+            {"task_id": "suite:swe-bench", "params": {"subset": "verified-50"}},
+            {"task_id": "T1.13", "params": {}},
+        ],
         params={"warmup": 1},
         target={"provider": "aliyun", "region": "cn-hangzhou"},
         watchdog_timeout_s=600.0,
+        cost_budget=25.0,
     )
     assert LaunchSpec.from_json(spec.to_json()) == spec
 
 
-def test_launch_spec_default_watchdog_timeout():
-    spec = LaunchSpec(campaign_id="c", tasks=["T0.1"], params={}, target={})
+def test_launch_spec_defaults_watchdog_and_no_budget():
+    spec = LaunchSpec(campaign_id="c", tasks=[{"task_id": "T0.1", "params": {}}], params={}, target={})
     assert spec.watchdog_timeout_s == 5400.0
+    assert spec.cost_budget is None
+
+
+def test_launch_spec_from_json_normalizes_missing_params_and_budget():
+    raw = b'{"campaign_id": "c", "tasks": [{"task_id": "A"}]}'
+    spec = LaunchSpec.from_json(raw)
+    assert spec.tasks == [{"task_id": "A", "params": {}}]
+    assert spec.cost_budget is None
+
+
+def test_launch_spec_task_params_lookup():
+    spec = LaunchSpec(
+        campaign_id="c",
+        tasks=[{"task_id": "A", "params": {"k": 1}}, {"task_id": "B", "params": {}}],
+        params={},
+        target={},
+    )
+    assert spec.task_params("A") == {"k": 1}
+    assert spec.task_params("B") == {}
+    with pytest.raises(KeyError):
+        spec.task_params("missing")
 
 
 def test_manifest_mark_isolates_and_counts():

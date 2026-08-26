@@ -30,6 +30,7 @@ class TaskOutcome:
     result_json: bytes
     series_parquet: bytes | None = None
     error: str | None = None
+    run_id: str = ""  # unique per execution — keys the OSS result object
 
 
 RunTask = Callable[[str, LaunchSpec], TaskOutcome]
@@ -57,12 +58,13 @@ class CampaignController:
             raise RuntimeError("no launch spec on the channel")
         manifest = CampaignManifest(
             campaign_id=spec.campaign_id,
-            tasks=[TaskEntry(task_id=t) for t in spec.tasks],
+            tasks=[TaskEntry(task_id=str(t["task_id"])) for t in spec.tasks],
         )
         self._ch.write_manifest(manifest)
 
         any_fail = False
-        for task_id in spec.tasks:
+        for entry in spec.tasks:
+            task_id = str(entry["task_id"])
             if self._ch.stop_requested():
                 break
             manifest.mark(task_id, "running", started_ts=self._now())
@@ -72,7 +74,10 @@ class CampaignController:
                 outcome = self._run_task(task_id, spec)
                 if not outcome.ok:
                     raise RuntimeError(outcome.error or "task reported not-ok")
-                self._ch.write_result(task_id, outcome.result_json, outcome.series_parquet)
+                # Key by task_id--run_id: a repeated task must never overwrite an
+                # earlier result object (run_id is unique per execution).
+                name = f"{task_id}--{outcome.run_id}" if outcome.run_id else task_id
+                self._ch.write_result(name, outcome.result_json, outcome.series_parquet)
                 manifest.mark(task_id, "completed", ended_ts=self._now())
             except Exception as exc:  # noqa: BLE001 — a failed task never aborts the campaign
                 any_fail = True
