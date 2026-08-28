@@ -1,6 +1,6 @@
-"""Tests for OssProbeClient — the control-plane OSS dispatch client.
+"""Tests for BlobProbeClient — the control-plane blob-store dispatch client.
 
-All tests are deterministic, offline (InMemoryOssClient), and fast (injected
+All tests are deterministic, offline (InMemoryBlobStore), and fast (injected
 clock; no real sleep or network).
 
 Test cases:
@@ -19,15 +19,15 @@ from typing import Any
 
 import pytest
 
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
+from clousight_bench.domains.agent_runtime.probe.blob_dispatch_client import BlobProbeClient
 from clousight_bench.domains.agent_runtime.probe.client import ProbeJobFailed
 from clousight_bench.domains.agent_runtime.probe.jobs import (
     JobProgress,
     JobRecord,
     JobSpec,
 )
-from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
-from clousight_bench.domains.agent_runtime.probe.oss_dispatch_client import OssProbeClient
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -35,19 +35,19 @@ from clousight_bench.domains.agent_runtime.probe.oss_dispatch_client import OssP
 
 
 @pytest.fixture()
-def oss() -> InMemoryOssClient:
-    return InMemoryOssClient()
+def store() -> InMemoryBlobStore:
+    return InMemoryBlobStore()
 
 
 @pytest.fixture()
-def control_channel(oss: InMemoryOssClient) -> OssChannel:
-    return OssChannel(oss, campaign_id="camp-test")
+def control_channel(store: InMemoryBlobStore) -> BlobChannel:
+    return BlobChannel(store, campaign_id="camp-test")
 
 
 @pytest.fixture()
-def eci_channel(oss: InMemoryOssClient) -> OssChannel:
+def eci_channel(store: InMemoryBlobStore) -> BlobChannel:
     """Same underlying store as control_channel — simulates the ECI side."""
-    return OssChannel(oss, campaign_id="camp-test")
+    return BlobChannel(store, campaign_id="camp-test")
 
 
 @pytest.fixture()
@@ -84,7 +84,7 @@ def _failed_record(job_id: str, error: str) -> JobRecord:
     )
 
 
-def _spin_eci(eci: OssChannel, make_record: Any, progress: JobProgress | None = None) -> None:
+def _spin_eci(eci: BlobChannel, make_record: Any, progress: JobProgress | None = None) -> None:
     """Spin in a thread until a pending job appears, optionally write progress, then write the record."""
 
     def _run() -> None:
@@ -110,8 +110,8 @@ def _spin_eci(eci: OssChannel, make_record: Any, progress: JobProgress | None = 
 
 
 def test_happy_path_returns_observation_bundle_and_fires_progress(
-    control_channel: OssChannel,
-    eci_channel: OssChannel,
+    control_channel: BlobChannel,
+    eci_channel: BlobChannel,
     spec: JobSpec,
 ) -> None:
     """run_job returns ObservationBundle from a completed JobRecord; on_progress fires."""
@@ -120,7 +120,7 @@ def test_happy_path_returns_observation_bundle_and_fires_progress(
     progress_snapshot = JobProgress(phase="running", completed=1, total=2, elapsed_s=0.5)
     t = _spin_eci(eci_channel, _completed_record, progress=progress_snapshot)
 
-    client = OssProbeClient(
+    client = BlobProbeClient(
         control_channel,
         poll_interval_s=0.01,
         timeout_s=10.0,
@@ -149,15 +149,15 @@ def test_happy_path_returns_observation_bundle_and_fires_progress(
 
 
 def test_failed_job_raises_probe_job_failed_with_error(
-    control_channel: OssChannel,
-    eci_channel: OssChannel,
+    control_channel: BlobChannel,
+    eci_channel: BlobChannel,
     spec: JobSpec,
 ) -> None:
     """run_job raises ProbeJobFailed carrying record.error when status == 'failed'."""
     error_msg = "probe crashed: connection refused"
     t = _spin_eci(eci_channel, lambda jid: _failed_record(jid, error_msg))
 
-    client = OssProbeClient(
+    client = BlobProbeClient(
         control_channel,
         poll_interval_s=0.01,
         timeout_s=10.0,
@@ -177,7 +177,7 @@ def test_failed_job_raises_probe_job_failed_with_error(
 
 
 def test_timeout_raises_probe_job_failed_with_timeout_message(
-    control_channel: OssChannel,
+    control_channel: BlobChannel,
     spec: JobSpec,
 ) -> None:
     """run_job raises ProbeJobFailed with timeout message when deadline passes with no result."""
@@ -189,7 +189,7 @@ def test_timeout_raises_probe_job_failed_with_timeout_message(
         # First call seeds the deadline (start time), second call is past deadline.
         return 0.0 if calls[0] == 1 else 9999.0
 
-    client = OssProbeClient(
+    client = BlobProbeClient(
         control_channel,
         poll_interval_s=0.0,
         timeout_s=300.0,
@@ -207,8 +207,8 @@ def test_timeout_raises_probe_job_failed_with_timeout_message(
 
 
 def test_progress_dedup_does_not_double_fire_for_same_snapshot(
-    control_channel: OssChannel,
-    eci_channel: OssChannel,
+    control_channel: BlobChannel,
+    eci_channel: BlobChannel,
     spec: JobSpec,
 ) -> None:
     """Identical progress snapshot is reported only once even when polled multiple times."""
@@ -225,7 +225,7 @@ def test_progress_dedup_does_not_double_fire_for_same_snapshot(
 
     t = _spin_eci(eci_channel, eci_make_record)
 
-    client = OssProbeClient(
+    client = BlobProbeClient(
         control_channel,
         poll_interval_s=0.01,
         timeout_s=10.0,

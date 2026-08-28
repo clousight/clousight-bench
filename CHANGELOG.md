@@ -2,6 +2,19 @@
 
 All notable changes to Clousight Bench are recorded here.
 
+## [Unreleased] — region-agnostic driver image strategy
+
+### Changed
+
+- **The SWE-bench driver host auto-detects its docker-image strategy at boot**
+  (`domains/agent_runtime/driver_image.py`) instead of requiring a per-account
+  registry-mirror address. It probes Docker Hub reachability from whatever region
+  the operator chose and picks: direct pull (reachable), the account's own ACR
+  endpoint discovered via the `cr` OpenAPI (Docker Hub blocked), or a loud abort
+  (neither reachable — never a silent resolved=0). `driver.docker_registry_mirror`
+  is now an optional operator override; the committed smoke plan configures no
+  mirror address at all.
+
 ## [Unreleased] — real-cloud SWE-bench on Aliyun (B slice 2)
 
 ### Added

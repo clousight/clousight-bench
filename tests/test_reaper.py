@@ -1,6 +1,6 @@
 """Tests for AliyunResourceReaper (account-free, injectable seams)."""
 
-from clousight_bench.domains.agent_runtime.reaper import AliyunResourceReaper
+from clousight_bench.domains.agent_runtime.aliyun.reaper import AliyunResourceReaper
 
 
 def _fixtures():
@@ -50,10 +50,13 @@ def test_older_than_filters_young_resources():
 
 
 def test_registered_under_entry_point():
-    from clousight_bench.core.registry import get_resource_reaper
+    from clousight_bench.core.registry import get_resource_reaper, load_resource_reapers
 
     reaper = get_resource_reaper("aliyun")
     assert reaper is not None and reaper.provider == "aliyun"
+    # Discovery yields both installed reapers (post-move aliyun path + aws).
+    reapers = load_resource_reapers()
+    assert {"aliyun", "aws"} <= set(reapers)
 
 
 def test_eci_container_groups_reaped_by_name_prefix():
@@ -91,7 +94,7 @@ def test_list_eci_filters_prefix_and_synthesizes_tag():
 
 
 def test_carrier_tags_instance_at_creation():
-    from clousight_bench.domains.agent_runtime.ecs_carrier import EcsCarrierConfig, EcsProbeCarrier
+    from clousight_bench.domains.agent_runtime.aliyun.ecs_carrier import EcsCarrierConfig, EcsProbeCarrier
 
     cfg = EcsCarrierConfig(
         region="cn-hangzhou",

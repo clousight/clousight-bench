@@ -18,13 +18,35 @@ def test_jobspec_roundtrips_through_dict():
     )
     d = spec.to_dict()
     assert d["probe"] == "ttft" and d["params"] == {"samples": 5}
+    # to_dict emits ONLY the new wire key; the legacy "oss_prefix" key is gone.
+    assert "blob_prefix" in d and "oss_prefix" not in d
     assert JobSpec.from_dict(d) == spec
 
 
 def test_jobspec_from_dict_applies_defaults():
     spec = JobSpec.from_dict({"probe": "ttft", "params": {}, "target_endpoint": "http://127.0.0.1:9000"})
     assert spec.session_header_scheme == "X-AgentRun-Session-ID"
-    assert spec.mock_base_url == "" and spec.oss_prefix == ""
+    assert spec.mock_base_url == "" and spec.blob_prefix == ""
+
+
+def test_jobspec_from_dict_dual_reads_legacy_oss_prefix():
+    # Read-migration shim: a job blob written before the oss_prefix→blob_prefix
+    # rename must still populate blob_prefix on read.
+    spec = JobSpec.from_dict(
+        {"probe": "ttft", "params": {}, "target_endpoint": "http://127.0.0.1:9000", "oss_prefix": "x"}
+    )
+    assert spec.blob_prefix == "x"
+    # the new key wins when both are present
+    spec2 = JobSpec.from_dict(
+        {
+            "probe": "ttft",
+            "params": {},
+            "target_endpoint": "http://127.0.0.1:9000",
+            "oss_prefix": "old",
+            "blob_prefix": "new",
+        }
+    )
+    assert spec2.blob_prefix == "new"
 
 
 def test_jobrecord_to_dict_nests_progress():

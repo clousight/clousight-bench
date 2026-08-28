@@ -20,7 +20,7 @@ runs it behind a bare HTTP server for local self-test. Standard library only.
 This payload ships as **package data**. The provisioner owns its whole lifecycle
 (`artifact.py`): on a real run it zips this directory, uploads it to OSS under a
 unique key, hands the reference to `CreateAgentRuntime`, and **deletes the object
-on teardown** — so a run needs only credentials + a bucket (`target.oss_bucket`),
+on teardown** — so a run needs only credentials + a bucket (`target.blob_bucket`),
 not a hand-uploaded zip, and leaves nothing behind.
 
 To build the zip yourself (manual upload / inspection):

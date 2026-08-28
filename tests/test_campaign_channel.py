@@ -1,12 +1,12 @@
 """Tests for CampaignChannel — campaign-level OSS objects (ecs prod profile)."""
 
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.core.campaign_channel import CampaignChannel
 from clousight_bench.core.campaign_spec import CampaignManifest, LaunchSpec, TaskEntry
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
 
 def _chan(now=None):
-    return CampaignChannel(InMemoryOssClient(), "camp-1", now=now or (lambda: 0.0))
+    return CampaignChannel(InMemoryBlobStore(), "camp-1", now=now or (lambda: 0.0))
 
 
 def test_launch_round_trip():

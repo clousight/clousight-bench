@@ -216,6 +216,6 @@ def test_managed_adapter_delegates_to_transport_when_present(monkeypatch):
 
     # If the transport DOES define run_data_plane_probe, it wins.
     sentinel = ObservationBundle(observations={"capability": "supported", "via": "transport"})
-    t = a._transport_()
+    t = a.transport()
     monkeypatch.setattr(t, "run_data_plane_probe", lambda name, params: sentinel, raising=False)
     assert a.run_data_plane_probe("warm_retention", {}).observations.get("via") == "transport"

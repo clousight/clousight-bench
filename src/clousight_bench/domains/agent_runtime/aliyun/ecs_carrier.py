@@ -6,10 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from clousight_bench.core.resource_tags import run_tags
-from clousight_bench.domains.agent_runtime.carrier_base import BaseProbeCarrier, CarrierError
+from clousight_bench.domains.agent_runtime.carrier_base import BaseProbeCarrier
 
 __all__ = [
-    "CarrierError",
     "EcsCarrierConfig",
     "EcsProbeCarrier",
     "Ecs20140526Sdk",
@@ -56,13 +55,10 @@ def build_controller_user_data(
     ]
     if hf_endpoint:
         lines.append(f"export HF_ENDPOINT='{hf_endpoint}'")
+    # docker_registry_mirror is an OPTIONAL operator override; when empty the
+    # driver auto-detects its image strategy at boot (region-agnostic).
     if docker_registry_mirror:
-        # daemon.json lands BEFORE docker is installed/started so the first pull
-        # already goes through the in-region mirror.
-        lines.append("mkdir -p /etc/docker")
-        lines.append(
-            f'echo \'{{"registry-mirrors": ["{docker_registry_mirror}"]}}\' > /etc/docker/daemon.json'
-        )
+        lines.append(f"export CB_DOCKER_MIRROR='{docker_registry_mirror}'")
     if install_docker:
         lines.append("yum install -y docker || dnf install -y docker")
         lines.append("systemctl enable --now docker")
@@ -72,6 +68,11 @@ def build_controller_user_data(
     ]
     lines += [f"{py} -m pip install -i '{pip_index_url}' '{dep}'" for dep in extra_deps]
     lines.append(f"{py} -m pip install -i '{pip_index_url}' '{code_spec}'")
+    if install_docker:
+        # Region-agnostic: probe Docker Hub reachability, pick direct-pull / ACR /
+        # fail-loud, and write daemon.json before the harness runs. No per-account
+        # mirror address needed. Non-zero exit (blocked region) aborts the boot.
+        lines.append(f"{py} -m clousight_bench.domains.agent_runtime.driver_image")
     lines.append(f"exec {py} -m clousight_bench.core.controller_main")
     script = "\n".join(lines) + "\n"
     return base64.b64encode(script.encode()).decode()
@@ -136,7 +137,7 @@ class EcsCarrierConfig:
     # control plane sets this to span the whole campaign. Default 1h.
     idle_timeout_s: float = 3600.0
     # Per-job execution cap on the probe side; should match the control plane's
-    # OssProbeClient timeout so a slow AgentRuntime doesn't trip the probe's own
+    # BlobProbeClient timeout so a slow AgentRuntime doesn't trip the probe's own
     # 300s default before the control plane would give up. Default 900s.
     job_max_wait_s: float = 900.0
     run_id: str | None = None

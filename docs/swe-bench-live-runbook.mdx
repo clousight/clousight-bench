@@ -22,7 +22,7 @@ Docker, the dataset download, the AgentRun invocation, billing — hence this ru
   (`ALICLOUD_ACCESS_KEY` / `ALICLOUD_SECRET_KEY` / `ALICLOUD_REGION`); the controller's
   own SDK calls use the sub-account instance role that `controller.tf` provisions.
 - **`configs/agent-runtime-aliyun.local.yaml`** (gitignored, never committed) with
-  `target.region`, `target.oss_bucket`, the credential *env-var names* under
+  `target.region`, `target.blob_bucket`, the credential *env-var names* under
   `target.auth_env`, and `target.arms_license_key` for telemetry.
 - **`target.mode: real` in that local config.** Without it the suite bridge defaults
   to mock — you would pay for a full-price ECS campaign that replays canned fixtures
@@ -51,7 +51,7 @@ cost_budget: 10.0
 driver:
   install_docker: true
   system_disk_size: 120
-  docker_registry_mirror: "https://REPLACE-WITH-YOUR-ID.mirror.aliyuncs.com"
+  # no mirror address needed — the driver auto-detects its image strategy at boot
   hf_endpoint: "https://hf-mirror.com"
 tasks:
   - task_id: "suite:swe-bench"
@@ -63,8 +63,12 @@ tasks:
         - pytest-dev__pytest-7205
 ```
 
-Fill in `docker_registry_mirror` with your ACR accelerator address (ACR console →
-镜像加速器) before submitting. Unknown `driver:` keys are rejected at submit time.
+You configure **no mirror address**. The driver host probes Docker Hub at boot and
+picks its image strategy itself (`driver_image.py`): direct pull when reachable
+(overseas / unblocked regions), the account's own ACR endpoint when Docker Hub is
+blocked, or a loud abort otherwise — the decision is logged to the campaign. Set
+`driver.docker_registry_mirror` only to FORCE a specific mirror. Unknown `driver:`
+keys are rejected at submit time.
 
 ## Command sequence
 
@@ -122,8 +126,13 @@ tests cannot reach:
 
 ## cn-region gotchas
 
-- **Docker Hub is blocked.** `driver.docker_registry_mirror` (an ACR accelerator) is
-  **required** — without it every image pull fails.
+- **Docker Hub reachability is auto-handled.** The driver detects it at boot and
+  routes accordingly (direct / ACR / fail-loud); there is no per-account mirror
+  address to configure. The Aliyun image accelerator (`<id>.mirror.aliyuncs.com`)
+  deliberately is NOT used — it has no OpenAPI, so a tool cannot obtain it; the
+  account's ACR endpoint (`get_instance_endpoint`) is used instead when needed.
+  A mainland region also walls off GitHub (repo clones): if the driver reports a
+  blocked strategy, run it in a region with direct egress or pre-stage images.
 - **huggingface.co is unreliable.** Keep `driver.hf_endpoint: https://hf-mirror.com`
   for the dataset auto-download.
 - **NAT gateway + EIP bill per hour.** Fetch, then tear down promptly — do not leave

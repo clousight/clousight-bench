@@ -3,7 +3,7 @@ import types
 
 import pytest
 
-from clousight_bench.domains.agent_runtime.reaper import AliyunResourceReaper
+from clousight_bench.domains.agent_runtime.aliyun.reaper import AliyunResourceReaper
 
 
 class _FakeEcs:

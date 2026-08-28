@@ -10,7 +10,11 @@ orchestration logic offline; this runbook proves the live wiring
 
 ## Prerequisites
 
-- `configs/agent-runtime-aliyun.local.yaml` with `target.oss_bucket` + `target.region` (gitignored, has secrets).
+- `configs/agent-runtime-aliyun.local.yaml` with `target.provider: aliyun`,
+  `target.blob_bucket` + `target.region` (gitignored, has secrets). The provider
+  resolves the controller's terraform surface: `submit` can also infer it from
+  the plan's `platform:`, but `teardown` only sees the config — without a
+  resolvable provider both fail loudly instead of assuming Aliyun.
 - MAIN-account AK for terraform: `export ALICLOUD_ACCESS_KEY=... ALICLOUD_SECRET_KEY=... ALICLOUD_REGION=cn-hangzhou`.
 - Sub-account AK (for the controller's SDK calls, injected via the instance role) is provisioned by `controller.tf`.
 - A slim plan, e.g. `configs/prod-smoke.plan.yaml` (submit-plan task entries are

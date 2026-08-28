@@ -1,6 +1,6 @@
 """Tests for the ECI-side poller loop (agent_loop.py).
 
-All tests use InMemoryOssClient + a real OssChannel + a synchronous fake runner
+All tests use InMemoryBlobStore + a real BlobChannel + a synchronous fake runner
 so they are deterministic and instant — no real sleep, no real network.
 
 The injected ``now`` and ``sleep`` callables let tests drive time without
@@ -13,25 +13,25 @@ import time as real_time
 from collections.abc import Callable
 from typing import Any
 
+from clousight_bench.core.blobstore import InMemoryBlobStore
 from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.domains.agent_runtime.probe.agent_loop import _run_job, run_agent_loop
+from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
 from clousight_bench.domains.agent_runtime.probe.jobs import (
     JobProgress,
     JobRecord,
     JobSpec,
 )
-from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_channel(campaign_id: str = "camp-test") -> tuple[OssChannel, InMemoryOssClient]:
-    oss = InMemoryOssClient()
-    channel = OssChannel(oss, campaign_id=campaign_id)
-    return channel, oss
+def _make_channel(campaign_id: str = "camp-test") -> tuple[BlobChannel, InMemoryBlobStore]:
+    store = InMemoryBlobStore()
+    channel = BlobChannel(store, campaign_id=campaign_id)
+    return channel, store
 
 
 class _FakeRunner:

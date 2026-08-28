@@ -1,7 +1,7 @@
 # tests/test_aliyun_remote_probe_client.py
 from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.domains.agent_runtime.aliyun import AliyunAgentRunTransport
-from clousight_bench.domains.agent_runtime.probe.oss_dispatch_client import OssProbeClient
+from clousight_bench.domains.agent_runtime.probe.blob_dispatch_client import BlobProbeClient
 
 
 class _Adapter:
@@ -33,7 +33,7 @@ def test_probe_url_builds_remote_client_and_routes_run_job(monkeypatch):
             {
                 "region": "cn-hangzhou",
                 "probe_url": "http://1.2.3.4:9000",
-                "probe_oss_prefix": "campaign-1/job-1/",
+                "probe_blob_prefix": "campaign-1/job-1/",
                 "probe_in_vpc": False,
                 "endpoint_url": "http://runtime-under-test",
             }
@@ -43,7 +43,7 @@ def test_probe_url_builds_remote_client_and_routes_run_job(monkeypatch):
     b = t.run_data_plane_probe("soak", {"duration_s": 0.1})
     # routed to the remote client, not run in-process
     assert captured["spec"].probe == "soak"
-    assert captured["spec"].oss_prefix == "campaign-1/job-1/"
+    assert captured["spec"].blob_prefix == "campaign-1/job-1/"
     assert captured["spec"].target_endpoint == "http://runtime-under-test"
     # vantage flipped to eci because a remote client is active
     assert b.observations["vantage"]["carrier"] == "ecs"
@@ -51,11 +51,11 @@ def test_probe_url_builds_remote_client_and_routes_run_job(monkeypatch):
 
 
 def test_probe_control_prefix_builds_oss_probe_client(monkeypatch):
-    """probe_control_prefix → OssProbeClient is selected (OSS-mediated path)."""
-    from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
+    """probe_control_prefix → BlobProbeClient is selected (OSS-mediated path)."""
+    from clousight_bench.core.blobstore import InMemoryBlobStore
 
     # Patch Oss2Client at the import site in aliyun.py so no real OSS creds are needed.
-    class _FakeOss2Client(InMemoryOssClient):
+    class _FakeOss2Client(InMemoryBlobStore):
         def __init__(self, bucket: str, region: str) -> None:
             super().__init__()
 
@@ -69,22 +69,22 @@ def test_probe_control_prefix_builds_oss_probe_client(monkeypatch):
             {
                 "region": "cn-hangzhou",
                 "probe_control_prefix": "campaign-oss-test",
-                "oss_bucket": "my-bench-bucket",
+                "blob_bucket": "my-bench-bucket",
                 "probe_in_vpc": True,
                 "endpoint_url": "http://runtime-under-test",
             }
         )
     )
 
-    # The OSS-mediated arm must install an OssProbeClient, not RemoteProbeClient.
-    assert isinstance(t._probe_client, OssProbeClient)
+    # The OSS-mediated arm must install a BlobProbeClient, not RemoteProbeClient.
+    assert isinstance(t._probe_client, BlobProbeClient)
 
 
 def test_probe_control_prefix_vantage_in_vpc(monkeypatch):
-    """When OssProbeClient is active, run_data_plane_probe reports in_vpc=True."""
-    from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
+    """When BlobProbeClient is active, run_data_plane_probe reports in_vpc=True."""
+    from clousight_bench.core.blobstore import InMemoryBlobStore
 
-    class _FakeOss2Client(InMemoryOssClient):
+    class _FakeOss2Client(InMemoryBlobStore):
         def __init__(self, bucket: str, region: str) -> None:
             super().__init__()
 
@@ -98,15 +98,15 @@ def test_probe_control_prefix_vantage_in_vpc(monkeypatch):
             {
                 "region": "cn-hangzhou",
                 "probe_control_prefix": "campaign-oss-test",
-                "oss_bucket": "my-bench-bucket",
-                "probe_oss_prefix": "campaign-oss-test/job-1/",
+                "blob_bucket": "my-bench-bucket",
+                "probe_blob_prefix": "campaign-oss-test/job-1/",
                 "probe_in_vpc": True,
                 "endpoint_url": "http://runtime-under-test",
             }
         )
     )
 
-    # Stub run_job on the already-constructed OssProbeClient so no real OSS back-end
+    # Stub run_job on the already-constructed BlobProbeClient so no real OSS back-end
     # is needed while still exercising the vantage-metadata path.
     captured: dict = {}
 

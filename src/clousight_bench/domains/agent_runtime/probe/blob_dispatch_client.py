@@ -1,9 +1,9 @@
-"""Control-plane OSS dispatch client.
+"""Control-plane blob-store dispatch client.
 
 Drop-in replacement for :class:`RemoteProbeClient` that never opens an HTTP
-connection to the ECI probe.  Every message travels through
-:class:`OssChannel`: the job spec is written as an OSS object, progress is
-polled from another OSS object, and the terminal :class:`JobRecord` is read
+connection to the in-region probe.  Every message travels through
+:class:`BlobChannel`: the job spec is written as a blob object, progress is
+polled from another blob object, and the terminal :class:`JobRecord` is read
 back the same way.
 
 The public ``run_job`` signature and exception type are identical to
@@ -18,20 +18,20 @@ from typing import Any
 
 from clousight_bench.core.observation import ObservationBundle
 
+from .blob_channel import BlobChannel
 from .client import ProbeJobFailed
 from .jobs import (
     JobProgress,
     JobSpec,
     observation_bundle_from_dict,
 )
-from .oss_channel import OssChannel
 
 
-class OssProbeClient:
-    """Dispatch probe jobs and collect results through an :class:`OssChannel`.
+class BlobProbeClient:
+    """Dispatch probe jobs and collect results through an :class:`BlobChannel`.
 
     Args:
-        channel: The shared OSS channel; must be scoped to the correct campaign.
+        channel: The shared blob-store channel; must be scoped to the correct campaign.
         poll_interval_s: Seconds to sleep between result-poll attempts.
         timeout_s: Maximum wall-clock seconds to wait for a terminal result.
         sleep: Injectable sleep function (default :func:`time.sleep`).
@@ -40,7 +40,7 @@ class OssProbeClient:
 
     def __init__(
         self,
-        channel: OssChannel,
+        channel: BlobChannel,
         *,
         poll_interval_s: float = 2.0,
         timeout_s: float = 300.0,

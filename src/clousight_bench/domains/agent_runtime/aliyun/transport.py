@@ -1,51 +1,13 @@
-"""Wired Aliyun AgentRun runtime provider (the real, SDK-backed implementation).
-
-The commercial half of the open-core seam. The open core ships the
-``aliyun-agentrun`` adapter as a *skeleton* (honest not-wired transport); this
-package registers a ``RuntimeProviderPlugin`` for provider ``aliyun`` via the
-``clousight_bench.runtime_providers`` entry point, which flips real mode to
-runnable and supplies this live transport -- without editing the open adapter.
-
-Design (see clousight-bench-pro/docs/agentrun-b-design.md and
-agentrun-integration-research.md):
-
-- Control plane (``agentrun.<region>.aliyuncs.com``): CreateAgentRuntime ->
-  poll GetAgentRuntime to ready -> DeleteAgentRuntime. Drives T0.1 / T0.2.
-- Data plane (``agentrun-data.<region>.aliyuncs.com``): InvokeRuntime
-  (OpenAI-compatible), carrying an ``X-AgentRun-Session-ID`` header for session
-  affinity; Memory API for state (T1.2); MCP activation for tools (T2.1).
-  Traces go to ARMS, not a synchronous API -> CapabilityNotSupported.
-
-The SDK (``alibabacloud-agentrun20250910``) is imported lazily inside the ops,
-so this module imports (and the provider registers) even without the SDK -- the
-mock path and the registration seam stay exercisable. The first real call
-without the SDK raises a clear install hint, never an obscure ImportError.
-
-Status: the CONTROL plane (create/get/delete AgentRuntime -> provision, status,
-teardown) is wired against the installed SDK's typed models
-(``CreateAgentRuntimeRequest`` wrapping ``CreateAgentRuntimeInput`` +
-``CodeConfiguration``; ``get_agent_runtime(id, GetAgentRuntimeRequest)``;
-responses read at ``body.data.{agent_runtime_id,status}``) and its request
-builder passes the SDK's own ``validate()`` locally. The DATA plane (invoke /
-memory / mcp) has no synchronous control-plane SDK op and is wired + validated
-against a live account with a deployed agent and a public mock endpoint -- it
-raises a clear ``_DataPlaneNotWired`` until then. Mock mode exercises everything
-without an account.
-"""
+"""AliyunAgentRunTransport — the live AgentRun control/data-plane transport."""
 
 from __future__ import annotations
 
-import contextlib
-import time
-import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from clousight_bench.core.observation import ObservationBundle
-
-from clousight_bench.core.plugin import RuntimeProviderPlugin
-from clousight_bench.domains.agent_runtime import protocol
-from clousight_bench.domains.agent_runtime.adapters.base import (
+from clousight_bench.domains.agent_runtime.aliyun._shared import (
+    _READY_POLL_S,
+    _READY_TIMEOUT_S,
+    Any,
     Attempt,
     CapabilityNotSupported,
     ConcurrentWriteResult,
@@ -54,128 +16,23 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
     InvocationTrace,
     ProvisionResult,
     RetryStormResult,
+    RuntimeTransport,
     ScalePoint,
     ToolCall,
-)
-from clousight_bench.domains.agent_runtime.adapters.transport import RuntimeTransport
-from clousight_bench.domains.agent_runtime.campaign_probe_base import (
-    CampaignProbeOrchestrator,
-    _published_code_spec,
-    _truthy,
-)
-from clousight_bench.domains.agent_runtime.ecs_carrier import (
-    Ecs20140526Sdk,
-    EcsCarrierConfig,
-    EcsProbeCarrier,
-)
-from clousight_bench.domains.agent_runtime.session_memory import ObjectStoreSessionMemory
-from clousight_bench.domains.agent_runtime.transport_base import (
-    auth_headers as _auth_headers,
-)
-from clousight_bench.domains.agent_runtime.transport_base import (
+    _auth_headers,
+    _get_probe_fns,
+    _p95,
+    _SdkMissing,
     build_pooled_http_session,
+    contextlib,
+    protocol,
+    time,
+    uuid,
 )
-from clousight_bench.domains.agent_runtime.transport_base import (
-    get_probe_fns as _get_probe_fns,
-)
+from clousight_bench.domains.agent_runtime.aliyun.state import _LiveMcp, _LiveMemory
 
-_SDK_PACKAGE = "alibabacloud-agentrun20250910"
-_READY_TIMEOUT_S = 300.0
-_READY_POLL_S = 3.0
-
-
-class _SdkMissing(RuntimeError):
-    def __init__(self) -> None:
-        super().__init__(
-            f"the Aliyun AgentRun SDK is required for real-mode calls but is not "
-            f"installed. Install it with: pip install {_SDK_PACKAGE} "
-            f"alibabacloud-tea-openapi alibabacloud-credentials. "
-            f"(Or run the adapter in mode: mock to exercise the harness without it.)"
-        )
-
-
-class _DataPlaneNotWired(CapabilityNotSupported):
-    """Data-plane seam not yet wired for live invocation.
-
-    Inherits CapabilityNotSupported so all task-level except-clauses that
-    catch CapabilityNotSupported will also catch this (T2.1, T4.1, T4.2…).
-    """
-
-    def __init__(self, op: str) -> None:
-        super().__init__(
-            f"aliyun {op}: data-plane seam not yet wired for live account. "
-            f"Run in mode: mock for the account-free harness."
-        )
-
-
-def _p95(values: list[float]) -> float:
-    if not values:
-        return 0.0
-    ordered = sorted(values)
-    idx = min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1))))
-    return ordered[idx]
-
-
-class _LiveMemory(ObjectStoreSessionMemory):
-    """OSS-backed session state for AgentRun.
-
-    AgentRun's Memory Collection API is a RAG/vector store, not a plain K/V, so
-    T1.2 (does state persist across sessions?) uses the OSS bucket the adapter
-    already has. This is the Aliyun binding of ``ObjectStoreSessionMemory`` over
-    ``Oss2Client`` (public endpoint, shared credential chain); the key layout and
-    store/fetch/cleanup live in the base class. State files are cleaned up at
-    teardown.
-    """
-
-    def __init__(self, bucket: str, region: str, run_id: str | None = None) -> None:
-        from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
-
-        super().__init__(Oss2Client(bucket, region), run_id)
-
-
-class _LiveMcp:
-    """AgentRun MCP: template-based, no dynamic tool registration.
-
-    AgentRun's MCP activates a pre-registered template via ActivateTemplateMCP.
-    T2.1's _TOOL_SPEC is an arbitrary tool definition that does not map to a
-    registered template name, so this path is reported as CapabilityNotSupported.
-    That is a faithful record of the platform's real behaviour, not a bug.
-    """
-
-    def __init__(self, client_factory: Any = None) -> None:
-        self._client_factory = client_factory  # inject a real SDK client (testable)
-
-    def activate(self, name: str, spec: dict[str, Any]) -> bool:
-        if self._client_factory is None:
-            raise CapabilityNotSupported(
-                "register_tool[mcp]: AgentRun MCP uses pre-registered templates "
-                "(ActivateTemplateMCP); dynamic tool registration is not supported. "
-                "Pre-create an MCP template in the AgentRun console before calling."
-            )
-        # Try to activate a template of the same name; a missing or malformed
-        # template counts as CapabilityNotSupported.
-        try:
-            from alibabacloud_agentrun20250910 import models as m
-
-            self._client_factory().activate_template_mcp(
-                name,
-                m.ActivateTemplateMCPRequest(transport="sse"),  # transport is required
-            )
-            return True
-        except Exception as exc:
-            err = str(exc)
-            # Template not found -> it must be pre-registered.
-            if any(k in err for k in ("NotFound", "not found", "NoSuch", "ERR_NOT_FOUND")):
-                raise CapabilityNotSupported(
-                    f"register_tool[mcp]: AgentRun MCP uses pre-registered templates; "
-                    f"template '{name}' does not exist. Create it in the console and retry."
-                ) from exc
-            # Other 400/403 -> platform restriction, also CapabilityNotSupported.
-            if "400" in err or "403" in err:
-                raise CapabilityNotSupported(
-                    f"register_tool[mcp]: AgentRun MCP template activation restricted — {err[:120]}"
-                ) from exc
-            raise
+if TYPE_CHECKING:
+    from clousight_bench.core.observation import ObservationBundle
 
 
 class AliyunAgentRunTransport(RuntimeTransport):
@@ -208,26 +65,27 @@ class AliyunAgentRunTransport(RuntimeTransport):
         # Data-plane seams: injectable for local tests; real defaults are
         # live-gated (validated on a live account). See docs/agentrun-b-design.md.
         self._invoke = self._live_invoke
+
         # Plan 4b hook: when set to a probe client, run_data_plane_probe
         # dispatches to the in-region ECI probe instead of running in-process.
-        # OssProbeClient is preferred when probe_control_prefix is set (OSS-mediated);
+        # BlobProbeClient is preferred when probe_control_prefix is set (OSS-mediated);
         # RemoteProbeClient is the HTTP fallback when only probe_url is present.
         self._probe_client: Any = None
         probe_control_prefix = str(adapter.target.get("probe_control_prefix") or "")
         if probe_control_prefix:
-            from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+            from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
+            from clousight_bench.domains.agent_runtime.probe.blob_dispatch_client import BlobProbeClient
             from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
-            from clousight_bench.domains.agent_runtime.probe.oss_dispatch_client import OssProbeClient
 
-            oss_bucket = str(adapter.target.get("oss_bucket") or "")
+            blob_bucket = str(adapter.target.get("blob_bucket") or "")
             oss_region = str(adapter.target.get("region") or "cn-hangzhou")
-            oss = Oss2Client(bucket=oss_bucket, region=oss_region)
-            channel = OssChannel(oss, campaign_id=probe_control_prefix)
+            oss = Oss2Client(bucket=blob_bucket, region=oss_region)
+            channel = BlobChannel(oss, campaign_id=probe_control_prefix)
             # Some data-plane probes run long (warm-keepalive windows, multi-round
             # elasticity, sustained load): the default 300s cap times them out on a
             # live platform. Configurable via target; default 900s.
             job_timeout_s = float(adapter.target.get("probe_job_timeout_s") or 900.0)
-            self._probe_client = OssProbeClient(channel, timeout_s=job_timeout_s)
+            self._probe_client = BlobProbeClient(channel, timeout_s=job_timeout_s)
         else:
             probe_url = str(adapter.target.get("probe_url") or "")
             if probe_url:
@@ -240,13 +98,17 @@ class AliyunAgentRunTransport(RuntimeTransport):
         self._collected_spans: list[dict] = []  # spans embedded in agent responses (_spans)
         target = adapter.target
         self._memory: Any = _LiveMemory(
-            bucket=str(target.get("oss_bucket") or ""),
+            bucket=str(target.get("blob_bucket") or ""),
             region=str(target.get("region") or "cn-hangzhou"),
             run_id=getattr(adapter, "run_id", None),
         )
         self._mcp: Any = _LiveMcp(client_factory=self._control_client)
 
     # --- HTTP session (connection-pooled, thread-safe) -----------------------
+
+    def invoke_openai(self, session_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Public SUT-invocation seam (see RuntimeTransport.invoke_openai)."""
+        return self._invoke(session_id, body)
 
     def _http_session(self) -> Any:
         """Lazily create a connection-pooled, thread-safe requests.Session."""
@@ -318,7 +180,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             # Lazily provision for data-plane tasks (T1.x-T6.x) that don't call
             # provision() explicitly. The transport's stop() will deprovision.
             target = self._adapter.target
-            self.provision({"oss_bucket": str(target.get("oss_bucket") or "")})
+            self.provision({"blob_bucket": str(target.get("blob_bucket") or "")})
             self._lazy_provisioned = True
 
         endpoint_url = self._endpoint_public_url or str(self._adapter.target.get("endpoint_url") or "")
@@ -1104,7 +966,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         then attaches vantage metadata.
 
         Remote path (Plan 4b, when self._probe_client is set): delegates to the
-        configured probe client — OssProbeClient for the OSS/ECI path (when
+        configured probe client — BlobProbeClient for the OSS/ECI path (when
         ``probe_control_prefix`` is set) or RemoteProbeClient for the legacy
         HTTP path (when only ``probe_url`` is set) — instead of running
         in-process.
@@ -1120,7 +982,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         if not endpoint:
             # Lazy provision for tasks that skip explicit provision().
             target = self._adapter.target
-            prov_spec: dict[str, Any] = {"oss_bucket": str(target.get("oss_bucket") or "")}
+            prov_spec: dict[str, Any] = {"blob_bucket": str(target.get("blob_bucket") or "")}
             # T1.14: honor probe asks for a runtime with a small configured idle
             # timeout so recycling can be observed cheaply — thread it through.
             idle_timeout_s = params.get("session_idle_timeout_s")
@@ -1141,7 +1003,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             mock_base_url=self._adapter.mock_base_url,
             mock_token=str(self._adapter.target.get("mock_token") or ""),
             session_header_scheme="X-AgentRun-Session-ID",
-            oss_prefix=str(self._adapter.target.get("probe_oss_prefix") or ""),
+            blob_prefix=str(self._adapter.target.get("probe_blob_prefix") or ""),
         )
 
         if self._probe_client is not None:
@@ -1789,7 +1651,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         """Build + upload the bundled agent when a bucket is configured; returns
         the ``oss://`` reference (remembered for teardown) or None to skip."""
         target = self._adapter.target
-        bucket = spec.get("oss_bucket") or target.get("oss_bucket")
+        bucket = spec.get("blob_bucket") or target.get("blob_bucket")
         if not bucket:
             return None
         from clousight_bench.domains.agent_runtime.artifact import OssArtifactStore
@@ -1929,7 +1791,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         target = self._adapter.target
         bucket, obj = _split_artifact(str(spec.get("artifact_ref") or ""))
         code = m.CodeConfiguration(
-            oss_bucket_name=str(spec.get("oss_bucket") or target.get("oss_bucket") or bucket),
+            oss_bucket_name=str(spec.get("blob_bucket") or target.get("blob_bucket") or bucket),
             oss_object_name=str(spec.get("oss_object") or obj),
             # Service accepts: python3.10 python3.12 nodejs18 nodejs20 nodejs22 java8 java11 java17
             language=str(target.get("language") or "python3.12"),
@@ -2029,90 +1891,3 @@ def _split_artifact(artifact_ref: str) -> tuple[str, str]:
     ref = artifact_ref.removeprefix("oss://")
     bucket, _, obj = ref.partition("/")
     return bucket, obj
-
-
-class _AliyunCampaignProbe(CampaignProbeOrchestrator):
-    """Per-campaign probe lifecycle: ECS carrier + OSS sync (probe-sink §7).
-
-    The real path (``_default_carrier``) creates an :class:`EcsProbeCarrier` — a
-    stock-OS ECS instance whose cloud-init user-data ``pip install``s the public
-    ``clousight-bench[probe]`` package (no container image, see docs/probe-carrier.md).
-    The start/sync/stop lifecycle is inherited from ``CampaignProbeOrchestrator``.
-    """
-
-    @staticmethod
-    def _default_carrier(target: dict, prefix: str, campaign_id: str = "", bucket: str = ""):  # noqa: ANN202
-        run_id = str(target.get("run_id") or "")
-        _bucket = bucket or str(target.get("oss_bucket") or "")
-        region = str(target.get("region") or "cn-hangzhou")
-        cid = campaign_id or run_id or "adhoc"
-        code_spec, extra_deps = _AliyunCampaignProbe._resolve_code_spec(target, _bucket, region, cid)
-        cfg = EcsCarrierConfig(
-            bucket=_bucket,
-            campaign_id=cid,
-            region=region,
-            vswitch_id=str(target.get("eci_vswitch_id") or ""),
-            security_group_id=str(target.get("eci_security_group_id") or ""),
-            ram_role=str(target.get("eci_probe_role") or ""),
-            image_id=str(target.get("ecs_image_id") or ""),  # stock Aliyun OS image
-            instance_type=str(target.get("ecs_instance_type") or "ecs.e-c1m2.large"),
-            code_spec=code_spec,
-            extra_deps=extra_deps,
-            run_id=run_id or None,
-        )
-        return EcsProbeCarrier(sdk=Ecs20140526Sdk(region=region), config=cfg)
-
-    @staticmethod
-    def _resolve_code_spec(target: dict, bucket: str, region: str, campaign_id: str) -> tuple[str, list[str]]:
-        """Resolve the carrier's ``(code_spec, extra_deps)``.
-
-        Default: install the published ``clousight-bench[probe]`` (or an explicit
-        ``probe_code_spec``) from the mirror — no extra_deps needed.
-
-        Dev-wheel fallback (``probe_dev_wheel`` truthy): build a wheel of the
-        current source, upload it to OSS, and use a presigned internal URL as the
-        code_spec. A wheel URL can't carry the ``[probe]`` extra, so the extra's
-        deps are returned separately for the cloud-init to install from the mirror.
-        """
-        if _truthy(target.get("probe_dev_wheel")):
-            from clousight_bench.domains.agent_runtime.dev_wheel import probe_extra_deps, upload_dev_wheel
-            from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
-
-            upload = Oss2Client(bucket=bucket, region=region)  # public endpoint → PUT
-            signer = Oss2Client(bucket=bucket, region=region, internal=True)  # internal host → URL
-            return upload_dev_wheel(upload, signer, campaign_id), probe_extra_deps()
-        return str(target.get("probe_code_spec") or _published_code_spec()), []
-
-    @staticmethod
-    def _default_oss(target: dict):  # noqa: ANN202
-        from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
-
-        bucket = str(target.get("oss_bucket") or "")
-        region = str(target.get("region") or "cn-hangzhou")
-        return Oss2Client(bucket=bucket, region=region)
-
-
-class AliyunRuntimeProvider(RuntimeProviderPlugin):
-    """Registered for provider ``aliyun`` via the runtime_providers entry point."""
-
-    provider = "aliyun"
-
-    def build_transport(self, adapter: Any) -> AliyunAgentRunTransport:
-        return AliyunAgentRunTransport(adapter)
-
-    def campaign_probe_hook(
-        self,
-        carrier_factory=None,
-        oss_factory=None,
-    ) -> _AliyunCampaignProbe:
-        """Return an injectable ``_AliyunCampaignProbe``.
-
-        ``carrier_factory`` / ``oss_factory`` are forwarded to the probe so
-        tests can inject fakes without touching the real ECI/OSS SDKs.
-        Called by ``core.plugin.campaign_probe_hook`` with no args (real mode);
-        tests call it directly with injected fakes.
-        """
-        return _AliyunCampaignProbe(
-            carrier_factory=carrier_factory,
-            oss_factory=oss_factory,
-        )

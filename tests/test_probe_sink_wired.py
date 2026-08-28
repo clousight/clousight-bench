@@ -3,9 +3,9 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.domains.agent_runtime.probe.blob_sink import BlobChunkSink
 from clousight_bench.domains.agent_runtime.probe.jobs import JobSpec
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
-from clousight_bench.domains.agent_runtime.probe.oss_sink import OssChunkSink
 from clousight_bench.domains.agent_runtime.probe.server import build_default_runner
 
 
@@ -47,11 +47,11 @@ def _poll_terminal(runner, job_id, tries=200):
     raise AssertionError("job did not finish")
 
 
-def test_soak_flushes_raw_chunks_to_oss_and_reports_chunk_refs():
+def test_soak_flushes_raw_chunks_to_store_and_reports_chunk_refs():
     srv, base = _serve()
-    oss = InMemoryOssClient()
-    # sink factory keyed off the JobSpec's oss_prefix, small chunks to force rolls
-    factory = lambda spec: OssChunkSink(oss, spec.oss_prefix, chunk_max_records=5)
+    store = InMemoryBlobStore()
+    # sink factory keyed off the JobSpec's blob_prefix, small chunks to force rolls
+    factory = lambda spec: BlobChunkSink(store, spec.blob_prefix, chunk_max_records=5)
     runner = build_default_runner(sink_factory=factory)
     try:
         spec = JobSpec(
@@ -59,17 +59,17 @@ def test_soak_flushes_raw_chunks_to_oss_and_reports_chunk_refs():
             params={"duration_s": 0.4},
             target_endpoint=base,
             mock_base_url="http://mock",
-            oss_prefix="campaign-x/job-y/",
+            blob_prefix="campaign-x/job-y/",
         )
         job_id = runner.submit(spec)
         rec = _poll_terminal(runner, job_id)
     finally:
         srv.shutdown()
     assert rec.status == "completed"
-    # raw chunks landed in OSS (mid-run queryable) + a manifest was written on close
-    raw = oss.list_prefix("campaign-x/job-y/raw-")
-    assert raw, "expected at least one raw chunk flushed to OSS"
-    assert "campaign-x/job-y/manifest.json" in oss.list_prefix("campaign-x/job-y/")
+    # raw chunks landed in the blob store (mid-run queryable) + a manifest was written on close
+    raw = store.list_prefix("campaign-x/job-y/raw-")
+    assert raw, "expected at least one raw chunk flushed to the blob store"
+    assert "campaign-x/job-y/manifest.json" in store.list_prefix("campaign-x/job-y/")
     # the poll record surfaces the chunk keys as chunk_refs
     assert rec.chunk_refs and all(r.startswith("campaign-x/job-y/") for r in rec.chunk_refs)
 
@@ -83,7 +83,7 @@ def test_no_sink_factory_keeps_plan2_behavior():
             params={"duration_s": 0.2},
             target_endpoint=base,
             mock_base_url="http://mock",
-            oss_prefix="",
+            blob_prefix="",
         )
         job_id = runner.submit(spec)
         rec = _poll_terminal(runner, job_id)

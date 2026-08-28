@@ -1,13 +1,13 @@
 """Tests for CampaignController — the serial campaign orchestration loop."""
 
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.core.campaign_channel import CampaignChannel
 from clousight_bench.core.campaign_spec import LaunchSpec
 from clousight_bench.core.controller import CampaignController, TaskOutcome
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
 
 def _channel():
-    return CampaignChannel(InMemoryOssClient(), "camp-1", now=lambda: 1.0)
+    return CampaignChannel(InMemoryBlobStore(), "camp-1", now=lambda: 1.0)
 
 
 def _tasks(*ids: str) -> list[dict]:

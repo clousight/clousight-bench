@@ -1,13 +1,13 @@
 import json
 import threading
 
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
-from clousight_bench.domains.agent_runtime.probe.oss_sink import OssChunkSink
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.domains.agent_runtime.probe.blob_sink import BlobChunkSink
 
 
 def test_rolls_chunks_midrun_and_writes_manifest_on_close():
-    c = InMemoryOssClient()
-    sink = OssChunkSink(c, "campaign-x/job-y/", chunk_max_records=1000)
+    c = InMemoryBlobStore()
+    sink = BlobChunkSink(c, "campaign-x/job-y/", chunk_max_records=1000)
     for i in range(2500):
         sink.append("raw", {"i": i})
     # Two full chunks rolled DURING the run (mid-run queryable), before close.
@@ -29,8 +29,8 @@ def test_rolls_chunks_midrun_and_writes_manifest_on_close():
 
 
 def test_multiple_streams_have_independent_counters():
-    c = InMemoryOssClient()
-    sink = OssChunkSink(c, "p/", chunk_max_records=2)
+    c = InMemoryBlobStore()
+    sink = BlobChunkSink(c, "p/", chunk_max_records=2)
     sink.append("series", {"t": 1, "v": 1.0})
     sink.append("spans", {"span_id": "s1"})
     sink.append("series", {"t": 2, "v": 2.0})  # series hits 2 → rolls series-0000
@@ -42,8 +42,8 @@ def test_multiple_streams_have_independent_counters():
 
 
 def test_flush_noop_when_empty():
-    c = InMemoryOssClient()
-    sink = OssChunkSink(c, "p/")
+    c = InMemoryBlobStore()
+    sink = BlobChunkSink(c, "p/")
     sink.flush()  # nothing buffered
     m = sink.close()
     assert m["chunks"] == []
@@ -52,11 +52,11 @@ def test_flush_noop_when_empty():
 
 def test_concurrent_appends_no_loss_no_key_collision():
     """16 threads each appending 50 records against chunk_max=5 exercises rapid
-    rolling under contention. Assert: (a) no record lost, (b) no OSS key written
+    rolling under contention. Assert: (a) no record lost, (b) no blob key written
     twice (chunk index collision would overwrite a key and corrupt the manifest).
     """
-    c = InMemoryOssClient()
-    sink = OssChunkSink(c, "concurrent/", chunk_max_records=5)
+    c = InMemoryBlobStore()
+    sink = BlobChunkSink(c, "concurrent/", chunk_max_records=5)
 
     records_per_thread = 50
     num_threads = 16
@@ -80,16 +80,16 @@ def test_concurrent_appends_no_loss_no_key_collision():
     assert total_in_chunks == total_expected, f"Record loss: expected {total_expected}, got {total_in_chunks}"
 
     # (b) No chunk key collision: each key in the manifest must be unique,
-    # and each key must correspond to exactly one OSS object (no overwrite).
+    # and each key must correspond to exactly one blob object (no overwrite).
     chunk_keys = [ch["key"] for ch in raw_chunks]
     assert len(chunk_keys) == len(set(chunk_keys)), "Duplicate chunk keys in manifest"
 
-    # Cross-check: every manifest key is present in OSS and vice-versa (no phantom writes).
-    oss_raw_keys = c.list_prefix("concurrent/raw-")
-    assert sorted(chunk_keys) == sorted(oss_raw_keys), "Manifest keys don't match OSS keys"
+    # Cross-check: every manifest key is present in the blob store and vice-versa (no phantom writes).
+    store_raw_keys = c.list_prefix("concurrent/raw-")
+    assert sorted(chunk_keys) == sorted(store_raw_keys), "Manifest keys don't match blob-store keys"
 
-    # Verify total records accessible from OSS objects match expected.
-    oss_total = sum(len(c.get_object(key).decode().splitlines()) for key in oss_raw_keys)
-    assert oss_total == total_expected, (
-        f"OSS record count mismatch: expected {total_expected}, got {oss_total}"
+    # Verify total records accessible from blob-store objects match expected.
+    store_total = sum(len(c.get_object(key).decode().splitlines()) for key in store_raw_keys)
+    assert store_total == total_expected, (
+        f"Blob-store record count mismatch: expected {total_expected}, got {store_total}"
     )

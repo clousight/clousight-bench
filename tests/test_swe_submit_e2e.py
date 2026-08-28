@@ -25,9 +25,9 @@ import yaml
 
 import clousight_bench.core.orchestrator as orch
 from clousight_bench.core import prod_submit
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.core.campaign_channel import CampaignChannel
 from clousight_bench.core.schema import RunSpec
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PLAN_PATH = REPO_ROOT / "configs" / "swe-bench-smoke.plan.yaml"
@@ -63,8 +63,9 @@ def test_committed_plan_shape():
     assert doc["cost_budget"] == 10.0
     driver = doc["driver"]
     assert driver["install_docker"] is True
-    assert driver["hf_endpoint"] == "https://hf-mirror.com"  # cn-region HF mirror is REQUIRED
-    assert "docker_registry_mirror" in driver  # docker hub is blocked in cn regions
+    assert driver["hf_endpoint"] == "https://hf-mirror.com"  # cn-region HF mirror stays pinned
+    # No mirror address: the driver auto-detects its image strategy at boot.
+    assert "docker_registry_mirror" not in driver
     assert int(driver["system_disk_size"]) >= 100  # 3 instance images + base ~ tens of GiB
 
 
@@ -94,7 +95,7 @@ def test_submit_accepts_committed_plan(tmp_path):
         'params: {}\ntarget: {"provider": "aliyun", "region": "cn-hangzhou", "mode": "real"}\n',
         encoding="utf-8",
     )
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     tf_calls: list[list[str]] = []
     cid = prod_submit.submit(
         PLAN_PATH,
@@ -120,7 +121,8 @@ def test_submit_accepts_committed_plan(tmp_path):
     argv = tf_calls[0]
     assert "controller_install_docker=true" in argv
     assert "controller_hf_endpoint=https://hf-mirror.com" in argv
-    assert any(a.startswith("controller_docker_registry_mirror=") for a in argv)
+    # No mirror override in the committed plan → no controller_docker_registry_mirror -var.
+    assert not any(a.startswith("controller_docker_registry_mirror=") for a in argv)
     assert any(a.startswith("controller_system_disk_size=") for a in argv)
     # image builds need ≥4c8g — the plan pins the driver instance type (M1)
     assert "controller_instance_type=ecs.c6.xlarge" in argv
@@ -141,7 +143,7 @@ def test_llm_key_on_driver_never_lands_in_launch_spec_or_record(tmp_path, monkey
     # submit path: every byte written to the campaign channel is key-free
     config = tmp_path / "cfg.yaml"
     config.write_text('params: {}\ntarget: {"mode": "real"}\n', encoding="utf-8")
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     prod_submit.submit(
         PLAN_PATH,
         str(config),

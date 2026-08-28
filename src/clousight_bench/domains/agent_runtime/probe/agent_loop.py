@@ -1,8 +1,8 @@
-"""ECI-side poller loop: consumes probe jobs from OSS, runs them, writes results.
+"""Probe-side poller loop: consumes jobs from the blob store, runs them, writes results.
 
-This is the container's main process when running the OSS-mediated private probe
-path.  It reads from and writes to OSS exclusively via :class:`OssChannel`; there
-is no HTTP server or direct OSS key access here.
+This is the container's main process when running the blob-store-mediated private
+probe path.  It reads from and writes to the blob store exclusively via
+:class:`BlobChannel`; there is no HTTP server or direct blob-key access here.
 
 Key design decisions
 --------------------
@@ -12,7 +12,7 @@ Key design decisions
   container restart), so we never double-run.
 - A probe that raises must produce a failed ``JobRecord`` — never crash the loop.
 - The loop polls with a configurable ``poll_interval_s`` sleep between iterations
-  so the OSS API call rate stays bounded.
+  so the blob-store API call rate stays bounded.
 - ``sleep`` and ``now`` are injectable for deterministic, instant unit tests.
 """
 
@@ -24,14 +24,14 @@ import time as _time
 from collections.abc import Callable
 from typing import Any
 
+from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
 from clousight_bench.domains.agent_runtime.probe.jobs import JobProgress, JobRecord, JobSpec
-from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
 
 log = logging.getLogger(__name__)
 
 
 def run_agent_loop(
-    channel: OssChannel,
+    channel: BlobChannel,
     runner: Any,
     *,
     idle_timeout_s: float = 120.0,
@@ -40,10 +40,10 @@ def run_agent_loop(
     now: Callable[[], float] = _time.monotonic,
     job_max_wait_s: float = 300.0,
 ) -> None:
-    """Run the ECI poller until stopped or idle beyond *idle_timeout_s*.
+    """Run the in-region probe poller until stopped or idle beyond *idle_timeout_s*.
 
     Args:
-        channel: The :class:`OssChannel` connecting this loop to the control plane.
+        channel: The :class:`BlobChannel` connecting this loop to the control plane.
         runner: A :class:`~clousight_bench.domains.agent_runtime.probe.runner.JobRunner`
             (or duck-typed equivalent with ``submit(spec) -> job_id`` and
             ``get(job_id) -> JobRecord | None``).
@@ -99,7 +99,7 @@ def run_agent_loop(
 
 
 def _run_job(
-    channel: OssChannel,
+    channel: BlobChannel,
     runner: Any,
     job_id: str,
     spec: JobSpec,
@@ -120,9 +120,9 @@ def _run_job(
     a terminal object.
 
     Args:
-        channel: The :class:`OssChannel` used for relaying progress and results.
+        channel: The :class:`BlobChannel` used for relaying progress and results.
         runner: Duck-typed runner with ``submit`` / ``get`` methods.
-        job_id: Channel-level job ID (used to key OSS objects).
+        job_id: Channel-level job ID (used to key blob-store objects).
         spec: The probe specification to run.
         sleep: Replacement for :func:`time.sleep`; injected in tests.
         now: Replacement for :func:`time.monotonic`; injected in tests.
@@ -187,7 +187,7 @@ def _run_job(
 
 
 def main() -> None:
-    """Entry point for the ECI container.
+    """Entry point for the in-region probe host.
 
     Reads configuration from environment variables:
 
@@ -209,13 +209,13 @@ def main() -> None:
     idle_timeout_s = float(os.environ.get("CB_PROBE_IDLE_TIMEOUT", "120"))
     # Per-job execution cap. Long probes (warm-keepalive, elasticity, sustained
     # load) with a slow AgentRuntime blow past the 300s default — the control
-    # plane sets this to match its own OssProbeClient timeout.
+    # plane sets this to match its own BlobProbeClient timeout.
     job_max_wait_s = float(os.environ.get("CB_PROBE_JOB_MAX_WAIT", "300"))
 
     from clousight_bench.domains.agent_runtime.probe.oss_client import EcsRamRoleOssClient
 
-    oss = EcsRamRoleOssClient(bucket=bucket, region=region)
-    channel = OssChannel(oss, campaign_id=campaign_id)
+    store = EcsRamRoleOssClient(bucket=bucket, region=region)
+    channel = BlobChannel(store, campaign_id=campaign_id)
 
     from clousight_bench.domains.agent_runtime.probe.server import build_default_runner
 

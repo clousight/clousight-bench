@@ -21,7 +21,7 @@ harness 在 ECS 驱动机上用 Docker 评测，结果经 OSS 回到你的笔记
   `ALICLOUD_SECRET_KEY` / `ALICLOUD_REGION`）；controller 自身的 SDK 调用走
   `controller.tf` 创建的子账号实例角色。
 - **`configs/agent-runtime-aliyun.local.yaml`**（已 gitignore，绝不提交），需包含
-  `target.region`、`target.oss_bucket`、`target.auth_env` 下的凭证*环境变量名*，
+  `target.region`、`target.blob_bucket`、`target.auth_env` 下的凭证*环境变量名*，
   以及用于遥测的 `target.arms_license_key`。
 - **该本地配置中必须写 `target.mode: real`。** 缺失时 suite 桥接默认走 mock ——
   你会为一个全价 ECS campaign 付费，而它只是在回放内置 fixture
@@ -48,7 +48,7 @@ cost_budget: 10.0
 driver:
   install_docker: true
   system_disk_size: 120
-  docker_registry_mirror: "https://REPLACE-WITH-YOUR-ID.mirror.aliyuncs.com"
+  # 无需填任何镜像地址 —— 驱动机启动时自动探测并选择镜像策略
   hf_endpoint: "https://hf-mirror.com"
 tasks:
   - task_id: "suite:swe-bench"
@@ -60,8 +60,10 @@ tasks:
         - pytest-dev__pytest-7205
 ```
 
-提交前把 `docker_registry_mirror` 换成你的 ACR 加速地址（ACR 控制台 → 镜像加速器）。
-未知的 `driver:` 键会在 submit 时被直接拒绝。
+**你无需配置任何镜像地址。** 驱动机启动时会自己探测 Docker Hub 通不通，并据此
+选择镜像策略（`driver_image.py`）：通就直连（境外/未被墙的区),不通就走账号自己的
+ACR 端点,都不通就大声中止 —— 决策写进 campaign 日志。只有想强制指定某个镜像时才
+设 `driver.docker_registry_mirror`。未知的 `driver:` 键会在 submit 时被直接拒绝。
 
 ## 命令序列
 
@@ -116,8 +118,11 @@ csbench teardown camp-ab12cd34 --config configs/agent-runtime-aliyun.local.yaml
 
 ## 国内 region 的坑
 
-- **Docker Hub 被墙。** `driver.docker_registry_mirror`（ACR 加速器）是**必填**的 ——
-  没有它所有镜像拉取都会失败。
+- **Docker Hub 通断自动处理。** 驱动机启动时自己探测并据此路由（直连 / ACR / 大声中止），
+  没有任何按账号的镜像地址要填。阿里云的镜像加速器（`<id>.mirror.aliyuncs.com`）
+  刻意不用 —— 它没有 OpenAPI,工具取不到；需要时改用账号自己的 ACR 端点
+  (`get_instance_endpoint`)。注意国内区还会挡住 GitHub(克隆仓库):若驱动机报告
+  blocked 策略,请换一个出口直连的区,或预先把镜像灌进 ACR。
 - **huggingface.co 不稳定。** 保持 `driver.hf_endpoint: https://hf-mirror.com`
   供数据集自动下载。
 - **NAT 网关 + EIP 按小时计费。** 拉取结果后立即 teardown —— 不要让跑完的

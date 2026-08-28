@@ -1,20 +1,20 @@
 """In-memory end-to-end for the ecs prod profile (no cloud).
 
 Wires submit → CampaignController → status/fetch → teardown over one
-InMemoryOssClient with fake terraform/run_task/delete seams. This is the CI
+InMemoryBlobStore with fake terraform/run_task/delete seams. This is the CI
 guarantee that the whole loop closes: a campaign submitted, run, fetched, and
 torn down with residuals cleared.
 """
 
 from clousight_bench.core import prod_submit
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.core.campaign_channel import CampaignChannel
 from clousight_bench.core.controller import CampaignController, TaskOutcome
 from clousight_bench.core.resource_ledger import LEDGER_FILE, ResourceLedger
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
 
 def test_full_prod_flow_in_memory(tmp_path):
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     plan = tmp_path / "plan.yaml"
     plan.write_text("tasks:\n  - task_id: T1.13\n  - task_id: T2.1\n", encoding="utf-8")
     config = tmp_path / "cfg.yaml"
@@ -69,6 +69,7 @@ def test_full_prod_flow_in_memory(tmp_path):
         ch,
         terraform=lambda argv: 0,
         delete_runtime=lambda rid: deleted.append(rid),
+        provider="aliyun",
     )
     assert deleted == ["rt-1"]
     assert out["destroyed"] is True and out["residual_deleted"] == ["rt-1"]

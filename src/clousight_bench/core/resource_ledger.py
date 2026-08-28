@@ -88,3 +88,15 @@ class ResourceLedger:
         if provider is not None:
             out = [e for e in out if e.get("provider") == provider]
         return out
+
+
+def live_runtimes_from_ledger(ledger: ResourceLedger) -> list[str]:
+    """Runtime resource ids that were created and not since deleted."""
+    created: list[str] = []
+    deleted: set[str] = set()
+    for e in ledger._events():  # noqa: SLF001 — intentional reverse-lookup over the append log
+        if e.get("event") == "created" and e.get("kind") == "runtime":
+            created.append(str(e.get("resource_id")))
+        elif e.get("event") == "deleted":
+            deleted.add(str(e.get("resource_id")))
+    return [rid for rid in created if rid not in deleted]

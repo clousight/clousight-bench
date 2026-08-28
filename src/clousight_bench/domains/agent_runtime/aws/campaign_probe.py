@@ -27,10 +27,10 @@ class _AwsCampaignProbe(CampaignProbeOrchestrator):
     """
 
     @staticmethod
-    def _default_oss(target: dict) -> Any:  # noqa: ANN202
+    def _default_store(target: dict) -> Any:  # noqa: ANN202
         from clousight_bench.domains.agent_runtime.probe.s3_client import S3Client
 
-        bucket = str(target.get("oss_bucket") or "")
+        bucket = str(target.get("blob_bucket") or "")
         region = str(target.get("region") or "us-east-1")
         return S3Client(bucket=bucket, region=region)
 
@@ -70,7 +70,7 @@ class _AwsCampaignProbe(CampaignProbeOrchestrator):
         )
 
         run_id = str(target.get("run_id") or "")
-        _bucket = bucket or str(target.get("oss_bucket") or "")
+        _bucket = bucket or str(target.get("blob_bucket") or "")
         region = str(target.get("region") or "us-east-1")
         cid = campaign_id or run_id or "adhoc"
         code_spec, extra_deps = _AwsCampaignProbe._resolve_code_spec(target, _bucket, region, cid)

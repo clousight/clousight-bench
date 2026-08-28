@@ -27,16 +27,16 @@ class AwsRuntimeProvider(RuntimeProviderPlugin):
     def campaign_probe_hook(
         self,
         carrier_factory=None,
-        oss_factory=None,
+        store_factory=None,
     ) -> _AwsCampaignProbe:
         """Return an injectable ``_AwsCampaignProbe``.
 
-        ``carrier_factory`` / ``oss_factory`` are forwarded to the probe so
+        ``carrier_factory`` / ``store_factory`` are forwarded to the probe so
         tests can inject fakes without touching the real EC2/S3 SDKs.
         Called by ``core.plugin.campaign_probe_hook`` with no args (real mode);
         tests call it directly with injected fakes.
         """
         return _AwsCampaignProbe(
             carrier_factory=carrier_factory,
-            oss_factory=oss_factory,
+            store_factory=store_factory,
         )

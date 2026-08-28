@@ -2,7 +2,7 @@
 
 import base64
 
-from clousight_bench.domains.agent_runtime.ecs_carrier import build_controller_user_data
+from clousight_bench.domains.agent_runtime.aliyun.ecs_carrier import build_controller_user_data
 
 
 def _script(**kw) -> str:
@@ -53,7 +53,7 @@ def test_controller_user_data_default_flags_byte_identical_to_pre_docker_shape()
     assert _script(bucket="b", region="r", campaign_id="c") == expected
 
 
-def test_controller_user_data_docker_mirror_and_hf_lines():
+def test_controller_user_data_docker_and_hf_lines():
     script = _script(
         bucket="b",
         region="r",
@@ -63,20 +63,31 @@ def test_controller_user_data_docker_mirror_and_hf_lines():
         hf_endpoint="https://hf-mirror.com",
     )
     assert "export HF_ENDPOINT='https://hf-mirror.com'" in script
-    daemon = 'echo \'{"registry-mirrors": ["https://m.example.com"]}\' > /etc/docker/daemon.json'
-    assert "mkdir -p /etc/docker" in script
-    assert daemon in script
+    # An explicit mirror rides as an OPTIONAL override env var (the driver
+    # auto-detects when it is absent).
+    override = "export CB_DOCKER_MIRROR='https://m.example.com'"
+    assert override in script
     install = "yum install -y docker || dnf install -y docker"
-    assert install in script
-    assert "systemctl enable --now docker" in script
-    # daemon.json is written BEFORE docker is installed/started
-    assert script.index(daemon) < script.index(install)
-    assert script.index(install) < script.index("systemctl enable --now docker")
-    # docker setup happens before the python/controller install
+    assert install in script and "systemctl enable --now docker" in script
+    # the override env is set before docker installs
+    assert script.index(override) < script.index(install)
+    # docker installs before the python/controller install
     assert script.index("systemctl enable --now docker") < script.index("yum install -y 'python3.11'")
+    # the auto-detect bootstrap runs AFTER the package is installed, before exec
+    autodetect = "python3.11 -m clousight_bench.domains.agent_runtime.driver_image"
+    assert autodetect in script
+    assert script.index("clousight-bench[probe,store]") < script.index(autodetect)
+    assert script.index(autodetect) < script.index("exec python3.11 -m clousight_bench.core.controller_main")
 
 
-def test_controller_user_data_install_docker_without_mirror():
+def test_controller_user_data_install_docker_without_mirror_still_auto_detects():
     script = _script(bucket="b", region="r", campaign_id="c", install_docker=True)
     assert "yum install -y docker || dnf install -y docker" in script
-    assert "daemon.json" not in script and "HF_ENDPOINT" not in script
+    # No override, no hardcoded daemon.json — the driver auto-detects at boot.
+    assert "CB_DOCKER_MIRROR" not in script and "HF_ENDPOINT" not in script
+    assert "python3.11 -m clousight_bench.domains.agent_runtime.driver_image" in script
+
+
+def test_controller_user_data_no_autodetect_without_docker():
+    script = _script(bucket="b", region="r", campaign_id="c")
+    assert "driver_image" not in script

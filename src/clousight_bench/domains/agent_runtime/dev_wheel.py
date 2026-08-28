@@ -20,8 +20,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol
 
-from clousight_bench.domains.agent_runtime.ecs_carrier import CarrierError
-from clousight_bench.domains.agent_runtime.probe.oss_client import OssClient
+from clousight_bench.core.blobstore import BlobStore
+from clousight_bench.domains.agent_runtime.carrier_base import CarrierError
 
 
 class _Signer(Protocol):
@@ -141,7 +141,7 @@ def deps_for_extras(extras: list[str]) -> list[str]:
 
 
 def upload_dev_wheel(
-    upload_client: OssClient,
+    upload_client: BlobStore,
     sign_client: _Signer,
     campaign_id: str,
     *,

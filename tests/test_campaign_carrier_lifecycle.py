@@ -25,7 +25,7 @@ class _RecordingHook:
         # Return the new OSS-mediated shape (no probe_url)
         return {
             "probe_control_prefix": "run-abc",
-            "probe_oss_prefix": "clousight-bench/telemetry/run-abc/",
+            "probe_blob_prefix": "clousight-bench/telemetry/run-abc/",
             "probe_in_vpc": True,
         }
 
@@ -153,14 +153,14 @@ def _make_probe(call_log=None):
 
     call_log: shared list that records events so tests can assert ordering.
     """
+    from clousight_bench.core.blobstore import InMemoryBlobStore
     from clousight_bench.domains.agent_runtime.aliyun import _AliyunCampaignProbe
-    from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
     if call_log is None:
         call_log = []
 
     # Fake OSS shared between channel (control side) and tests.
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
 
     class _FakeCarrier:
         """Minimal probe carrier stand-in."""
@@ -182,22 +182,22 @@ def _make_probe(call_log=None):
     def carrier_factory(target, prefix, campaign_id="", bucket=""):
         return fake_carrier
 
-    def oss_factory(target):
+    def store_factory(target):
         return oss
 
-    probe = _AliyunCampaignProbe(carrier_factory=carrier_factory, oss_factory=oss_factory)
+    probe = _AliyunCampaignProbe(carrier_factory=carrier_factory, store_factory=store_factory)
     return probe, fake_carrier, oss, call_log
 
 
 def test_start_returns_oss_shape():
     """start_campaign_probe returns probe_control_prefix and probe_in_vpc=True, no probe_url."""
     probe, _, _, _ = _make_probe()
-    target = {"run_id": "run-xyz", "oss_bucket": "my-bucket"}
+    target = {"run_id": "run-xyz", "blob_bucket": "my-bucket"}
     result = probe.start_campaign_probe(target)
 
     assert "probe_url" not in result, "probe_url must NOT appear in the OSS-mediated return value"
     assert result["probe_control_prefix"] == "run-xyz"
-    assert result["probe_oss_prefix"].startswith("clousight-bench/telemetry/")
+    assert result["probe_blob_prefix"].startswith("clousight-bench/telemetry/")
     assert result["probe_in_vpc"] is True
     assert "probe_token" in result
 
@@ -205,7 +205,7 @@ def test_start_returns_oss_shape():
 def test_start_injects_ready_check_and_calls_provision():
     """start_campaign_probe injects channel.is_ready into carrier.ready_check and calls provision."""
     probe, fake_carrier, oss, call_log = _make_probe()
-    target = {"run_id": "run-abc", "oss_bucket": "bucket"}
+    target = {"run_id": "run-abc", "blob_bucket": "bucket"}
     probe.start_campaign_probe(target)
 
     # provision must have been called
@@ -216,9 +216,9 @@ def test_start_injects_ready_check_and_calls_provision():
 
     # Verify that ready_check is indeed channel.is_ready: before writing ready.json it returns False,
     # after writing it returns True.
-    from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+    from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
 
-    channel = OssChannel(oss, "run-abc")
+    channel = BlobChannel(oss, "run-abc")
     assert fake_carrier.ready_check() is False
     channel.write_ready()
     assert fake_carrier.ready_check() is True
@@ -227,13 +227,13 @@ def test_start_injects_ready_check_and_calls_provision():
 def test_stop_signals_then_tears_down():
     """stop_campaign_probe writes stop sentinel to OSS BEFORE tearing down the carrier."""
     probe, fake_carrier, oss, call_log = _make_probe(call_log=[])
-    target = {"run_id": "run-abc", "oss_bucket": "bucket"}
+    target = {"run_id": "run-abc", "blob_bucket": "bucket"}
     probe.start_campaign_probe(target)
 
     # Patch signal_stop to record in same call_log
-    from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+    from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
 
-    original_signal_stop = OssChannel.signal_stop
+    original_signal_stop = BlobChannel.signal_stop
 
     def recording_signal_stop(self_channel):
         call_log.append("signal_stop")
@@ -255,14 +255,14 @@ def test_stop_signals_then_tears_down():
     )
 
     # Also verify the stop sentinel was actually written to OSS
-    channel = OssChannel(oss, "run-abc")
+    channel = BlobChannel(oss, "run-abc")
     assert channel.stop_requested() is True
 
 
 def test_stop_swallows_channel_exception():
     """stop_campaign_probe is interrupt-safe: channel signal_stop exception doesn't prevent teardown."""
     probe, fake_carrier, oss, call_log = _make_probe(call_log=[])
-    target = {"run_id": "run-err", "oss_bucket": "bucket"}
+    target = {"run_id": "run-err", "blob_bucket": "bucket"}
     probe.start_campaign_probe(target)
 
     # Make signal_stop raise

@@ -18,44 +18,43 @@ from typing import Any
 
 import yaml
 
+from clousight_bench.core.campaign_channel import CampaignChannel
 from clousight_bench.core.campaign_spec import LaunchSpec
-from clousight_bench.core.resource_ledger import LEDGER_FILE, ResourceLedger
-from clousight_bench.domains.agent_runtime.controller_reaper import live_runtimes_from_ledger
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
+from clousight_bench.core.credentials import infer_provider
+from clousight_bench.core.errors import UserInputError
+from clousight_bench.core.plugin import ControllerTfSpec
+from clousight_bench.core.registry import get_runtime_provider
+from clousight_bench.core.resource_ledger import LEDGER_FILE, ResourceLedger, live_runtimes_from_ledger
 
 # Controller heartbeat cadence; status flags "stale" past 2x this.
 HEARTBEAT_INTERVAL_S = 15.0
 
 Terraform = Callable[[list[str]], int]
 
-# Only the prod-profile resources — never a bare apply/destroy (which would
-# in-place touch the mock FC + everything else in the module). Aliyun-specific.
-_CONTROLLER_TF_TARGETS = [
-    "alicloud_instance.controller",
-    "alicloud_ram_role.controller",
-    "alicloud_ram_policy.controller",
-    "alicloud_ram_role_policy_attachment.controller",
-    "alicloud_nat_gateway.bench",
-    "alicloud_eip_address.nat",
-    "alicloud_eip_association.nat",
-    "alicloud_snat_entry.bench",
-]
+
+def _controller_tf_spec(provider: str | None) -> ControllerTfSpec:
+    """The prod-controller terraform surface for ``provider`` — loud when absent.
+
+    Vendor knowledge (resource addresses, driver-var names) lives on the
+    provider plugin, not in core: a submit against a provider without a wired
+    prod-controller profile must fail HERE, before any launch bytes or
+    terraform state exist — never fall back to another cloud's resources.
+    """
+    plugin = get_runtime_provider(provider)
+    spec = plugin.controller_tf_spec() if plugin is not None else None
+    if spec is None:
+        raise UserInputError(
+            f"provider {provider!r} has no prod-controller profile; only providers "
+            "implementing controller_tf_spec() support `csbench submit` — set "
+            "target.provider in the config (or platform: in the plan) to a provider "
+            "with a wired prod-controller path"
+        )
+    return spec
 
 
-# Plan yaml `driver:` keys → the controller_* terraform vars they set. Only the
-# keys present in the plan are forwarded; absent keys keep the tf defaults.
-_DRIVER_TF_VARS = {
-    "install_docker": "controller_install_docker",
-    "system_disk_size": "controller_system_disk_size",
-    "docker_registry_mirror": "controller_docker_registry_mirror",
-    "hf_endpoint": "controller_hf_endpoint",
-    "instance_type": "controller_instance_type",
-}
-
-
-def _tf_targets() -> list[str]:
+def _tf_targets(spec: ControllerTfSpec) -> list[str]:
     out: list[str] = []
-    for t in _CONTROLLER_TF_TARGETS:
+    for t in spec.tf_targets:
         out += ["-target", t]
     return out
 
@@ -70,9 +69,13 @@ def _require_task_id(entry: dict[str, Any]) -> str:
     return str(entry["task_id"])
 
 
-def _load_plan(plan_path: str | Path) -> tuple[list[dict[str, Any]], dict[str, Any], float | None]:
+def _load_plan(
+    plan_path: str | Path,
+) -> tuple[list[dict[str, Any]], dict[str, Any], float | None, str | None]:
     """Parse the plan yaml: task entries (``{task_id, params}`` mappings), the
-    optional ``driver:`` section, and the optional campaign ``cost_budget``."""
+    optional ``driver:`` section, the optional campaign ``cost_budget``, and the
+    optional ``platform`` (used to infer the provider when the config target
+    carries no explicit ``provider`` key)."""
     doc = yaml.safe_load(Path(plan_path).read_text(encoding="utf-8")) or {}
     tasks = [
         {"task_id": _require_task_id(t), "params": dict(t.get("params") or {})}
@@ -80,16 +83,24 @@ def _load_plan(plan_path: str | Path) -> tuple[list[dict[str, Any]], dict[str, A
     ]
     driver = dict(doc.get("driver") or {})
     budget = doc.get("cost_budget")
-    return tasks, driver, (float(budget) if budget is not None else None)
+    platform = doc.get("platform")
+    return (
+        tasks,
+        driver,
+        (float(budget) if budget is not None else None),
+        (str(platform) if platform else None),
+    )
 
 
-def _driver_tf_args(driver: dict[str, Any]) -> list[str]:
-    """``-var controller_*=...`` flags for the driver keys present in the plan."""
+def _driver_tf_args(driver: dict[str, Any], spec: ControllerTfSpec) -> list[str]:
+    """``-var <driver_tf_var>=...`` flags for the driver keys present in the plan."""
     out: list[str] = []
-    unknown = set(driver) - set(_DRIVER_TF_VARS)
+    unknown = set(driver) - set(spec.driver_tf_vars)
     if unknown:
-        raise ValueError(f"unknown driver key(s) {sorted(unknown)!r}; known: {sorted(_DRIVER_TF_VARS)}")
-    for key, var in _DRIVER_TF_VARS.items():
+        raise ValueError(
+            f"unknown driver key(s) {sorted(unknown)!r}; known: {sorted(spec.driver_tf_vars)}"
+        )
+    for key, var in spec.driver_tf_vars.items():
         if key not in driver:
             continue
         value = driver[key]
@@ -126,10 +137,16 @@ def submit(
     section (install_docker / system_disk_size / docker_registry_mirror /
     hf_endpoint / instance_type) is forwarded as ``-var controller_*`` flags so
     the controller instance can double as the suite driver host.
+
+    The controller's terraform surface (targets + driver-var names) comes from
+    the resolved provider's ``ControllerTfSpec`` — ``target.provider`` in the
+    config, or inferred from the plan's ``platform:`` (e.g. ``aliyun-agentrun``
+    → ``aliyun``). A provider without one fails loudly before any side effect.
     """
     campaign_id = gen_id()
-    tasks, driver, cost_budget = _load_plan(plan_path)
+    tasks, driver, cost_budget, platform = _load_plan(plan_path)
     target, params = _load_config(config_path)
+    tf_spec = _controller_tf_spec(infer_provider(target, platform))
     has_suite_task = any(str(t["task_id"]).startswith("suite:") for t in tasks)
     # Silent-mock trap: a suite task on a non-real target runs canned fixtures on
     # full-price infra. Loud warning, not an error — mock submits are legitimate
@@ -152,14 +169,14 @@ def submit(
     tf_args = [
         "apply",
         "-auto-approve",
-        *_tf_targets(),
+        *_tf_targets(tf_spec),
         "-var",
         "enable_controller=true",
         "-var",
         "enable_nat=true",
         "-var",
         f"campaign_id={campaign_id}",
-        *_driver_tf_args(driver),
+        *_driver_tf_args(driver, tf_spec),
     ]
     if wheel_builder is not None:
         wheel_url, extra_deps = wheel_builder(campaign_id, has_suite_task)
@@ -212,9 +229,16 @@ def teardown(
     channel: CampaignChannel,
     terraform: Terraform,
     delete_runtime: Callable[[str], None],
+    *,
+    provider: str | None,
 ) -> dict[str, Any]:
     """Backstop cleanup: stop the controller, reap residual runtimes from the
-    OSS-synced ledger (independent of a live controller), then terraform destroy."""
+    OSS-synced ledger (independent of a live controller), then terraform destroy.
+
+    ``provider`` (the config's ``target.provider``) resolves the controller's
+    terraform surface; an unsupported provider fails loudly before the stop
+    signal or any destroy."""
+    tf_spec = _controller_tf_spec(provider)
     channel.signal_stop()
     residual: list[str] = []
     raw = channel.read_ledger()
@@ -231,7 +255,7 @@ def teardown(
         [
             "destroy",
             "-auto-approve",
-            *_tf_targets(),
+            *_tf_targets(tf_spec),
             "-var",
             "enable_controller=false",
             "-var",

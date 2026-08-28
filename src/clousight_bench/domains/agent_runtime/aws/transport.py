@@ -12,7 +12,7 @@ Mirrors ``AliyunAgentRunTransport`` for the AWS control + data planes:
 - State (T1.2): S3-backed ``_AwsMemory`` mirroring ``_LiveMemory``.
 - Probe dispatch (T5.x / T6.1): identical shape to Aliyun — resolves endpoint,
   builds ``JobSpec`` with the AWS session-header scheme, dispatches to
-  ``_probe_client.run_job()`` when configured (S3-mediated OSS channel), else
+  ``_probe_client.run_job()`` when configured (S3-mediated blob channel), else
   runs in-process via ``_PROBE_FNS``.
 
 T4.x traces (X-Ray) and T2.1 tools (AgentCore Gateway) are out of scope for
@@ -132,7 +132,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
         self._endpoint_url: str | None = None  # invoke URL from endpoint poll
         self._lazy_provisioned: bool = False
         self._http: Any = None  # requests.Session (lazy)
-        # Probe dispatch client (OssProbeClient or RemoteProbeClient); None → in-process.
+        # Probe dispatch client (BlobProbeClient or RemoteProbeClient); None → in-process.
         self._probe_client: Any = None
         self._last_ttft_ms: float | None = None
         self._last_trace_id: str | None = None
@@ -141,16 +141,16 @@ class AwsAgentCoreTransport(RuntimeTransport):
         target = adapter.target
         probe_control_prefix = str(target.get("probe_control_prefix") or "")
         if probe_control_prefix:
-            from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
-            from clousight_bench.domains.agent_runtime.probe.oss_dispatch_client import OssProbeClient
+            from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
+            from clousight_bench.domains.agent_runtime.probe.blob_dispatch_client import BlobProbeClient
             from clousight_bench.domains.agent_runtime.probe.s3_client import S3Client
 
             s3_bucket = str(target.get("s3_bucket") or "")
             s3_region = str(target.get("region") or "us-east-1")
             s3 = S3Client(bucket=s3_bucket, region=s3_region)
-            channel = OssChannel(s3, campaign_id=probe_control_prefix)
+            channel = BlobChannel(s3, campaign_id=probe_control_prefix)
             job_timeout_s = float(target.get("probe_job_timeout_s") or 900.0)
-            self._probe_client = OssProbeClient(channel, timeout_s=job_timeout_s)
+            self._probe_client = BlobProbeClient(channel, timeout_s=job_timeout_s)
         else:
             probe_url = str(target.get("probe_url") or "")
             if probe_url:
@@ -230,6 +230,10 @@ class AwsAgentCoreTransport(RuntimeTransport):
         if not url:
             raise RuntimeError("AwsAgentCoreTransport: no endpoint_url — endpoint may not be active yet.")
         return url
+
+    def invoke_openai(self, session_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Public SUT-invocation seam (see RuntimeTransport.invoke_openai)."""
+        return self._invoke(session_id, body)
 
     def _invoke(self, session_id: str, openai_body: dict[str, Any]) -> dict[str, Any]:
         """POST OpenAI body to AgentCore invoke URL; return parsed response dict.
@@ -1005,7 +1009,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
         """Run a named data-plane probe and return its ObservationBundle.
 
         Remote path (when _probe_client is set): dispatch to the configured
-        OssProbeClient (S3/EC2-mediated) or RemoteProbeClient (HTTP).
+        BlobProbeClient (S3/EC2-mediated) or RemoteProbeClient (HTTP).
         In-process path (default): look up and call from _PROBE_FNS.
 
         Endpoint resolution lazily provisions when needed (same as _invoke).
@@ -1030,7 +1034,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
             mock_base_url=self._adapter.mock_base_url or "",
             mock_token=str(self._adapter.target.get("mock_token") or ""),
             session_header_scheme=_SESSION_HEADER,
-            oss_prefix=str(self._adapter.target.get("probe_oss_prefix") or ""),
+            blob_prefix=str(self._adapter.target.get("probe_blob_prefix") or ""),
         )
 
         if self._probe_client is not None:

@@ -41,7 +41,7 @@ def test_default_carrier_builds_ec2_probe_carrier(monkeypatch):
     probe = cp._AwsCampaignProbe()
     target = {
         "run_id": "run-aws-1",
-        "oss_bucket": "my-bench-bucket",
+        "blob_bucket": "my-bench-bucket",
         "region": "us-west-2",
         "probe_subnet_id": "subnet-abc",
         "probe_security_group_id": "sg-xyz",
@@ -71,7 +71,7 @@ def test_default_carrier_falls_back_to_defaults(monkeypatch):
 
     probe = cp._AwsCampaignProbe()
     carrier = probe._default_carrier(
-        {"run_id": "r1", "oss_bucket": "bkt"},
+        {"run_id": "r1", "blob_bucket": "bkt"},
         "clousight-bench/telemetry/r1/",
     )
     assert isinstance(carrier, Ec2ProbeCarrier)
@@ -83,23 +83,23 @@ def test_default_carrier_falls_back_to_defaults(monkeypatch):
     assert cfg.iam_instance_profile == ""
 
 
-def test_default_oss_returns_s3_client():
-    """_default_oss returns an S3Client with the right bucket/region."""
+def test_default_store_returns_s3_client():
+    """_default_store returns an S3Client with the right bucket/region."""
     from clousight_bench.domains.agent_runtime.probe.s3_client import S3Client
 
     probe = cp._AwsCampaignProbe()
-    oss = probe._default_oss({"oss_bucket": "my-bkt", "region": "eu-west-1"})
+    oss = probe._default_store({"blob_bucket": "my-bkt", "region": "eu-west-1"})
     assert isinstance(oss, S3Client)
     assert oss._bucket == "my-bkt"
     assert oss._region == "eu-west-1"
 
 
-def test_default_oss_uses_default_region():
-    """_default_oss defaults region to us-east-1 when not in target."""
+def test_default_store_uses_default_region():
+    """_default_store defaults region to us-east-1 when not in target."""
     from clousight_bench.domains.agent_runtime.probe.s3_client import S3Client
 
     probe = cp._AwsCampaignProbe()
-    oss = probe._default_oss({"oss_bucket": "bkt"})
+    oss = probe._default_store({"blob_bucket": "bkt"})
     assert isinstance(oss, S3Client)
     assert oss._region == "us-east-1"
 
@@ -176,7 +176,7 @@ def test_default_carrier_dev_wheel_populates_config(monkeypatch):
     probe = cp._AwsCampaignProbe()
     target = {
         "run_id": "run-aws-2",
-        "oss_bucket": "my-bench-bucket",
+        "blob_bucket": "my-bench-bucket",
         "region": "us-east-1",
         "probe_subnet_id": "subnet-abc",
         "probe_security_group_id": "sg-xyz",
@@ -212,9 +212,9 @@ def test_aws_runtime_provider_campaign_probe_hook_injects_factories():
     fake_cf = object()
     fake_of = object()
     provider = AwsRuntimeProvider()
-    hook = provider.campaign_probe_hook(carrier_factory=fake_cf, oss_factory=fake_of)
+    hook = provider.campaign_probe_hook(carrier_factory=fake_cf, store_factory=fake_of)
     assert hook._carrier_factory is fake_cf
-    assert hook._oss_factory is fake_of
+    assert hook._store_factory is fake_of
 
 
 def test_aws_runtime_provider_str():

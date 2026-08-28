@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from .oss_sink import OssChunkSink
+    from .blob_sink import BlobChunkSink
 
 import requests
 
@@ -108,7 +108,7 @@ def _measure_ttft_safe(
 
 
 def run_ttft(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """Two-dimensional TTFT: cold-start cost + warm steady-state.
 
@@ -190,7 +190,7 @@ STARTUP_CURVE_CALLS = 8
 
 
 def run_startup_curve(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """T1.13 startup-convergence curve: fire ``n_calls`` calls on the same session
     and record each end-to-end latency.
@@ -267,7 +267,7 @@ def run_startup_curve(
 
 
 def run_sustained_load(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """Real concurrent sustained load: token-bucket + thread pool, measuring true
     throughput and tail latency.
@@ -386,7 +386,7 @@ def run_sustained_load(
 
 
 def run_soak(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """Sustained-availability probe: loop single calls for duration_s and track the success rate."""
     duration_s: float = spec.params.get("duration_s", 60.0)
@@ -497,7 +497,7 @@ def _classify_wake(
 
 
 def run_warm_retention(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """Tiered idle sweep: after warming an instance, idle in steps and re-invoke
     the same session, observing which tier each idle interval drops the instance
@@ -585,7 +585,7 @@ def run_warm_retention(
 
 
 def run_idle_timeout_honor(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """T1.14 — idle-timeout config honor + post-promise decay curve.
 
@@ -674,7 +674,7 @@ def run_idle_timeout_honor(
 
 
 def run_rate_limit(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """Stepped concurrency probe for rate limiting: observe the first level to
     return 429.
@@ -757,7 +757,7 @@ def run_rate_limit(
 
 
 def run_concurrency_ceiling(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """Stepped concurrency-ceiling probe: ramp up concurrency to find the level
     where the rejection rate exceeds the threshold."""
@@ -830,7 +830,7 @@ def run_concurrency_ceiling(
 
 
 def run_cancellation(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """Real cancellation probe: force a client disconnect with a very short
     timeout and verify the endpoint recovers from it.
@@ -923,7 +923,7 @@ def run_cancellation(
 
 
 def run_scaling(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """Elasticity probe: run N_REPS at each concurrency level and report the median success_rate and p95_ms.
 
@@ -1045,7 +1045,7 @@ def run_scaling(
 
 
 def run_hol_blocking(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """T1.12: two-phase HOL blocking probe.
 
@@ -1177,7 +1177,7 @@ def run_hol_blocking(
 
 
 def run_fault_recovery(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """T1.3 platform-visible fault injection + agent retry observation.
 
@@ -1288,7 +1288,7 @@ def run_fault_recovery(
 
 
 def run_retry_storm(
-    spec: JobSpec, progress_cb: ProgressCb, *, sink: OssChunkSink | None = None
+    spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
     """T1.10: mock-counted total attempts + storm-bounded-by attribution.
 

@@ -11,11 +11,11 @@ import base64
 
 import pytest
 
-from clousight_bench.domains.agent_runtime.ecs_carrier import (
-    CarrierError,
+from clousight_bench.domains.agent_runtime.aliyun.ecs_carrier import (
     EcsCarrierConfig,
     EcsProbeCarrier,
 )
+from clousight_bench.domains.agent_runtime.carrier_base import CarrierError
 
 STOCK_IMAGE = "aliyun_3_x64_20G_alibase_20240819.vhd"
 BUCKET = "my-bench-bucket"

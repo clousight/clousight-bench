@@ -17,8 +17,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from clousight_bench.core.campaign_channel import CampaignChannel
 from clousight_bench.core.campaign_spec import CampaignManifest, LaunchSpec, TaskEntry
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
 
 
 @dataclass

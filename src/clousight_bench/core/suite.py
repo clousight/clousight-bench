@@ -67,6 +67,7 @@ class DriverContext:
 class BenchmarkSuite(ABC):
     suite_id: str = "abstract"
     suite_version: str = "0"
+    requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
     def resolve(self, cfg: dict[str, Any], assets: Any) -> DatasetHandle: ...
@@ -84,6 +85,7 @@ class BenchmarkSuite(ABC):
 class Evaluator(ABC):
     evaluator_id: str = "abstract"
     official: bool = True
+    requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
     def supports(self, suite_id: str, product: str) -> bool: ...

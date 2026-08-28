@@ -79,6 +79,23 @@ class RuntimeTransport(ABC):
     @abstractmethod
     def destroy_session(self, session_id: str) -> None: ...
 
+    # --- SUT invocation seam (public contract, consumed by benchmark suites) ---
+
+    def invoke_openai(self, session_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST an OpenAI-chat-shaped body to the runtime and return the response.
+
+        This is the FORMAL seam suites use to drive a deployed agent (see
+        ``suites/swe_bench/sut_client.py``). Wired transports override it;
+        the default is honest not-supported so a misconfigured stack fails
+        loudly instead of silently faking a cloud run.
+        """
+        raise CapabilityNotSupported("invoke_openai")
+
+    @property
+    def last_trace_id(self) -> str:
+        """The platform trace id of the most recent invocation ("" when unknown)."""
+        return str(getattr(self, "_last_trace_id", "") or "")
+
     # Optional capabilities -- default to "not supported" so a back end opts in.
     def persist_state(self, session_id: str, state: dict[str, Any]) -> None:
         raise CapabilityNotSupported("persist_state")

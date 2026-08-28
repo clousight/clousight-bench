@@ -56,15 +56,15 @@ def _llm_span(**over: Any) -> dict[str, Any]:
 
 
 class _StubTransport:
-    """Transport stub exposing the ``_invoke`` seam the live transports have."""
+    """Transport stub implementing the PUBLIC invoke_openai/last_trace_id contract."""
 
     def __init__(self, result: dict[str, Any], last_trace_id: str | None = None) -> None:
         self._result = result
-        self._last_trace_id = last_trace_id
+        self.last_trace_id = last_trace_id
         self.invocations: list[tuple[str, dict[str, Any]]] = []
 
-    def _invoke(self, session_id: str, openai_body: dict[str, Any]) -> dict[str, Any]:
-        self.invocations.append((session_id, openai_body))
+    def invoke_openai(self, session_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        self.invocations.append((session_id, body))
         return protocol.encode_result(self._result)
 
 
@@ -78,7 +78,7 @@ class _StubAdapter:
         self.destroyed: list[str] = []
         self._seq = 0
 
-    def _transport_(self) -> Any:
+    def transport(self) -> Any:
         return self._t
 
     def create_session(self, spec: dict[str, Any] | None = None) -> str:
@@ -234,7 +234,7 @@ def test_invalid_span_raises_loudly() -> None:
 def test_oracle_request_carries_gold_patch() -> None:
     client, adapter = _client({"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": []})
     client.solve(INSTANCE, "oracle")
-    ((_, body),) = adapter._transport_().invocations
+    ((_, body),) = adapter.transport().invocations
     decoded = protocol.decode_request(body)
     assert decoded["swe"]["gold_patch"] == GOLD
     assert decoded["swe"]["agent_mode"] == "oracle"
@@ -243,7 +243,7 @@ def test_oracle_request_carries_gold_patch() -> None:
 def test_llm_request_never_carries_gold_patch() -> None:
     client, adapter = _client({"model_patch": "", "usage": dict(ZERO_USAGE), "_spans": []})
     client.solve(INSTANCE, "llm")
-    ((_, body),) = adapter._transport_().invocations
+    ((_, body),) = adapter.transport().invocations
     decoded = protocol.decode_request(body)
     assert "gold_patch" not in decoded["swe"]
     assert decoded["swe"]["agent_mode"] == "llm"
@@ -253,7 +253,7 @@ def test_session_created_per_instance_and_destroyed() -> None:
     client, adapter = _client({"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": []})
     client.solve(INSTANCE, "oracle")
     client.solve(INSTANCE, "oracle")
-    transport = adapter._transport_()
+    transport = adapter.transport()
     assert [sid for sid, _ in transport.invocations] == ["s-1", "s-2"]
     assert adapter.destroyed == ["s-1", "s-2"]
 
@@ -319,15 +319,27 @@ def test_close_swallows_deprovision_failure() -> None:
 
 
 def test_real_transport_without_invoke_seam_refuses_in_process_fallback() -> None:
-    """A non-mock transport lacking the ``_invoke`` seam must raise loudly —
-    a real-transport rename must never silently fake a cloud run in-process."""
+    """A non-mock transport that never wired invoke_openai must fail loudly
+    (CapabilityNotSupported from the RuntimeTransport base) — a misconfigured
+    stack must never silently fake a cloud run in-process."""
+    from clousight_bench.domains.agent_runtime.adapters.base import CapabilityNotSupported
+    from clousight_bench.domains.agent_runtime.adapters.transport import RuntimeTransport
     from clousight_bench.suites.swe_bench.sut_client import SweSutClient
 
-    class _SeamlessTransport:
-        """Not a MockRuntimeTransport and has no ``_invoke``."""
+    class _SeamlessTransport(RuntimeTransport):
+        """Real-shaped transport with no invoke_openai override."""
+
+        def create_session(self, spec=None):
+            return "s-1"
+
+        def run_tool_plan(self, session_id, plan):
+            raise NotImplementedError
+
+        def destroy_session(self, session_id):
+            return None
 
     client = SweSutClient(_StubAdapter(_SeamlessTransport()))
-    with pytest.raises(RuntimeError, match="refusing in-process fallback"):
+    with pytest.raises(CapabilityNotSupported, match="invoke_openai"):
         client.solve(INSTANCE, "oracle")
 
 

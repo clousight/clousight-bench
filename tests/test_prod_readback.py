@@ -1,13 +1,13 @@
 """Tests for prod status / logs / fetch readback."""
 
 from clousight_bench.core import prod_submit
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.core.campaign_channel import CampaignChannel
 from clousight_bench.core.campaign_spec import CampaignManifest, TaskEntry
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
 
 def _seed():
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     ch = CampaignChannel(oss, "camp-1", now=lambda: 100.0)
     ch.write_manifest(
         CampaignManifest(

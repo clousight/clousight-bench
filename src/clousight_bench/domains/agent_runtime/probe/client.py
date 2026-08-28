@@ -11,9 +11,9 @@ import time
 from collections.abc import Callable
 
 # NOTE: `requests` is imported lazily inside RemoteProbeClient.__init__ (not at
-# module top) so that `ProbeJobFailed` — reused by the requests-free OSS-mediated
-# client (oss_dispatch_client) — can be imported on installs without the [probe]
-# extra (e.g. the CI no-validate floor).
+# module top) so that `ProbeJobFailed` — reused by the requests-free blob-store-
+# mediated client (blob_dispatch_client) — can be imported on installs without
+# the [probe] extra (e.g. the CI no-validate floor).
 from clousight_bench.core.observation import ObservationBundle
 
 from .jobs import (

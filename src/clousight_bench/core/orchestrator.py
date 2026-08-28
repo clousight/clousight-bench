@@ -239,32 +239,50 @@ def execute(
 
     prepared = _prepare(spec, pack, task, adapter_cls, config, results_dir, run_id, debug)
     findings: list[Finding] = []
-    if prepared.errors or prepared.adapter is None:
-        # Plugin code could not describe this run. Nothing was provisioned.
-        stages["VALIDATE"] = "failed"
-        errors.extend(prepared.errors)
+
+    def _record_and_finish(
+        status: str,
+        result: TaskResult | None = None,
+        bundle: ObservationBundle | None = None,
+        *,
+        enrich_record: bool = False,
+        live_run: Mapping[str, Any] | None = None,
+    ) -> ResultRecord:
+        """Build + persist a record from the current run state — the ONE exit path.
+
+        Every early exit (invalid input, failed preflight, interrupt) and the
+        final success path funnel through here so the record shape can never
+        drift between exits.
+        """
         record = _build_record(
             run_id,
             started_at,
             stages,
             prepared,
-            "invalid",
-            None,
+            status,
+            result,
             findings,
-            ObservationBundle(),
+            bundle if bundle is not None else ObservationBundle(),
             errors,
             run_context,
             timings,
+            live_run,
         )
         return _finish(
             record,
             results_dir,
-            enrich=False,
+            enrich=enrich_record,
             publisher=publisher,
             debug=debug,
             trace_id=trace_id,
             root_start_ns=root_start_ns,
         )
+
+    if prepared.errors or prepared.adapter is None:
+        # Plugin code could not describe this run. Nothing was provisioned.
+        stages["VALIDATE"] = "failed"
+        errors.extend(prepared.errors)
+        return _record_and_finish("invalid")
 
     adapter = prepared.adapter
     # Hand the adapter this run's id (after fingerprints are fixed, so it never
@@ -289,27 +307,7 @@ def execute(
             errors.append(gate_error)
             if gate_finding is not None:
                 findings.append(gate_finding)
-            record = _build_record(
-                run_id,
-                started_at,
-                stages,
-                prepared,
-                "invalid",
-                None,
-                findings,
-                ObservationBundle(),
-                errors,
-                run_context,
-            )
-            return _finish(
-                record,
-                results_dir,
-                enrich=False,
-                publisher=publisher,
-                debug=debug,
-                trace_id=trace_id,
-                root_start_ns=root_start_ns,
-            )
+            return _record_and_finish("invalid")
         stages["PREFLIGHT"] = "ok"
     else:
         stages["PREFLIGHT"] = "skipped"
@@ -318,28 +316,7 @@ def execute(
     if environment_error is not None:
         stages["VALIDATE"] = "failed"
         errors.append(environment_error)
-        record = _build_record(
-            run_id,
-            started_at,
-            stages,
-            prepared,
-            "invalid",
-            None,
-            findings,
-            ObservationBundle(),
-            errors,
-            run_context,
-            timings,
-        )
-        return _finish(
-            record,
-            results_dir,
-            enrich=False,
-            publisher=publisher,
-            debug=debug,
-            trace_id=trace_id,
-            root_start_ns=root_start_ns,
-        )
+        return _record_and_finish("invalid")
 
     # LIVE-RUN GATE -- a run whose numbers come from a REAL cloud spends real
     # money and can trip quota / abuse controls. It must not provision unless the
@@ -370,29 +347,7 @@ def execute(
                 },
             )
         )
-        record = _build_record(
-            run_id,
-            started_at,
-            stages,
-            prepared,
-            "invalid",
-            None,
-            findings,
-            ObservationBundle(),
-            errors,
-            run_context,
-            timings,
-            live_run,
-        )
-        return _finish(
-            record,
-            results_dir,
-            enrich=False,
-            publisher=publisher,
-            debug=debug,
-            trace_id=trace_id,
-            root_start_ns=root_start_ns,
-        )
+        return _record_and_finish("invalid", live_run=live_run)
 
     # COST BUDGET -- the live gate stops accidental spend; this stops runaway
     # spend. For a billable run, if the spend-so-far (this results dir) plus this
@@ -422,29 +377,7 @@ def execute(
             if live_run is not None:
                 live_run["budget_usd"] = budget
                 live_run["spent_usd"] = round(spent, 9)
-            record = _build_record(
-                run_id,
-                started_at,
-                stages,
-                prepared,
-                "invalid",
-                None,
-                findings,
-                ObservationBundle(),
-                errors,
-                run_context,
-                timings,
-                live_run,
-            )
-            return _finish(
-                record,
-                results_dir,
-                enrich=False,
-                publisher=publisher,
-                debug=debug,
-                trace_id=trace_id,
-                root_start_ns=root_start_ns,
-            )
+            return _record_and_finish("invalid", live_run=live_run)
 
     # SETUP -> EXECUTE -> COLLECT, with TEARDOWN as the mandatory finally boundary.
     # A SIGINT/SIGTERM in this window must still run teardown and persist an
@@ -537,29 +470,7 @@ def execute(
         # Teardown has run; persist an interrupted record (no enrich/publish) so
         # progress and stage state survive, then propagate the interruption.
         stages.setdefault("SCORE", "skipped")
-        record = _build_record(
-            run_id,
-            started_at,
-            stages,
-            prepared,
-            "interrupted",
-            None,
-            findings,
-            bundle,
-            errors,
-            run_context,
-            timings,
-            live_run,
-        )
-        _finish(
-            record,
-            results_dir,
-            enrich=False,
-            publisher=publisher,
-            debug=debug,
-            trace_id=trace_id,
-            root_start_ns=root_start_ns,
-        )
+        _record_and_finish("interrupted", None, bundle, live_run=live_run)
         raise interrupted
 
     # SCORE -- pure; observations already collected survive a scorer failure.
@@ -578,28 +489,8 @@ def execute(
     else:
         stages["SCORE"] = "skipped"  # nothing was collected to score
 
-    record = _build_record(
-        run_id,
-        started_at,
-        stages,
-        prepared,
-        _status_for(errors, result),
-        result,
-        findings,
-        bundle,
-        errors,
-        run_context,
-        timings,
-        live_run,
-    )
-    record = _finish(
-        record,
-        results_dir,
-        enrich=enrich,
-        publisher=publisher,
-        debug=debug,
-        trace_id=trace_id,
-        root_start_ns=root_start_ns,
+    record = _record_and_finish(
+        _status_for(errors, result), result, bundle, live_run=live_run, enrich_record=enrich
     )
     # A billable run that actually executed accrues cost against the budget ledger
     # (realized price if the enricher ran, else the caller's estimate).

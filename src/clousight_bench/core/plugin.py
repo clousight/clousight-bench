@@ -26,6 +26,8 @@ and built-in packs are loaded identically.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from clousight_bench.core.observation import ObservationBundle, TaskResult
@@ -254,6 +256,45 @@ class PrivateAssetResolver(ABC):
         """Return a local path (str | Path) to the private asset's contents."""
 
 
+@dataclass(frozen=True)
+class ControllerTfSpec:
+    """Terraform surface of one provider's prod-controller profile.
+
+    ``tf_targets`` are the exact resource addresses ``csbench submit`` /
+    ``teardown`` pass as ``-target`` flags (never a bare apply/destroy, which
+    would in-place touch everything else in the module). ``driver_tf_vars``
+    maps plan-yaml ``driver:`` keys to the terraform vars they set, in ``-var``
+    emission order. Declared by the provider (see
+    ``RuntimeProviderPlugin.controller_tf_spec``) so the core stays free of any
+    cloud's resource vocabulary.
+    """
+
+    tf_targets: tuple[str, ...]
+    driver_tf_vars: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class ControllerReaperSpec:
+    """Live delete callables for one provider's prod-controller reaper.
+
+    The prod controller self-destructs on watchdog-terminal by deleting, in a
+    fixed order, everything the run created: residual runtimes → the NAT/EIP →
+    the controller's own instance (last). Each callable here is the provider's
+    SDK-backed delete for one of those stages, ready to hand to the neutral
+    ``RestrictedReaper`` (which owns only the ORDER + best-effort semantics).
+    ``self_instance_id`` reads THIS controller's own instance id (delete_self's
+    argument) from the cloud's metadata service — vendor-specific, so it lives
+    here too. Declared by the provider (see
+    ``RuntimeProviderPlugin.controller_reaper_spec``) so ``core`` stays free of
+    any cloud's SDK, resource names, endpoints or metadata host.
+    """
+
+    delete_runtime: Callable[[str], None]
+    delete_nat: Callable[[], None]
+    delete_self: Callable[[str], None]
+    self_instance_id: Callable[[], str]
+
+
 class RuntimeProviderPlugin(ABC):
     """The wired (real) runtime implementation for one cloud in a domain.
 
@@ -277,6 +318,20 @@ class RuntimeProviderPlugin(ABC):
     def build_transport(self, adapter: Any) -> Any:
         """Build a live transport for ``adapter`` (called only in real mode)."""
 
+    def controller_tf_spec(self) -> ControllerTfSpec | None:
+        """Terraform surface of this provider's prod-controller profile; None =
+        the provider has no wired prod-controller path (``csbench submit`` then
+        fails loudly instead of guessing another cloud's resources)."""
+        return None
+
+    def controller_reaper_spec(
+        self, region: str, log: Callable[[str], None]
+    ) -> ControllerReaperSpec | None:
+        """Live delete callables for this provider's prod-controller reaper; None
+        = the provider has no wired prod-controller reaper (the controller then
+        degrades to a no-op reap and leaves teardown to the local backstop)."""
+        return None
+
 
 class CampaignProbeHook(ABC):
     """Optional per-campaign data-plane probe lifecycle (probe-sink §7).
@@ -290,7 +345,7 @@ class CampaignProbeHook(ABC):
     @abstractmethod
     def start_campaign_probe(self, target: dict[str, Any]) -> dict[str, str]:
         """Provision the probe. Return keys to merge into every task target,
-        e.g. {"probe_url": ..., "probe_oss_prefix": ...}. Raise on failure
+        e.g. {"probe_url": ..., "probe_blob_prefix": ...}. Raise on failure
         (spec §9: no silent fallback)."""
 
     @abstractmethod

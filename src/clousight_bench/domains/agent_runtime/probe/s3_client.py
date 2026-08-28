@@ -1,12 +1,11 @@
-"""S3-backed OssClient implementations for AWS agent-runtime adaptation.
+"""AWS S3 implementations of the core blob-store interface.
 
-Two implementations mirror the Aliyun OSS pair:
-- S3Client: real boto3 client, injectable for testing, lazy import.
-- Ec2MetadataS3Client: probe-side variant that relies on the EC2 instance-profile
-  credential chain (boto3 resolves instance role automatically — no metadata hack
-  needed unlike the Aliyun _EcsMetadataCredentialsProvider approach).
+S3Client (control plane: boto3, injectable for testing, lazy import) and
+Ec2MetadataS3Client (in-instance: EC2 instance-profile credential chain via
+boto3's built-in IMDSv2 resolution).
+The interface + in-memory fake live in ``clousight_bench.core.blobstore``.
 
-The ``sign_url`` method is an extension beyond the OssClient ABC (matching
+The ``sign_url`` method is an extension beyond the BlobStore ABC (matching
 ``_Oss2BucketMixin.sign_url``) for dev-wheel presigning parity.
 """
 
@@ -14,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from clousight_bench.domains.agent_runtime.probe.oss_client import OssClient
+from clousight_bench.core.blobstore import BlobStore
 
 
 def _get_error_code(exc: BaseException) -> str:
@@ -30,7 +29,7 @@ def _get_error_code(exc: BaseException) -> str:
     return str(response.get("Error", {}).get("Code", ""))
 
 
-class S3Client(OssClient):
+class S3Client(BlobStore):
     """Control-plane S3 client (boto3).
 
     Constructor: ``(bucket, region="us-east-1", *, client=None)``.
@@ -40,7 +39,7 @@ class S3Client(OssClient):
     is created lazily on first use (same lazy-import pattern as Oss2Client /
     Ecs20140526Sdk so the package can be imported without boto3 installed).
 
-    All four OssClient ABC methods are implemented plus ``sign_url`` for
+    All four BlobStore ABC methods are implemented plus ``sign_url`` for
     dev-wheel presigning parity with ``_Oss2BucketMixin``.
     """
 
@@ -70,10 +69,10 @@ class S3Client(OssClient):
         """Return the object bytes for *key*.
 
         Raises ``KeyError(key)`` when the key does not exist — same contract as
-        ``InMemoryOssClient`` (dict KeyError) and ``_Oss2BucketMixin``
+        ``InMemoryBlobStore`` (dict KeyError) and ``_Oss2BucketMixin``
         (oss2.NoSuchKey → KeyError).  boto3 raises a ``ClientError`` whose
         ``response["Error"]["Code"]`` is ``"NoSuchKey"``; we normalise that here
-        so all callers (OssChannel.is_ready, etc.) can rely on KeyError.
+        so all callers (BlobChannel.is_ready, etc.) can rely on KeyError.
         """
         try:
             return self._cli().get_object(Bucket=self._bucket, Key=key)["Body"].read()

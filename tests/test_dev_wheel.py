@@ -105,7 +105,7 @@ def test_repo_root_raises_when_no_pyproject(monkeypatch):
     # A path whose parents contain no pyproject.toml (root of the fs tree).
     import pathlib
 
-    from clousight_bench.domains.agent_runtime.ecs_carrier import CarrierError
+    from clousight_bench.domains.agent_runtime.carrier_base import CarrierError
 
     fake = pathlib.Path("/nonexistent-xyz/pkg/mod.py")
     monkeypatch.setattr(dev_wheel, "__file__", str(fake))

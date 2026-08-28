@@ -2,7 +2,7 @@
 
 A campaign probe provisions an in-region carrier (ECS/EC2), mirrors its
 object-store telemetry prefix back to the local results dir, and reaps it. The
-start/sync/stop lifecycle and the control-channel wiring (an ``OssChannel`` over
+start/sync/stop lifecycle and the control-channel wiring (a ``BlobChannel`` over
 the cloud blob client) are identical across clouds; only the blob client, the
 carrier config and the dev-wheel code-spec resolution differ. Cloud subclasses
 (``_AliyunCampaignProbe`` over ECS+OSS, ``_AwsCampaignProbe`` over EC2+S3)
@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 from clousight_bench.core.plugin import CampaignProbeHook
 
 if TYPE_CHECKING:
-    from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
-    from clousight_bench.domains.agent_runtime.probe.oss_client import OssClient
+    from clousight_bench.core.blobstore import BlobStore
+    from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
 
 
 def _truthy(v: object) -> bool:
@@ -44,36 +44,36 @@ class CampaignProbeOrchestrator(CampaignProbeHook):
     """Shared per-campaign probe lifecycle: carrier + object-store sync (probe-sink §7).
 
     Constructor factories are injectable so tests run account-free. Subclasses
-    supply the cloud blob client (``_default_oss``), the carrier
+    supply the cloud blob client (``_default_store``), the carrier
     (``_default_carrier``) and the dev-wheel code-spec resolution
     (``_resolve_code_spec``); the start/sync/stop lifecycle is inherited.
     """
 
-    def __init__(self, carrier_factory: Any = None, oss_factory: Any = None) -> None:
+    def __init__(self, carrier_factory: Any = None, store_factory: Any = None) -> None:
         self._carrier_factory = carrier_factory or self._default_carrier
-        self._oss_factory = oss_factory or self._default_oss
+        self._store_factory = store_factory or self._default_store
         self._carrier: Any = None
-        self._oss: OssClient | None = None
-        self._channel: OssChannel | None = None  # built during start_campaign_probe
+        self._store: BlobStore | None = None
+        self._channel: BlobChannel | None = None  # built during start_campaign_probe
         self._prefix = ""
         self._bucket = ""
 
     def start_campaign_probe(self, target: dict) -> dict[str, Any]:
         """Provision the probe.
 
-        Returns ``{probe_control_prefix, probe_oss_prefix, probe_token,
+        Returns ``{probe_control_prefix, probe_blob_prefix, probe_token,
         probe_in_vpc}`` for target stamping — no ``probe_url`` key (object-store-
         mediated transport, no HTTP surface required).
         """
-        from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+        from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
 
         run_id = str(target.get("run_id") or "")
         campaign_id = run_id or "adhoc"
-        self._bucket = str(target.get("oss_bucket") or "")
+        self._bucket = str(target.get("blob_bucket") or "")
         self._prefix = f"clousight-bench/telemetry/{campaign_id}/"
-        self._oss = self._oss_factory(target)
+        self._store = self._store_factory(target)
         # Build the control channel — readiness is polled via the object store, not HTTP.
-        channel = OssChannel(self._oss, campaign_id)
+        channel = BlobChannel(self._store, campaign_id)
         self._channel = channel
         # Clear any residue from a prior run on this (possibly reused) campaign
         # prefix — a stale `stop` sentinel would make the fresh probe exit at once.
@@ -84,18 +84,18 @@ class CampaignProbeOrchestrator(CampaignProbeHook):
         self._carrier.provision()  # raises CarrierError on failure
         return {
             "probe_control_prefix": campaign_id,
-            "probe_oss_prefix": self._prefix,
+            "probe_blob_prefix": self._prefix,
             "probe_token": getattr(self._carrier, "token", "") or "",
             "probe_in_vpc": True,
         }
 
     def sync_probe_artifacts(self, results_dir: Any) -> None:
         """Mirror the probe's object-store prefix into results_dir (channel ②)."""
-        if self._oss is None:
+        if self._store is None:
             return
-        from clousight_bench.domains.agent_runtime.probe.oss_sync import sync_prefix
+        from clousight_bench.domains.agent_runtime.probe.blob_sync import sync_prefix
 
-        sync_prefix(self._oss, self._prefix, results_dir)
+        sync_prefix(self._store, self._prefix, results_dir)
 
     def stop_campaign_probe(self) -> None:
         """Reap the probe. Idempotent + best-effort (called from a finally).
@@ -119,7 +119,7 @@ class CampaignProbeOrchestrator(CampaignProbeHook):
     # ---- cloud-specific hooks (subclasses override) --------------------------
 
     @staticmethod
-    def _default_oss(target: dict) -> Any:
+    def _default_store(target: dict) -> Any:
         raise NotImplementedError
 
     @staticmethod

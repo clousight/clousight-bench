@@ -107,7 +107,7 @@ aliyun = "clousight_bench.domains.agent_runtime.aliyun:AliyunRuntimeProvider"
 aws = "clousight_bench.domains.agent_runtime.aws.provider:AwsRuntimeProvider"
 
 [project.entry-points."clousight_bench.resource_reapers"]
-aliyun = "clousight_bench.domains.agent_runtime.reaper:AliyunResourceReaper"
+aliyun = "clousight_bench.domains.agent_runtime.aliyun.reaper:AliyunResourceReaper"
 aws = "clousight_bench.domains.agent_runtime.aws.reaper:AwsResourceReaper"
 
 [tool.hatch.build.targets.wheel]
