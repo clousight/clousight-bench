@@ -61,71 +61,52 @@ jobs:
           files: coverage.xml
           fail_ci_if_error: false
 
-      - name: Conformance smoke (built-in domains)
+      - name: Conformance smoke (built-in domain + suite)
         run: |
           csbench conformance --domain agent-runtime --platform local-sim
-          csbench conformance --domain bigdata-emr --platform local-process
+          csbench conformance --suite swe-bench
 
       - name: Local baseline smoke (no cloud account)
+        # The suite-first world runs `suite:<id>` jobs; `target: {mode: mock}`
+        # drives the offline mock path (no cloud, no LLM key), emitting a real
+        # schema-0.3 record the assertion step below reads.
         run: |
           csbench list --verbose
-          for task in T1.1 T1.2 T1.3 T2.1 T4.1 T4.2 T5.1 T5.2; do
-            csbench run --domain agent-runtime --task "$task" --platform local-sim
-          done
-          csbench run --domain agent-runtime --task T1.3 --platform local-sim \
-            --config configs/local-sim.fail-fast.yaml
-          csbench run --domain bigdata-emr --task J1.1 --platform local-process
-          csbench report
+          printf 'target:\n  mode: mock\nparams: {}\n' > /tmp/mock.yaml
+          csbench run --domain agent-runtime --task suite:swe-bench \
+            --platform local-sim --config /tmp/mock.yaml
 
-      - name: Assert every emitted record is schema 0.2
+      - name: Assert every emitted record is schema 0.3
         run: |
           python - <<'PY'
           import json, pathlib
-          paths = [p for p in pathlib.Path("results").rglob("*.json")
-                   if p.name not in {"comparison.json", "migration-manifest.json"}]
+          # Scope to record files only: the suite run also writes raw evaluator
+          # output under results/artifacts/** and plan aggregates under
+          # results/aggregates/**, neither of which is a result record.
+          paths = [
+              p for p in pathlib.Path("results").rglob("*.json")
+              if "artifacts" not in p.parts and "aggregates" not in p.parts
+              and p.name not in {"comparison.json", "migration-manifest.json"}
+          ]
           assert paths, "the smoke wrote no records"
           for path in paths:
               data = json.loads(path.read_text(encoding="utf-8"))
-              assert data["schema_version"] == "0.2", (path, data["schema_version"])
-              assert data["status"] in {"completed", "unsupported"}, (path, data["status"])
+              assert data["schema_version"] == "0.3", (path, data["schema_version"])
+              assert data["status"] in {
+                  "completed", "failed", "invalid", "unsupported", "interrupted"
+              }, (path, data["status"])
               assert data["fingerprints"]["record_digest"].startswith("sha256:"), path
               for gone in ("ok", "metrics", "evidence_layer", "config_hash"):
                   assert gone not in data, (path, gone)
-          print(f"{len(paths)} records verified at schema 0.2")
-          PY
-
-      - name: Migration round-trip from schema 1.0
-        run: |
-          rm -rf /tmp/legacy /tmp/migrated /tmp/migrated-again
-          mkdir -p /tmp/legacy/agent-runtime/local-sim
-          cat > /tmp/legacy/agent-runtime/local-sim/T1.3-run-legacy.json <<'JSON'
-          {"domain":"agent-runtime","task_id":"T1.3","platform":"local-sim",
-           "run_id":"run-legacy","started_at":"2026-01-01T00:00:00Z",
-           "finished_at":"2026-01-01T00:00:05Z","config_hash":"sha256:dead",
-           "evidence_layer":"C","metrics":{"recovery_mode":"fail-fast"},
-           "ok":true,"runner_version":"1.0.0","raw":{},"notes":"legacy",
-           "schema_version":"1.0","series":{},"artifacts":[],"error":null}
-          JSON
-          csbench migrate-results /tmp/legacy --output /tmp/migrated
-          csbench migrate-results /tmp/legacy --output /tmp/migrated-again
-          diff -r /tmp/migrated /tmp/migrated-again
-          csbench report --results /tmp/migrated
-          python - <<'PY'
-          import json, pathlib
-          data = json.loads(pathlib.Path(
-              "/tmp/migrated/agent-runtime/local-sim/T1.3-run-legacy.json"
-          ).read_text(encoding="utf-8"))
-          assert data["schema_version"] == "0.2"
-          assert data["fingerprints"]["benchmark"] == "unknown"
-          assert data["extensions"]["legacy"]["config_hash"] == "sha256:dead"
-          print("migration is deterministic and idempotent")
+          print(f"{len(paths)} records verified at schema 0.3")
           PY
 
       - name: Run plan aggregates repeats and drops warmups
         run: |
           rm -rf /tmp/plan-results
-          csbench run --domain agent-runtime --task T1.3 --platform local-sim \
-            --results /tmp/plan-results --repeat 3 --warmup 1
+          printf 'target:\n  mode: mock\nparams: {}\n' > /tmp/mock.yaml
+          csbench run --domain agent-runtime --task suite:swe-bench --platform local-sim \
+            --config /tmp/mock.yaml --results /tmp/plan-results --repeat 3 --warmup 1
           python - <<'PY'
           import json, pathlib
           aggs = list(pathlib.Path("/tmp/plan-results/aggregates").rglob("*.json"))
@@ -134,11 +115,12 @@ jobs:
           assert data["kind"] == "run_plan_aggregate"
           assert len(data["runs"]["measured"]) == 3, data["runs"]
           assert len(data["runs"]["warmup"]) == 1, data["runs"]
-          assert data["measurements"]["observed_attempts"]["n"] == 3
+          assert data["status_counts"].get("completed") == 3, data["status_counts"]
           assert data["digest"].startswith("sha256:")
           # Four run records + one aggregate; warmups are excluded from the stats.
+          # Exclude the aggregate itself AND the raw evaluator artifacts.
           recs = [p for p in pathlib.Path("/tmp/plan-results").rglob("*.json")
-                  if "aggregates" not in p.parts]
+                  if "aggregates" not in p.parts and "artifacts" not in p.parts]
           assert len(recs) == 4, recs
           print("run plan: 4 records, 3 measured pooled, 1 warmup dropped")
           PY
@@ -188,16 +170,15 @@ jobs:
       - name: Smoke installed wheel outside checkout
         working-directory: /tmp
         run: |
-          /tmp/csbench-wheel/bin/python -c "import importlib.metadata as m, importlib.resources as r, clousight_bench as cb; assert cb.__version__ == m.version('clousight-bench'), (cb.__version__, m.version('clousight-bench')); assert cb.RESULT_SCHEMA_VERSION == '0.2', cb.RESULT_SCHEMA_VERSION; root = r.files('clousight_bench.resources.workloads'); reqs = [('wordcount-py', 'run.py'), ('gsm8k-stats', 'run.py'), ('ycsb-wrapper', 'run.sh')]; missing = [n for n, e in reqs if not (root.joinpath(n, 'manifest.yaml').is_file() and root.joinpath(n, e).is_file())]; assert not missing, missing; assert r.files('clousight_bench').joinpath('py.typed').is_file(), 'py.typed marker missing from wheel'; schemas = r.files('clousight_bench.resources').joinpath('schemas'); need = ['runspec.schema.json', 'workload-manifest.schema.json', 'result-record-0.2.schema.json']; smissing = [s for s in need if not schemas.joinpath(s).is_file()]; assert not smissing, smissing; print('wheel version + workloads + py.typed + schemas + schema 0.2 verified')"
+          /tmp/csbench-wheel/bin/python -c "import importlib.metadata as m, importlib.resources as r, clousight_bench as cb; assert cb.__version__ == m.version('clousight-bench'), (cb.__version__, m.version('clousight-bench')); assert cb.RESULT_SCHEMA_VERSION == '0.3', cb.RESULT_SCHEMA_VERSION; root = r.files('clousight_bench.resources.workloads'); reqs = [('wordcount-py', 'run.py'), ('gsm8k-stats', 'run.py'), ('ycsb-wrapper', 'run.sh')]; missing = [n for n, e in reqs if not (root.joinpath(n, 'manifest.yaml').is_file() and root.joinpath(n, e).is_file())]; assert not missing, missing; assert r.files('clousight_bench').joinpath('py.typed').is_file(), 'py.typed marker missing from wheel'; schemas = r.files('clousight_bench.resources').joinpath('schemas'); need = ['runspec.schema.json', 'workload-manifest.schema.json', 'result-record-0.3.schema.json']; smissing = [s for s in need if not schemas.joinpath(s).is_file()]; assert not smissing, smissing; print('wheel version + workloads + py.typed + schemas + schema 0.3 verified')"
           /tmp/csbench-wheel/bin/csbench list --verbose
+          printf 'target:\n  mode: mock\nparams: {}\n' > /tmp/wheel-mock.yaml
           /tmp/csbench-wheel/bin/csbench run \
-            --domain agent-runtime --task T1.3 --platform local-sim \
-            --results /tmp/csbench-wheel-results
-          /tmp/csbench-wheel/bin/csbench run \
-            --domain bigdata-emr --task J1.1 --platform local-process \
-            --results /tmp/csbench-wheel-results
-          /tmp/csbench-wheel/bin/csbench report \
-            --results /tmp/csbench-wheel-results
+            --domain agent-runtime --task suite:swe-bench --platform local-sim \
+            --config /tmp/wheel-mock.yaml --results /tmp/csbench-wheel-results
+          # A completed suite:swe-bench mock run from the installed wheel, outside
+          # the checkout, is the wheel smoke. Record integrity (schema 0.3 +
+          # record_digest) is asserted in the `test` job's schema step above.
 
   docs:
     runs-on: ubuntu-latest

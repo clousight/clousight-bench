@@ -1,5 +1,5 @@
-import clousight_bench.domains.agent_runtime.aliyun as al
-from clousight_bench.domains.agent_runtime.ecs_carrier import EcsProbeCarrier
+import clousight_bench.domains.agent_runtime.aliyun.provider as al
+from clousight_bench.domains.agent_runtime.aliyun.ecs_carrier import EcsProbeCarrier
 
 
 class _FakeSdk:
@@ -22,7 +22,7 @@ def test_default_carrier_builds_real_ecs_carrier_with_ram_role_and_image(monkeyp
     probe = al._AliyunCampaignProbe()
     target = {
         "run_id": "run-xy",
-        "oss_bucket": "bench-bkt",
+        "blob_bucket": "bench-bkt",
         "region": "cn-hangzhou",
         "eci_probe_role": "clousight-bench-eci-probe",
         "eci_vswitch_id": "vsw-1",
@@ -42,11 +42,11 @@ def test_default_carrier_builds_real_ecs_carrier_with_ram_role_and_image(monkeyp
     assert cfg.instance_type == "ecs.e-c1m2.large"
 
 
-def test_default_oss_reads_bucket_and_region_from_target():
+def test_default_store_reads_bucket_and_region_from_target():
     from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
     probe = al._AliyunCampaignProbe()
-    oss = probe._default_oss({"oss_bucket": "b", "region": "cn-shanghai"})
+    oss = probe._default_store({"blob_bucket": "b", "region": "cn-shanghai"})
     assert isinstance(oss, Oss2Client)
     assert oss._bucket_name == "b" and oss._region == "cn-shanghai"
 
@@ -108,7 +108,7 @@ def test_default_carrier_dev_wheel_populates_config(monkeypatch):
     probe = al._AliyunCampaignProbe()
     target = {
         "run_id": "run-xy",
-        "oss_bucket": "bench-bkt",
+        "blob_bucket": "bench-bkt",
         "region": "cn-hangzhou",
         "eci_probe_role": "clousight-bench-eci-probe",
         "eci_vswitch_id": "vsw-1",

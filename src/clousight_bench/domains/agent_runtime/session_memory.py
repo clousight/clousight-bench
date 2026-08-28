@@ -6,7 +6,7 @@ runtime's own "memory" API is typically a RAG/vector store, not a plain K/V, so
 we use the object store the adapter already has (OSS on Aliyun, S3 on AWS). The
 key layout and the store/fetch/cleanup loop are identical across clouds — only
 the blob backend differs — so they live here once, parameterised by any
-``OssClient`` (Oss2Client for Aliyun, S3Client for AWS).
+``BlobStore`` (Oss2Client for Aliyun, S3Client for AWS).
 """
 
 from __future__ import annotations
@@ -15,20 +15,20 @@ import contextlib
 import json
 from typing import Any
 
-from clousight_bench.domains.agent_runtime.probe.oss_client import OssClient
+from clousight_bench.core.blobstore import BlobStore
 
 
 class ObjectStoreSessionMemory:
-    """Session-state store over any ``OssClient`` blob backend.
+    """Session-state store over any ``BlobStore`` backend.
 
     A session's state lives at ``clousight-bench/state/{run_id}/{session_id}.json``.
-    ``fetch`` raises ``KeyError`` for an absent session (the ``OssClient``
+    ``fetch`` raises ``KeyError`` for an absent session (the ``BlobStore``
     contract normalises the backend's not-found error). ``cleanup`` deletes only
     what this instance wrote — tracked in ``_keys`` — matching the teardown
     contract of the original per-cloud memory classes.
     """
 
-    def __init__(self, blob: OssClient, run_id: str | None = None) -> None:
+    def __init__(self, blob: BlobStore, run_id: str | None = None) -> None:
         self._blob = blob
         self._run_id = run_id or "default"
         self._keys: list[str] = []

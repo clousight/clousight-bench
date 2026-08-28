@@ -1,9 +1,9 @@
-"""Control-plane side of channel ②: pull an OSS prefix into a local results dir.
+"""Control-plane side of channel ②: pull a blob-store prefix into a local results dir.
 
 csbench never issues data-plane load, but it does read the probe's telemetry —
-by syncing the OSS prefix into the results tree so the existing query/trace/
-rollup tooling works against local files, mid-run or after. This module is pure
-control-plane: it only reads OSS and writes local files.
+by syncing the blob-store prefix into the results tree so the existing query/
+trace/rollup tooling works against local files, mid-run or after. This module is
+pure control-plane: it only reads the blob store and writes local files.
 """
 
 from __future__ import annotations
@@ -11,10 +11,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .oss_client import OssClient
+from clousight_bench.core.blobstore import BlobStore
 
 
-def sync_prefix(client: OssClient, prefix: str, dest_dir: str | Path) -> list[Path]:
+def sync_prefix(client: BlobStore, prefix: str, dest_dir: str | Path) -> list[Path]:
     """Mirror every object under ``prefix`` into ``dest_dir`` (relative layout)."""
     dest = Path(dest_dir)
     written: list[Path] = []
@@ -29,8 +29,20 @@ def sync_prefix(client: OssClient, prefix: str, dest_dir: str | Path) -> list[Pa
     return sorted(written)
 
 
-def chunks_to_artifacts(manifest: dict, bucket: str) -> list[dict]:
-    """Map a sink manifest to ObservationBundle.artifacts entries (oss:// uris)."""
+def chunks_to_artifacts(manifest: dict, bucket: str, scheme: str) -> list[dict]:
+    """Map a sink manifest to ObservationBundle.artifacts entries.
+
+    Deliberate seam, not dead code: this is the unwired final step of the
+    blob-chunk path. ``BlobChunkSink.close()`` writes the manifest and
+    ``JobRunner`` (see ``runner.py``) currently lifts only ``chunk_refs`` from
+    it. The intended consumer is the control-plane result assembly, which would
+    call this to promote the chunk manifest into full ``artifacts`` records on
+    the reconstructed :class:`ObservationBundle`.
+
+    Artifact URIs carry the provider's blob-store scheme (aliyun → ``oss``,
+    aws → ``s3``), supplied explicitly by the caller. The URI is informational
+    in artifact records — nothing downstream parses the scheme back out.
+    """
     out: list[dict] = []
     for ch in manifest.get("chunks", []):
         out.append(
@@ -38,7 +50,7 @@ def chunks_to_artifacts(manifest: dict, bucket: str) -> list[dict]:
                 "kind": f"probe-{ch['stream']}",
                 "media": ch["media"],
                 "sha256": ch["sha256"],
-                "uri": f"oss://{bucket}/{ch['key']}",
+                "uri": f"{scheme}://{bucket}/{ch['key']}",
             }
         )
     return out

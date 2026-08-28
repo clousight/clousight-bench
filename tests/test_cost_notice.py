@@ -23,6 +23,18 @@ def test_live_notice_mentions_local_sim_and_budget():
 def test_single_task_live_run_gets_batch_nudge():
     msg = live_cost_notice("aliyun-agentrun", task_count=1, allow_live=True)
     assert msg is not None and "SINGLE-task" in msg
+    # the batch lever names the mechanism and the cold-start rationale
+    assert "run-plan" in msg
+    assert "cold start" in msg.lower()
+
+
+def test_notice_is_vendor_neutral():
+    # core prose must not name provider products or vendor-specific latencies
+    for count in (1, 27):
+        msg = live_cost_notice("aliyun-agentrun", task_count=count, allow_live=True)
+        assert msg is not None
+        for vendor_term in ("FC", "AgentRuntime", "AgentRun", "86s", "~1s"):
+            assert vendor_term not in msg
 
 
 def test_aws_is_live():

@@ -4,9 +4,9 @@ The client is the suite's ONLY seam onto the agent-runtime domain.  It wraps
 the orchestrator's ProviderAdapter (``Target.handle``) and per instance:
 
 1. creates a session on the adapter,
-2. sends :func:`encode_swe_invoke` through the transport's ``_invoke`` seam
-   (the live Aliyun/AWS transports expose ``_invoke(session_id, openai_body)``;
-   ONLY the shared ``MockRuntimeTransport`` opts in — by explicit isinstance
+2. sends :func:`encode_swe_invoke` through the transport's PUBLIC
+   ``invoke_openai(session_id, body)`` seam (formal contract on
+   ``RuntimeTransport``; ONLY the shared ``MockRuntimeTransport`` opts in — by explicit isinstance
    check — to running the bundled agent in-process, which is the exact code
    deployed to AgentRun, so the whole path is testable offline; any other
    transport lacking the seam raises ``RuntimeError`` instead of silently
@@ -19,7 +19,7 @@ Span mapping rules (see ``core/sut_span.py`` for the v2 schema):
 - ``kind``: OpenInference kind ``LLM`` -> ``"llm_call"``; everything else
   (``CHAIN`` / ``TOOL`` / unknown) -> ``"tool_call"``.
 - ``trace_id``: the span's own trace id, else the transport's last observed
-  trace id (``_last_trace_id``, set from live response headers), else
+  trace id (public ``last_trace_id``, set from live response headers), else
   ``f"trace-{instance_id}"``.
 - ``t_start`` / ``t_end``: agent spans carry no timestamps, so all spans of one
   invoke share the invoke's wall-clock bounds (acceptable by design).
@@ -99,33 +99,28 @@ class SweSutClient:
     # --- invocation -----------------------------------------------------
 
     def _transport(self) -> Any:
-        """The adapter's cached runtime transport (``_transport_()`` seam).
+        """The adapter's cached runtime transport (``transport()`` seam).
 
-        Always the cached-transport seam — a fresh ``_build_transport()`` would
-        lose ``_last_trace_id`` set during the invoke.
+        Always the cached-transport seam — a fresh transport per call would
+        lose ``last_trace_id`` set during the invoke.
         """
-        return self._adapter._transport_()
+        return self._adapter.transport()
 
     def _invoke(self, transport: Any, session_id: str, openai_body: dict[str, Any]) -> dict[str, Any]:
-        """Send the OpenAI body through *transport*'s ``_invoke`` seam.
+        """Send the OpenAI body through *transport*'s public ``invoke_openai`` seam.
 
         In-process execution of the bundled agent is an EXPLICIT opt-in for the
         shared ``MockRuntimeTransport`` only (the same code deployed to
         AgentRun, so the full solve path stays exercisable with no cloud
-        account).  Any other transport MUST expose ``_invoke``; a real
-        transport lacking it raises instead of silently faking a cloud run.
+        account).  A transport without a wired ``invoke_openai`` raises
+        ``CapabilityNotSupported`` (the base default) instead of silently
+        faking a cloud run.
         """
         if isinstance(transport, MockRuntimeTransport):
             from clousight_bench.domains.agent_runtime.agent_bundle import agent
 
             return agent.handle_chat_completion(openai_body)
-        fn = getattr(transport, "_invoke", None)
-        if not callable(fn):
-            raise RuntimeError(
-                f"{type(transport).__name__} lacks the _invoke seam — "
-                "refusing in-process fallback on a real transport"
-            )
-        return dict(fn(session_id, openai_body))
+        return dict(transport.invoke_openai(session_id, openai_body))
 
     def solve(self, instance: dict[str, Any], agent_mode: str) -> dict[str, Any]:
         """Solve one SWE-bench instance on the deployed agent.
@@ -155,7 +150,7 @@ class SweSutClient:
         t_end = max(t_end, t_start)
 
         decoded = decode_swe_result(response)
-        fallback_trace_id = str(getattr(transport, "_last_trace_id", "") or "")
+        fallback_trace_id = str(getattr(transport, "last_trace_id", "") or "")
         spans = [
             self._map_span(raw, iid, t_start, t_end, fallback_trace_id)
             for raw in decoded["spans"]
@@ -185,7 +180,7 @@ class SweSutClient:
     ) -> dict[str, Any]:
         """Map one agent span dict onto the sut-span v2 schema; validate loudly.
 
-        *fallback_trace_id* is the transport's ``_last_trace_id`` read once by
+        *fallback_trace_id* is the transport's public ``last_trace_id`` read once by
         ``solve()`` after the invoke (live response headers set it).
         """
         attributes = raw.get("attributes")

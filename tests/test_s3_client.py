@@ -6,7 +6,7 @@ shape) for missing keys.  No boto3 or botocore package is needed to run these
 tests.
 
 Mirror style: _FakeUpload / _FakeSigner in test_dev_wheel.py;
-InMemoryOssClient usage in test_probe_oss_channel.py.
+InMemoryBlobStore usage in test_probe_blob_channel.py.
 """
 
 from __future__ import annotations
@@ -275,18 +275,18 @@ def test_ec2_client_lazy_client_none_before_first_use() -> None:
 
 
 # ---------------------------------------------------------------------------
-# OssClient ABC compliance
+# BlobStore ABC compliance
 # ---------------------------------------------------------------------------
 
 
-def test_s3_client_implements_oss_client_abc() -> None:
-    from clousight_bench.domains.agent_runtime.probe.oss_client import OssClient
+def test_s3_client_implements_blob_store_abc() -> None:
+    from clousight_bench.core.blobstore import BlobStore
 
-    assert isinstance(_client(), OssClient)
+    assert isinstance(_client(), BlobStore)
 
 
-def test_ec2_metadata_s3_client_implements_oss_client_abc() -> None:
-    from clousight_bench.domains.agent_runtime.probe.oss_client import OssClient
+def test_ec2_metadata_s3_client_implements_blob_store_abc() -> None:
+    from clousight_bench.core.blobstore import BlobStore
 
     ec2_c = Ec2MetadataS3Client("b")
-    assert isinstance(ec2_c, OssClient)
+    assert isinstance(ec2_c, BlobStore)

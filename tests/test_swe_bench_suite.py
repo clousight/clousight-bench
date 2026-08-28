@@ -638,7 +638,7 @@ class _StubSutAdapter:
         self.deprovisioned: list[str] = []
         self._seq = 0
 
-    def _transport_(self):
+    def transport(self):
         return self._t
 
     def create_session(self, spec=None):

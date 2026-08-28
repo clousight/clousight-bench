@@ -21,9 +21,9 @@ control plane  ──write job.json──▶  OSS  ◀──poll──  probe ca
 control plane  ◀──read result────  OSS  ◀──write──  probe carrier   carrier ──▶ OSS (telemetry)
 ```
 
-Modules (all in the core package, under `probe/`): `oss_channel` (the wire
+Modules (all under `domains/agent_runtime/probe/`): `blob_channel` (the wire
 protocol — job / result / progress / heartbeat / stop keys), `agent_loop` (the
-carrier-side poller), `oss_dispatch_client` (`OssProbeClient`, the control-side
+carrier-side poller), `blob_dispatch_client` (`BlobProbeClient`, the control-side
 client — a drop-in for the legacy HTTP `RemoteProbeClient`). The measured numbers
 come from carrier→platform calls, in-region; the OSS hops carry only control
 messages and bulk telemetry.
@@ -146,7 +146,7 @@ terraform output -raw csbench_config > /tmp/agent-runtime-aliyun.local.yaml
 # then add one line under `target:` in that file →   probe_dev_wheel: true
 ```
 
-The config already carries `oss_bucket`, `region`, `eci_vswitch_id`,
+The config already carries `blob_bucket`, `region`, `eci_vswitch_id`,
 `eci_security_group_id`, `eci_probe_role`, `ecs_image_id`, `ecs_instance_type`.
 
 **3. Credentials** (benchmark RAM user, static AK):

@@ -56,7 +56,7 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     @property
     def session_cold_start_is_provision(self) -> bool:
         """Delegates to the transport so the flag survives a mock<->real switch."""
-        return bool(getattr(self._transport_(), "session_cold_start_is_provision", False))
+        return bool(getattr(self.transport(), "session_cold_start_is_provision", False))
 
     # --- mode / endpoint / client ------------------------------------------
 
@@ -125,7 +125,12 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
             self.DOCS,
         )
 
-    def _transport_(self) -> RuntimeTransport:
+    def transport(self) -> RuntimeTransport:
+        """The adapter's cached transport — the public seam suites/tools use.
+
+        Cached so state like ``last_trace_id`` survives across calls; building
+        a fresh transport per call would silently lose it.
+        """
         if self._transport is None:
             self._transport = self._build_transport()
         return self._transport
@@ -150,7 +155,7 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
         return get_runtime_provider(self.provider) is not None
 
     def setup(self) -> None:
-        transport = self._transport_()
+        transport = self.transport()
         transport.start()
         if transport.mock_base_url:  # expose the live mock URL to tasks
             self.mock_base_url = transport.mock_base_url
@@ -192,91 +197,91 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
     # --- runtime ops: delegate to the selected transport --------------------
 
     def create_session(self, spec: dict[str, Any] | None = None) -> str:
-        return self._transport_().create_session(spec)
+        return self.transport().create_session(spec)
 
     def run_tool_plan(self, session_id: str, plan: list[ToolCall]) -> InvocationTrace:
-        return self._transport_().run_tool_plan(session_id, plan)
+        return self.transport().run_tool_plan(session_id, plan)
 
     def destroy_session(self, session_id: str) -> None:
-        return self._transport_().destroy_session(session_id)
+        return self.transport().destroy_session(session_id)
 
     def persist_state(self, session_id: str, state: dict[str, Any]) -> None:
-        return self._transport_().persist_state(session_id, state)
+        return self.transport().persist_state(session_id, state)
 
     def load_state(self, session_id: str) -> dict[str, Any]:
-        return self._transport_().load_state(session_id)
+        return self.transport().load_state(session_id)
 
     def resume_session(self, session_id: str) -> str:
-        return self._transport_().resume_session(session_id)
+        return self.transport().resume_session(session_id)
 
     def register_tool(self, path: str, spec: dict[str, Any]) -> bool:
-        return self._transport_().register_tool(path, spec)
+        return self.transport().register_tool(path, spec)
 
     def get_trace(self, session_id: str) -> list[dict[str, Any]]:
-        return self._transport_().get_trace(session_id)
+        return self.transport().get_trace(session_id)
 
     def export_otel(self, session_id: str) -> dict[str, Any]:
-        return self._transport_().export_otel(session_id)
+        return self.transport().export_otel(session_id)
 
     def probe_scaling(self, levels: list[int]) -> Any:
-        return self._transport_().probe_scaling(levels)
+        return self.transport().probe_scaling(levels)
 
     def probe_sustained_load(self, duration_s: float, target_rps: float) -> Any:
-        return self._transport_().probe_sustained_load(duration_s, target_rps)
+        return self.transport().probe_sustained_load(duration_s, target_rps)
 
     def probe_warm_retention(self) -> Any:
-        return self._transport_().probe_warm_retention()
+        return self.transport().probe_warm_retention()
 
     def probe_soak(self, duration_s: float) -> Any:
-        return self._transport_().probe_soak(duration_s)
+        return self.transport().probe_soak(duration_s)
 
     def probe_rate_limit(self) -> Any:
-        return self._transport_().probe_rate_limit()
+        return self.transport().probe_rate_limit()
 
     def probe_ttft(self) -> float:
-        return self._transport_().probe_ttft()
+        return self.transport().probe_ttft()
 
     def probe_cancellation(self) -> Any:
-        return self._transport_().probe_cancellation()
+        return self.transport().probe_cancellation()
 
     def probe_signals(self) -> Any:
-        return self._transport_().probe_signals()
+        return self.transport().probe_signals()
 
     def probe_span_propagation(self) -> Any:
-        return self._transport_().probe_span_propagation()
+        return self.transport().probe_span_propagation()
 
     def probe_export_latency(self) -> Any:
-        return self._transport_().probe_export_latency()
+        return self.transport().probe_export_latency()
 
     def probe_idle_cost(self) -> Any:
-        return self._transport_().probe_idle_cost()
+        return self.transport().probe_idle_cost()
 
     def probe_isolation(self) -> Any:
-        return self._transport_().probe_isolation()
+        return self.transport().probe_isolation()
 
     def probe_concurrency_ceiling(self) -> Any:
-        return self._transport_().probe_concurrency_ceiling()
+        return self.transport().probe_concurrency_ceiling()
 
     def probe_fault_recovery(self) -> Any:
-        return self._transport_().probe_fault_recovery()
+        return self.transport().probe_fault_recovery()
 
     def probe_startup_curve(self, n_calls: int = 8) -> Any:
-        return self._transport_().probe_startup_curve(n_calls=n_calls)
+        return self.transport().probe_startup_curve(n_calls=n_calls)
 
     def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> Any:
-        return self._transport_().probe_idle_timeout_honor(session_idle_timeout_s=session_idle_timeout_s)
+        return self.transport().probe_idle_timeout_honor(session_idle_timeout_s=session_idle_timeout_s)
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> Any:
-        return self._transport_().probe_retry_storm(max_window_s)
+        return self.transport().probe_retry_storm(max_window_s)
 
     def probe_concurrent_writes(self) -> Any:
-        return self._transport_().probe_concurrent_writes()
+        return self.transport().probe_concurrent_writes()
 
     def probe_hol_blocking(self) -> Any:
-        return self._transport_().probe_hol_blocking()
+        return self.transport().probe_hol_blocking()
 
     def run_data_plane_probe(self, name: str, params: dict[str, Any] | None = None):
-        t = self._transport_()
+        t = self.transport()
         fn = getattr(t, "run_data_plane_probe", None)
         if callable(fn):
             return fn(name, params or {})
@@ -290,7 +295,7 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
         tags = self.resource_tags()
         spec = dict(spec or {})
         spec.setdefault("tags", tags)
-        result = self._transport_().provision(spec)
+        result = self.transport().provision(spec)
         if not getattr(result, "tags", None):
             result.tags = tags
         ledger = self._resource_ledger()
@@ -299,10 +304,10 @@ class ManagedAgentRuntimeAdapter(AgentRuntimeAdapter):
         return result
 
     def provision_status(self, runtime_id: str) -> str:
-        return self._transport_().provision_status(runtime_id)
+        return self.transport().provision_status(runtime_id)
 
     def deprovision(self, runtime_id: str) -> Any:
-        result = self._transport_().deprovision(runtime_id)
+        result = self.transport().deprovision(runtime_id)
         ledger = self._resource_ledger()
         if ledger is not None and self.run_id:
             ledger.mark_deleted(self.run_id, runtime_id)

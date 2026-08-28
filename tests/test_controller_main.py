@@ -3,11 +3,11 @@
 from types import SimpleNamespace
 
 from clousight_bench.core import controller_main
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.core.campaign_channel import CampaignChannel
 from clousight_bench.core.campaign_spec import LaunchSpec
 from clousight_bench.core.controller import CampaignController, TaskOutcome
 from clousight_bench.core.watchdog import SelfDestructWatchdog
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
 
 def _fake_record(status="completed"):
@@ -120,8 +120,58 @@ def test_build_reaper_defaults_live_runtimes_to_ledger(tmp_path):
     assert seen == ["rt-live"]  # created-not-deleted only
 
 
+def test_build_reaper_degrades_to_noop_when_no_provider(monkeypatch, tmp_path):
+    """With no runtime provider resolvable (open-core / unknown platform), the
+    unfilled deleters become logging no-ops — reap() runs clean, never raising,
+    and never touching a cloud SDK. Teardown falls to the local backstop."""
+    import clousight_bench.core.registry as registry
+
+    monkeypatch.setattr(registry, "get_runtime_provider", lambda p: None)
+    logged: list[str] = []
+    reaper = controller_main.build_reaper(
+        {"CB_REGION": "cn-hangzhou"},  # no CB_PLATFORM → provider unresolvable
+        results_dir=tmp_path,
+        instance_id="i-self",
+        live_runtimes=lambda: ["rt-a"],
+        log=logged.append,
+    )
+    assert reaper.reap() == []  # no-ops collect no errors
+    assert any("no runtime provider reaper wired" in m for m in logged)
+
+
+def test_build_reaper_uses_provider_spec_defaults(monkeypatch, tmp_path):
+    """When deleters are NOT injected, build_reaper pulls them from the resolved
+    provider's ControllerReaperSpec (region + log threaded through)."""
+    from clousight_bench.core.plugin import ControllerReaperSpec
+
+    calls: list[str] = []
+    captured: dict = {}
+
+    class _Prov:
+        def controller_reaper_spec(self, region, log):  # noqa: ANN001, ANN202
+            captured["region"] = region
+            return ControllerReaperSpec(
+                delete_runtime=lambda rid: calls.append(f"rt:{rid}"),
+                delete_nat=lambda: calls.append("nat"),
+                delete_self=lambda iid: calls.append(f"self:{iid}"),
+                self_instance_id=lambda: "i-from-spec",
+            )
+
+    import clousight_bench.core.registry as registry
+
+    monkeypatch.setattr(registry, "get_runtime_provider", lambda p: _Prov())
+    reaper = controller_main.build_reaper(
+        {"CB_REGION": "cn-shanghai", "CB_PLATFORM": "aliyun-agentrun"},
+        results_dir=tmp_path,
+        live_runtimes=lambda: ["rt-a"],
+    )
+    assert captured["region"] == "cn-shanghai"
+    assert reaper.reap() == []
+    assert calls == ["rt:rt-a", "nat", "self:i-from-spec"]  # id from the spec
+
+
 def test_build_wires_controller_and_watchdog():
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     CampaignChannel(oss, "camp-1").write_launch(
         LaunchSpec(
             campaign_id="camp-1",

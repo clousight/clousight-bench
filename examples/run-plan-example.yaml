@@ -1,20 +1,16 @@
-# Example batch run plan for csbench run-plan
+# Example batch run plan for `csbench run-plan` (dev-only, no cloud account).
+#
+#   csbench run-plan examples/run-plan-example.yaml --results /tmp/plan
+#
+# `target: {mode: mock}` selects the suite's offline mock path (no cloud, no
+# LLM key), so this example runs anywhere. Each task entry supports
+# repeat/warmup/params; warmups are excluded from the pooled aggregate.
 version: "1"
 domain: agent-runtime
 platform: local-sim
 target:
-  startup:
-    cold_ms: 200
-    warm_ms: 10
-  recovery:
-    mode: auto-retry
+  mode: mock
 tasks:
-  - task: T1.1
-    repeat: 5
+  - task: "suite:swe-bench"
+    repeat: 2
     warmup: 1
-  - task: T1.3
-    repeat: 5
-    warmup: 1
-  - task: T1.4
-    repeat: 3
-    warmup: 0

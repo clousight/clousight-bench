@@ -2,7 +2,10 @@
 
 import json
 
-from clousight_bench.cli import main
+import pytest
+
+from clousight_bench.cli import _check_target, main
+from clousight_bench.core.errors import UserInputError
 from clousight_bench.core.fingerprints import record_digest
 
 
@@ -42,6 +45,26 @@ def test_init_with_an_unknown_provider_is_a_usage_error(tmp_path, capsys):
     assert rc == 2
     assert "nosuchcloud" in err
     assert "Traceback" not in err
+
+
+# --- legacy config keys fail loud with a rename hint -------------------------
+
+
+def test_legacy_oss_bucket_target_key_fails_loud_with_rename_hint():
+    """A config still carrying the pre-rename `oss_bucket` key is rejected
+    outright (clean break, no silent compat) with a message that names both
+    the old and new key so the user can fix their target config."""
+    with pytest.raises(UserInputError) as exc:
+        _check_target({"oss_bucket": "b", "region": "cn-hangzhou"})
+
+    msg = str(exc.value)
+    assert "oss_bucket" in msg
+    assert "blob_bucket" in msg
+
+
+def test_clean_target_passes_the_guard_unchanged():
+    target = {"blob_bucket": "b", "region": "cn-hangzhou"}
+    assert _check_target(target) is target
 
 
 # --- I2: stdout is the record that was persisted -----------------------------

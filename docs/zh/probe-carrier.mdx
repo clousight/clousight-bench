@@ -14,7 +14,7 @@ control plane  ──write job.json──▶  OSS  ◀──poll──  probe ca
 control plane  ◀──read result────  OSS  ◀──write──  probe carrier   carrier ──▶ OSS (telemetry)
 ```
 
-相关模块（均位于核心包 `probe/` 目录下）：`oss_channel`（线路协议——job / result / progress / heartbeat / stop 键）、`agent_loop`（载体侧轮询器）、`oss_dispatch_client`（`OssProbeClient`，控制侧客户端——可直接替换旧版 HTTP `RemoteProbeClient`）。测量数据来自载体→平台的调用（在目标区域内）；OSS 跳转仅承载控制消息和批量遥测数据。
+相关模块（均位于 `domains/agent_runtime/probe/` 目录下）：`blob_channel`（线路协议——job / result / progress / heartbeat / stop 键）、`agent_loop`（载体侧轮询器）、`blob_dispatch_client`（`BlobProbeClient`，控制侧客户端——可直接替换旧版 HTTP `RemoteProbeClient`）。测量数据来自载体→平台的调用（在目标区域内）；OSS 跳转仅承载控制消息和批量遥测数据。
 
 ## 载体 = ECS（非容器）
 
@@ -103,7 +103,7 @@ terraform output -raw csbench_config > /tmp/agent-runtime-aliyun.local.yaml
 # then add one line under `target:` in that file →   probe_dev_wheel: true
 ```
 
-配置中已包含 `oss_bucket`、`region`、`eci_vswitch_id`、`eci_security_group_id`、`eci_probe_role`、`ecs_image_id`、`ecs_instance_type`。
+配置中已包含 `blob_bucket`、`region`、`eci_vswitch_id`、`eci_security_group_id`、`eci_probe_role`、`ecs_image_id`、`ecs_instance_type`。
 
 **3. 凭证**（基准测试 RAM 用户，静态 AK）：
 

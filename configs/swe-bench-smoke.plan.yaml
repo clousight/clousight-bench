@@ -3,7 +3,7 @@
 #   csbench submit configs/swe-bench-smoke.plan.yaml \
 #     --config configs/agent-runtime-aliyun.local.yaml --watchdog-timeout 5400
 #
-# The --config file supplies `target:` (region, oss_bucket, credentials env-var
+# The --config file supplies `target:` (region, blob_bucket, credentials env-var
 # names ...). It is gitignored — REAL values never live in this committed plan.
 # Full walkthrough: docs/swe-bench-live-runbook.mdx (中文: docs/zh/).
 # This exact file is proven executable by tests/test_swe_submit_e2e.py.
@@ -21,10 +21,12 @@ cost_budget: 10.0
 driver:
   install_docker: true          # the upstream harness runs docker on the driver
   system_disk_size: 120         # GiB — 3 instance images + base easily exceed the 40 default
-  # cn-region gotcha: docker hub is unreachable — an ACR mirror is REQUIRED.
-  # Get yours from the ACR console ("镜像加速器"); placeholder id below.
-  docker_registry_mirror: "https://REPLACE-WITH-YOUR-ID.mirror.aliyuncs.com"
-  # cn-region gotcha: huggingface.co is unreliable — pin the mirror for the
+  # NO mirror address needed: the driver auto-detects its image strategy at boot
+  # (probes Docker Hub; direct-pull when reachable, ACR when blocked, fail-loud
+  # otherwise — region-agnostic, see driver_image.py). Uncomment only to FORCE a
+  # specific mirror:
+  #   docker_registry_mirror: "https://<your-own-mirror>"
+  # huggingface.co is unreliable from cn regions — pin the mirror for the
   # SWE-bench_Verified dataset auto-download.
   hf_endpoint: "https://hf-mirror.com"
   # image builds need ≥4c8g — the default e-c1m2.large is too small for the harness.

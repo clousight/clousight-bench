@@ -1,11 +1,11 @@
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
-from clousight_bench.domains.agent_runtime.probe.oss_sink import OssChunkSink
-from clousight_bench.domains.agent_runtime.probe.oss_sync import regroup_spans_to_traces, sync_prefix
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.domains.agent_runtime.probe.blob_sink import BlobChunkSink
+from clousight_bench.domains.agent_runtime.probe.blob_sync import regroup_spans_to_traces, sync_prefix
 
 
 def test_sync_mirrors_prefix_into_dest(tmp_path):
-    c = InMemoryOssClient()
-    sink = OssChunkSink(c, "campaign-x/job-y/", chunk_max_records=2)
+    c = InMemoryBlobStore()
+    sink = BlobChunkSink(c, "campaign-x/job-y/", chunk_max_records=2)
     for i in range(3):
         sink.append("raw", {"i": i})
     sink.close()
@@ -19,8 +19,8 @@ def test_sync_mirrors_prefix_into_dest(tmp_path):
 
 
 def test_sync_is_idempotent_and_can_run_midrun(tmp_path):
-    c = InMemoryOssClient()
-    sink = OssChunkSink(c, "p/", chunk_max_records=1)
+    c = InMemoryBlobStore()
+    sink = BlobChunkSink(c, "p/", chunk_max_records=1)
     sink.append("raw", {"i": 0})  # rolls p/raw-0000.jsonl immediately
     dest = tmp_path / "r"
     first = sync_prefix(c, "p/", dest)  # mid-run sync: 1 chunk present, no manifest yet
@@ -38,7 +38,7 @@ def _write_spans_chunk(client, key, records):
 
 
 def test_regroup_spans_groups_by_trace_id_and_is_found_by_traceview(tmp_path):
-    c = InMemoryOssClient()
+    c = InMemoryBlobStore()
     _write_spans_chunk(
         c,
         "p/spans-0000.jsonl",

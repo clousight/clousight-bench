@@ -1,47 +1,16 @@
-"""Minimal OSS client surface for channel ② (bulk telemetry).
+"""Aliyun OSS implementations of the core blob-store interface.
 
-Two implementations: Oss2Client (real, lazy oss2, default credential chain) and
-InMemoryOssClient (dict-backed fake — the test double and the --probe=local
-backend). The 4-method interface is all the sink/sync need; keeping it tiny
-means the whole channel is testable without an account.
+Oss2Client (laptop/control-plane: default credential chain) and
+EcsRamRoleOssClient (in-instance: RAM role straight from the ECS metadata
+service — always use THIS one inside ECS/ECI; the default chain hangs).
+The interface + in-memory fake live in ``clousight_bench.core.blobstore``.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from clousight_bench.core.blobstore import BlobStore
 
-
-class OssClient(ABC):
-    @abstractmethod
-    def put_object(self, key: str, data: bytes) -> None: ...
-
-    @abstractmethod
-    def get_object(self, key: str) -> bytes: ...
-
-    @abstractmethod
-    def list_prefix(self, prefix: str) -> list[str]: ...
-
-    @abstractmethod
-    def delete_object(self, key: str) -> None: ...
-
-
-class InMemoryOssClient(OssClient):
-    """Dict-backed fake; also the local (no-account) backend."""
-
-    def __init__(self) -> None:
-        self._store: dict[str, bytes] = {}
-
-    def put_object(self, key: str, data: bytes) -> None:
-        self._store[key] = bytes(data)
-
-    def get_object(self, key: str) -> bytes:
-        return self._store[key]  # KeyError on missing, by contract
-
-    def list_prefix(self, prefix: str) -> list[str]:
-        return sorted(k for k in self._store if k.startswith(prefix))
-
-    def delete_object(self, key: str) -> None:
-        self._store.pop(key, None)
+__all__ = ["EcsRamRoleOssClient", "Oss2Client"]
 
 
 class _ChainCredentialsProvider:
@@ -95,7 +64,7 @@ def _oss_endpoint(region: str, internal: bool) -> str:
     return f"https://oss-{region}.aliyuncs.com"
 
 
-class _Oss2BucketMixin(OssClient):
+class _Oss2BucketMixin(BlobStore):
     """Shared oss2 Bucket CRUD; subclasses set ``_endpoint``, ``_bucket_name``,
     ``_region``, and override ``_bucket_handle()`` to inject auth."""
 
@@ -112,7 +81,7 @@ class _Oss2BucketMixin(OssClient):
 
     def get_object(self, key: str) -> bytes:
         # Normalise "key absent" to KeyError so callers get the same contract as
-        # InMemoryOssClient (dict-backed → KeyError). oss2 raises NoSuchKey, which
+        # InMemoryBlobStore (dict-backed → KeyError). oss2 raises NoSuchKey, which
         # is NOT a KeyError, so without this an is_ready()/get poll on a
         # not-yet-written key crashes instead of reporting "absent".
         import oss2

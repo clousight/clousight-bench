@@ -1,14 +1,145 @@
 """Tests for prod submit + teardown local logic."""
 
+import pytest
+
 from clousight_bench.core import prod_submit
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.core.campaign_channel import CampaignChannel
+from clousight_bench.core.errors import UserInputError
 from clousight_bench.core.resource_ledger import LEDGER_FILE, ResourceLedger
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
 
 def _write(p, text):
     p.write_text(text, encoding="utf-8")
     return str(p)
+
+
+# ---- provider-resolved controller terraform surface (ControllerTfSpec) ------
+
+
+def test_aliyun_controller_tf_spec_is_verbatim_legacy_constants():
+    """The Aliyun provider's spec must equal the constants that used to live in
+    core/prod_submit.py — same targets, same order, same driver-var mapping."""
+    from clousight_bench.domains.agent_runtime.aliyun.provider import AliyunRuntimeProvider
+
+    spec = AliyunRuntimeProvider().controller_tf_spec()
+    assert spec is not None
+    assert spec.tf_targets == (
+        "alicloud_instance.controller",
+        "alicloud_ram_role.controller",
+        "alicloud_ram_policy.controller",
+        "alicloud_ram_role_policy_attachment.controller",
+        "alicloud_nat_gateway.bench",
+        "alicloud_eip_address.nat",
+        "alicloud_eip_association.nat",
+        "alicloud_snat_entry.bench",
+    )
+    # items() asserts both the mapping AND the -var emission order
+    assert list(spec.driver_tf_vars.items()) == [
+        ("install_docker", "controller_install_docker"),
+        ("system_disk_size", "controller_system_disk_size"),
+        ("docker_registry_mirror", "controller_docker_registry_mirror"),
+        ("hf_endpoint", "controller_hf_endpoint"),
+        ("instance_type", "controller_instance_type"),
+    ]
+
+
+def test_aliyun_controller_reaper_spec_wires_three_callables_plus_self_id():
+    """The Aliyun provider's reaper spec must carry the three live delete
+    callables + a self-instance-id lookup (the SDK bodies themselves stay
+    live-only / # pragma: no cover — assert only the wiring shape here)."""
+    from clousight_bench.core.plugin import ControllerReaperSpec
+    from clousight_bench.domains.agent_runtime.aliyun.provider import AliyunRuntimeProvider
+
+    spec = AliyunRuntimeProvider().controller_reaper_spec("cn-hangzhou", lambda _m: None)
+    assert isinstance(spec, ControllerReaperSpec)
+    assert callable(spec.delete_runtime)
+    assert callable(spec.delete_nat)
+    assert callable(spec.delete_self)
+    assert callable(spec.self_instance_id)
+
+
+def test_default_provider_has_no_controller_reaper_spec():
+    """A provider without a wired prod-controller reaper returns None, so the
+    controller degrades to a no-op reap rather than guessing another cloud's SDK."""
+    from clousight_bench.core.plugin import RuntimeProviderPlugin
+
+    class _Bare(RuntimeProviderPlugin):
+        provider = "bare"
+
+        def build_transport(self, adapter):  # noqa: ANN001, ANN201
+            return None
+
+    assert _Bare().controller_reaper_spec("cn-hangzhou", lambda _m: None) is None
+
+
+def test_submit_provider_without_controller_profile_fails_loudly(tmp_path):
+    """aws IS an installed runtime provider but has no prod-controller profile →
+    submit fails with the actionable message BEFORE any launch write or
+    terraform call — never a silent fallback to the aliyun targets."""
+    plan = _write(tmp_path / "plan.yaml", "tasks:\n  - task_id: T1.9\n")
+    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"provider": "aws"}\n')
+    oss = InMemoryBlobStore()
+    tf_calls = []
+    with pytest.raises(UserInputError, match=r"provider 'aws' has no prod-controller profile"):
+        prod_submit.submit(
+            plan,
+            config,
+            channel_factory=lambda c: CampaignChannel(oss, c),
+            terraform=lambda argv: tf_calls.append(argv) or 0,
+            watchdog_timeout_s=600.0,
+            gen_id=lambda: "camp-x",
+        )
+    assert tf_calls == [] and not oss._store  # failed before any side effect
+
+
+def test_submit_unresolvable_provider_fails_loudly(tmp_path):
+    """No target.provider and no plan platform → loud failure, not an implicit
+    aliyun; same for a provider with no installed plugin at all."""
+    plan = _write(tmp_path / "plan.yaml", "tasks:\n  - task_id: T1.9\n")
+    for target_yaml in ("target: {}\n", 'target: {"provider": "gcp"}\n'):
+        config = _write(tmp_path / "cfg.yaml", target_yaml)
+        with pytest.raises(UserInputError, match="no prod-controller profile.*csbench submit"):
+            prod_submit.submit(
+                plan,
+                config,
+                channel_factory=lambda c: CampaignChannel(InMemoryBlobStore(), c),
+                terraform=lambda argv: 0,
+                watchdog_timeout_s=600.0,
+                gen_id=lambda: "camp-x",
+            )
+
+
+def test_submit_infers_provider_from_plan_platform(tmp_path):
+    """A plan carrying ``platform: aliyun-agentrun`` (the committed-plan shape)
+    resolves provider aliyun even when the config target has no provider key."""
+    plan = _write(
+        tmp_path / "plan.yaml",
+        "platform: aliyun-agentrun\ntasks:\n  - task_id: T1.9\n",
+    )
+    config = _write(tmp_path / "cfg.yaml", "params: {}\ntarget: {}\n")
+    tf_calls = []
+    prod_submit.submit(
+        plan,
+        config,
+        channel_factory=lambda c: CampaignChannel(InMemoryBlobStore(), c),
+        terraform=lambda argv: tf_calls.append(argv) or 0,
+        watchdog_timeout_s=600.0,
+        gen_id=lambda: "camp-i",
+    )
+    assert "alicloud_instance.controller" in tf_calls[0]
+
+
+def test_teardown_provider_without_profile_fails_before_stop_signal(tmp_path):
+    ch = CampaignChannel(InMemoryBlobStore(), "camp-1")
+    with pytest.raises(UserInputError, match="no prod-controller profile"):
+        prod_submit.teardown(
+            ch,
+            terraform=lambda argv: 0,
+            delete_runtime=lambda rid: None,
+            provider="aws",
+        )
+    assert ch.stop_requested() is False  # failed before signalling the controller
 
 
 def test_submit_writes_launch_and_applies_terraform(tmp_path):
@@ -20,7 +151,7 @@ def test_submit_writes_launch_and_applies_terraform(tmp_path):
         tmp_path / "cfg.yaml",
         'params: {"warmup": 1}\ntarget: {"provider": "aliyun", "region": "cn-hangzhou"}\n',
     )
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     tf_calls = []
     cid = prod_submit.submit(
         plan,
@@ -60,7 +191,7 @@ def test_submit_driver_section_and_cost_budget(tmp_path):
         "    params: {subset: verified-50}\n",
     )
     config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"provider": "aliyun"}\n')
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     tf_calls = []
     prod_submit.submit(
         plan,
@@ -91,7 +222,7 @@ def test_submit_driver_partial_keys_only_emit_present_vars(tmp_path):
     prod_submit.submit(
         plan,
         config,
-        channel_factory=lambda c: CampaignChannel(InMemoryOssClient(), c),
+        channel_factory=lambda c: CampaignChannel(InMemoryBlobStore(), c),
         terraform=lambda argv: tf_calls.append(argv) or 0,
         watchdog_timeout_s=600.0,
         gen_id=lambda: "camp-p",
@@ -105,9 +236,10 @@ def test_submit_driver_partial_keys_only_emit_present_vars(tmp_path):
 def test_submit_with_wheel_builder_injects_wheel_vars(tmp_path):
     plan = _write(tmp_path / "plan.yaml", "tasks:\n  - task_id: T1.13\n")
     config = _write(
-        tmp_path / "cfg.yaml", 'params: {}\ntarget: {"oss_bucket": "b", "region": "cn-hangzhou"}\n'
+        tmp_path / "cfg.yaml",
+        'params: {}\ntarget: {"provider": "aliyun", "blob_bucket": "b", "region": "cn-hangzhou"}\n',
     )
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     tf_calls = []
     swebench_flags = []
     prod_submit.submit(
@@ -135,12 +267,12 @@ def test_submit_suite_plan_requests_swebench_deps(tmp_path):
         tmp_path / "plan.yaml",
         'tasks:\n  - task_id: T1.9\n  - task_id: "suite:swe-bench"\n',
     )
-    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"mode": "real"}\n')
+    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"provider": "aliyun", "mode": "real"}\n')
     swebench_flags = []
     prod_submit.submit(
         plan,
         config,
-        channel_factory=lambda c: CampaignChannel(InMemoryOssClient(), c),
+        channel_factory=lambda c: CampaignChannel(InMemoryBlobStore(), c),
         terraform=lambda argv: 0,
         watchdog_timeout_s=600.0,
         wheel_builder=lambda cid, needs_swebench: (
@@ -155,11 +287,11 @@ def test_submit_suite_plan_without_real_mode_warns_loudly(tmp_path, capsys):
     """suite: task + target.mode != real → LOUD stderr warning (mock submits stay
     legitimate for pipeline tests, so this is a warning, never an error)."""
     plan = _write(tmp_path / "plan.yaml", 'tasks:\n  - task_id: "suite:swe-bench"\n')
-    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"mode": "mock"}\n')
+    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"provider": "aliyun", "mode": "mock"}\n')
     prod_submit.submit(
         plan,
         config,
-        channel_factory=lambda c: CampaignChannel(InMemoryOssClient(), c),
+        channel_factory=lambda c: CampaignChannel(InMemoryBlobStore(), c),
         terraform=lambda argv: 0,
         watchdog_timeout_s=600.0,
         gen_id=lambda: "camp-m",
@@ -171,11 +303,11 @@ def test_submit_suite_plan_without_real_mode_warns_loudly(tmp_path, capsys):
 
 def test_submit_suite_plan_with_real_mode_does_not_warn(tmp_path, capsys):
     plan = _write(tmp_path / "plan.yaml", 'tasks:\n  - task_id: "suite:swe-bench"\n')
-    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"mode": "real"}\n')
+    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"provider": "aliyun", "mode": "real"}\n')
     prod_submit.submit(
         plan,
         config,
-        channel_factory=lambda c: CampaignChannel(InMemoryOssClient(), c),
+        channel_factory=lambda c: CampaignChannel(InMemoryBlobStore(), c),
         terraform=lambda argv: 0,
         watchdog_timeout_s=600.0,
         gen_id=lambda: "camp-r",
@@ -185,11 +317,11 @@ def test_submit_suite_plan_with_real_mode_does_not_warn(tmp_path, capsys):
 
 def test_submit_non_suite_plan_never_warns_about_mode(tmp_path, capsys):
     plan = _write(tmp_path / "plan.yaml", "tasks:\n  - task_id: T1.9\n")
-    config = _write(tmp_path / "cfg.yaml", "params: {}\ntarget: {}\n")
+    config = _write(tmp_path / "cfg.yaml", 'params: {}\ntarget: {"provider": "aliyun"}\n')
     prod_submit.submit(
         plan,
         config,
-        channel_factory=lambda c: CampaignChannel(InMemoryOssClient(), c),
+        channel_factory=lambda c: CampaignChannel(InMemoryBlobStore(), c),
         terraform=lambda argv: 0,
         watchdog_timeout_s=600.0,
         gen_id=lambda: "camp-n",
@@ -198,7 +330,7 @@ def test_submit_non_suite_plan_never_warns_about_mode(tmp_path, capsys):
 
 
 def test_teardown_stops_reaps_residual_and_destroys(tmp_path):
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     ch = CampaignChannel(oss, "camp-1")
     # seed an OSS ledger snapshot listing a still-live runtime r9
     led = ResourceLedger(tmp_path)
@@ -211,6 +343,7 @@ def test_teardown_stops_reaps_residual_and_destroys(tmp_path):
         ch,
         terraform=lambda argv: tf_calls.append(argv) or 0,
         delete_runtime=lambda rid: deleted.append(rid),
+        provider="aliyun",
     )
     assert ch.stop_requested() is True
     assert deleted == ["r9"]
@@ -224,7 +357,7 @@ def test_submit_rejects_old_run_plan_task_shape(tmp_path):
 
     plan = _write(tmp_path / "plan.yaml", "tasks:\n  - task: T1.9\n")
     config = _write(tmp_path / "cfg.yaml", "target: {}\n")
-    oss = InMemoryOssClient()
+    oss = InMemoryBlobStore()
     with pytest.raises(ValueError, match="run-plan shape"):
         prod_submit.submit(
             plan,
@@ -244,8 +377,8 @@ def test_submit_rejects_unknown_driver_keys(tmp_path):
         tmp_path / "plan.yaml",
         "tasks:\n  - task_id: T1.9\ndriver: {install_dokcer: true}\n",
     )
-    config = _write(tmp_path / "cfg.yaml", "target: {}\n")
-    oss = InMemoryOssClient()
+    config = _write(tmp_path / "cfg.yaml", 'target: {"provider": "aliyun"}\n')
+    oss = InMemoryBlobStore()
     with pytest.raises(ValueError, match="install_dokcer"):
         prod_submit.submit(
             plan,

@@ -3,6 +3,7 @@
 # A live (real-cloud) run needs --allow-live (or CSBENCH_ALLOW_LIVE=1): it spends
 # real money. Simulated dry-run instead: set mode: mock (no account, no cost).
 target:
+  provider: aliyun        # resolves the prod-controller terraform surface for csbench submit/teardown
   region: cn-hangzhou
   endpoint: ""            # AgentRun control-plane endpoint override (private region)
   data_endpoint: ""       # AgentRun data-plane endpoint override (invoke/session)

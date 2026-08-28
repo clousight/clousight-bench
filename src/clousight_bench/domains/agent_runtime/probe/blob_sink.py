@@ -1,10 +1,10 @@
-"""Roll bulk telemetry to OSS as numbered JSONL chunks during a probe run.
+"""Roll bulk telemetry to the blob store as numbered JSONL chunks during a probe run.
 
 The hot path appends records to per-stream buffers; a buffer flushes to a
-numbered OSS object when it fills or on flush()/close(). Because chunks land in
-OSS as they roll, the prefix is queryable mid-run (spec §6.2). close() writes a
-manifest listing every chunk. No local disk needed for the account-free path —
-the OssClient owns storage.
+numbered blob object when it fills or on flush()/close(). Because chunks land in
+the blob store as they roll, the prefix is queryable mid-run (spec §6.2). close()
+writes a manifest listing every chunk. No local disk needed for the account-free
+path — the BlobStore owns storage.
 """
 
 from __future__ import annotations
@@ -14,13 +14,13 @@ import json
 import threading
 from typing import Any
 
-from .oss_client import OssClient
+from clousight_bench.core.blobstore import BlobStore
 
 CHUNK_MEDIA = "application/x-ndjson"
 
 
-class OssChunkSink:
-    def __init__(self, client: OssClient, prefix: str, chunk_max_records: int = 1000) -> None:
+class BlobChunkSink:
+    def __init__(self, client: BlobStore, prefix: str, chunk_max_records: int = 1000) -> None:
         self._client = client
         self._prefix = prefix if (prefix == "" or prefix.endswith("/")) else prefix + "/"
         self._max = max(1, int(chunk_max_records))

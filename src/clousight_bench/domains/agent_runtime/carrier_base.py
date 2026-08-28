@@ -2,9 +2,9 @@
 
 An in-region probe carrier launches a stock-OS instance whose cloud-init installs
 and runs the public ``clousight-bench[probe]`` package, then talks to the control
-plane over the object-store-mediated ``OssChannel`` / agent_loop contract. The
+plane over the object-store-mediated ``BlobChannel`` / agent_loop contract. The
 poll-until-running-and-heartbeat loop, the best-effort teardown and the
-OSS-channel readiness wiring are identical across clouds; only the run-request
+blob-channel readiness wiring are identical across clouds; only the run-request
 shape, the cloud-init user-data and the blob client differ. Cloud subclasses
 (``EcsProbeCarrier`` over ECS, ``Ec2ProbeCarrier`` over EC2) implement those hooks;
 everything else lives here once.
@@ -102,16 +102,16 @@ class BaseProbeCarrier:
             pass
 
     def _default_ready_check(self) -> Callable[[], bool]:
-        """Object-store-heartbeat readiness: an OssChannel over the cloud blob client.
+        """Object-store-heartbeat readiness: a BlobChannel over the cloud blob client.
 
         The control plane does NOT run on an instance role, so the blob client
         uses the default credential chain / public endpoint (only the probe
         instance itself uses the instance role). Lazy import so code paths that
         skip the object store don't need the SDK at import time.
         """
-        from clousight_bench.domains.agent_runtime.probe.oss_channel import OssChannel
+        from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
 
-        channel = OssChannel(self._build_blob_client(), campaign_id=self.config.campaign_id)
+        channel = BlobChannel(self._build_blob_client(), campaign_id=self.config.campaign_id)
         return channel.is_ready
 
     # ---- cloud-specific hooks ------------------------------------------------

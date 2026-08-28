@@ -53,6 +53,8 @@ def test_controller_tf_docker_driver_knobs():
     # same lines as build_controller_user_data (twin lockstep)
     assert "yum install -y docker || dnf install -y docker" in src
     assert "systemctl enable --now docker" in src
-    assert "mkdir -p /etc/docker" in src
-    assert "/etc/docker/daemon.json" in src and "registry-mirrors" in src
+    # region-agnostic: an explicit mirror is an OPTIONAL override env var, and the
+    # driver auto-detects its image strategy at boot (no hardcoded daemon.json).
+    assert "export CB_DOCKER_MIRROR='${var.controller_docker_registry_mirror}'" in src
+    assert "python3.11 -m clousight_bench.domains.agent_runtime.driver_image" in src
     assert "export HF_ENDPOINT='${var.controller_hf_endpoint}'" in src

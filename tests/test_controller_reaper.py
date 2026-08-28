@@ -1,10 +1,7 @@
 """Tests for RestrictedReaper — ledger-reverse-lookup delete, self last."""
 
-from clousight_bench.core.resource_ledger import ResourceLedger
-from clousight_bench.domains.agent_runtime.controller_reaper import (
-    RestrictedReaper,
-    live_runtimes_from_ledger,
-)
+from clousight_bench.core.resource_ledger import ResourceLedger, live_runtimes_from_ledger
+from clousight_bench.domains.agent_runtime.controller_reaper import RestrictedReaper
 
 
 def test_reap_order_runtime_then_nat_then_self_last():

@@ -254,6 +254,7 @@ def load_benchmark_suites() -> dict[str, BenchmarkSuite]:
         inst = ep.load()()
         if not isinstance(inst, BenchmarkSuite):
             raise RegistryError(f"entry point {ep.name!r} is not a BenchmarkSuite")
+        _check_api_version(ep, inst)
         if inst.suite_id in suites:
             raise DuplicatePluginError(f"suite {inst.suite_id!r} provided twice")
         suites[inst.suite_id] = inst
@@ -268,5 +269,6 @@ def load_evaluators() -> list[Evaluator]:
         inst = ep.load()()
         if not isinstance(inst, Evaluator):
             raise RegistryError(f"entry point {ep.name!r} is not an Evaluator")
+        _check_api_version(ep, inst)
         out.append(inst)
     return out

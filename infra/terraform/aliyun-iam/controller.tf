@@ -43,7 +43,7 @@ variable "controller_system_disk_size" {
 variable "controller_docker_registry_mirror" {
   type        = string
   default     = ""
-  description = "Docker registry mirror URL written to /etc/docker/daemon.json BEFORE docker starts (docker.io is throttled/unreachable from cn regions). Empty → no daemon.json."
+  description = "OPTIONAL operator override for the docker registry mirror. Empty → the driver auto-detects its image strategy at boot (region-agnostic; see driver_image.py). Set only to force a specific mirror."
 }
 
 variable "controller_hf_endpoint" {
@@ -192,15 +192,18 @@ locals {
   _hf_lines = var.controller_hf_endpoint != "" ? [
     "export HF_ENDPOINT='${var.controller_hf_endpoint}'",
   ] : []
-  # daemon.json lands BEFORE docker is installed/started so the first pull
-  # already goes through the in-region mirror.
+  # OPTIONAL override only; empty means the driver auto-detects (driver_image.py).
   _docker_mirror_lines = var.controller_docker_registry_mirror != "" ? [
-    "mkdir -p /etc/docker",
-    "echo '{\"registry-mirrors\": [\"${var.controller_docker_registry_mirror}\"]}' > /etc/docker/daemon.json",
+    "export CB_DOCKER_MIRROR='${var.controller_docker_registry_mirror}'",
   ] : []
   _docker_install_lines = var.controller_install_docker ? [
     "yum install -y docker || dnf install -y docker",
     "systemctl enable --now docker",
+  ] : []
+  # After the package is installed, the driver picks its image strategy at boot
+  # (direct pull / ACR / fail-loud). Non-zero exit aborts before the harness runs.
+  _driver_image_lines = var.controller_install_docker ? [
+    "python3.11 -m clousight_bench.domains.agent_runtime.driver_image",
   ] : []
 
   controller_user_data = base64encode(join("\n", concat(
@@ -231,6 +234,7 @@ locals {
       "python3.11 -m ensurepip --upgrade",
     ],
     local._install_lines,
+    local._driver_image_lines,
     ["exec python3.11 -m clousight_bench.core.controller_main"]
   )))
 }

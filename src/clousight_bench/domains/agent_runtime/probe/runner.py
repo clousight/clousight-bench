@@ -17,10 +17,10 @@ from clousight_bench.core.observation import ObservationBundle
 from .jobs import JobProgress, JobRecord, JobSpec, new_job_id
 
 if TYPE_CHECKING:
-    from .oss_sink import OssChunkSink
+    from .blob_sink import BlobChunkSink
 
 ProbeFn = Callable[..., ObservationBundle]
-SinkFactory = Callable[[JobSpec], "OssChunkSink | None"]
+SinkFactory = Callable[[JobSpec], "BlobChunkSink | None"]
 
 
 class JobRunner:
@@ -69,6 +69,9 @@ class JobRunner:
                 try:
                     manifest = sink.close()
                     with self._lock:
+                        # We lift only chunk keys here; the full manifest→artifacts
+                        # promotion is the deliberate seam blob_sync.chunks_to_artifacts,
+                        # intended for control-plane result assembly (not yet wired).
                         self._jobs[job_id].chunk_refs = [ch["key"] for ch in manifest.get("chunks", [])]
                 except Exception:  # noqa: BLE001 — sink flush must not mask job result
                     pass

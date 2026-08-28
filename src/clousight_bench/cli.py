@@ -1,7 +1,7 @@
 """csbench: the Clousight Bench command line.
 
     csbench list                                        # installed domains / tasks / platforms
-    csbench run --domain agent-runtime --task T1.3 \
+    csbench run --domain agent-runtime --task suite:swe-bench \
             --platform local-sim [--config cfg.yaml] [--param k=v ...] [--debug]
     #   --repeat N --warmup W  -> run a plan and print a statistical aggregate
     #   results/publish-receipts.jsonl records publish attempts (append-only)
@@ -118,6 +118,22 @@ def _load_config(path: str | None) -> dict[str, Any]:
     return data
 
 
+def _check_target(target: dict[str, Any]) -> dict[str, Any]:
+    """Reject the legacy ``oss_bucket`` target key with an actionable hint.
+
+    ``oss_bucket`` was a cross-cloud smell (AWS users typed it to name an S3
+    bucket); it is now ``blob_bucket``. Clean break, no compat alias -- fail
+    loud so a stale config surfaces immediately instead of silently naming an
+    empty bucket. Returns the same target unchanged when it is clean.
+    """
+    if "oss_bucket" in target:
+        raise UserInputError(
+            "target key 'oss_bucket' was renamed to 'blob_bucket'; "
+            "update your target config"
+        )
+    return target
+
+
 def _parse_params(pairs: list[str]) -> dict[str, Any]:
     params: dict[str, Any] = {}
     for pair in pairs:
@@ -152,7 +168,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     params: dict[str, Any] = {}
     cfg = _load_config(args.config)
     if cfg:
-        target = cfg.get("target", {})
+        target = _check_target(cfg.get("target", {}))
         params = cfg.get("params", {})
     params.update(_parse_params(args.param))
 
@@ -347,7 +363,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
     target: dict[str, Any] = {}
     cfg = _load_config(args.config)
     if cfg:
-        target = cfg.get("target", {})
+        target = _check_target(cfg.get("target", {}))
     if args.provider:
         target["provider"] = args.provider
 
@@ -667,6 +683,7 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
     if args.config:
         cfg = _load_config(args.config)
         base_target = {**cfg.get("target", {}), **base_target}
+    base_target = _check_target(base_target)
 
     task_specs = spec.get("tasks") or []
     if not task_specs:
@@ -906,17 +923,17 @@ def _prod_target(config_path: str | None) -> dict:
     import yaml as _yaml
 
     doc = _yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) if config_path else {}
-    return dict((doc or {}).get("target") or {})
+    return _check_target(dict((doc or {}).get("target") or {}))
 
 
 def _prod_oss(target: dict):
     from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
-    return Oss2Client(str(target.get("oss_bucket") or ""), str(target.get("region") or "cn-hangzhou"))
+    return Oss2Client(str(target.get("blob_bucket") or ""), str(target.get("region") or "cn-hangzhou"))
 
 
 def _prod_channel(target: dict, campaign_id: str):
-    from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
+    from clousight_bench.core.campaign_channel import CampaignChannel
 
     return CampaignChannel(_prod_oss(target), campaign_id)
 
@@ -931,7 +948,7 @@ def _prod_runtime_deleter(target: dict):
     def _del(runtime_id: str) -> None:
         from clousight_bench.domains.agent_runtime.adapters.cn_clouds import AliyunAgentRunAdapter
 
-        AliyunAgentRunAdapter(target)._transport_().deprovision(runtime_id)
+        AliyunAgentRunAdapter(target).transport().deprovision(runtime_id)
 
     return _del
 
@@ -959,7 +976,7 @@ def _prod_wheel_builder(target: dict):
         from clousight_bench.domains.agent_runtime.dev_wheel import upload_dev_wheel
         from clousight_bench.domains.agent_runtime.probe.oss_client import Oss2Client
 
-        bucket = str(target.get("oss_bucket") or "")
+        bucket = str(target.get("blob_bucket") or "")
         region = str(target.get("region") or "cn-hangzhou")
         upload = Oss2Client(bucket, region)  # public endpoint for the PUT
         sign = Oss2Client(bucket, region, internal=True)  # internal endpoint for the presign
@@ -971,7 +988,7 @@ def _prod_wheel_builder(target: dict):
 
 def _cmd_submit(args: argparse.Namespace) -> int:
     from clousight_bench.core import prod_submit
-    from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
+    from clousight_bench.core.campaign_channel import CampaignChannel
 
     target = _prod_target(args.config)
     oss = _prod_oss(target)
@@ -1015,10 +1032,15 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
 
 def _cmd_teardown(args: argparse.Namespace) -> int:
     from clousight_bench.core import prod_submit
+    from clousight_bench.core.credentials import infer_provider
 
     target = _prod_target(args.config)
     out = prod_submit.teardown(
-        _prod_channel(target, args.campaign_id), _terraform_runner(), _prod_runtime_deleter(target)
+        _prod_channel(target, args.campaign_id),
+        _terraform_runner(),
+        _prod_runtime_deleter(target),
+        # resolves the provider's controller terraform surface (ControllerTfSpec)
+        provider=infer_provider(target),
     )
     print(out)
     return 0
@@ -1142,7 +1164,7 @@ def main(argv: list[str] | None = None) -> int:
     # ---- prod profile: thin submit/status/logs/fetch/teardown -----------------
     sm_p = sub.add_parser("submit", help="prod: submit a campaign to an ecs-resident controller")
     sm_p.add_argument("plan_file", help="YAML plan file")
-    sm_p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
+    sm_p.add_argument("--config", required=True, help="YAML with target: (needs blob_bucket + region)")
     sm_p.add_argument(
         "--watchdog-timeout",
         type=float,
@@ -1157,10 +1179,10 @@ def main(argv: list[str] | None = None) -> int:
     ):
         _p = sub.add_parser(_name, help=_help)
         _p.add_argument("campaign_id")
-        _p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
+        _p.add_argument("--config", required=True, help="YAML with target: (needs blob_bucket + region)")
     fe_p = sub.add_parser("fetch", help="prod: download a campaign's results (JSON + parquet)")
     fe_p.add_argument("campaign_id")
-    fe_p.add_argument("--config", required=True, help="YAML with target: (needs oss_bucket + region)")
+    fe_p.add_argument("--config", required=True, help="YAML with target: (needs blob_bucket + region)")
     fe_p.add_argument("--dest", default="results/prod-fetch", help="destination directory")
 
     prog_p = sub.add_parser("progress", help="show a run-plan campaign's live progress")

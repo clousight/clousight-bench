@@ -119,7 +119,7 @@ def test_provision_builds_and_uploads_when_bucket_set_and_teardown_deletes(monke
 
     monkeypatch.setattr(artifact, "OssArtifactStore", _fake_store)
 
-    t = AliyunAgentRunTransport(AliyunAgentRunAdapter({"region": "cn-hangzhou", "oss_bucket": "my-bucket"}))
+    t = AliyunAgentRunTransport(AliyunAgentRunAdapter({"region": "cn-hangzhou", "blob_bucket": "my-bucket"}))
     ref = t._ensure_artifact({})
     assert ref and ref.startswith("oss://my-bucket/")
     assert len(fake.objects) == 1

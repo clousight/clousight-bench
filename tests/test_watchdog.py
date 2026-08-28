@@ -1,12 +1,12 @@
 """Tests for SelfDestructWatchdog — terminal detection + one-shot reap."""
 
+from clousight_bench.core.blobstore import InMemoryBlobStore
+from clousight_bench.core.campaign_channel import CampaignChannel
 from clousight_bench.core.watchdog import SelfDestructWatchdog
-from clousight_bench.domains.agent_runtime.probe.campaign_channel import CampaignChannel
-from clousight_bench.domains.agent_runtime.probe.oss_client import InMemoryOssClient
 
 
 def _channel(now=lambda: 0.0):
-    return CampaignChannel(InMemoryOssClient(), "camp-1", now=now)
+    return CampaignChannel(InMemoryBlobStore(), "camp-1", now=now)
 
 
 def test_should_stop_on_done():

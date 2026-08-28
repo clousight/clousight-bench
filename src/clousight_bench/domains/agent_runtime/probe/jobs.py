@@ -12,7 +12,7 @@ from clousight_bench.core.observation import ObservationBundle
 JOB_STATUSES: tuple[str, ...] = ("pending", "running", "completed", "failed")
 TERMINAL_STATUSES: tuple[str, ...] = ("completed", "failed")
 
-# Cloud instance-metadata hosts reachable from inside the ECI. A forged /run-job
+# Cloud instance-metadata hosts reachable from inside the probe host. A forged /run-job
 # steering target_endpoint at these would exfiltrate the instance RAM role, so
 # JobSpec refuses them (SSRF guard). Legit in-region public/VPC endpoints are
 # unaffected — only metadata + link-local are blocked.
@@ -50,7 +50,7 @@ class JobSpec:
     mock_base_url: str = ""
     mock_token: str = ""
     session_header_scheme: str = "X-AgentRun-Session-ID"
-    oss_prefix: str = ""
+    blob_prefix: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -60,7 +60,7 @@ class JobSpec:
             "mock_base_url": self.mock_base_url,
             "mock_token": self.mock_token,
             "session_header_scheme": self.session_header_scheme,
-            "oss_prefix": self.oss_prefix,
+            "blob_prefix": self.blob_prefix,
         }
 
     @classmethod
@@ -78,7 +78,11 @@ class JobSpec:
             mock_base_url=mock_base_url,
             mock_token=str(d.get("mock_token", "")),
             session_header_scheme=str(d.get("session_header_scheme", "X-AgentRun-Session-ID")),
-            oss_prefix=str(d.get("oss_prefix", "")),
+            # Migration shim (read-only back-compat): prefer the new "blob_prefix"
+            # key, fall back to the legacy "oss_prefix" so a job blob written before
+            # this rename still reads back. Safe to drop once no pre-migration job
+            # blobs can exist. to_dict emits ONLY "blob_prefix".
+            blob_prefix=str(d.get("blob_prefix", d.get("oss_prefix", ""))),
         )
 
 

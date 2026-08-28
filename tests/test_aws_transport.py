@@ -369,12 +369,12 @@ def test_run_data_plane_probe_vantage_region_from_target():
 
 
 # --------------------------------------------------------------------------- #
-# Tests: _AwsMemory round-trip via InMemoryOssClient-compatible fake S3Client
+# Tests: _AwsMemory round-trip via InMemoryBlobStore-compatible fake S3Client
 # --------------------------------------------------------------------------- #
 
 
 class _FakeS3Client:
-    """Fake S3 client backed by InMemoryOssClient for _AwsMemory tests."""
+    """Fake S3 client backed by InMemoryBlobStore for _AwsMemory tests."""
 
     def __init__(self) -> None:
         self._store: dict[str, bytes] = {}
