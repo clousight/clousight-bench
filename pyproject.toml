@@ -94,24 +94,32 @@ csbench = "clousight_bench.cli:main"
 cb-probe = "clousight_bench.domains.agent_runtime.probe.agent_loop:main"
 cb-controller = "clousight_bench.core.controller_main:main"
 
+[project.entry-points.pytest11]
+clousight_bench = "clousight_bench.pytest_plugin"
+
 [project.entry-points."clousight_bench.benchmark_suites"]
 swe-bench = "clousight_bench.suites.swe_bench.suite:SweBenchSuite"
 tpc-ds = "clousight_bench.suites.tpc_ds.suite:TpcdsSuite"
 tpc-h = "clousight_bench.suites.tpc_h.suite:TpchSuite"
 ycsb = "clousight_bench.suites.ycsb.suite:YcsbSuite"
 tpc-c = "clousight_bench.suites.tpc_c.suite:TpccSuite"
+mmlu = "clousight_bench.suites.mmlu.suite:MmluSuite"
+gsm8k = "clousight_bench.suites.gsm8k.suite:Gsm8kSuite"
 
 [project.entry-points."clousight_bench.domains"]
 agent-runtime = "clousight_bench.domains.agent_runtime:AgentRuntimeDomain"
 data-warehouse = "clousight_bench.domains.data_warehouse:DataWarehouseDomain"
 key-value = "clousight_bench.domains.key_value:KeyValueDomain"
 transactional-db = "clousight_bench.domains.transactional_db:TransactionalDbDomain"
+llm = "clousight_bench.domains.llm:LlmDomain"
 
 [project.entry-points."clousight_bench.evaluators"]
 official-swe-evaluator = "clousight_bench.suites.swe_bench.evaluator:OfficialSweEvaluator"
 official-tpch-evaluator = "clousight_bench.suites.tpc_h.evaluator:OfficialTpchEvaluator"
 official-ycsb-evaluator = "clousight_bench.suites.ycsb.evaluator:OfficialYcsbEvaluator"
 official-tpcc-evaluator = "clousight_bench.suites.tpc_c.evaluator:OfficialTpccEvaluator"
+official-mmlu-evaluator = "clousight_bench.suites.mmlu.evaluator:OfficialMmluEvaluator"
+official-gsm8k-evaluator = "clousight_bench.suites.gsm8k.evaluator:OfficialGsm8kEvaluator"
 official-tpcds-evaluator = "clousight_bench.suites.tpc_ds.evaluator:OfficialTpcdsEvaluator"
 
 [project.entry-points."clousight_bench.enrichers"]

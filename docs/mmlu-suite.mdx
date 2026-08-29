@@ -1,0 +1,59 @@
+---
+title: MMLU suite (llm domain)
+description: Benchmark a managed LLM endpoint with MMLU — objective accuracy + serving latency/cost.
+---
+
+The `llm` domain benchmarks the **managed large language model a cloud vendor
+sells** (Bedrock, DashScope/Qwen, Vertex, or any OpenAI-compatible gateway) as a
+product. Unlike `agent-runtime` (which benchmarks runtime engineering), here the
+system under test is the **model endpoint** itself. **MMLU** is the first suite.
+
+This is *not* subjective LLM-judging: we run the recognized MMLU benchmark
+unmodified and report **objective multiple-choice accuracy** (deterministic) plus
+the **serving dimensions** (latency, token cost) that make a managed LLM a cloud
+product.
+
+## The connection abstraction
+
+The SUT is an OpenAI-compatible endpoint, resolved from the run `Target`:
+
+| Platform | connects to |
+| --- | --- |
+| `llm-mock` | offline reference — replays a bundled answer fixture |
+| `llm-endpoint` | an **already-running** managed LLM: `endpoint` (base URL) + `model` + `credentials_ref` |
+
+```bash
+# offline mock (no network, no key) — the CI path:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain llm --task suite:mmlu --platform llm-mock --config mock.yaml
+
+# real run against a managed LLM (config-connect):
+printf 'target:\n  mode: runtime\n  endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  limit: 100\n' > qwen.yaml
+export DASHSCOPE_API_KEY=...      # the key the credentials_ref points at
+csbench run --domain llm --task suite:mmlu --platform llm-endpoint --config qwen.yaml
+```
+
+`params.subjects` filters MMLU subjects; `params.limit` caps the question count.
+
+## What it measures
+
+The `official-mmlu-evaluator` emits `mmlu.*` measurements:
+
+| Measurement | Meaning | class |
+| --- | --- | --- |
+| `mmlu.accuracy` | correct / total (objective MMLU metric) | `deterministic` |
+| `mmlu.avg_latency_ms` | mean per-question latency | `environmental` |
+| `mmlu.total_tokens` | prompt + completion tokens | `environmental` |
+| `mmlu.cost_usd` | tokens × seed price | `environmental` |
+
+All are `official=True` (a provenance flag — emitted by the suite's recognized
+evaluator, not an audit claim). Token/latency dimensions are omitted if the run
+recorded no usage.
+
+## Deliberate scope (slice 1)
+- A small **real MMLU sample** (cais/mmlu, MIT) ships as a fixture so the mock /
+  reference paths need no network; the real path queries the configured endpoint
+  over those questions. Full-dataset (all 57 subjects / ~14k questions) fetch is a
+  future enhancement — today it is labeled a sample, not the full leaderboard run.
+- 0-shot prompting; the answer letter is parsed with word-boundary matching.
+- Cloud-provisioned model endpoints (vs bring-your-own) attach on the same seam.

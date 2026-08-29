@@ -1,0 +1,7 @@
+{
+  "model": "mock-llm",
+  "suite_version": "openai-gsm8k/sample-v1",
+  "question_count": 3,
+  "prompt_tokens": 720,
+  "completion_tokens": 210
+}

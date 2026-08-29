@@ -53,9 +53,7 @@ def test_mock_artifacts_are_valid_and_offline() -> None:
     q = json.loads(raw.path("queries").read_text())
     s = json.loads(raw.path("summary").read_text())
     assert {"queries", "summary"} <= set(raw.manifest)
-    assert q and all(
-        {"query_nr", "latency_ms", "row_count", "result_digest"} <= set(row) for row in q
-    )
+    assert q and all({"query_nr", "latency_ms", "row_count", "result_digest"} <= set(row) for row in q)
     assert s["scale_factor"] == 1.0
     assert s["query_count"] == len(q)
 

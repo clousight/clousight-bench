@@ -145,6 +145,13 @@ visualization is deferred to the Sub-project C web viewer.
   recognized upstream BenchBase tool; offline mock path in CI; honest
   throughput/goodput/latency (environmental; audited tpmC not claimed). Data-
   systems coverage is now OLAP + KV + OLTP. See [docs/tpcc-suite.mdx](docs/tpcc-suite.mdx).
+- ✅ **LLM domain (2026-08)**: **MMLU** on an `llm` domain — the SUT is a
+  managed LLM endpoint (OpenAI-compatible: Bedrock/DashScope/Vertex/…),
+  config-connected via `llm-endpoint` or the offline `llm-mock` reference.
+  Runs the recognized benchmark unmodified → objective `mmlu.accuracy`
+  (deterministic) + serving latency/tokens/cost (environmental). This is
+  "benchmark the model the cloud sells" — recognized benchmarks on managed
+  LLM products, not subjective judging. See [docs/mmlu-suite.mdx](docs/mmlu-suite.mdx).
 - 💤 Data domains at big-data scale + real backends: cloud/distributed engines
   (EMR/Spark, cloud DWH) as `data-warehouse` platforms for TPC-DS/TPC-H;
   cloud-managed / self-hosted KV & RDBMS as `key-value` / `transactional-db`

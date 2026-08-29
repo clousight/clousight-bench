@@ -196,7 +196,7 @@ def _render_config(p: dict[str, Any], work: Path) -> str:
         user = os.environ.get("BENCHBASE_DB_USER", "")
         pw = os.environ.get("BENCHBASE_DB_PASSWORD", "")
     return (
-        "<?xml version=\"1.0\"?>\n<parameters>\n"
+        '<?xml version="1.0"?>\n<parameters>\n'
         f"  <type>{dbtype}</type>\n  <driver>{driver}</driver>\n"
         f"  <url>{url}</url>\n  <username>{user}</username>\n  <password>{pw}</password>\n"
         f"  <scalefactor>{p['scalefactor']}</scalefactor>\n  <terminals>{p['terminals']}</terminals>\n"

@@ -1,0 +1,182 @@
+[
+  {
+    "id": "abstract_algebra-0",
+    "subject": "abstract_algebra",
+    "question": "Find the degree for the given field extension Q(sqrt(2), sqrt(3), sqrt(18)) over Q.",
+    "choices": [
+      "0",
+      "4",
+      "2",
+      "6"
+    ],
+    "answer": 1
+  },
+  {
+    "id": "abstract_algebra-1",
+    "subject": "abstract_algebra",
+    "question": "Let p = (1, 2, 5, 4)(2, 3) in S_5 . Find the index of <p> in S_5.",
+    "choices": [
+      "8",
+      "2",
+      "24",
+      "120"
+    ],
+    "answer": 2
+  },
+  {
+    "id": "abstract_algebra-2",
+    "subject": "abstract_algebra",
+    "question": "Find all zeros in the indicated finite field of the given polynomial with coefficients in that field. x^5 + 3x^3 + x^2 + 2x in Z_5",
+    "choices": [
+      "0",
+      "1",
+      "0,1",
+      "0,4"
+    ],
+    "answer": 3
+  },
+  {
+    "id": "abstract_algebra-3",
+    "subject": "abstract_algebra",
+    "question": "Statement 1 | A factor group of a non-Abelian group is non-Abelian. Statement 2 | If K is a normal subgroup of H and H is a normal subgroup of G, then K is a normal subgroup of G.",
+    "choices": [
+      "True, True",
+      "False, False",
+      "True, False",
+      "False, True"
+    ],
+    "answer": 1
+  },
+  {
+    "id": "abstract_algebra-4",
+    "subject": "abstract_algebra",
+    "question": "Find the product of the given polynomials in the given polynomial ring. f(x) = 4x - 5, g(x) = 2x^2 - 4x + 2 in Z_8[x].",
+    "choices": [
+      "2x^2 + 5",
+      "6x^2 + 4x + 6",
+      "0",
+      "x^2 + 1"
+    ],
+    "answer": 1
+  },
+  {
+    "id": "college_computer_science-0",
+    "subject": "college_computer_science",
+    "question": "The access matrix approach to protection has the difficulty that",
+    "choices": [
+      "the matrix, if stored directly, is large and can be clumsy to manage",
+      "it is not capable of expressing complex protection requirements",
+      "deciding whether a process has access to a resource is undecidable",
+      "there is no way to express who has rights to change the access matrix itself"
+    ],
+    "answer": 0
+  },
+  {
+    "id": "college_computer_science-1",
+    "subject": "college_computer_science",
+    "question": "An integer c is a common divisor of two integers x and y if and only if c is a divisor of x and c is a divisor of y. Which of the following sets of integers could possibly be the set of all common divisors of two integers?",
+    "choices": [
+      "{-6,-2, -1, 1, 2, 6}",
+      "{-6, -2, -1, 0, 1, 2, 6}",
+      "{-6, -3, -2, -1, 1, 2, 3, 6}",
+      "{-6, -3, -2, -1, 0, 1, 2, 3, 6}"
+    ],
+    "answer": 2
+  },
+  {
+    "id": "college_computer_science-2",
+    "subject": "college_computer_science",
+    "question": "In the NoNicks operating system, the time required by a single file-read operation has four nonoverlapping components:\ndisk seek time-25 msec\ndisk latency time-8 msec\ndisk transfer time- 1 msec per 1,000 bytes\noperating system overhead-1 msec per 1,000 bytes + 10 msec\nIn version 1 of the system, the file read retrieved blocks of 1,000 bytes. In version 2, the file read (along with the underlying layout on disk) was modified to retrieve blocks of 4,000 bytes. The ratio of-the time required to read a large file under version 2 to the time required to read the same large file under version 1 is approximately",
+    "choices": [
+      "1:4",
+      "1:3.5",
+      "1:1",
+      "1.1:1"
+    ],
+    "answer": 1
+  },
+  {
+    "id": "college_computer_science-3",
+    "subject": "college_computer_science",
+    "question": "You want to cluster 7 points into 3 clusters using the k-Means Clustering algorithm. Suppose after the first iteration, clusters C1, C2 and C3 contain the following two-dimensional points: C1 contains the 2 points: {(0,6), (6,0)} C2 contains the 3 points: {(2,2), (4,4), (6,6)} C3 contains the 2 points: {(5,5), (7,7)} What are the cluster centers computed for these 3 clusters?",
+    "choices": [
+      "C1: (3,3), C2: (4,4), C3: (6,6)",
+      "C1: (3,3), C2: (6,6), C3: (12,12)",
+      "C1: (6,6), C2: (12,12), C3: (12,12)",
+      "C1: (0,0), C2: (48,48), C3: (35,35)"
+    ],
+    "answer": 0
+  },
+  {
+    "id": "college_computer_science-4",
+    "subject": "college_computer_science",
+    "question": "Any set of Boolean operators that is sufficient to represent all Boolean expressions is said to be complete. Which of the following is NOT complete?",
+    "choices": [
+      "{AND, NOT}",
+      "{NOT, OR}",
+      "{AND, OR}",
+      "{NAND}"
+    ],
+    "answer": 2
+  },
+  {
+    "id": "high_school_geography-0",
+    "subject": "high_school_geography",
+    "question": "The main factor preventing subsistence economies from advancing economically is the lack of",
+    "choices": [
+      "a currency.",
+      "a well-connected transportation infrastructure.",
+      "government activity.",
+      "a banking service."
+    ],
+    "answer": 1
+  },
+  {
+    "id": "high_school_geography-1",
+    "subject": "high_school_geography",
+    "question": "The tendency for a population to continue to grow long after replacement fertility has been achieved is called",
+    "choices": [
+      "zero population growth.",
+      "rapid growth rate.",
+      "homeostatic plateau.",
+      "demographic momentum."
+    ],
+    "answer": 3
+  },
+  {
+    "id": "high_school_geography-2",
+    "subject": "high_school_geography",
+    "question": "The tendency for migration to decrease with distance is called",
+    "choices": [
+      "push factors.",
+      "pull factors.",
+      "distance decay.",
+      "migration selectivity."
+    ],
+    "answer": 2
+  },
+  {
+    "id": "high_school_geography-3",
+    "subject": "high_school_geography",
+    "question": "Which zone contains low-income slums, ethnic ghettos, and general deterioration in Burgess's concentric zone model of urban form?",
+    "choices": [
+      "First",
+      "Second",
+      "Third",
+      "Fourth"
+    ],
+    "answer": 0
+  },
+  {
+    "id": "high_school_geography-4",
+    "subject": "high_school_geography",
+    "question": "Which of the following statements is TRUE concerning women in the labor force?",
+    "choices": [
+      "Most women work in agriculture",
+      "The percentage of women economically active in the labor force declined worldwide",
+      "The percentage of women in the total labor force declined",
+      "Women spend more hours per day working than men in all regions except Anglo America and Australia"
+    ],
+    "answer": 3
+  }
+]

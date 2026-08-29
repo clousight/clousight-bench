@@ -1,0 +1,67 @@
+---
+title: pytest & CI gating
+description: Run any Clousight Bench suite as a native pytest test or a CI exit-code gate, with thresholds.
+---
+
+Running a benchmark is normally a low-frequency, manual operation. Clousight
+Bench makes it a **pytest test** and a **CI exit-code gate** so a benchmark can
+live inside an enterprise CI pipeline as a red/green check.
+
+## pytest — `assert_run`
+
+The pytest plugin auto-loads (via the `pytest11` entry point) once
+`clousight-bench` is installed — no `conftest` wiring. Call `assert_run` in any
+test; it runs one suite and **raises `AssertionError` unless the run completes
+and every threshold is met**:
+
+```python
+from clousight_bench.pytest_plugin import assert_run
+
+def test_our_llm_endpoint_mmlu_gate():
+    assert_run(
+        domain="llm", suite="mmlu", platform="llm-endpoint",
+        target={"endpoint": "https://.../v1", "model": "qwen-max",
+                "credentials_ref": "env:DASHSCOPE_API_KEY"},
+        params={"limit": 100},
+        thresholds={"mmlu.accuracy": {"min": 0.75},
+                    "mmlu.avg_latency_ms": {"max": 3000}},
+    )
+```
+
+Or via the injected `clousight` fixture:
+
+```python
+def test_offline_gate(clousight):
+    clousight(domain="transactional-db", suite="tpc-c", platform="benchbase-local",
+              thresholds={"tpc-c.throughput_req_per_sec": {"min": 500}})
+```
+
+`target` defaults to `{"mode": "mock"}` (the offline path), so a gate runs in CI
+with no cloud account; point it at a real endpoint/service to gate production.
+
+## CI without pytest — `csbench run --assert`
+
+```bash
+cat > gate.yaml <<'YAML'
+thresholds:
+  mmlu.accuracy: {min: 0.75}
+  mmlu.avg_latency_ms: {max: 3000}
+YAML
+csbench run --domain llm --task suite:mmlu --platform llm-endpoint \
+  --config prod.yaml --assert gate.yaml
+# exits non-zero if the run fails to complete or any threshold is unmet
+```
+
+## Threshold model
+
+Measurements are heterogeneous (accuracy is higher-is-better; latency/cost are
+lower-is-better), so a threshold declares a direction:
+
+| Form | Meaning |
+| --- | --- |
+| `{key: {min: x}}` | value must be ≥ x |
+| `{key: {max: y}}` | value must be ≤ y |
+| `{key: x}` | shorthand for `{min: x}` |
+
+A gated key that the run did not measure is a failure. The same model backs both
+`assert_run` (pytest) and `csbench run --assert` (CI exit code).

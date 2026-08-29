@@ -1,0 +1,63 @@
+---
+title: pytest 与 CI 门禁
+description: 把任意 Clousight Bench 套件作为原生 pytest 测试或 CI 退出码门禁运行,带阈值。
+---
+
+跑评测通常是低频手动操作。Clousight Bench 把它变成 **pytest 测试**和 **CI 退出码门禁**,
+让评测作为红/绿检查进驻企业 CI 流水线。
+
+## pytest —— `assert_run`
+
+装了 `clousight-bench` 后,pytest 插件经 `pytest11` entry point **自动加载**,无需
+`conftest` 配置。在任意测试里调 `assert_run`:它跑一个套件,**除非运行完成且所有阈值达标,
+否则抛 `AssertionError`**:
+
+```python
+from clousight_bench.pytest_plugin import assert_run
+
+def test_our_llm_endpoint_mmlu_gate():
+    assert_run(
+        domain="llm", suite="mmlu", platform="llm-endpoint",
+        target={"endpoint": "https://.../v1", "model": "qwen-max",
+                "credentials_ref": "env:DASHSCOPE_API_KEY"},
+        params={"limit": 100},
+        thresholds={"mmlu.accuracy": {"min": 0.75},
+                    "mmlu.avg_latency_ms": {"max": 3000}},
+    )
+```
+
+或用注入的 `clousight` fixture:
+
+```python
+def test_offline_gate(clousight):
+    clousight(domain="transactional-db", suite="tpc-c", platform="benchbase-local",
+              thresholds={"tpc-c.throughput_req_per_sec": {"min": 500}})
+```
+
+`target` 默认 `{"mode": "mock"}`(离线路径),CI 里无云账号也能跑门禁;指向真实端点/服务即可门禁生产。
+
+## 非 pytest 的 CI —— `csbench run --assert`
+
+```bash
+cat > gate.yaml <<'YAML'
+thresholds:
+  mmlu.accuracy: {min: 0.75}
+  mmlu.avg_latency_ms: {max: 3000}
+YAML
+csbench run --domain llm --task suite:mmlu --platform llm-endpoint \
+  --config prod.yaml --assert gate.yaml
+# 运行未完成或任一阈值不达 → 退出码非零
+```
+
+## 阈值模型
+
+测量是异质的(准确率越高越好;延迟/成本越低越好),故阈值需声明方向:
+
+| 形式 | 含义 |
+| --- | --- |
+| `{key: {min: x}}` | 值必须 ≥ x |
+| `{key: {max: y}}` | 值必须 ≤ y |
+| `{key: x}` | `{min: x}` 简写 |
+
+门禁的 key 若本次未测量 → 视为失败。同一模型同时支撑 `assert_run`(pytest)与
+`csbench run --assert`(CI 退出码)。

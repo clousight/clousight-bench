@@ -67,11 +67,14 @@ jobs:
           csbench conformance --domain data-warehouse --platform duckdb-local
           csbench conformance --domain key-value --platform ycsb-local
           csbench conformance --domain transactional-db --platform benchbase-local
+          csbench conformance --domain llm --platform llm-mock
           csbench conformance --suite swe-bench
           csbench conformance --suite tpc-ds
           csbench conformance --suite tpc-h
           csbench conformance --suite ycsb
           csbench conformance --suite tpc-c
+          csbench conformance --suite mmlu
+          csbench conformance --suite gsm8k
 
       - name: Local baseline smoke (no cloud account)
         # The suite-first world runs `suite:<id>` jobs; `target: {mode: mock}`
@@ -101,6 +104,12 @@ jobs:
             --platform ycsb-local --config /tmp/mock.yaml
           csbench run --domain transactional-db --task suite:tpc-c \
             --platform benchbase-local --config /tmp/mock.yaml
+          # MMLU: offline mock only in CI (the real path needs a managed LLM
+          # endpoint + API key, config-connect via llm-endpoint).
+          csbench run --domain llm --task suite:mmlu \
+            --platform llm-mock --config /tmp/mock.yaml
+          csbench run --domain llm --task suite:gsm8k \
+            --platform llm-mock --config /tmp/mock.yaml
 
       - name: Assert every emitted record is schema 0.3
         run: |
