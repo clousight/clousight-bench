@@ -1,0 +1,17 @@
+[OVERALL], RunTime(ms), 1423
+[OVERALL], Throughput(ops/sec), 7027.4
+[TOTAL_GCS_PS_Scavenge], Count, 3
+[READ], Operations, 4977
+[READ], AverageLatency(us), 118.62
+[READ], MinLatency(us), 41
+[READ], MaxLatency(us), 5231
+[READ], 95thPercentileLatency(us), 231
+[READ], 99thPercentileLatency(us), 402
+[READ], Return=OK, 4977
+[UPDATE], Operations, 5023
+[UPDATE], AverageLatency(us), 102.11
+[UPDATE], MinLatency(us), 38
+[UPDATE], MaxLatency(us), 4880
+[UPDATE], 95thPercentileLatency(us), 208
+[UPDATE], 99thPercentileLatency(us), 356
+[UPDATE], Return=OK, 5023

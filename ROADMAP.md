@@ -126,7 +126,31 @@ visualization is deferred to the Sub-project C web viewer.
 - 💤 Remaining real-cloud adapters (`huawei-agentarts`, `volcengine-agentkit`,
   `aws-agentcore`) — skeletons are in-tree; wiring is gated on cloud accounts and
   deployed benchmark targets.
-- 💤 Additional domain packs (database / compute / messaging).
+- ✅ **New domain + OLAP suites (2026-08)**: TPC-DS **and** TPC-H on a
+  `data-warehouse` domain with a `duckdb-local` reference platform — the
+  `benchmark_suite` / `evaluator` contract generalized beyond agent suites to
+  OLAP/data, and TPC-H proved a second suite drops onto the same domain/platform
+  cheaply. Both offline (mock + real DuckDB SF1), correctness vs a pinned SF1
+  reference, honest per-query latency (audited QphDS/QphH composite deliberately
+  not claimed). See [docs/tpcds-suite.mdx](docs/tpcds-suite.mdx).
+- ✅ **Key-value domain + SUT-connection abstraction (2026-08)**: **YCSB** on a
+  `key-value` domain — the SUT-connection abstraction generalized so a suite runs
+  against a local reference (`ycsb-local`, binding=basic) or an already-running
+  service via config (`ycsb-endpoint`, binding+endpoint). Wraps the recognized
+  upstream YCSB tool; offline mock path in CI; honest throughput + tail latency
+  (environmental). See [docs/ycsb-suite.mdx](docs/ycsb-suite.mdx).
+- ✅ **OLTP domain (2026-08)**: **TPC-C via BenchBase** (Apache-2.0) on a
+  `transactional-db` domain — `benchbase-local` (dbtype=sqlite reference) or
+  `jdbc-endpoint` (config-connect to an already-running database). Wraps the
+  recognized upstream BenchBase tool; offline mock path in CI; honest
+  throughput/goodput/latency (environmental; audited tpmC not claimed). Data-
+  systems coverage is now OLAP + KV + OLTP. See [docs/tpcc-suite.mdx](docs/tpcc-suite.mdx).
+- 💤 Data domains at big-data scale + real backends: cloud/distributed engines
+  (EMR/Spark, cloud DWH) as `data-warehouse` platforms for TPC-DS/TPC-H;
+  cloud-managed / self-hosted KV & RDBMS as `key-value` / `transactional-db`
+  backends on the config-connect seam; verified-answer correctness for TPC-H.
+- 💤 Additional suites (τ-bench, Nexmark/streaming) + domain packs
+  (streaming / messaging / graph / ml-systems).
 - 💤 Security dimensions for `agent-runtime` (code sandbox, egress control,
   credential handling), framed once real-cloud data is available.
 

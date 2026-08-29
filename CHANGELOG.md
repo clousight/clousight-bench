@@ -2,7 +2,67 @@
 
 All notable changes to Clousight Bench are recorded here.
 
-## [Unreleased] — region-agnostic driver image strategy
+## [0.4.0] — 2026-08-29
+
+Data-systems benchmark coverage + a vendor-neutral, config-connect SUT layer.
+Rolls up the previously-unreleased slices below (region-agnostic driver,
+real-cloud SWE-bench, viewer, suite contract) plus the work in this cycle.
+
+### Added
+
+- **Data-systems benchmark domains + suites** (the suite/evaluator contract
+  generalized well beyond agent suites):
+  - `data-warehouse` domain on a `duckdb-local` reference platform with **TPC-DS**
+    (`suite:tpc-ds`) and **TPC-H** (`suite:tpc-h`) via DuckDB's `tpcds`/`tpch`
+    extensions. Offline mock + real DuckDB SF1; correctness vs a pinned SF1
+    reference digest (captured by `scripts/capture_tpc*_reference.py`), honest
+    per-query latency. Audited QphDS/QphH deliberately not claimed.
+  - `key-value` domain with **YCSB** (`suite:ycsb`) wrapping the upstream YCSB
+    tool; throughput + tail-latency.
+  - `transactional-db` domain with **TPC-C** (`suite:tpc-c`) wrapping BenchBase
+    (Apache-2.0); throughput/goodput/latency. Audited tpmC not claimed.
+  - All perf measurements are `reproducibility_class="environmental"`,
+    `official=True` (a provenance flag, not an audit claim); the data suites emit
+    no fabricated correctness dimension.
+- **SUT-connection abstraction (config-connect)**: a suite runs against a local
+  reference OR an already-running service selected purely by config. `SuiteTask`
+  now threads `endpoint`/`credentials_ref` from the run `Target` to the suite, so
+  adapters like `ycsb-endpoint` (binding+host:port) and `jdbc-endpoint`
+  (dbtype+JDBC endpoint) connect to an existing datastore. Cloud-provisioned
+  backends attach later on the same seam.
+- **Suite/evaluator plugin loading is version-gated** (`_check_api_version` now
+  applied to `load_benchmark_suites`/`load_evaluators`, like every sibling loader).
+- Docs: per-suite pages (`tpcds-suite`, `ycsb-suite`, `tpcc-suite`, EN + 中文).
+
+### Changed
+
+- **Core is vendor-neutral** (multi-cloud debt cleanup, 3 rounds): the blob-store
+  ABC `OssClient`→`BlobStore` (+ probe modules `oss_*`→`blob_*`, classes `Oss*`→
+  `Blob*`); the prod-controller Terraform surface moved out of `core/` behind a
+  `RuntimeProviderPlugin.controller_tf_spec()` hook; the reaper's Aliyun SDK moved
+  behind a `controller_reaper_spec()` hook — **`core/` now has zero `alibabacloud`
+  imports**; the live-run cost notice de-vendored. `aliyun` carrier/reaper moved
+  into the `aliyun/` subpackage for layout parity with `aws/`.
+- **BREAKING — OSS-named keys renamed** to be vendor-neutral: the `target:` config
+  key `oss_bucket`→`blob_bucket` (the legacy key now **fails loud** with a rename
+  hint) and the internal `probe_oss_prefix`→`probe_blob_prefix`. The cross-process
+  `JobSpec.oss_prefix` wire field →`blob_prefix` with a dual-read migration shim.
+- **CI modernized** to the suite-first / schema-0.3 world (the old lanes still ran
+  deleted T-code/bigdata tasks, removed `report`/`migrate-results` commands, and
+  asserted schema 0.2 — they would have failed on first push).
+
+### Packaging
+
+- Version 0.4.0. New optional extras `[tpcds]` / `[tpch]` (DuckDB) for the
+  data-warehouse real path. New entry points: domains `data-warehouse` /
+  `key-value` / `transactional-db`; suites `tpc-ds` / `tpc-h` / `ycsb` / `tpc-c`;
+  evaluators `official-tpcds/tpch/ycsb/tpcc-evaluator`.
+
+---
+
+The slices below were previously listed as `[Unreleased]`; they ship in 0.4.0.
+
+### Region-agnostic driver image strategy
 
 ### Changed
 
@@ -15,7 +75,7 @@ All notable changes to Clousight Bench are recorded here.
   is now an optional operator override; the committed smoke plan configures no
   mirror address at all.
 
-## [Unreleased] — real-cloud SWE-bench on Aliyun (B slice 2)
+### Real-cloud SWE-bench on Aliyun (B slice 2)
 
 ### Added
 
@@ -46,7 +106,7 @@ All notable changes to Clousight Bench are recorded here.
   with the real dataset digest in the benchmark fingerprint (golden pin test),
   relative staged artifacts, span schema v2 enforcement, `csbench conformance
   --suite`, `Telemetry` removed from `Evaluator.evaluate`, scoped docker teardown.
-## [Unreleased] — local results viewer (sub-project C, slice 1)
+### Local results viewer (sub-project C, slice 1)
 
 ### Added
 
@@ -57,7 +117,7 @@ All notable changes to Clousight Bench are recorded here.
   path containment on artifact reads; single embedded `index.html` (no build step,
   no external requests).
 
-## [Unreleased] — benchmark-suite / evaluator contract (slice 1)
+### Benchmark-suite / evaluator contract (slice 1)
 
 ### Added
 

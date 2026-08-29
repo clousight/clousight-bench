@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "clousight-bench"
-version = "0.3.0"
+version = "0.4.0"
 description = "Clousight Bench: reproducible, reproducibility-classed benchmarking for cloud products."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -77,6 +77,13 @@ aws = [
     "requests>=2.28",
 ]
 store = ["duckdb>=1.0", "pyarrow>=16"]
+# TPC-DS reference engine: DuckDB + its tpcds extension power the duckdb-local
+# data-warehouse adapter (schema/data generation + query set). Same duckdb pin
+# as [store].
+tpcds = ["duckdb>=1.0"]
+# TPC-H reference engine: DuckDB + its tpch extension power the duckdb-local
+# data-warehouse adapter (schema/data generation + 22 queries). Same duckdb pin.
+tpch = ["duckdb>=1.0"]
 validate = ["jsonschema>=4.20"]
 # Upstream SWE-bench evaluation harness. Required only for the real Docker-backed
 # run() path; mock_artifacts() and resolve() work without it.
@@ -89,12 +96,23 @@ cb-controller = "clousight_bench.core.controller_main:main"
 
 [project.entry-points."clousight_bench.benchmark_suites"]
 swe-bench = "clousight_bench.suites.swe_bench.suite:SweBenchSuite"
+tpc-ds = "clousight_bench.suites.tpc_ds.suite:TpcdsSuite"
+tpc-h = "clousight_bench.suites.tpc_h.suite:TpchSuite"
+ycsb = "clousight_bench.suites.ycsb.suite:YcsbSuite"
+tpc-c = "clousight_bench.suites.tpc_c.suite:TpccSuite"
 
 [project.entry-points."clousight_bench.domains"]
 agent-runtime = "clousight_bench.domains.agent_runtime:AgentRuntimeDomain"
+data-warehouse = "clousight_bench.domains.data_warehouse:DataWarehouseDomain"
+key-value = "clousight_bench.domains.key_value:KeyValueDomain"
+transactional-db = "clousight_bench.domains.transactional_db:TransactionalDbDomain"
 
 [project.entry-points."clousight_bench.evaluators"]
 official-swe-evaluator = "clousight_bench.suites.swe_bench.evaluator:OfficialSweEvaluator"
+official-tpch-evaluator = "clousight_bench.suites.tpc_h.evaluator:OfficialTpchEvaluator"
+official-ycsb-evaluator = "clousight_bench.suites.ycsb.evaluator:OfficialYcsbEvaluator"
+official-tpcc-evaluator = "clousight_bench.suites.tpc_c.evaluator:OfficialTpccEvaluator"
+official-tpcds-evaluator = "clousight_bench.suites.tpc_ds.evaluator:OfficialTpcdsEvaluator"
 
 [project.entry-points."clousight_bench.enrichers"]
 pricing = "clousight_bench.enrichers.pricing:PricingEnricher"

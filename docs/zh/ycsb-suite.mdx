@@ -1,0 +1,55 @@
+---
+title: YCSB 套件（键值）
+description: 通过基准套件契约，将 YCSB 跑在本地参考或已有服务上。
+---
+
+YCSB(Yahoo! Cloud Serving Benchmark,Apache-2.0)是 `key-value`(键值)域上的第一个
+套件,也确立了**接入(SUT 连接)抽象**:一个套件仅凭配置即可跑在本地参考**或已有服务**
+上——云托管后端日后挂在同一 seam。
+
+套件**包装公认的上游 YCSB 工具**(load 阶段 + run 阶段),如同 SWE-bench 套件包 Docker
+harness,而非重实现负载生成器。真实路径需 YCSB 启动器(Java ≥ 11)在 `PATH` 或
+`$YCSB_HOME`;离线 mock 路径无需任何东西。
+
+## 接入抽象
+
+被测系统就是 YCSB 自己的 *binding* + endpoint,由键值适配器从 `Target` 解析:
+
+| 平台 | binding | 连接到 |
+| --- | --- | --- |
+| `ycsb-local` | `basic` | YCSB 内存空实现(参考) |
+| `ycsb-endpoint` | `redis`(或 `target.binding`) | `target.endpoint`(host:port)处的**已有**服务 |
+
+```bash
+# 离线 mock(无工具、无数据存储)——CI 路径:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain key-value --task suite:ycsb --platform ycsb-local --config mock.yaml
+
+# 对着已有 Redis 真实运行(配置接入):
+printf 'target:\n  mode: runtime\n  binding: redis\n  endpoint: "127.0.0.1:6379"\nparams:\n  workload: workloada\n  recordcount: 100000\n  operationcount: 100000\n' > redis.yaml
+csbench run --domain key-value --task suite:ycsb --platform ycsb-endpoint --config redis.yaml
+```
+
+`params.workload` 为 YCSB 核心工作负载(`workloada`..`workloadf`,默认 `workloada`);
+`recordcount` / `operationcount` 默认 10000。
+
+## 测量什么
+
+`official-ycsb-evaluator` 解析 YCSB run 阶段输出为 `ycsb.*` 测量,全部
+`reproducibility_class="environmental"`(YCSB 是吞吐/延迟基准,无答案正确性维度):
+
+| 测量 | 含义 |
+| --- | --- |
+| `ycsb.throughput_ops` | 总吞吐(ops/sec) |
+| `ycsb.overall_runtime_ms` | run 阶段墙钟 |
+| `ycsb.read_p99_us` | READ p99 延迟 |
+| `ycsb.update_p99_us` | UPDATE p99 延迟 |
+
+输出中缺失的指标(如只读工作负载没有 UPDATE 行)会被省略。三者都带 `official=True`
+——溯源标志(由套件官方评估器产出),非审计声明。
+
+## 本切片的刻意边界
+- 真实数字需真实 YCSB 工具 + 真实后端;离线为 mock 路径。`ycsb-local`(binding=basic)
+  在无数据存储的情况下运行 YCSB 自身机制。
+- `ycsb-endpoint` 接入已有服务(先支持 Redis 协议)。
+- 云 provision / 托管 KV 后端日后挂在同一 seam。
