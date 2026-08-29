@@ -1,0 +1,26 @@
+{
+  "Start timestamp (milliseconds)": 1787900000000,
+  "Current Timestamp (milliseconds)": 1787900060000,
+  "Elapsed Time (nanoseconds)": 60000000000,
+  "DBMS Type": "SQLITE",
+  "DBMS Version": "3.45",
+  "Benchmark Type": "tpcc",
+  "Final State": "MEASURE",
+  "Measured Requests": 45231,
+  "isolation": "TRANSACTION_SERIALIZABLE",
+  "scalefactor": "1",
+  "terminals": "1",
+  "Latency Distribution": {
+    "Average Latency (microseconds)": 1324.6,
+    "Minimum Latency (microseconds)": 210,
+    "25th Percentile Latency (microseconds)": 640,
+    "Median Latency (microseconds)": 1020,
+    "75th Percentile Latency (microseconds)": 1680,
+    "90th Percentile Latency (microseconds)": 2510,
+    "95th Percentile Latency (microseconds)": 3220,
+    "99th Percentile Latency (microseconds)": 5870,
+    "Maximum Latency (microseconds)": 41200
+  },
+  "Throughput (requests/second)": 753.85,
+  "Goodput (requests/second)": 741.02
+}

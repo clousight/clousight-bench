@@ -146,11 +146,18 @@ class SuiteTask(Task):
         if self.mock:
             raw = self._suite.mock_artifacts(params)
         else:
+            # Thread the operator's connection config (endpoint / credentials ref)
+            # from the adapter's target dict into the suite-facing Target, so a
+            # suite can config-connect to an already-running service (e.g. YCSB's
+            # ycsb-endpoint host:port). Absent keys stay at their empty defaults.
+            adapter_target = dict(getattr(adapter, "target", {}) or {})
             target = Target(
                 mode="endpoint",
                 mock=False,
                 handle=adapter,
                 region=str(getattr(adapter, "region", "") or ""),
+                endpoint=str(adapter_target.get("endpoint", "") or ""),
+                credentials_ref=str(adapter_target.get("credentials_ref", "") or ""),
             )
             driver = DriverContext(placement="local")
             # Use the cached dataset handle from constructor params.  The bridge

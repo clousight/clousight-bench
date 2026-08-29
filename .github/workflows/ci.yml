@@ -34,7 +34,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,store,validate,probe,agent,aliyun]"
+          pip install -e ".[dev,store,validate,probe,agent,aliyun,tpcds,tpch]"
 
       - name: Lint (ruff)
         run: ruff check src tests
@@ -61,20 +61,46 @@ jobs:
           files: coverage.xml
           fail_ci_if_error: false
 
-      - name: Conformance smoke (built-in domain + suite)
+      - name: Conformance smoke (built-in domains + suites)
         run: |
           csbench conformance --domain agent-runtime --platform local-sim
+          csbench conformance --domain data-warehouse --platform duckdb-local
+          csbench conformance --domain key-value --platform ycsb-local
+          csbench conformance --domain transactional-db --platform benchbase-local
           csbench conformance --suite swe-bench
+          csbench conformance --suite tpc-ds
+          csbench conformance --suite tpc-h
+          csbench conformance --suite ycsb
+          csbench conformance --suite tpc-c
 
       - name: Local baseline smoke (no cloud account)
         # The suite-first world runs `suite:<id>` jobs; `target: {mode: mock}`
         # drives the offline mock path (no cloud, no LLM key), emitting a real
-        # schema-0.3 record the assertion step below reads.
+        # schema-0.3 record the assertion step below reads. tpc-ds also gets a
+        # real duckdb-local run of a 3-query SF1 subset (the [tpcds] extra ships
+        # duckdb) to exercise the actual engine path, incl. the cross-platform
+        # reference-digest match on linux.
         run: |
           csbench list --verbose
           printf 'target:\n  mode: mock\nparams: {}\n' > /tmp/mock.yaml
           csbench run --domain agent-runtime --task suite:swe-bench \
             --platform local-sim --config /tmp/mock.yaml
+          csbench run --domain data-warehouse --task suite:tpc-ds \
+            --platform duckdb-local --config /tmp/mock.yaml
+          printf 'target:\n  mode: runtime\nparams:\n  scale_factor: 1\n  query_ids: [3, 7, 42]\n' > /tmp/tpcds-real.yaml
+          csbench run --domain data-warehouse --task suite:tpc-ds \
+            --platform duckdb-local --config /tmp/tpcds-real.yaml
+          csbench run --domain data-warehouse --task suite:tpc-h \
+            --platform duckdb-local --config /tmp/mock.yaml
+          printf 'target:\n  mode: runtime\nparams:\n  scale_factor: 1\n  query_ids: [1, 6, 14]\n' > /tmp/tpch-real.yaml
+          csbench run --domain data-warehouse --task suite:tpc-h \
+            --platform duckdb-local --config /tmp/tpch-real.yaml
+          # YCSB / TPC-C: offline mock only in CI (real paths need the YCSB /
+          # BenchBase JVM tools, gated like SWE-bench's Docker path).
+          csbench run --domain key-value --task suite:ycsb \
+            --platform ycsb-local --config /tmp/mock.yaml
+          csbench run --domain transactional-db --task suite:tpc-c \
+            --platform benchbase-local --config /tmp/mock.yaml
 
       - name: Assert every emitted record is schema 0.3
         run: |

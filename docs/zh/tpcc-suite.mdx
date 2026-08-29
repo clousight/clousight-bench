@@ -1,0 +1,56 @@
+---
+title: TPC-C 套件（事务型数据库 / OLTP）
+description: 通过 BenchBase 将 TPC-C 跑在本地参考或已有数据库上。
+---
+
+TPC-C 是最经典的 OLTP 基准。它是 `transactional-db` 域上的第一个套件,补齐了数据系统
+三件套:OLAP(`data-warehouse`)+ KV(`key-value`)+ **OLTP(`transactional-db`)**。
+
+套件**包装公认的上游 BenchBase 工具**(CMU-DB,Apache-2.0,OLTPBench 的继任者)——
+create + load + execute 阶段,如同 ycsb 套件包 YCSB、SWE-bench 包 Docker。真实路径需
+BenchBase 构建(Java)在 `$BENCHBASE_HOME` 或 `benchbase` 启动器;离线 mock 路径无需
+任何东西。
+
+## 接入抽象
+
+被测系统是 BenchBase 的 *dbtype* + JDBC endpoint,由事务域适配器从 `Target` 解析:
+
+| 平台 | dbtype | 连接到 |
+| --- | --- | --- |
+| `benchbase-local` | `sqlite` | 内嵌文件数据库(参考,无服务) |
+| `jdbc-endpoint` | `postgres`(或 `target.dbtype`) | `target.endpoint`(host:port)处的**已有**数据库 |
+
+```bash
+# 离线 mock(无工具、无数据库)——CI 路径:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain transactional-db --task suite:tpc-c --platform benchbase-local --config mock.yaml
+
+# 对着已有 Postgres 真实运行(配置接入):
+printf 'target:\n  mode: runtime\n  dbtype: postgres\n  endpoint: "127.0.0.1:5432"\nparams:\n  scalefactor: 10\n  terminals: 8\n  time: 60\n' > pg.yaml
+csbench run --domain transactional-db --task suite:tpc-c --platform jdbc-endpoint --config pg.yaml
+```
+
+`params.scalefactor` = 仓库数(默认 1);`terminals`(默认 1);`time` 秒(默认 60)。
+
+## 测量什么
+
+`official-tpcc-evaluator` 解析 BenchBase 的 `summary.json` 为 `tpc-c.*` 测量,全部
+`reproducibility_class="environmental"`(OLTP 是吞吐/延迟基准,无答案正确性维度):
+
+| 测量 | 含义 |
+| --- | --- |
+| `tpc-c.throughput_req_per_sec` | 总吞吐(请求/秒) |
+| `tpc-c.goodput_req_per_sec` | 有效吞吐(无错请求/秒) |
+| `tpc-c.p99_latency_us` | 99 分位延迟 |
+| `tpc-c.median_latency_us` | 中位延迟 |
+| `tpc-c.avg_latency_us` | 平均延迟 |
+
+summary 中缺失的键会被省略。三者都带 `official=True`——溯源标志(由套件官方评估器
+产出),非审计声明。审计级 **tpmC**(new-order 事务/分钟)**不声称**,它需要完整 TPC-C
+审计。
+
+## 本切片的刻意边界
+- 真实数字需 BenchBase 构建 + 数据库;离线为 mock 路径。`benchbase-local`(dbtype=sqlite)
+  在无服务的情况下跑通流水线。
+- `jdbc-endpoint` 接入已有数据库(Postgres/MySQL/…)。
+- 云托管 RDBMS 后端日后挂同一 seam;审计级 tpmC 不在范围。

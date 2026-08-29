@@ -1,0 +1,63 @@
+---
+title: TPC-C suite (transactional-db / OLTP)
+description: Run TPC-C via BenchBase against a local reference or an already-running database.
+---
+
+TPC-C is the classic OLTP benchmark. It is the first suite on the
+`transactional-db` domain and completes the data-systems trio: OLAP
+(`data-warehouse`) + KV (`key-value`) + **OLTP (`transactional-db`)**.
+
+The suite **wraps the recognized upstream BenchBase tool** (CMU-DB, Apache-2.0 —
+the successor to OLTPBench) — create + load + execute phases — like the ycsb
+suite wraps YCSB and SWE-bench wraps Docker. The real path needs the BenchBase
+build (Java) via `$BENCHBASE_HOME` or a `benchbase` launcher; the offline mock
+path needs nothing.
+
+## The connection abstraction
+
+The system under test is BenchBase's *dbtype* + JDBC endpoint, resolved from the
+run `Target` by the transactional-db adapters:
+
+| Platform | dbtype | connects to |
+| --- | --- | --- |
+| `benchbase-local` | `sqlite` | an embedded file database (reference, no server) |
+| `jdbc-endpoint` | `postgres` (or `target.dbtype`) | an **already-running** database at `target.endpoint` (host:port) |
+
+```bash
+# offline mock (no tool, no database) — the CI path:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain transactional-db --task suite:tpc-c --platform benchbase-local --config mock.yaml
+
+# real run against an already-running Postgres (config-connect):
+printf 'target:\n  mode: runtime\n  dbtype: postgres\n  endpoint: "127.0.0.1:5432"\nparams:\n  scalefactor: 10\n  terminals: 8\n  time: 60\n' > pg.yaml
+csbench run --domain transactional-db --task suite:tpc-c --platform jdbc-endpoint --config pg.yaml
+```
+
+`params.scalefactor` = warehouses (default 1); `terminals` (default 1); `time`
+seconds (default 60).
+
+## What it measures
+
+The `official-tpcc-evaluator` parses BenchBase's `summary.json` into `tpc-c.*`
+measurements, all `reproducibility_class="environmental"` (OLTP is a
+throughput/latency benchmark — there is no answer-correctness dimension):
+
+| Measurement | Meaning |
+| --- | --- |
+| `tpc-c.throughput_req_per_sec` | overall throughput (requests/sec) |
+| `tpc-c.goodput_req_per_sec` | goodput (non-errored requests/sec) |
+| `tpc-c.p99_latency_us` | 99th-percentile latency |
+| `tpc-c.median_latency_us` | median latency |
+| `tpc-c.avg_latency_us` | average latency |
+
+A key absent from the summary is omitted. All carry `official=True` — a
+*provenance* flag (emitted by the suite's recognized evaluator), not an audit
+claim. The audited **tpmC** (new-order txns/min) is **not** claimed; it needs a
+full TPC-C audit.
+
+## Deliberate scope (slice 1)
+- Real numbers need the BenchBase build + a database; offline is the mock path.
+  `benchbase-local` (dbtype=sqlite) exercises the pipeline without a server.
+- `jdbc-endpoint` connects to an already-running database (Postgres/MySQL/…).
+- Cloud-managed RDBMS backends attach later on the same seam; audited tpmC is out
+  of scope.

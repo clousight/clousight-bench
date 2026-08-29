@@ -1,0 +1,20 @@
+[
+  {
+    "query_nr": 3,
+    "latency_ms": 3.678916022181511,
+    "row_count": 89,
+    "result_digest": "sha256:152b59d26597c16f9819b6cddea6a3285a02c122220b32b0cd464ea7d1dbeb6c"
+  },
+  {
+    "query_nr": 7,
+    "latency_ms": 14.902375056408346,
+    "row_count": 100,
+    "result_digest": "sha256:bacebc8e2ed3bc9a22fbfc91408264e6105d01ef4b9ad981a391b5262f98347e"
+  },
+  {
+    "query_nr": 42,
+    "latency_ms": 3.979334025643766,
+    "row_count": 10,
+    "result_digest": "sha256:cbcc98fd526b1d59869eb03d8d3882d04cc585a86243b1b895861665e0f27326"
+  }
+]

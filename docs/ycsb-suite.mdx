@@ -1,0 +1,61 @@
+---
+title: YCSB suite (key-value)
+description: Run YCSB through the benchmark-suite contract against a local reference or an already-running service.
+---
+
+YCSB (Yahoo! Cloud Serving Benchmark, Apache-2.0) is the first suite on the
+`key-value` domain. It also establishes the **SUT-connection abstraction**: a
+suite runs against a local reference OR an already-running service selected purely
+by config — the same seam a cloud-managed backend attaches to later.
+
+The suite **wraps the recognized upstream YCSB tool** (load phase + run phase),
+like the SWE-bench suite wraps the Docker harness — it does not reimplement the
+load generator. The real path needs the YCSB launcher (Java ≥ 11) on `PATH` or
+`$YCSB_HOME`; the offline mock path needs nothing.
+
+## The connection abstraction
+
+The system under test is YCSB's own *binding* + endpoint, resolved from the run
+`Target` by the key-value adapters:
+
+| Platform | binding | connects to |
+| --- | --- | --- |
+| `ycsb-local` | `basic` | YCSB's in-memory no-op datastore (reference) |
+| `ycsb-endpoint` | `redis` (or `target.binding`) | an **already-running** service at `target.endpoint` (host:port) |
+
+```bash
+# offline mock (no tool, no datastore) — the CI path:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain key-value --task suite:ycsb --platform ycsb-local --config mock.yaml
+
+# real run against an already-running Redis (config-connect):
+printf 'target:\n  mode: runtime\n  binding: redis\n  endpoint: "127.0.0.1:6379"\nparams:\n  workload: workloada\n  recordcount: 100000\n  operationcount: 100000\n' > redis.yaml
+csbench run --domain key-value --task suite:ycsb --platform ycsb-endpoint --config redis.yaml
+```
+
+`params.workload` is a YCSB core workload (`workloada`..`workloadf`, default
+`workloada`); `recordcount` / `operationcount` default to 10000.
+
+## What it measures
+
+The `official-ycsb-evaluator` parses YCSB's run-phase output into `ycsb.*`
+measurements, all `reproducibility_class="environmental"` (YCSB is a
+throughput/latency benchmark — there is no answer-correctness dimension):
+
+| Measurement | Meaning |
+| --- | --- |
+| `ycsb.throughput_ops` | overall throughput (ops/sec) |
+| `ycsb.overall_runtime_ms` | run-phase wall time |
+| `ycsb.read_p99_us` | READ p99 latency |
+| `ycsb.update_p99_us` | UPDATE p99 latency |
+
+A metric absent from the output (e.g. no UPDATE line for a read-only workload) is
+omitted. All carry `official=True` — a *provenance* flag (emitted by the suite's
+recognized evaluator), not an audit claim.
+
+## Deliberate scope (slice 1)
+- Real numbers need the real YCSB tool + a real backend; offline is the mock
+  path. `ycsb-local` (binding=basic) exercises YCSB's own machinery without a
+  datastore.
+- `ycsb-endpoint` connects to an already-running service (Redis-protocol first).
+- Cloud-provisioned / managed KV backends attach later on the same seam.

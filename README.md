@@ -17,7 +17,7 @@ which scaffold — folded into a content fingerprint you can diff.
 > harness produces the verdict; we add the cloud-product dimension (runtime behavior,
 > latency, trajectory, cost) and the reproducibility bookkeeping around it.
 
-> **0.3.0 Developer Preview.** The whole pipeline runs locally with no cloud account
+> **0.4.0 Developer Preview.** The whole pipeline runs locally with no cloud account
 > (`mode: mock`). The Aliyun AgentRun adapter is `experimental` and live-validated
 > (`cn-hangzhou` real-cloud campaigns); the docker-capable ECS driver host, the
 > AgentRun SUT agent (oracle/llm modes) and the SWE-bench Verified suite are code
@@ -166,9 +166,12 @@ see [docs/querying.md](docs/querying.md)).
 - [x] **Suite contract (Sub-project B)**: `BenchmarkSuite`/`Evaluator` ABCs, `suite:<id>` runs, SWE-bench Verified at a pinned HF revision with real gold-patch fixtures, official evaluator + namespace conformance, real SUT invocation on Aliyun AgentRun (oracle/llm agent modes) with real trajectory + token capture
 - [x] **Driver host (Sub-project A)**: docker-capable ECS controller (`csbench submit`), suite-aware LaunchSpec, OSS-only control plane, self-destruct reaper
 - [x] **Web viewer (Sub-project C)**: `csbench serve` — React UI (prebuilt, shipped in the wheel), record list/detail, transcript + ECharts waterfall trace views, EN | 中文, dark/light, strict CSP, offline-first
+- [x] **OLAP suites (`data-warehouse` domain)**: TPC-DS **and** TPC-H on a `duckdb-local` reference platform. Both run offline (`suite:tpc-ds` / `suite:tpc-h`, mock + real DuckDB SF1); correctness vs a pinned SF1 reference, honest per-query latency (no audited QphDS/QphH). See [docs/tpcds-suite.mdx](docs/tpcds-suite.mdx)
+- [x] **Key-value domain + config-connect abstraction**: **YCSB** on a `key-value` domain — the SUT-connection abstraction generalized so a suite runs against a local reference (`ycsb-local`, binding=basic) or an **already-running service via config** (`ycsb-endpoint`, binding+endpoint). Wraps the recognized upstream YCSB tool; offline mock path in CI, honest throughput + tail-latency (environmental). See [docs/ycsb-suite.mdx](docs/ycsb-suite.mdx)
+- [x] **OLTP domain**: **TPC-C via BenchBase** on a `transactional-db` domain — `benchbase-local` (dbtype=sqlite reference) or `jdbc-endpoint` (config-connect to an already-running database). Wraps the recognized upstream BenchBase tool (Apache-2.0); offline mock path in CI, honest throughput/goodput/latency (environmental; audited tpmC not claimed). See [docs/tpcc-suite.mdx](docs/tpcc-suite.mdx). Data-systems coverage is now OLAP + KV + OLTP.
 - [ ] First **live** SWE-bench smoke on Aliyun (code complete; gated on account preconditions — see the runbook)
-- [ ] Wire the remaining clouds (`huawei-agentarts` / `volcengine-agentkit` / `aws-agentcore` live paths)
-- [ ] More suites (τ-bench and friends) through the same contract; database / compute / messaging domain packs
+- [ ] Wire the remaining clouds (`huawei-agentarts` / `volcengine-agentkit` / `aws-agentcore` live paths); cloud-provisioned & existing-service backends for the data domains (managed KV/RDBMS, EMR/Spark, cloud DWH) at big-data scale
+- [ ] More suites (τ-bench, Nexmark/streaming) + domain packs (streaming / graph / ml-systems)
 
 ## Contributing
 

@@ -1,0 +1,84 @@
+---
+title: TPC-DS suite (data-warehouse)
+description: Run TPC-DS through the benchmark-suite contract on the duckdb-local reference platform.
+---
+
+TPC-DS is Clousight Bench's second benchmark suite and the first on the
+`data-warehouse` domain — the `benchmark_suite` / `evaluator` contract
+generalized beyond agent suites (SWE-bench) to OLAP/data. The first platform is
+`duckdb-local`: a provider-less, single-node **reference** engine (the analog of
+agent-runtime's `local-sim`) that runs entirely offline.
+
+## Run it (no cloud account)
+
+```bash
+# offline mock path — no DuckDB needed, exercises the whole stage machine:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain data-warehouse --task suite:tpc-ds \
+  --platform duckdb-local --config mock.yaml
+
+# real DuckDB SF1 run (needs the [tpcds] extra: pip install clousight-bench[tpcds]):
+printf 'target:\n  mode: runtime\nparams:\n  scale_factor: 1\n  query_ids: [3, 7, 42]\n' > real.yaml
+csbench run --domain data-warehouse --task suite:tpc-ds \
+  --platform duckdb-local --config real.yaml
+```
+
+`params.scale_factor` defaults to `1`; `params.query_ids` defaults to all 99
+queries. Omit `query_ids` to run the full set (~1.3s at SF1 after a one-time
+~6s data generation).
+
+## What it measures
+
+The `official-tpcds-evaluator` emits three `tpc-ds.*` measurements:
+
+| Measurement | Meaning | reproducibility_class |
+| --- | --- | --- |
+| `tpc-ds.queries_passed` | ratio of queries whose result matches the pinned SF1 reference | `deterministic` |
+| `tpc-ds.geomean_latency_ms` | geometric mean of per-query wall-time | `environmental` |
+| `tpc-ds.total_runtime_ms` | sum of per-query wall-time | `environmental` |
+
+All carry `official=True` — in this framework that is a *provenance* flag
+("emitted by the suite's recognized evaluator"), not an audit claim; whether a
+number drifts is carried by `reproducibility_class`.
+
+## Correctness: a pinned SF1 reference
+
+DuckDB's `tpcds_answers()` is unusable (no parameters, defaults to SF10), so
+correctness compares each query's normalized result digest against a **pinned
+SF1 reference** captured once against the pinned DuckDB + extension version
+(`suites/tpc_ds/fixtures/reference/sf1_digests.json`, produced by
+`scripts/capture_tpcds_reference.py`). This is a deterministic
+reproducibility/regression check against a recognized implementation — **not an
+externally-audited TPC answer** — and is emitted **only at scale factor 1** (the
+reference is SF1-only). The digest normalization rounds numerics and sorts rows
+so it is stable across platforms; a real run reproduces the committed reference
+in CI.
+
+## Deliberate scope (slice 1)
+
+- Correctness is SF1-only; higher scale factors report performance only.
+- The audited **QphDS** composite metric (load + power + concurrent throughput
+  streams, with TPC audit rules) is **not** implemented — we never claim an
+  official QphDS number.
+- Big-data scale and distributed engines (Spark on EMR, cloud data warehouses)
+  are a later phase, added as additional `data-warehouse` platforms behind the
+  same suite.
+
+## Sibling: TPC-H
+
+TPC-H is the second OLAP suite on the same `data-warehouse` domain and
+`duckdb-local` platform — proof that a new suite drops onto the contract cheaply.
+It is identical in shape to TPC-DS (offline mock + real DuckDB SF1, pinned SF1
+reference-digest correctness, honest per-query latency, no audited QphH), just
+with DuckDB's `tpch` extension (`dbgen` + 22 queries via `PRAGMA tpch(n)`).
+
+```bash
+csbench run --domain data-warehouse --task suite:tpc-h \
+  --platform duckdb-local --config mock.yaml   # or a real.yaml with mode: runtime
+```
+
+Measurements are `tpc-h.queries_passed` / `tpc-h.geomean_latency_ms` /
+`tpc-h.total_runtime_ms`. Needs the `[tpch]` extra for the real path. Unlike
+TPC-DS, DuckDB ships usable `tpch_answers()` SF1 answers; the capture script
+cross-checks the reference against them informationally, and reconciling their
+exact text format is a future upgrade to verified-answer correctness.

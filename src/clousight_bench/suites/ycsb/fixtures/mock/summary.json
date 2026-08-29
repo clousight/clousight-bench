@@ -1,0 +1,7 @@
+{
+  "workload": "workloada",
+  "binding": "basic",
+  "recordcount": 10000,
+  "operationcount": 10000,
+  "ycsb_version": "ycsb-0.17.0"
+}

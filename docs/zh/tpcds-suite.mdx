@@ -1,0 +1,74 @@
+---
+title: TPC-DS 套件（数据仓库）
+description: 通过基准套件契约，在 duckdb-local 参考平台上运行 TPC-DS。
+---
+
+TPC-DS 是 Clousight Bench 的第二个基准套件，也是 `data-warehouse`（数据仓库）
+域上的第一个——`benchmark_suite` / `evaluator` 契约由此从 agent 套件（SWE-bench）
+泛化到了 OLAP/数据领域。首个平台是 `duckdb-local`：一个无云、单机的**参考**引擎
+（相当于 agent-runtime 的 `local-sim`），完全离线运行。
+
+## 运行（无需云账号）
+
+```bash
+# 离线 mock 路径——无需 DuckDB，跑通整条阶段机：
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain data-warehouse --task suite:tpc-ds \
+  --platform duckdb-local --config mock.yaml
+
+# 真实 DuckDB SF1 运行（需要 [tpcds] extra：pip install clousight-bench[tpcds]）：
+printf 'target:\n  mode: runtime\nparams:\n  scale_factor: 1\n  query_ids: [3, 7, 42]\n' > real.yaml
+csbench run --domain data-warehouse --task suite:tpc-ds \
+  --platform duckdb-local --config real.yaml
+```
+
+`params.scale_factor` 默认 `1`；`params.query_ids` 默认全部 99 条。省略
+`query_ids` 即跑全集（SF1 下约 1.3s，另有一次性约 6s 的数据生成）。
+
+## 测量什么
+
+`official-tpcds-evaluator` 产出三个 `tpc-ds.*` 测量：
+
+| 测量 | 含义 | reproducibility_class |
+| --- | --- | --- |
+| `tpc-ds.queries_passed` | 结果与固化 SF1 参考一致的查询占比 | `deterministic` |
+| `tpc-ds.geomean_latency_ms` | 每查询墙钟时间的几何均值 | `environmental` |
+| `tpc-ds.total_runtime_ms` | 每查询墙钟时间之和 | `environmental` |
+
+三者都带 `official=True`——在本框架里这是**溯源**标志（"由套件的官方评估器产出"），
+并非审计声明；数字是否漂移由 `reproducibility_class` 承载。
+
+## 正确性：固化的 SF1 参考
+
+DuckDB 的 `tpcds_answers()` 不可用（无参、默认 SF10），因此正确性用**固化 SF1 参考**
+比对：每条查询归一化后的结果摘要，对照一次性固化（钉住 DuckDB + 扩展版本）的参考
+（`suites/tpc_ds/fixtures/reference/sf1_digests.json`，由
+`scripts/capture_tpcds_reference.py` 生成）。这是针对一个公认实现的确定性
+复现/回归校验——**不是经外部审计的 TPC 答案**——且**仅在 scale factor 1** 时产出
+（参考只有 SF1）。摘要归一化对数值定精度、对行排序，跨平台稳定；真实运行会在 CI 里
+复现固化的参考。
+
+## 本切片的刻意边界
+
+- 正确性仅限 SF1；更高 scale factor 只报性能。
+- 审计级 **QphDS** 复合指标（load + power + 并发 throughput 流，含 TPC 审计规则）
+  **未实现**——我们从不声称官方 QphDS 数。
+- 大数据规模与分布式引擎（EMR 上的 Spark、云数仓）属后续阶段，作为同一套件下的
+  更多 `data-warehouse` 平台加入。
+
+## 姊妹套件：TPC-H
+
+TPC-H 是同一 `data-warehouse` 域、同一 `duckdb-local` 平台上的第二个 OLAP 套件
+——证明新套件能低成本挂上契约。它与 TPC-DS 形态一致（离线 mock + 真实 DuckDB
+SF1、固化 SF1 参考摘要正确性、老实的每查询延迟、不产审计级 QphH），只是改用
+DuckDB 的 `tpch` 扩展（`dbgen` + 22 条查询经 `PRAGMA tpch(n)`）。
+
+```bash
+csbench run --domain data-warehouse --task suite:tpc-h \
+  --platform duckdb-local --config mock.yaml   # 或 mode: runtime 的 real.yaml
+```
+
+测量为 `tpc-h.queries_passed` / `tpc-h.geomean_latency_ms` /
+`tpc-h.total_runtime_ms`。真实路径需 `[tpch]` extra。与 TPC-DS 不同，DuckDB 自带
+可用的 `tpch_answers()` SF1 答案；捕获脚本会informational地对照参考，完全对齐其
+文本格式以升级为"验证答案"正确性是后续工作。

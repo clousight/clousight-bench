@@ -40,6 +40,9 @@
               "docs/plugins",
               "docs/probe-carrier",
               "docs/swe-bench-live-runbook",
+              "docs/tpcds-suite",
+              "docs/ycsb-suite",
+              "docs/tpcc-suite",
               "docs/viewer",
               "docs/querying",
               "docs/dataset-tiers"
@@ -70,6 +73,9 @@
               "docs/zh/plugins",
               "docs/zh/probe-carrier",
               "docs/zh/swe-bench-live-runbook",
+              "docs/zh/tpcds-suite",
+              "docs/zh/ycsb-suite",
+              "docs/zh/tpcc-suite",
               "docs/zh/viewer",
               "docs/zh/querying",
               "docs/zh/dataset-tiers"

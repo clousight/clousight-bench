@@ -1,0 +1,11 @@
+{
+  "scale_factor": 1.0,
+  "duckdb_version": "1.5.4",
+  "extension_version": "v1.5.4",
+  "query_count": 3,
+  "query_ids": [
+    3,
+    7,
+    42
+  ]
+}
