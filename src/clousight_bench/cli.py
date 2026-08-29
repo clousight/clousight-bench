@@ -63,9 +63,16 @@ def _cmd_list(args: argparse.Namespace) -> int:
                 f"{e.evaluator_id} ({'official' if e.official else 'custom'})" for e in evaluators
             )
             print(f"  evaluators : {names}")
-        first = sorted(suites)[0]
+        # Prefer the flagship swe-bench (always registered, domain known) as the
+        # canonical copy-pasteable example — a suite is only runnable on its own
+        # domain, so we must not pair an arbitrary first suite with a hardcoded
+        # domain (e.g. suite:mmlu lives on `llm`, not `agent-runtime`).
+        if "swe-bench" in suites:
+            ex_suite, ex_domain = "swe-bench", "agent-runtime"
+        else:
+            ex_suite, ex_domain = sorted(suites)[0], "<domain>"
         print(
-            f"  run one    : csbench run --domain agent-runtime --task suite:{first}"
+            f"  run one    : csbench run --domain {ex_domain} --task suite:{ex_suite}"
             " --platform local-sim --config <yaml with 'target: {mode: mock}'>"
         )
         print()
@@ -128,8 +135,7 @@ def _check_target(target: dict[str, Any]) -> dict[str, Any]:
     """
     if "oss_bucket" in target:
         raise UserInputError(
-            "target key 'oss_bucket' was renamed to 'blob_bucket'; "
-            "update your target config"
+            "target key 'oss_bucket' was renamed to 'blob_bucket'; update your target config"
         )
     return target
 
@@ -187,6 +193,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(notice, file=sys.stderr)
 
     if args.repeat != 1 or args.warmup != 0 or args.plan_id or args.resume:
+        if getattr(args, "assert_thresholds", None):
+            print(
+                "warning: --assert applies to single runs only; it is ignored with "
+                "--repeat/--warmup/--plan-id/--resume (the aggregate path is not gated).",
+                file=sys.stderr,
+            )
         from clousight_bench.core.runplan import RunPlan, execute_plan
 
         plan = RunPlan(spec, repeat=args.repeat, warmup=args.warmup)
@@ -221,7 +233,30 @@ def _cmd_run(args: argparse.Namespace) -> int:
         cost_budget=args.cost_budget,
     )
     print(record.to_json())
-    return _exit_code(record)
+    code = _exit_code(record)
+    # Optional CI gate: fail the exit code if any measurement misses its threshold.
+    if getattr(args, "assert_thresholds", None):
+        from clousight_bench.core.thresholds import check_thresholds
+
+        thresholds = _load_thresholds(args.assert_thresholds)
+        failures = check_thresholds(record.measurements, thresholds)
+        if failures:
+            print("threshold(s) not met:\n  " + "\n  ".join(failures), file=sys.stderr)
+            return code or 1
+        print(f"all {len(thresholds)} threshold(s) met", file=sys.stderr)
+    return code
+
+
+def _load_thresholds(path: str) -> dict[str, Any]:
+    """Load a threshold map (YAML/JSON) for ``csbench run --assert``.
+
+    Shape: ``{measurement_key: {min: x} | {max: y} | scalar(==min)}``.
+    """
+    raw = _load_config(path) if path else {}
+    thresholds = raw.get("thresholds", raw) if isinstance(raw, dict) else {}
+    if not isinstance(thresholds, dict) or not thresholds:
+        raise UserInputError(f"--assert file {path!r} has no thresholds mapping")
+    return thresholds
 
 
 def _cmd_trace(args: argparse.Namespace) -> int:
@@ -1090,6 +1125,13 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument("--param", action="append", default=[], help="override a task param, key=value")
     run_p.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
     run_p.add_argument("--no-enrich", action="store_true", help="skip result enrichers")
+    run_p.add_argument(
+        "--assert",
+        dest="assert_thresholds",
+        metavar="THRESHOLDS.yaml",
+        help="CI gate: a YAML/JSON threshold map ({key: {min: x} | {max: y}}); "
+        "exit non-zero if any measurement misses its bound",
+    )
     run_p.add_argument(
         "--skip-preflight",
         action="store_true",

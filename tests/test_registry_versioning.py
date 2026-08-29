@@ -105,9 +105,7 @@ def test_compatible_suite_loads(monkeypatch):
 
 
 def test_incompatible_evaluator_rejected(monkeypatch):
-    monkeypatch.setattr(
-        registry, "entry_points", lambda group: [_FakeEP("future", _FutureEvaluator)]
-    )
+    monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("future", _FutureEvaluator)])
     with pytest.raises(IncompatiblePluginError) as ei:
         registry.load_evaluators()
     assert "future" in str(ei.value) and "1.0" in str(ei.value)

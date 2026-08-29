@@ -1,0 +1,7 @@
+{
+  "model": "mock-llm",
+  "suite_version": "cais-mmlu/sample-v1",
+  "question_count": 3,
+  "prompt_tokens": 540,
+  "completion_tokens": 9
+}

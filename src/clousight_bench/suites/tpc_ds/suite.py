@@ -83,9 +83,7 @@ def result_digest(rows: list[tuple[Any, ...]]) -> str:
     return _sha256_bytes("\n".join(row_strs).encode("utf-8"))
 
 
-def _write_artifacts(
-    tmp_dir: Path, queries: list[dict[str, Any]], summary: dict[str, Any]
-) -> RawArtifacts:
+def _write_artifacts(tmp_dir: Path, queries: list[dict[str, Any]], summary: dict[str, Any]) -> RawArtifacts:
     """Write queries.json + summary.json into *tmp_dir* and build the manifest."""
     q_path = tmp_dir / "queries.json"
     s_path = tmp_dir / "summary.json"

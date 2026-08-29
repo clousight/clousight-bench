@@ -1,0 +1,23 @@
+[
+  {
+    "id": "test-0",
+    "predicted": "18",
+    "gold": "18",
+    "correct": true,
+    "latency_ms": 800.0
+  },
+  {
+    "id": "test-1",
+    "predicted": "3",
+    "gold": "3",
+    "correct": true,
+    "latency_ms": 850.0
+  },
+  {
+    "id": "test-2",
+    "predicted": "70000",
+    "gold": "70000",
+    "correct": true,
+    "latency_ms": 900.0
+  }
+]

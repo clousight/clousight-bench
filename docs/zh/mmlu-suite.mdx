@@ -1,0 +1,51 @@
+---
+title: MMLU 套件（llm 域）
+description: 用 MMLU 评测托管 LLM 端点——客观准确率 + 服务延迟/成本。
+---
+
+`llm` 域评测**云厂商作为产品出售的托管大模型**(Bedrock、DashScope/Qwen、Vertex,
+或任意 OpenAI 兼容网关)。与 `agent-runtime`(评运行时工程)不同,这里被测系统是
+**模型端点本身**。**MMLU** 是第一个套件。
+
+这**不是**主观 LLM 判分:我们原样跑公认的 MMLU,报**客观选择题准确率**(确定性)+
+让托管 LLM 成为云产品的**服务维度**(延迟、token 成本)。
+
+## 接入抽象
+
+SUT 是一个 OpenAI 兼容端点,从 `Target` 解析:
+
+| 平台 | 连接到 |
+| --- | --- |
+| `llm-mock` | 离线参考——回放 bundled 答案 fixture |
+| `llm-endpoint` | **已运行**的托管 LLM:`endpoint`(base URL)+ `model` + `credentials_ref` |
+
+```bash
+# 离线 mock(无网络、无 key)——CI 路径:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain llm --task suite:mmlu --platform llm-mock --config mock.yaml
+
+# 对托管 LLM 真实运行(配置接入):
+printf 'target:\n  mode: runtime\n  endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  limit: 100\n' > qwen.yaml
+export DASHSCOPE_API_KEY=...
+csbench run --domain llm --task suite:mmlu --platform llm-endpoint --config qwen.yaml
+```
+
+`params.subjects` 过滤学科;`params.limit` 限题数。
+
+## 测量什么
+
+`official-mmlu-evaluator` 产出 `mmlu.*`:
+
+| 测量 | 含义 | class |
+| --- | --- | --- |
+| `mmlu.accuracy` | 正确/总数(客观 MMLU 指标) | `deterministic` |
+| `mmlu.avg_latency_ms` | 每题平均延迟 | `environmental` |
+| `mmlu.total_tokens` | prompt + completion token | `environmental` |
+| `mmlu.cost_usd` | token × seed 价 | `environmental` |
+
+全部 `official=True`(溯源标志——官方评估器产出,非审计声明)。无用量记录时省略 token/延迟维度。
+
+## 本切片刻意边界
+- 一小份**真实 MMLU 样本**(cais/mmlu,MIT)作 fixture,mock/参考路径无需网络;真实路径对配置端点跑这些题。全量(57 学科/~14k 题)拉取为后续增强——当前标为样本,非完整榜单。
+- 0-shot;答案字母用词边界解析。
+- 云 provision 的模型端点(相对自带)挂同一 seam。

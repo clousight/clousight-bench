@@ -116,9 +116,7 @@ class AliyunRuntimeProvider(RuntimeProviderPlugin):
         """The aliyun-iam prod-controller module's terraform surface."""
         return ControllerTfSpec(tf_targets=_CONTROLLER_TF_TARGETS, driver_tf_vars=_DRIVER_TF_VARS)
 
-    def controller_reaper_spec(
-        self, region: str, log: Callable[[str], None]
-    ) -> ControllerReaperSpec:
+    def controller_reaper_spec(self, region: str, log: Callable[[str], None]) -> ControllerReaperSpec:
         """SDK-backed delete callables for the Aliyun prod-controller reaper:
         AgentRuntime → NAT/EIP (Aliyun teardown order) → this ECS instance."""
         from clousight_bench.domains.agent_runtime.aliyun.controller_reaper_live import (

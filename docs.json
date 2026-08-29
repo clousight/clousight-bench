@@ -43,6 +43,9 @@
               "docs/tpcds-suite",
               "docs/ycsb-suite",
               "docs/tpcc-suite",
+              "docs/mmlu-suite",
+              "docs/gsm8k-suite",
+              "docs/pytest-ci",
               "docs/viewer",
               "docs/querying",
               "docs/dataset-tiers"
@@ -76,6 +79,9 @@
               "docs/zh/tpcds-suite",
               "docs/zh/ycsb-suite",
               "docs/zh/tpcc-suite",
+              "docs/zh/mmlu-suite",
+              "docs/zh/gsm8k-suite",
+              "docs/zh/pytest-ci",
               "docs/zh/viewer",
               "docs/zh/querying",
               "docs/zh/dataset-tiers"

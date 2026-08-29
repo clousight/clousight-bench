@@ -97,9 +97,7 @@ def _driver_tf_args(driver: dict[str, Any], spec: ControllerTfSpec) -> list[str]
     out: list[str] = []
     unknown = set(driver) - set(spec.driver_tf_vars)
     if unknown:
-        raise ValueError(
-            f"unknown driver key(s) {sorted(unknown)!r}; known: {sorted(spec.driver_tf_vars)}"
-        )
+        raise ValueError(f"unknown driver key(s) {sorted(unknown)!r}; known: {sorted(spec.driver_tf_vars)}")
     for key, var in spec.driver_tf_vars.items():
         if key not in driver:
             continue

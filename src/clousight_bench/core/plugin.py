@@ -324,9 +324,7 @@ class RuntimeProviderPlugin(ABC):
         fails loudly instead of guessing another cloud's resources)."""
         return None
 
-    def controller_reaper_spec(
-        self, region: str, log: Callable[[str], None]
-    ) -> ControllerReaperSpec | None:
+    def controller_reaper_spec(self, region: str, log: Callable[[str], None]) -> ControllerReaperSpec | None:
         """Live delete callables for this provider's prod-controller reaper; None
         = the provider has no wired prod-controller reaper (the controller then
         degrades to a no-op reap and leaves teardown to the local backstop)."""

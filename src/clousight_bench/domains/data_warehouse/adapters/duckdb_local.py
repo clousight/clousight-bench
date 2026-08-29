@@ -89,7 +89,5 @@ class DuckDbLocalAdapter(ProviderAdapter):
             )
             return report
 
-        report.add(
-            pf.Check("tpcds-extension", ok=True, severity=pf.CRITICAL, detail="INSTALL/LOAD tpcds ok")
-        )
+        report.add(pf.Check("tpcds-extension", ok=True, severity=pf.CRITICAL, detail="INSTALL/LOAD tpcds ok"))
         return report

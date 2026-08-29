@@ -1,0 +1,24 @@
+---
+title: GSM8K suite (llm domain)
+description: Benchmark a managed LLM endpoint with GSM8K — objective math accuracy + serving latency/cost.
+---
+
+GSM8K (grade-school math word problems, openai/gsm8k, MIT) is the second suite on
+the `llm` domain, alongside [MMLU](/docs/mmlu-suite). Same shape: run the
+recognized benchmark unmodified against a managed LLM endpoint and report
+**objective accuracy** (exact numeric match, deterministic) + serving dimensions
+(latency, token cost). It tests reasoning rather than knowledge.
+
+```bash
+# offline mock (no network, no key):
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain llm --task suite:gsm8k --platform llm-mock --config mock.yaml
+
+# real run against a managed LLM (config-connect):
+printf 'target:\n  mode: runtime\n  endpoint: "https://.../v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  limit: 100\n' > qwen.yaml
+csbench run --domain llm --task suite:gsm8k --platform llm-endpoint --config qwen.yaml
+```
+
+Measurements: `gsm8k.accuracy` (deterministic) + `gsm8k.{avg_latency_ms,total_tokens,cost_usd}`
+(environmental), all `gsm8k.`-namespaced and `official=True` (provenance). A small
+real sample ships as a fixture; full-dataset fetch is a future enhancement.
