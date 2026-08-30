@@ -1,0 +1,6 @@
+{"kind": "llm_tokens", "value": 1200, "unit": "tokens", "attrs": {"role": "prompt", "instance_id": "django__django-10914"}}
+{"kind": "llm_tokens", "value": 340, "unit": "tokens", "attrs": {"role": "completion", "instance_id": "django__django-10914"}}
+{"kind": "llm_tokens", "value": 980, "unit": "tokens", "attrs": {"role": "prompt", "instance_id": "sympy__sympy-11400"}}
+{"kind": "llm_tokens", "value": 210, "unit": "tokens", "attrs": {"role": "completion", "instance_id": "sympy__sympy-11400"}}
+{"kind": "llm_tokens", "value": 1100, "unit": "tokens", "attrs": {"role": "prompt", "instance_id": "astropy__astropy-12907"}}
+{"kind": "llm_tokens", "value": 300, "unit": "tokens", "attrs": {"role": "completion", "instance_id": "astropy__astropy-12907"}}

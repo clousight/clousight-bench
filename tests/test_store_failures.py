@@ -267,7 +267,7 @@ def test_fourth_level_minimum_is_always_canonical(tmp_path):
     )
     payload = ResultStore(tmp_path)._degraded_payload(record)
 
-    assert payload["schema_version"] == "0.3"
+    assert payload["schema_version"] == "0.4"
     assert payload["status"] == "failed"
     assert payload["run"]["stages"]["PERSIST"] == "failed"
     assert record_digest(payload) == payload["fingerprints"]["record_digest"]

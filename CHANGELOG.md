@@ -2,6 +2,61 @@
 
 All notable changes to Clousight Bench are recorded here.
 
+## [0.5.0] — 2026-08-30
+
+An eval-core refactor (per-item scoring, composable metrics, LLM-as-judge) plus
+more coding benchmarks. **Record schema 0.3 → 0.4** (additive). The one public
+way to add a benchmark is a `BenchmarkSuite` + `Evaluator` (+ `Metric` / judge),
+run with `csbench run --benchmark <id>`.
+
+### Added
+
+- **Per-item scoring substrate** (schema 0.4): records carry `items`
+  (`ItemResult`/`ItemScore`, 4-state `ok`/`fail`/`skip`/`error`), and scalar
+  `measurements` are their aggregation (`core/aggregate.py` — mean/ratio/geomean/
+  percentile + Wilson/normal confidence intervals + per-`group` breakdowns, e.g.
+  `mmlu.accuracy.by_group.<subject>`). `Measurement.ci` added. Item volume capped
+  by `CSBENCH_MAX_PERSISTED_ITEMS` (truncation recorded, never silent).
+- **Composable metrics**: new `clousight_bench.metrics` entry-point group + a
+  `Metric` plugin point; multiple metrics per run, per-metric 4-state isolation;
+  opt a metric into a run with `params.extra_metrics`. Reference metric:
+  `answered-rate` (bound to mmlu/gsm8k).
+- **LLM-as-judge**: `core/judge.py` (`JudgeModel` + `judge_emit` with native
+  JSON-schema-or-repair structured output) + the `clousight_bench.judges`
+  entry-point group (`JudgeProvider`; OSS `openai-compatible` provider, SSRF-
+  guarded). Reference judge metric `response-quality` (categorical rubric + self-
+  consistency; reproducible — no logprob weighting). Config-connect + run a judge
+  via `params.judge`; a content-addressed `CachingJudge` reuses verdicts across
+  re-runs. Judge-based scoring only — never environmental.
+- **Coding benchmarks**: `swe-bench-lite` + `swe-bench-multimodal` (thin variants
+  of the flagship via a parametrized suite seam) and `human-eval` (openai/
+  openai_humaneval, MIT) with a sandboxed code-execution substrate reusing
+  `core/sandbox`.
+- **`--benchmark <id>`** as the standard run flag; `provisions_resources()`
+  explicit adapter capability making connect-only (config-connect, no
+  provisioning) a first-class path.
+
+### Changed
+
+- Record schema **0.3 → 0.4** (additive: `items`, `Measurement.ci`);
+  `result-record-0.4.schema.json`.
+- Provenance `scaffold` sourced from the suite (`BenchmarkSuite.scaffold`), not
+  hardcoded in core — fixes non-agent suites being mis-tagged `mock-agent@slice1`
+  (now ""). SWE-bench scaffold values unchanged (fingerprint stable).
+- Native `Task` / `DomainPack.tasks()` demoted to an internal execution contract;
+  the public benchmark contract is `BenchmarkSuite` + `Evaluator`.
+- Shared llm-suite scaffolding consolidated into `suites/_llm_shared.py`; a single
+  `enrichers.pricing.tokens_1k_price()` (honours the `CLOUSIGHT_PRICING_DATA`
+  override the old per-evaluator copies ignored).
+
+### Fixed
+
+- SWE-bench Multimodal now forwards `image_assets` to the agent (was dropped).
+- HumanEval no longer under-counts pass@1 on ```-fenced completions.
+- Code-execution security: secret-stripped subprocess env, SSRF guard on
+  endpoints (incl. integer-encoded IPs + the Alibaba metadata IP), no-redirect
+  Bearer, process-group kill on timeout, explicit `allow_code_execution` opt-in.
+
 ## [0.4.0] — 2026-08-29
 
 Data-systems benchmark coverage + a vendor-neutral, config-connect SUT layer.

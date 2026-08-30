@@ -96,7 +96,7 @@ if importlib.util.find_spec("requests") is None:
 def _write_analytics_record(root: Path, run_id: str = "r1") -> None:
     """Write one digest-valid 0.3 record for the analytics tests."""
     payload = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "run": {
             "run_id": run_id,
             "started_at": "2026-01-01T00:00:00Z",
@@ -154,7 +154,7 @@ def _make_report_record(
     from clousight_bench.core.record import ResultRecord
 
     payload = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "run": {
             "run_id": f"{adapter}-{task_id}-{execution}",
             "started_at": "2026-01-01T00:00:00Z",

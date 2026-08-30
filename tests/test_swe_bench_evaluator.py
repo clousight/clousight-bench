@@ -134,6 +134,19 @@ def test_total_zero_guard(tmp_path: Path) -> None:
     assert result["swe-bench.resolved"].value == pytest.approx(0.0)
 
 
+def test_missing_results_is_fail_safe(tmp_path: Path) -> None:
+    """A missing/corrupt results.json returns {} (fail-safe), never raises —
+    symmetric with the mmlu/gsm8k/human-eval evaluators."""
+    from clousight_bench.suites.swe_bench.evaluator import OfficialSweEvaluator
+
+    missing = RawArtifacts(dir=tmp_path, manifest={"results": {"path": "nope.json"}})
+    assert OfficialSweEvaluator().evaluate(missing) == {}
+
+    (tmp_path / "corrupt.json").write_text("{not json")
+    corrupt = RawArtifacts(dir=tmp_path, manifest={"results": {"path": "corrupt.json"}})
+    assert OfficialSweEvaluator().evaluate(corrupt) == {}
+
+
 def test_supports(tmp_path: Path) -> None:
     """supports() returns True for 'swe-bench', False for anything else."""
     from clousight_bench.suites.swe_bench.evaluator import OfficialSweEvaluator

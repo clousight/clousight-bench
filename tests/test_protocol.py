@@ -81,6 +81,21 @@ def test_encode_swe_invoke_missing_hints_defaults_empty():
     assert swe["hints"] == ""
 
 
+def test_encode_swe_invoke_forwards_multimodal_image_assets():
+    """A Multimodal instance's image_assets must reach the agent payload —
+    otherwise the suite silently degrades to plain SWE-bench on JS repos."""
+    image_assets = json.dumps({"problem_statement": ["https://example.com/shot.png"]})
+    inst = {**_INSTANCE, "image_assets": image_assets}
+    swe = _swe_payload(p.encode_swe_invoke(inst, agent_mode="llm"))
+    assert swe["image_assets"] == image_assets
+
+
+def test_encode_swe_invoke_omits_image_assets_for_text_only_instances():
+    """Verified/Lite rows have no image_assets → payload must be unchanged."""
+    swe = _swe_payload(p.encode_swe_invoke(_INSTANCE, agent_mode="llm"))
+    assert "image_assets" not in swe
+
+
 def test_decode_swe_result_round_trip():
     spans = [{"name": "swe-oracle", "kind": "CHAIN"}]
     usage = {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18}

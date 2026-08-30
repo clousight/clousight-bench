@@ -25,11 +25,17 @@ Clousight Bench 采用**核心引擎 + 入口点插件**的架构。引擎负责
 | 分组 | 提供内容 | 参考示例 |
 |---|---|---|
 | `clousight_bench.domains` | `DomainPack`——一组具名的任务 + 适配器 | `agent-runtime` |
+| `clousight_bench.benchmark_suites` | `BenchmarkSuite`——包装公认的上游基准 harness | `swe-bench` |
+| `clousight_bench.evaluators` | `Evaluator`——把套件产物转成命名空间化的 `Measurement`(+ 逐项 `items()`) | `official-mmlu-evaluator` |
+| `clousight_bench.metrics` | `Metric`——可组合的逐项打分器,作用于 `items` 后聚合;一次运行可多个,发出 `<suite_id>.<metric_id>` | `answered-rate` |
+| `clousight_bench.judges` | `JudgeProvider`——LLM-as-judge(`JudgeModel`)的配置接入工厂,由配置选择;支撑判定型指标 | `openai-compatible` |
 | `clousight_bench.runtime_providers` | `RuntimeProviderPlugin`——某个 provider 的真实云传输 + 活动探针钩子 | `aliyun` |
 | `clousight_bench.resource_reapers` | `ResourceReaper`——为 `csbench sweep` 查找并删除孤立云资源 | `aliyun` |
 | `clousight_bench.enrichers` | `Enricher`——运行后对记录进行丰富处理（例如定价） | `pricing` |
 | `clousight_bench.span_exporters` | 用于追踪导出的 span 导出器 | `local` |
 | `clousight_bench.asset_resolvers` | 解析负载资产（数据集、脚本） | — |
+
+**新增一个 benchmark = 实现 `BenchmarkSuite` + `Evaluator`**(可选 `Metric` / judge),注册这些入口点,用 `csbench run --benchmark <id>` 运行。这是唯一对外的 benchmark 契约——开源与商业套件一视同仁(商业套件从私有包发布同样的入口点)。`DomainPack.tasks()` 是内部执行契约,**不是**新增 benchmark 的方式。
 
 适配器的 `status` 字面量（`skeleton` / `reference` / …）不会因安装插件而改变：一个 `skeleton` 适配器在真实模式下变为*可运行*，纯粹是因为 `get_runtime_provider(<provider>)` 现在返回了非 None 的插件——也就是说，安装 provider 插件即可完成连接，无需修改适配器。
 

@@ -1,0 +1,15 @@
+{
+  "per_instance": {
+    "django__django-10914": {
+      "resolved": true
+    },
+    "sympy__sympy-11400": {
+      "resolved": false
+    },
+    "astropy__astropy-12907": {
+      "resolved": true
+    }
+  },
+  "resolved": 2,
+  "total": 3
+}

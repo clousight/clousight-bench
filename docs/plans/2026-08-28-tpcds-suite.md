@@ -190,7 +190,7 @@ honestly labeled.
 
 ## Task 4: End-to-end wiring, conformance, CI, docs
 
-**Goal:** `csbench run --domain data-warehouse --task suite:tpc-ds --platform
+**Goal:** `csbench run --domain data-warehouse --benchmark tpc-ds --platform
 duckdb-local` works end-to-end (mock + real), `csbench conformance --suite tpc-ds`
 passes, CI exercises it, and the user-facing docs/README/ROADMAP reflect the new suite.
 
@@ -202,7 +202,7 @@ passes, CI exercises it, and the user-facing docs/README/ROADMAP reflect the new
 2. Tests:
    - `tests/test_tpcds_e2e.py` — a MOCK end-to-end (mirror
      `test_swe_submit_e2e.py::test_mock_e2e_executes_committed_task_entry`):
-     `csbench run --domain data-warehouse --task suite:tpc-ds --platform duckdb-local`
+     `csbench run --domain data-warehouse --benchmark tpc-ds --platform duckdb-local`
      with `target: {mode: mock}` (via RunSpec/CLI path) → status completed, a schema-0.3
      record with `tpcds.*` measurements, provenance.suite_id == "tpc-ds".
    - A real duckdb-local integration test (mark `slow`/skip-if-no-duckdb): a small

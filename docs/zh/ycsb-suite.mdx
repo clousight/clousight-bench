@@ -23,11 +23,11 @@ harness,而非重实现负载生成器。真实路径需 YCSB 启动器(Java ≥
 ```bash
 # 离线 mock(无工具、无数据存储)——CI 路径:
 printf 'target:\n  mode: mock\n' > mock.yaml
-csbench run --domain key-value --task suite:ycsb --platform ycsb-local --config mock.yaml
+csbench run --domain key-value --benchmark ycsb --platform ycsb-local --config mock.yaml
 
 # 对着已有 Redis 真实运行(配置接入):
 printf 'target:\n  mode: runtime\n  binding: redis\n  endpoint: "127.0.0.1:6379"\nparams:\n  workload: workloada\n  recordcount: 100000\n  operationcount: 100000\n' > redis.yaml
-csbench run --domain key-value --task suite:ycsb --platform ycsb-endpoint --config redis.yaml
+csbench run --domain key-value --benchmark ycsb --platform ycsb-endpoint --config redis.yaml
 ```
 
 `params.workload` 为 YCSB 核心工作负载(`workloada`..`workloadf`,默认 `workloada`);

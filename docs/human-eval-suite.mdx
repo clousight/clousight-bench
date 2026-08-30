@@ -1,0 +1,84 @@
+---
+title: HumanEval suite (llm domain)
+description: Benchmark a managed LLM with HumanEval — pass@1 correctness by executing generated code against unit tests.
+---
+
+The `llm` domain benchmarks the **managed large language model a cloud vendor
+sells** as a product. **HumanEval** (openai/openai_humaneval, MIT) is the first
+suite that scores the model by **running the code it writes**: for each problem
+the SUT completes a function signature + docstring, and the completion is
+executed together with the problem's self-contained `check(candidate)` unit test.
+The canonical `pass@1` metric is the fraction of problems whose test passes.
+
+This is objective, not subjective judging: a candidate either passes its unit
+test or it does not (`deterministic`).
+
+## The three paths
+
+| Path | connects to | executes code? |
+| --- | --- | --- |
+| `llm-mock` (default) | offline — replays a bundled pre-scored fixture | no |
+| `llm-mock` + `params.execute=true` | offline — runs the dataset's **canonical** solutions through the sandboxed executor | yes (vetted bundled code) |
+| `llm-endpoint` | an **already-running** managed LLM: `endpoint` + `model` + `credentials_ref` | yes (**model output — untrusted**) |
+
+```bash
+# offline fixture path (no network, no key, no execution) — the CI smoke path:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain llm --benchmark human-eval --platform llm-mock --config mock.yaml
+
+# reference execution — really runs the gold solutions through the sandbox
+# (no LLM); proves the execution + scoring harness works end to end:
+printf 'target:\n  mode: mock\nparams:\n  execute: true\n' > exec.yaml
+csbench run --domain llm --benchmark human-eval --platform llm-mock --config exec.yaml
+
+# real run against a managed LLM (config-connect) — executes the MODEL's code.
+# params.allow_code_execution: true is REQUIRED (explicit opt-in) since this runs
+# untrusted model output locally; run it in an isolated environment.
+printf 'target:\n  mode: runtime\n  endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  allow_code_execution: true\n' > qwen.yaml
+export DASHSCOPE_API_KEY=...
+csbench run --domain llm --benchmark human-eval --platform llm-endpoint --config qwen.yaml
+```
+
+`params.limit` caps the number of problems. Model completions are unwrapped from
+a single ```` ```python … ``` ```` fence before execution (real endpoints fence
+code despite the prompt), so a fenced-but-correct answer is not mis-scored.
+
+## Sandbox & safety
+
+Execution reuses the first-party `core.sandbox` helper: each candidate runs in a
+**fresh subprocess** with a **secret-stripped environment** (so model code cannot
+read the operator's `*_API_KEY`s out of `os.environ`), a wall-clock `timeout`, a
+new session so a timeout kills the whole process group, and POSIX `rlimit` caps
+(CPU, address space, file size, fd count) applied in a `preexec_fn`, in a
+throwaway working directory. The `llm-endpoint` path additionally **requires an
+explicit `params.allow_code_execution: true`** opt-in and SSRF-guards the endpoint
+URL (http(s) only, no cloud-metadata/link-local host) before sending the Bearer
+key. As `core.sandbox` documents, this is defence-in-depth, **not a
+container** — it bounds runaway CPU/memory/output, not filesystem or network
+access. The offline reference path executes only the dataset's **vetted canonical
+code**; executing **model-generated** completions (`llm-endpoint`) is untrusted
+and is your decision to make in your own isolated environment.
+
+## What it measures
+
+The `official-humaneval-evaluator` emits `human-eval.*` measurements:
+
+| Measurement | Meaning | class |
+| --- | --- | --- |
+| `human-eval.pass_at_1` | problems_passed / total (canonical HumanEval metric) | `deterministic` |
+| `human-eval.avg_latency_ms` | mean per-problem wall time | `environmental` |
+| `human-eval.total_tokens` | prompt + completion tokens | `environmental` |
+| `human-eval.cost_usd` | tokens × seed price | `environmental` |
+
+All are `official=True` (a provenance flag — emitted by the suite's recognized
+evaluator, not an audit claim). Token/latency dimensions are omitted when the run
+recorded no usage (e.g. the reference/fixture path).
+
+## Deliberate scope (slice 1)
+- A small **real HumanEval sample** (openai/openai_humaneval, MIT) ships as a
+  fixture pinned to the dataset main-commit, so the mock / reference paths need no
+  network. Full-164-problem fetch is a future enhancement — today it is labeled a
+  sample, not the full leaderboard run.
+- Greedy single-sample `pass@1`; `pass@k` sampling is a future enhancement.
+- This suite is the code-execution substrate other execution-scored benchmarks
+  (SciCode, USACO) build on.

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "clousight-bench"
-version = "0.4.0"
+version = "0.5.0"
 description = "Clousight Bench: reproducible, reproducibility-classed benchmarking for cloud products."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -99,12 +99,15 @@ clousight_bench = "clousight_bench.pytest_plugin"
 
 [project.entry-points."clousight_bench.benchmark_suites"]
 swe-bench = "clousight_bench.suites.swe_bench.suite:SweBenchSuite"
+swe-bench-lite = "clousight_bench.suites.swe_bench_lite.suite:SweBenchLiteSuite"
+swe-bench-multimodal = "clousight_bench.suites.swe_bench_multimodal.suite:SweBenchMultimodalSuite"
 tpc-ds = "clousight_bench.suites.tpc_ds.suite:TpcdsSuite"
 tpc-h = "clousight_bench.suites.tpc_h.suite:TpchSuite"
 ycsb = "clousight_bench.suites.ycsb.suite:YcsbSuite"
 tpc-c = "clousight_bench.suites.tpc_c.suite:TpccSuite"
 mmlu = "clousight_bench.suites.mmlu.suite:MmluSuite"
 gsm8k = "clousight_bench.suites.gsm8k.suite:Gsm8kSuite"
+human-eval = "clousight_bench.suites.human_eval.suite:HumanEvalSuite"
 
 [project.entry-points."clousight_bench.domains"]
 agent-runtime = "clousight_bench.domains.agent_runtime:AgentRuntimeDomain"
@@ -115,12 +118,22 @@ llm = "clousight_bench.domains.llm:LlmDomain"
 
 [project.entry-points."clousight_bench.evaluators"]
 official-swe-evaluator = "clousight_bench.suites.swe_bench.evaluator:OfficialSweEvaluator"
+official-swe-lite-evaluator = "clousight_bench.suites.swe_bench_lite.evaluator:OfficialSweLiteEvaluator"
+official-swe-multimodal-evaluator = "clousight_bench.suites.swe_bench_multimodal.evaluator:OfficialSweMultimodalEvaluator"
 official-tpch-evaluator = "clousight_bench.suites.tpc_h.evaluator:OfficialTpchEvaluator"
 official-ycsb-evaluator = "clousight_bench.suites.ycsb.evaluator:OfficialYcsbEvaluator"
 official-tpcc-evaluator = "clousight_bench.suites.tpc_c.evaluator:OfficialTpccEvaluator"
 official-mmlu-evaluator = "clousight_bench.suites.mmlu.evaluator:OfficialMmluEvaluator"
 official-gsm8k-evaluator = "clousight_bench.suites.gsm8k.evaluator:OfficialGsm8kEvaluator"
 official-tpcds-evaluator = "clousight_bench.suites.tpc_ds.evaluator:OfficialTpcdsEvaluator"
+official-humaneval-evaluator = "clousight_bench.suites.human_eval.evaluator:OfficialHumanEvalEvaluator"
+
+[project.entry-points."clousight_bench.metrics"]
+answered-rate = "clousight_bench.metrics.answered_rate:AnsweredRateMetric"
+response-quality = "clousight_bench.metrics.response_quality:ResponseQualityMetric"
+
+[project.entry-points."clousight_bench.judges"]
+openai-compatible = "clousight_bench.judges.openai_compatible:OpenAiCompatibleJudgeProvider"
 
 [project.entry-points."clousight_bench.enrichers"]
 pricing = "clousight_bench.enrichers.pricing:PricingEnricher"
@@ -138,11 +151,15 @@ aws = "clousight_bench.domains.agent_runtime.aws.reaper:AwsResourceReaper"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/clousight_bench"]
+# `artifacts` only matters for files hatchling would otherwise EXCLUDE, i.e.
+# git-ignored build products (the bundled viewer dist). All suites' fixtures/ are
+# git-tracked and therefore ship in the wheel automatically — do NOT add per-suite
+# fixture globs here (a partial list reads as "the others are excluded" when they
+# are not; verified by building the wheel from a non-git tree).
 artifacts = ["src/clousight_bench/resources/schemas/*.json",
              "src/clousight_bench/resources/viewer/dist/**",
              "src/clousight_bench/resources/brand/*.png",
-             "src/clousight_bench/resources/brand/providers/*.svg",
-             "src/clousight_bench/suites/swe_bench/fixtures/*"]
+             "src/clousight_bench/resources/brand/providers/*.svg"]
 
 [tool.ruff]
 line-length = 110

@@ -27,6 +27,7 @@ absent stage was never reached because an earlier one failed.
 from __future__ import annotations
 
 import logging
+import os
 import platform as platform_mod
 import signal
 import threading
@@ -115,6 +116,18 @@ _FATAL_STAGES = ("SETUP", "EXECUTE", "COLLECT", "SCORE")
 # Stages that fail before anything is provisioned: the request never ran.
 _INVALID_STAGES = ("VALIDATE", "PREFLIGHT")
 _EMPTY_WORKLOAD: dict[str, Any] = {"workload": "", "workload_version": "", "assets": []}
+
+
+def _max_persisted_items() -> int:
+    """Cap on per-item ItemResults written into a record (schema 0.4). The full
+    set stays in artifacts; env-overridable via CSBENCH_MAX_PERSISTED_ITEMS."""
+    try:
+        return max(0, int(os.environ.get("CSBENCH_MAX_PERSISTED_ITEMS", "1000")))
+    except ValueError:
+        return 1000
+
+
+_MAX_PERSISTED_ITEMS = _max_persisted_items()
 
 
 @dataclass
@@ -318,14 +331,17 @@ def execute(
         errors.append(environment_error)
         return _record_and_finish("invalid")
 
-    # LIVE-RUN GATE -- a run whose numbers come from a REAL cloud spends real
-    # money and can trip quota / abuse controls. It must not provision unless the
-    # operator acknowledged the cost (--allow-live / CSBENCH_ALLOW_LIVE). Only a
-    # run that can actually bill a cloud is gated: live execution AND a real
-    # provider. Simulated runs and provider-less local adapters are never gated.
-    # Blocked -> `invalid`, SETUP never entered.
-    billable = adapter.execution_mode() == "live" and getattr(adapter, "provider", None)
-    decision = live_decision("live" if billable else "simulated", spec.target, allow_live)
+    # PROVISIONED-CLOUD MACHINERY GATE -- the live-run confirmation, the cost
+    # budget/ledger, and resource reconciliation ALL apply only to a run that
+    # provisions billable cloud resources. That is an explicit adapter capability
+    # (`provisions_resources()`), not an inline guess: connect-only adapters
+    # (config-connect to an already-running service) and simulators return False,
+    # so a "just attach to an existing service" run skips this entire machinery.
+    provisioning = adapter.provisions_resources()
+    # LIVE-RUN GATE -- a provisioning run spends real money / can trip quota; it
+    # must not provision unless the operator acknowledged the cost (--allow-live /
+    # CSBENCH_ALLOW_LIVE). Blocked -> `invalid`, SETUP never entered.
+    decision = live_decision("live" if provisioning else "simulated", spec.target, allow_live)
     live_run: dict[str, Any] | None = None
     if decision.is_live:
         live_run = {"acknowledged": decision.acknowledged, "limits": decision.limits}
@@ -350,10 +366,10 @@ def execute(
         return _record_and_finish("invalid", live_run=live_run)
 
     # COST BUDGET -- the live gate stops accidental spend; this stops runaway
-    # spend. For a billable run, if the spend-so-far (this results dir) plus this
-    # run's estimate would cross the budget, stop BEFORE provisioning.
+    # spend. For a provisioning run, if the spend-so-far (this results dir) plus
+    # this run's estimate would cross the budget, stop BEFORE provisioning.
     budget = _resolve_cost_budget(cost_budget, spec.target)
-    if billable and budget is not None:
+    if provisioning and budget is not None:
         spent = CostLedger(results_dir).total()
         estimate = float(spec.target.get("estimated_cost_usd", 0.0) or 0.0)
         if budget_would_exceed(spent, estimate, budget):
@@ -443,19 +459,22 @@ def execute(
             # Reconcile BEFORE teardown stops the transport: destroy + confirm by
             # tag anything this run created but left behind (a crash between
             # provision and deprovision, a wired setup that provisioned a runtime).
-            try:
-                findings.extend(
-                    reconcile_run_resources(
-                        adapter,
-                        run_id,
-                        getattr(adapter, "provider", None),
-                        results_dir,
-                        reaper=get_resource_reaper(getattr(adapter, "provider", None)),
+            # Only a provisioning run can leave resources behind, so connect-only
+            # runs skip reconciliation entirely (nothing was created to reap).
+            if provisioning:
+                try:
+                    findings.extend(
+                        reconcile_run_resources(
+                            adapter,
+                            run_id,
+                            getattr(adapter, "provider", None),
+                            results_dir,
+                            reaper=get_resource_reaper(getattr(adapter, "provider", None)),
+                        )
                     )
-                )
-            except Exception as exc:  # noqa: BLE001 - reconcile must never break teardown
-                errors.append(_stage_error("TEARDOWN", exc, code="reconcile_failed"))
-                _log_traceback(results_dir, run_id, debug, exc)
+                except Exception as exc:  # noqa: BLE001 - reconcile must never break teardown
+                    errors.append(_stage_error("TEARDOWN", exc, code="reconcile_failed"))
+                    _log_traceback(results_dir, run_id, debug, exc)
             _td = time.perf_counter()
             try:
                 adapter.teardown()
@@ -492,9 +511,9 @@ def execute(
     record = _record_and_finish(
         _status_for(errors, result), result, bundle, live_run=live_run, enrich_record=enrich
     )
-    # A billable run that actually executed accrues cost against the budget ledger
-    # (realized price if the enricher ran, else the caller's estimate).
-    if billable:
+    # A provisioning run that actually executed accrues cost against the budget
+    # ledger (realized price if the enricher ran, else the caller's estimate).
+    if provisioning:
         CostLedger(results_dir).add(
             run_id, getattr(adapter, "provider", None), run_cost_usd(record, spec.target)
         )
@@ -514,6 +533,55 @@ def _resolve_cost_budget(cost_budget: float | None, target: Mapping[str, Any]) -
     return float(env) if env else None
 
 
+_BENCHMARK_KIND_PREFIX = "suite:"  # id-namespace marking the benchmark-suite kind
+
+
+def _is_benchmark_task_id(task_id: str) -> bool:
+    """True when ``task_id`` names a registered benchmark suite (the public unit)
+    rather than a domain-internal native task."""
+    return task_id.startswith(_BENCHMARK_KIND_PREFIX)
+
+
+def _resolve_benchmark(spec: RunSpec, results_dir: Path | None) -> Task:
+    """Resolve a ``suite:<id>`` task_id to a runnable SuiteTask via the
+    benchmark-suite + evaluator registries."""
+    from clousight_bench.core.registry import load_benchmark_suites, load_evaluators
+
+    suite_id = spec.task_id.removeprefix(_BENCHMARK_KIND_PREFIX)
+    suites = load_benchmark_suites()
+    if suite_id not in suites:
+        raise UnknownTaskError(f"suite {suite_id!r} is not a registered benchmark suite: {sorted(suites)}")
+    suite = suites[suite_id]
+    wanted = spec.params.get("evaluator")  # explicit evaluator_id override
+    candidates = [
+        e
+        for e in load_evaluators()
+        if e.supports(suite_id, spec.platform) and (wanted is None or e.evaluator_id == wanted)
+    ]
+    if not candidates:
+        raise UnknownTaskError(
+            f"no registered evaluator supports suite {suite_id!r}"
+            + (f" with evaluator_id {wanted!r}" if wanted else "")
+        )
+    # Prefer official evaluators; load_evaluators() is name-sorted so ties are stable.
+    evaluator = sorted(candidates, key=lambda e: (not e.official, e.evaluator_id))[0]
+    mock = str(spec.target.get("mode", "mock")) == "mock"
+    artifacts_root = (Path(results_dir) / "artifacts") if results_dir is not None else None
+    return SuiteTask(suite, evaluator, mock=mock, params=dict(spec.params), artifacts_root=artifacts_root)
+
+
+def _resolve_native_task(pack: DomainPack, spec: RunSpec) -> Task:
+    """Resolve a bare task_id against the domain's internal native tasks.
+
+    Native tasks are an internal execution contract (no domain ships them since
+    the suite-first pivot); the public way to add a benchmark is a BenchmarkSuite.
+    """
+    task_classes = pack.tasks()
+    if spec.task_id not in task_classes:
+        raise UnknownTaskError(f"task {spec.task_id!r} not in domain {spec.domain!r}: {sorted(task_classes)}")
+    return task_classes[spec.task_id]()
+
+
 def _resolve(
     spec: RunSpec,
     results_dir: Path | None = None,
@@ -526,44 +594,13 @@ def _resolve(
     """
     pack = get_domain(spec.domain)
 
-    # --- Suite branch: task_id="suite:<id>" bypasses pack.tasks() entirely ---
-    if spec.task_id.startswith("suite:"):
-        from clousight_bench.core.registry import load_benchmark_suites, load_evaluators
-
-        suite_id = spec.task_id.removeprefix("suite:")
-        suites = load_benchmark_suites()
-        if suite_id not in suites:
-            raise UnknownTaskError(
-                f"suite {suite_id!r} is not a registered benchmark suite: {sorted(suites)}"
-            )
-        suite = suites[suite_id]
-        wanted = spec.params.get("evaluator")  # explicit evaluator_id override
-        candidates = [
-            e
-            for e in load_evaluators()
-            if e.supports(suite_id, spec.platform) and (wanted is None or e.evaluator_id == wanted)
-        ]
-        if not candidates:
-            raise UnknownTaskError(
-                f"no registered evaluator supports suite {suite_id!r}"
-                + (f" with evaluator_id {wanted!r}" if wanted else "")
-            )
-        # Prefer official evaluators; load_evaluators() is name-sorted so ties are stable.
-        evaluator = sorted(candidates, key=lambda e: (not e.official, e.evaluator_id))[0]
-        mock = str(spec.target.get("mode", "mock")) == "mock"
-        artifacts_root = (Path(results_dir) / "artifacts") if results_dir is not None else None
-        task: Task = SuiteTask(
-            suite, evaluator, mock=mock, params=dict(spec.params), artifacts_root=artifacts_root
-        )
-        # fall through to the shared adapter gate below with this task
+    # A benchmark is the public unit: a ``suite:<id>``-kinded task_id resolves
+    # against the benchmark-suite registry (the one documented way to add a
+    # benchmark). A bare id resolves against the domain's internal native tasks.
+    if _is_benchmark_task_id(spec.task_id):
+        task: Task = _resolve_benchmark(spec, results_dir)
     else:
-        # --- Normal task branch: look up task_id in the domain pack ---
-        task_classes = pack.tasks()
-        if spec.task_id not in task_classes:
-            raise UnknownTaskError(
-                f"task {spec.task_id!r} not in domain {spec.domain!r}: {sorted(task_classes)}"
-            )
-        task = task_classes[spec.task_id]()
+        task = _resolve_native_task(pack, spec)
 
     # --- Shared adapter lookup + instance-level runnability gate ---
     adapter_classes = pack.adapters()
@@ -820,6 +857,7 @@ def _validate_task_result(result: TaskResult) -> None:
     payload = {
         "measurements": {name: measurement.to_dict() for name, measurement in result.measurements.items()},
         "findings": [finding.to_dict() for finding in result.findings],
+        "items": [item.to_dict() for item in result.items],
         "notes": result.notes,
         "task_revision": result.task_revision,
         "scorer_revision": result.scorer_revision,
@@ -846,6 +884,17 @@ def _build_record(
     core_extension: dict[str, Any] = {}
     if result is not None and result.notes:
         core_extension["notes"] = result.notes
+    # Per-item substrate (schema 0.4). Capped so a large run doesn't write a huge
+    # record; the full set stays in artifacts. Truncation is RECORDED (never
+    # silent) under extensions.core.items_meta.
+    item_dicts = [it.to_dict() for it in (result.items if result else [])]
+    if len(item_dicts) > _MAX_PERSISTED_ITEMS:
+        core_extension["items_meta"] = {
+            "total": len(item_dicts),
+            "persisted": _MAX_PERSISTED_ITEMS,
+            "truncated": True,
+        }
+        item_dicts = item_dicts[:_MAX_PERSISTED_ITEMS]
     if run_context is not None:
         core_extension["run_plan"] = dict(run_context)
     if live_run is not None:
@@ -871,6 +920,7 @@ def _build_record(
         observations=(dict(bundle.observations) if isinstance(bundle.observations, dict) else {}),
         series=dict(bundle.series) if isinstance(bundle.series, dict) else {},
         artifacts=list(bundle.artifacts) if isinstance(bundle.artifacts, list) else [],
+        items=item_dicts,
         extensions=extensions,
         errors=[e.to_dict() for e in errors],
         provenance=prepared.provenance,

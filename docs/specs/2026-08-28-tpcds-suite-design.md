@@ -128,7 +128,7 @@ correctness is not asserted.
 ## CI
 Add to the modernized `test` job (see the just-landed CI): a
 `conformance --suite tpc-ds` line, and a real offline `duckdb-local` smoke —
-`csbench run --domain data-warehouse --task suite:tpc-ds --platform duckdb-local`
+`csbench run --domain data-warehouse --benchmark tpc-ds --platform duckdb-local`
 with a small `--param query_ids=<subset>` at SF1 (full 99 is ~1.3s, so the full
 run is also acceptable; use a subset if the ~6s dsdgen dominates). Assert the
 emitted record is schema 0.3 (reuse the existing assertion; scope the glob past

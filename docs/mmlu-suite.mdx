@@ -25,12 +25,12 @@ The SUT is an OpenAI-compatible endpoint, resolved from the run `Target`:
 ```bash
 # offline mock (no network, no key) — the CI path:
 printf 'target:\n  mode: mock\n' > mock.yaml
-csbench run --domain llm --task suite:mmlu --platform llm-mock --config mock.yaml
+csbench run --domain llm --benchmark mmlu --platform llm-mock --config mock.yaml
 
 # real run against a managed LLM (config-connect):
 printf 'target:\n  mode: runtime\n  endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  limit: 100\n' > qwen.yaml
 export DASHSCOPE_API_KEY=...      # the key the credentials_ref points at
-csbench run --domain llm --task suite:mmlu --platform llm-endpoint --config qwen.yaml
+csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen.yaml
 ```
 
 `params.subjects` filters MMLU subjects; `params.limit` caps the question count.

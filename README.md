@@ -17,7 +17,7 @@ which scaffold — folded into a content fingerprint you can diff.
 > harness produces the verdict; we add the cloud-product dimension (runtime behavior,
 > latency, trajectory, cost) and the reproducibility bookkeeping around it.
 
-> **0.4.0 Developer Preview.** The whole pipeline runs locally with no cloud account
+> **0.5.0 Developer Preview.** The whole pipeline runs locally with no cloud account
 > (`mode: mock`). The Aliyun AgentRun adapter is `experimental` and live-validated
 > (`cn-hangzhou` real-cloud campaigns); the docker-capable ECS driver host, the
 > AgentRun SUT agent (oracle/llm modes) and the SWE-bench Verified suite are code

@@ -10,11 +10,11 @@ paths need no network. The real ``run()`` POSTs to an OpenAI-compatible
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import tempfile
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from clousight_bench.core.suite import (
@@ -25,14 +25,16 @@ from clousight_bench.core.suite import (
     RawArtifacts,
     Target,
 )
+from clousight_bench.suites._llm_shared import (
+    chat_once,
+    resolve_endpoint,
+    sha256_bytes,
+    write_artifacts,
+)
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 _SAMPLE_FILE = _FIXTURES_DIR / "gsm8k_sample.json"
 _SUITE_VERSION = "openai-gsm8k/sample-v1"
-
-
-def _sha256_bytes(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def _load_sample() -> list[dict[str, Any]]:
@@ -68,22 +70,6 @@ def _numeric_equal(a: str, b: str) -> bool:
         return a.strip() == b.strip()
 
 
-def _write_artifacts(tmp_dir: Path, answers: list[dict[str, Any]], summary: dict[str, Any]) -> RawArtifacts:
-    a_path = tmp_dir / "answers.json"
-    s_path = tmp_dir / "summary.json"
-    a_path.write_text(json.dumps(answers), encoding="utf-8")
-    s_path.write_text(json.dumps(summary), encoding="utf-8")
-    manifest: dict[str, dict[str, Any]] = {
-        "answers": {
-            "path": "answers.json",
-            "sha256": _sha256_bytes(a_path.read_bytes()),
-            "rows": len(answers),
-        },
-        "summary": {"path": "summary.json", "sha256": _sha256_bytes(s_path.read_bytes()), "rows": None},
-    }
-    return RawArtifacts(dir=tmp_dir, manifest=manifest)
-
-
 class Gsm8kSuite(BenchmarkSuite):
     """GSM8K on the llm domain."""
 
@@ -99,23 +85,18 @@ class Gsm8kSuite(BenchmarkSuite):
         )
         return DatasetHandle(
             version=self.suite_version,
-            digest=_sha256_bytes(canonical.encode()),
+            digest=sha256_bytes(canonical.encode()),
             payload={"questions": selected},
         )
 
     def prepare(self, target: Target, dataset: DatasetHandle, driver: DriverContext) -> EnvHandle:  # noqa: ARG002
         if target.mock:
             return EnvHandle({"mock": True})
-        handle = target.handle
-        model = str(handle.model()) if handle is not None and hasattr(handle, "model") else ""
-        api_key = str(handle.api_key()) if handle is not None and hasattr(handle, "api_key") else ""
-        endpoint = str(target.endpoint or "")
-        if not endpoint or not model:
-            raise RuntimeError("the gsm8k real run() path needs target.endpoint + target.model")
+        endpoint, model, api_key = resolve_endpoint(target, suite_id="gsm8k")
         return EnvHandle(
             {
                 "mock": False,
-                "endpoint": endpoint.rstrip("/"),
+                "endpoint": endpoint,
                 "model": model,
                 "api_key": api_key,
                 "questions": list(dataset.payload["questions"]),
@@ -125,31 +106,19 @@ class Gsm8kSuite(BenchmarkSuite):
     def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:  # noqa: ARG002
         if target.mock or env.payload.get("mock"):
             return self.mock_artifacts(dict(env.payload))
-        from time import perf_counter  # noqa: PLC0415
-
-        import requests  # noqa: PLC0415 - lazy; only the real path needs it
-
         p = env.payload
-        url = f"{p['endpoint']}/chat/completions"
-        headers = {"Content-Type": "application/json"}
-        if p["api_key"]:
-            headers["Authorization"] = f"Bearer {p['api_key']}"
         answers: list[dict[str, Any]] = []
         prompt_tokens = completion_tokens = 0
         for q in p["questions"]:
-            body = {
-                "model": p["model"],
-                "messages": [{"role": "user", "content": format_prompt(q)}],
-                "temperature": 0,
-                "max_tokens": 512,
-            }
             t = perf_counter()
-            resp = requests.post(url, json=body, headers=headers, timeout=120)
+            content, usage, _ = chat_once(
+                endpoint=p["endpoint"],
+                model=p["model"],
+                api_key=p["api_key"],
+                prompt=format_prompt(q),
+                max_tokens=512,
+            )
             latency_ms = (perf_counter() - t) * 1000.0
-            resp.raise_for_status()
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
-            usage = data.get("usage", {}) or {}
             prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
             completion_tokens += int(usage.get("completion_tokens", 0) or 0)
             predicted = parse_number(content)
@@ -170,7 +139,7 @@ class Gsm8kSuite(BenchmarkSuite):
             "completion_tokens": completion_tokens,
         }
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-gsm8k-art-"))
-        return _write_artifacts(tmp_dir, answers, summary)
+        return write_artifacts(tmp_dir, answers, summary, rows_key="answers")
 
     def teardown(self, env: EnvHandle) -> None:  # noqa: ARG002, B027
         """Stateless endpoint calls — no-op."""
@@ -179,4 +148,4 @@ class Gsm8kSuite(BenchmarkSuite):
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-gsm8k-mock-"))
         answers = json.loads((_FIXTURES_DIR / "mock" / "answers.json").read_text())
         summary = json.loads((_FIXTURES_DIR / "mock" / "summary.json").read_text())
-        return _write_artifacts(tmp_dir, answers, summary)
+        return write_artifacts(tmp_dir, answers, summary, rows_key="answers")

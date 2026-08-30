@@ -7,7 +7,7 @@ from clousight_bench.core.fingerprints import record_digest
 
 def _write(root: Path, run_id="r1"):
     payload = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "run": {
             "run_id": run_id,
             "started_at": "2026-01-01T00:00:00Z",
@@ -109,7 +109,7 @@ def test_flatten_findings(tmp_path):
 
 def test_records_expose_list_and_discount(tmp_path):
     payload = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "run": {"run_id": "rc", "stages": {}},
         "identity": {
             "domain": "agent-runtime",
@@ -139,7 +139,7 @@ def test_records_expose_list_and_discount(tmp_path):
 
 def test_records_expose_execution(tmp_path):
     payload = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "run": {"run_id": "re", "stages": {}},
         "identity": {
             "domain": "agent-runtime",

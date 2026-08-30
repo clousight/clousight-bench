@@ -24,6 +24,16 @@ RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
   enters SETUP. Bypass with `--skip-preflight`; run standalone with
   `csbench doctor`.
 - **SETUP** — `adapter.setup()`: provision (Terraform) or connect (SDK/HTTP).
+  Both `setup()` and `teardown()` are **optional no-op hooks** — the three cloud
+  phases *create → connect → destroy* are separable, and a **connect-only** run
+  (config-connect to an already-running service via `target.endpoint` /
+  `credentials_ref`) uses only *connect*. Whether a run provisions is an explicit
+  adapter capability, `provisions_resources()` (default: real cloud executed
+  live; `False` for `*-endpoint` config-connect adapters and simulators, or
+  inherit `ProvisionedCloudAdapter` to always declare `True`). The
+  **provisioned-cloud machinery — the live-run confirmation gate, the cost
+  budget/ledger, and resource reconciliation/reaping — runs only when
+  `provisions_resources()` is `True`**; a connect-only run skips all of it.
 - **EXECUTE** — `task.execute(adapter, params)`: drive the workload, return an
   `ObservationBundle` of raw observations only.
 - **COLLECT** — `core/observation.py::collect()`: prove the bundle is well
@@ -44,12 +54,20 @@ including when `setup()` failed half-way, and a teardown failure is recorded as
 its own stage error without overwriting the execute or collect error that
 caused it.
 
-## Result contract (schema 0.3)
+## Result contract (schema 0.4)
 
 Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
 `fingerprints`, `measurements`, `findings`, `observations`, `series`,
-`artifacts`, `extensions`, `errors`, `status`.
+`artifacts`, `items`, `extensions`, `errors`, `status`.
 
+- `items` (schema 0.4, optional) is the **per-item substrate**: a list of
+  `ItemResult`s (`item_id`, `group`, `input`/`output`/`reference`, per-item
+  `scores` with a 4-state `status` ∈ `ok`·`fail`·`skip`·`error`, `usage`). The
+  scalar `measurements` are their aggregation (`core/aggregate.py` — mean/ratio/
+  geomean/percentile + Wilson/normal confidence intervals + per-`group`
+  breakdowns). Empty for suites not yet migrated to per-item scoring. Capped by
+  `CSBENCH_MAX_PERSISTED_ITEMS` (default 1000); truncation is recorded under
+  `extensions.core.items_meta`, never silent.
 - `status` ∈ `completed` · `failed` · `invalid` · `unsupported`. There is no
   boolean `ok`, no top-level `metrics`, no top-level `evidence_layer` and no
   `config_hash`.
@@ -57,7 +75,27 @@ Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
   numbers came from a simulated runtime or a real cloud. It is folded into the
   environment fingerprint, so simulated and live results never pool together.
 - Every measurement carries `value`, `unit` and `official`, optionally
-  `reproducibility_class`, `aggregation`, `sample_count` and `notes`.
+  `reproducibility_class`, `aggregation`, `sample_count`, `notes` and `ci`.
+- **Judge-based metrics** (`reproducibility_class="judge-based"`) are real via the
+  judge base (`core/judge.py`): a `JudgeModel` (config-connected `EndpointJudge`,
+  SSRF-guarded) is asked for a CATEGORICAL verdict and fixed arithmetic maps it to
+  a score — G-Eval's non-reproducible top-logprob weighting is deliberately
+  rejected. `judge_emit` gets structured output from any judge (native JSON-schema
+  mode, else prompt + brace-slice/trailing-comma repair). The `response-quality`
+  metric is the reference: a rubric judge with optional self-consistency; it
+  `skip`s cleanly when no judge is configured (so CI never calls a live judge) and
+  records the judge model id + verdict in each item score. Run it by opting the
+  metric in and config-connecting a judge:
+  `params: {extra_metrics: [response-quality], judge: {provider: openai-compatible,
+  endpoint: ..., model: ..., credentials_ref: env:KEY, cache: .judge_cache.json}}` —
+  a judge-configured run does network I/O in scoring and is not offline-re-scorable,
+  by design. A `cache` path wraps the judge in a content-addressed `CachingJudge`
+  so a re-run reuses verdicts and never re-pays the LLM calls (only judge scoring is
+  cached — never environmental numbers).
+- **Golden ↔ executed** split: the benchmark spec is the versioned `DatasetHandle`
+  (`version` + `digest`, pinned in-repo) plus each item's `reference` (golden); the
+  run's `output` is the executed side. No separate Golden subsystem — the per-item
+  substrate already carries both.
 - Every finding carries a stable `code`, a `severity`, a `summary` and `details`.
 - Every stage error carries `stage`, `code`, `type`, `message` and `retryable`.
   Tracebacks are never stored in a record; `csbench run --debug` writes them to
@@ -69,13 +107,13 @@ Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
   name (for example `extensions["cb-pricing"]`).
 
 Schema `1.0` records are no longer supported. Re-run the benchmark to produce
-a current `0.3` record.
+a current `0.4` record.
 
 ## Run plans and statistics (Phase 1C)
 
 A single number is not a measurement. `csbench run --repeat N --warmup W`
 (`core/runplan.py`) runs the same `RunSpec` `warmup + repeat` times through the
-lifecycle above — every run is still its own digested `0.3` record — then:
+lifecycle above — every run is still its own digested `0.4` record — then:
 
 - discards the `warmup` runs (cold-start / JIT / cache effects are not the
   steady state you publish), tagging each record's role under
@@ -109,7 +147,7 @@ CLI (csbench)
        ├─ DomainPack  → Task(s) + Adapter(s)         [per product category]
        │     └─ Adapter (setup/submit/teardown)      [per (domain, cloud)]
        │           └─ WorkloadEngine (JSONL, any language)  [per load generator]
-       ├─ Schema (RunSpec / ResultRecord 0.3 / fingerprints / provenance)
+       ├─ Schema (RunSpec / ResultRecord 0.4 / fingerprints / provenance)
        └─ Viewer (csbench serve: records, provenance, trace)
 ```
 
@@ -190,6 +228,25 @@ Alongside the domain-task pipeline, Clousight Bench ships a second contract for
   `swe-bench.cost_per_resolved`) + bundled fixtures for offline / CI use.  The
   real Docker-backed `run()` path requires the `[swebench]` extra and is gated
   behind `@pytest.mark.slow`.
+- **SWE-bench Lite** (variant): the 300-instance curated subset ships as
+  `SweBenchLiteSuite` (entry point `swe-bench-lite`) + `OfficialSweLiteEvaluator`
+  (emits `swe-bench-lite.resolved` / `swe-bench-lite.cost_per_resolved`).  It is
+  a **thin subclass** of the flagship — identical harness, report shape, and
+  agent-runtime plumbing; only the pinned HuggingFace split
+  (`princeton-nlp/SWE-bench_Lite`), the bundled real fixtures, and the namespace
+  differ.  This is the parametrization seam future variants (Multimodal) reuse:
+  a variant overrides the `suite_id` / `suite_version` / `fixtures_dir` /
+  `dataset_name` class attributes and inherits everything else.
+- **SWE-bench Multimodal** (variant): image-augmented issues from real
+  JavaScript / visual-frontend repos, shipped as `SweBenchMultimodalSuite`
+  (entry point `swe-bench-multimodal`) + `OfficialSweMultimodalEvaluator` (emits
+  `swe-bench-multimodal.resolved` / `.cost_per_resolved`).  Same thin-subclass
+  seam as Lite, plus a 7th fixture field `image_assets` (image URLs) threaded to
+  the agent by `_load_instance`.  It binds the **`dev`** split on purpose: the
+  510-instance `test` leaderboard split has its gold patches held out (scored via
+  the hosted `sb-cli` service), whereas the 102-instance `dev` split ships real
+  gold patches and is locally Docker-runnable — matching how Verified/Lite work.
+  Wiring the hosted test-split path is a documented future (gated) addition.
 
 ## Current domains
 
@@ -251,7 +308,7 @@ Alongside the domain-task pipeline, Clousight Bench ships a second contract for
   resolved with `core.resources.reference_workload_path()`, so wheel and
   editable installs use the same files.
 
-Phase 1B ships ResultRecord schema `0.3` (see "Result contract" above); plugin
+Phase 1B ships ResultRecord schema `0.4` (see "Result contract" above); plugin
 API `1.0` stays until its range-negotiation replacement in Phase 1D.
 
 This repository is public and Apache-2.0 licensed; it contains the whole open

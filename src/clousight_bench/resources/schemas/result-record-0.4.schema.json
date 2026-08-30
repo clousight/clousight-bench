@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Clousight Bench ResultRecord 0.3",
+  "title": "Clousight Bench ResultRecord 0.4",
   "type": "object",
   "required": ["schema_version", "run", "identity", "environment",
     "fingerprints", "measurements", "findings", "observations", "series",
     "artifacts", "extensions", "errors", "status"],
   "properties": {
-    "schema_version": {"const": "0.3"},
+    "schema_version": {"const": "0.4"},
     "status": {"enum": ["completed", "failed", "invalid", "unsupported", "interrupted"]},
     "run": {"type": "object"},
     "identity": {"type": "object"},
@@ -38,7 +38,45 @@
           "official": {"type": "boolean"},
           "aggregation": {"type": "string"},
           "sample_count": {"type": ["integer", "null"]},
-          "notes": {"type": "string"}
+          "notes": {"type": "string"},
+          "ci": {
+            "type": ["array", "null"],
+            "items": {"type": "number"},
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["item_id", "scores"],
+        "properties": {
+          "item_id": {"type": "string"},
+          "group": {"type": "string"},
+          "input": {},
+          "output": {},
+          "reference": {},
+          "usage": {"type": "object"},
+          "attrs": {"type": "object"},
+          "scores": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["metric", "value", "status"],
+              "properties": {
+                "metric": {"type": "string"},
+                "value": {},
+                "status": {"enum": ["ok", "fail", "skip", "error"]},
+                "reason": {"type": "string"},
+                "error": {"type": "string"}
+              },
+              "additionalProperties": false
+            }
+          }
         },
         "additionalProperties": false
       }

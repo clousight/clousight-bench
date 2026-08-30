@@ -26,11 +26,11 @@ run `Target` by the transactional-db adapters:
 ```bash
 # offline mock (no tool, no database) — the CI path:
 printf 'target:\n  mode: mock\n' > mock.yaml
-csbench run --domain transactional-db --task suite:tpc-c --platform benchbase-local --config mock.yaml
+csbench run --domain transactional-db --benchmark tpc-c --platform benchbase-local --config mock.yaml
 
 # real run against an already-running Postgres (config-connect):
 printf 'target:\n  mode: runtime\n  dbtype: postgres\n  endpoint: "127.0.0.1:5432"\nparams:\n  scalefactor: 10\n  terminals: 8\n  time: 60\n' > pg.yaml
-csbench run --domain transactional-db --task suite:tpc-c --platform jdbc-endpoint --config pg.yaml
+csbench run --domain transactional-db --benchmark tpc-c --platform jdbc-endpoint --config pg.yaml
 ```
 
 `params.scalefactor` = warehouses (default 1); `terminals` (default 1); `time`

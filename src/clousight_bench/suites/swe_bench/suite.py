@@ -109,10 +109,20 @@ class SweBenchSuite(BenchmarkSuite):
     extra is required only for the real Docker-backed ``run()`` path.
     """
 
+    # --- suite identity / dataset binding -----------------------------------
+    # These are class attributes so a variant (e.g. SWE-bench Lite / Multimodal)
+    # is a thin subclass that overrides them — the run/prepare/mock logic below
+    # reads them via ``self``/``cls`` and never hardcodes the Verified split.
     suite_id: str = "swe-bench"
-    suite_version: str = _HF_REVISION
+    suite_version: str = _HF_REVISION  # "<hf-dataset>@<commit>" — provenance pin
+    fixtures_dir: Path = _FIXTURES_DIR
+    dataset_name: str = "princeton-nlp/SWE-bench_Verified"  # harness --dataset_name
+    split: str = "test"
 
     # Parsed instances_full.json, cached on the class after the first read.
+    # NOTE: subclasses MUST redeclare this attribute so each variant caches its
+    # OWN fixtures (a subclass that omits it would read the base class's cache
+    # via the MRO and load the wrong instance rows).
     _instances_full_cache: list[dict[str, Any]] | None = None
 
     # ------------------------------------------------------------------
@@ -129,7 +139,7 @@ class SweBenchSuite(BenchmarkSuite):
         """
         cls = type(self)
         if cls._instances_full_cache is None:
-            cls._instances_full_cache = json.loads((_FIXTURES_DIR / "instances_full.json").read_text())
+            cls._instances_full_cache = json.loads((self.fixtures_dir / "instances_full.json").read_text())
         by_id = {row["instance_id"]: row for row in cls._instances_full_cache}
         if iid not in by_id:
             raise KeyError(f"unknown instance_id {iid!r}; available: {sorted(by_id)}")
@@ -152,7 +162,7 @@ class SweBenchSuite(BenchmarkSuite):
         if "instance_ids" in cfg:
             instance_ids: list[str] = list(cfg["instance_ids"])
         else:
-            raw: list[dict] = json.loads((_FIXTURES_DIR / "instances_subset.json").read_text())
+            raw: list[dict] = json.loads((self.fixtures_dir / "instances_subset.json").read_text())
             instance_ids = [inst["instance_id"] for inst in raw]
 
         # Deterministic digest: sorted ids + pinned version
@@ -204,8 +214,8 @@ class SweBenchSuite(BenchmarkSuite):
             "instance_ids": instance_ids,
             "agent_kind": dataset.payload.get("agent_kind", "gold"),
             "_tmp_dir": tmp_dir,
-            "dataset_name": "princeton-nlp/SWE-bench_Verified",
-            "split": "test",
+            "dataset_name": self.dataset_name,
+            "split": self.split,
             "run_id": run_id,
             "harness_timeout_s": 3600.0,
         }
@@ -351,8 +361,8 @@ class SweBenchSuite(BenchmarkSuite):
             traj_path.write_text("".join(json.dumps(s) + "\n" for s in span_lines))
             usage_path.write_text("".join(json.dumps(u) + "\n" for u in usage_lines))
         else:
-            shutil.copy(_FIXTURES_DIR / "trajectory.jsonl", traj_path)
-            shutil.copy(_FIXTURES_DIR / "usage.jsonl", usage_path)
+            shutil.copy(self.fixtures_dir / "trajectory.jsonl", traj_path)
+            shutil.copy(self.fixtures_dir / "usage.jsonl", usage_path)
 
         # Locate the upstream harness report at the exact path it is documented to produce:
         #   <report_dir>/<model_name_or_path.replace('/', '__')>.<run_id>.json
@@ -437,6 +447,26 @@ class SweBenchSuite(BenchmarkSuite):
             return
 
     # ------------------------------------------------------------------
+    # provenance scaffold (agent identity — mode-aware)
+    # ------------------------------------------------------------------
+
+    def scaffold(self, params: dict[str, Any], *, mock: bool) -> str:
+        """The agent scaffold that produced the artifacts (Provenance.scaffold).
+
+        A mock run is ALWAYS the slice-1 mock-agent pin regardless of agent_kind
+        (canned fixtures must never claim a real-SUT scaffold). A non-mock run
+        derives the slice-2 scaffold from ``params['agent_kind']`` (oracle/llm);
+        anything else keeps the slice-1 mock-agent pin. Shared by the Lite /
+        Multimodal subclasses. Values are pinned — changing them moves the
+        benchmark fingerprint.
+        """
+        if mock:
+            return "mock-agent@slice1"
+        return {"oracle": "oracle@slice2", "llm": "qwen-llm@slice2"}.get(
+            str(params.get("agent_kind") or ""), "mock-agent@slice1"
+        )
+
+    # ------------------------------------------------------------------
     # mock_artifacts
     # ------------------------------------------------------------------
 
@@ -462,7 +492,7 @@ class SweBenchSuite(BenchmarkSuite):
 
         manifest: dict[str, dict[str, Any]] = {}
         for key, (filename, row_counter) in fixture_map.items():
-            src = _FIXTURES_DIR / filename
+            src = self.fixtures_dir / filename
             dst = tmp_dir / filename
             shutil.copy(src, dst)
             manifest[key] = {

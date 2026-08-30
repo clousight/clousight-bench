@@ -26,11 +26,11 @@ The system under test is YCSB's own *binding* + endpoint, resolved from the run
 ```bash
 # offline mock (no tool, no datastore) — the CI path:
 printf 'target:\n  mode: mock\n' > mock.yaml
-csbench run --domain key-value --task suite:ycsb --platform ycsb-local --config mock.yaml
+csbench run --domain key-value --benchmark ycsb --platform ycsb-local --config mock.yaml
 
 # real run against an already-running Redis (config-connect):
 printf 'target:\n  mode: runtime\n  binding: redis\n  endpoint: "127.0.0.1:6379"\nparams:\n  workload: workloada\n  recordcount: 100000\n  operationcount: 100000\n' > redis.yaml
-csbench run --domain key-value --task suite:ycsb --platform ycsb-endpoint --config redis.yaml
+csbench run --domain key-value --benchmark ycsb --platform ycsb-endpoint --config redis.yaml
 ```
 
 `params.workload` is a YCSB core workload (`workloada`..`workloadf`, default

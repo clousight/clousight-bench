@@ -23,11 +23,11 @@ BenchBase 构建(Java)在 `$BENCHBASE_HOME` 或 `benchbase` 启动器;离线 moc
 ```bash
 # 离线 mock(无工具、无数据库)——CI 路径:
 printf 'target:\n  mode: mock\n' > mock.yaml
-csbench run --domain transactional-db --task suite:tpc-c --platform benchbase-local --config mock.yaml
+csbench run --domain transactional-db --benchmark tpc-c --platform benchbase-local --config mock.yaml
 
 # 对着已有 Postgres 真实运行(配置接入):
 printf 'target:\n  mode: runtime\n  dbtype: postgres\n  endpoint: "127.0.0.1:5432"\nparams:\n  scalefactor: 10\n  terminals: 8\n  time: 60\n' > pg.yaml
-csbench run --domain transactional-db --task suite:tpc-c --platform jdbc-endpoint --config pg.yaml
+csbench run --domain transactional-db --benchmark tpc-c --platform jdbc-endpoint --config pg.yaml
 ```
 
 `params.scalefactor` = 仓库数(默认 1);`terminals`(默认 1);`time` 秒(默认 60)。

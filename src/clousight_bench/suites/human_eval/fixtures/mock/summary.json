@@ -1,0 +1,8 @@
+{
+  "model": "mock-llm",
+  "suite_version": "openai/openai_humaneval@7dce6050a7d6d172f3cc5c32aa97f52fa1a2e544",
+  "problem_count": 6,
+  "prompt_tokens": 1320,
+  "completion_tokens": 240,
+  "executed": false
+}

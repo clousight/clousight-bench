@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-SCHEMA_VERSION = "0.3"
+SCHEMA_VERSION = "0.4"
 
 STATUSES: tuple[str, ...] = ("completed", "failed", "invalid", "unsupported", "interrupted")
 STAGES: tuple[str, ...] = (
@@ -257,13 +257,18 @@ class Provenance:
 
 @dataclass
 class ResultRecord:
-    """One benchmark result in schema 0.3.
+    """One benchmark result in schema 0.4.
 
     ``observations`` holds the raw evidence a re-score would replay. When that
     evidence is too large to inline, a Task stores an artifact pointer instead
     — ``{"trace": {"$artifact": "trace.jsonl"}}`` — where the value names an
     entry in ``artifacts``. Either shape is valid; ``observations`` must never
     be dropped just because the payload is big.
+
+    ``items`` (schema 0.4, optional) holds per-example :class:`ItemResult`
+    evidence + per-item scores; the scalar ``measurements`` are their aggregation
+    (see :mod:`clousight_bench.core.aggregate`). Empty for suites that have not
+    migrated to the per-item substrate.
     """
 
     run: RunInfo
@@ -276,6 +281,7 @@ class ResultRecord:
     observations: dict[str, Any] = field(default_factory=dict)
     series: dict[str, Any] = field(default_factory=dict)
     artifacts: list[dict[str, Any]] = field(default_factory=list)
+    items: list[dict[str, Any]] = field(default_factory=list)
     extensions: dict[str, Any] = field(default_factory=dict)
     errors: list[dict[str, Any]] = field(default_factory=list)
     provenance: Provenance = field(default_factory=Provenance)
@@ -300,6 +306,7 @@ class ResultRecord:
             "observations": dict(self.observations),
             "series": dict(self.series),
             "artifacts": list(self.artifacts),
+            "items": list(self.items),
             "extensions": dict(self.extensions),
             "errors": list(self.errors),
             "status": self.status,
@@ -329,6 +336,7 @@ class ResultRecord:
             observations=dict(data.get("observations", {})),
             series=dict(data.get("series", {})),
             artifacts=list(data.get("artifacts", [])),
+            items=list(data.get("items", [])),
             extensions=dict(data.get("extensions", {})),
             errors=list(data.get("errors", [])),
             provenance=Provenance.from_dict(data.get("provenance", {})),

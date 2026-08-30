@@ -27,7 +27,7 @@ def test_a_plain_run_still_prints_one_record(tmp_path, capsys):
     )
     out = json.loads(capsys.readouterr().out)
     assert rc == 0
-    assert out["schema_version"] == "0.3"
+    assert out["schema_version"] == "0.4"
     assert "run_plan" not in out.get("extensions", {}).get("core", {})
 
 

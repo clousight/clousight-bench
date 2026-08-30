@@ -8,7 +8,7 @@ from clousight_bench.core.fingerprints import record_digest
 
 def _write_record(path: Path, measurements: dict, tamper: bool = False) -> None:
     payload = {
-        "schema_version": "0.3",
+        "schema_version": "0.4",
         "run": {
             "run_id": "run-test",
             "started_at": "2026-01-01T00:00:00Z",

@@ -91,6 +91,29 @@ class ProviderAdapter(ABC):
         do not distinguish modes are unaffected."""
         return type(self).is_runnable()
 
+    def provisions_resources(self) -> bool:
+        """Whether THIS run creates billable cloud resources the framework must
+        gate, budget, and reap — the explicit "provisioned-cloud" capability.
+
+        The single seam the orchestrator uses to decide whether to run the
+        provisioned-cloud machinery: the live-run confirmation gate, the cost
+        budget/ledger, and resource reconciliation (`csbench sweep`-style
+        reaping). When it returns ``False`` the run is **connect-only** — it
+        attaches to an already-running service (config-connect via
+        ``target.endpoint`` / ``credentials_ref``) or a simulated/local reference
+        — and none of that machinery runs (the three lifecycle phases
+        create/connect/destroy collapse to just connect).
+
+        The default derives the answer: a real cloud (``provider`` set) executed
+        live. Config-connect adapters (``*-endpoint``) and simulators leave
+        ``provider`` unset / ``execution_mode`` simulated, so they are
+        connect-only by default. A provisioning adapter may instead inherit
+        :class:`ProvisionedCloudAdapter`, which declares this ``True``.
+        """
+        # bool(self.provider): an empty-string provider counts as no provider
+        # (matches the historical truthiness check this seam replaced).
+        return self.execution_mode() == "live" and bool(self.provider)
+
     def setup(self) -> None:  # noqa: B027 - optional hook
         """Provision / connect. Default no-op."""
 
@@ -143,6 +166,21 @@ class ProviderAdapter(ABC):
         report.add(pf.credential_check(self.target, self.name))
         report.add(pf.sdk_check(self.target, self.name))
         return report
+
+
+class ProvisionedCloudAdapter(ProviderAdapter):
+    """A ProviderAdapter that provisions billable cloud resources.
+
+    Opt-in base for adapters whose ``setup()`` creates real, billed resources
+    (a runtime, a cluster, a DB instance). Declares
+    :meth:`provisions_resources` ``True`` unconditionally, so the orchestrator
+    always runs the live-gate / cost budget / reaper for it — no reliance on the
+    ``provider``/``execution_mode`` derivation. Connect-only adapters simply do
+    NOT inherit this (they attach to an already-running service and skip the whole
+    provisioned-cloud machinery)."""
+
+    def provisions_resources(self) -> bool:
+        return True
 
 
 class Task(ABC):

@@ -934,3 +934,23 @@ def test_run_raises_with_stderr_tail(tmp_path):
         with mock.patch.object(subprocess, "run", side_effect=fake_subprocess_run):
             with pytest.raises(RuntimeError, match="boom"):
                 suite.run(target, env, driver)
+
+
+def test_scaffold_is_mode_aware_agent_pin():
+    """R3: the agent-scaffold logic now lives on the suite (moved out of core).
+
+    Mock runs always pin the slice-1 mock agent (canned fixtures never claim a
+    real-SUT scaffold); non-mock derives slice-2 from agent_kind. Values are
+    pinned — they feed the benchmark fingerprint, so this guards against drift.
+    """
+    from clousight_bench.suites.swe_bench.suite import SweBenchSuite
+
+    s = SweBenchSuite()
+    assert s.scaffold({"agent_kind": "oracle"}, mock=False) == "oracle@slice2"
+    assert s.scaffold({"agent_kind": "llm"}, mock=False) == "qwen-llm@slice2"
+    assert s.scaffold({}, mock=False) == "mock-agent@slice1"
+    assert s.scaffold({"agent_kind": "gold"}, mock=False) == "mock-agent@slice1"
+    # a mock run is always the slice-1 pin regardless of agent_kind
+    for kind in ("oracle", "llm", "gold", None):
+        params = {} if kind is None else {"agent_kind": kind}
+        assert s.scaffold(params, mock=True) == "mock-agent@slice1", f"agent_kind={kind!r}"

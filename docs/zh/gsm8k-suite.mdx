@@ -10,11 +10,11 @@ GSM8K(小学数学应用题,openai/gsm8k,MIT)是 `llm` 域上的第二个套件,
 ```bash
 # 离线 mock(无网络、无 key):
 printf 'target:\n  mode: mock\n' > mock.yaml
-csbench run --domain llm --task suite:gsm8k --platform llm-mock --config mock.yaml
+csbench run --domain llm --benchmark gsm8k --platform llm-mock --config mock.yaml
 
 # 对托管 LLM 真实运行(配置接入):
 printf 'target:\n  mode: runtime\n  endpoint: "https://.../v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  limit: 100\n' > qwen.yaml
-csbench run --domain llm --task suite:gsm8k --platform llm-endpoint --config qwen.yaml
+csbench run --domain llm --benchmark gsm8k --platform llm-endpoint --config qwen.yaml
 ```
 
 测量:`gsm8k.accuracy`(确定性)+ `gsm8k.{avg_latency_ms,total_tokens,cost_usd}`
