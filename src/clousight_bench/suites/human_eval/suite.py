@@ -41,7 +41,8 @@ from clousight_bench.core.suite import (
     RawArtifacts,
     Target,
 )
-from clousight_bench.suites._llm_shared import (
+from clousight_bench.suites.human_eval.executor import run_candidate
+from clousight_bench.suites.llm_common import (
     chat_once,
     extract_code,
     resolve_endpoint,
@@ -49,7 +50,6 @@ from clousight_bench.suites._llm_shared import (
     validate_endpoint,
     write_artifacts,
 )
-from clousight_bench.suites.human_eval.executor import run_candidate
 
 # Re-exported for callers/tests that import them from this suite module; the
 # implementations live in the shared llm module.

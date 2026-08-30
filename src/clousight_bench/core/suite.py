@@ -65,21 +65,53 @@ class DriverContext:
 
 
 class BenchmarkSuite(ABC):
+    """A benchmark — the primary public extension unit.
+
+    Wrap a recognized upstream harness (SWE-bench, TPC-DS, MMLU, …) or any
+    reproducible workload. Register a subclass under the
+    ``clousight_bench.benchmark_suites`` entry-point group and pair it with an
+    :class:`Evaluator`; run it with ``csbench run --benchmark <suite_id>``.
+
+    Lifecycle the orchestrator drives: ``resolve`` (pick the dataset, offline) →
+    ``prepare`` (connect/provision) → ``run`` (produce raw artifacts) →
+    ``teardown``; ``mock_artifacts`` is the offline path used by tests / CI /
+    ``mode: mock``. Set ``suite_id`` (matches the entry-point + the ``suite:``
+    id + the measurement namespace) and ``suite_version`` (a provenance pin that
+    moves the benchmark fingerprint when the dataset/harness changes).
+    """
+
     suite_id: str = "abstract"
     suite_version: str = "0"
     requires_plugin_api: str = ">=1.0,<2.0"
 
     @abstractmethod
-    def resolve(self, cfg: dict[str, Any], assets: Any) -> DatasetHandle: ...
+    def resolve(self, cfg: dict[str, Any], assets: Any) -> DatasetHandle:
+        """Pick the dataset/subset for this run and return a :class:`DatasetHandle`
+        (``version`` + a deterministic ``digest`` + a suite-private ``payload``).
+        Must be cheap and offline (a pin read / bundled-fixture lookup) — no
+        network, no credentials; it also runs to compute the benchmark fingerprint."""
+
     @abstractmethod
-    def prepare(self, target: Target, dataset: DatasetHandle, driver: DriverContext) -> EnvHandle: ...
+    def prepare(self, target: Target, dataset: DatasetHandle, driver: DriverContext) -> EnvHandle:
+        """Set up the run environment for ``target`` (config-connect to an
+        already-running SUT, or provision one) and return an :class:`EnvHandle`
+        payload that ``run`` reads. May touch the cloud / read credentials."""
+
     @abstractmethod
-    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts: ...
+    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:
+        """Drive the workload and return :class:`RawArtifacts` (a directory + a
+        manifest of named files) — raw, replayable evidence only, no scoring."""
+
     def teardown(self, env: EnvHandle) -> None:
+        """Release anything ``prepare``/``run`` created. Always called (even on
+        failure). Default no-op — connect-only suites need nothing."""
         return None
 
     @abstractmethod
-    def mock_artifacts(self, cfg: dict[str, Any]) -> RawArtifacts: ...
+    def mock_artifacts(self, cfg: dict[str, Any]) -> RawArtifacts:
+        """Return :class:`RawArtifacts` from a bundled offline fixture — no
+        network, no credentials, no SUT. The path CI / ``mode: mock`` uses; must
+        produce the same artifact shape ``run`` does so the evaluator is identical."""
 
     def scaffold(self, params: dict[str, Any], *, mock: bool) -> str:  # noqa: ARG002
         """Provenance scaffold tag for this run — the SUT harness/agent identity
@@ -95,6 +127,14 @@ class BenchmarkSuite(ABC):
 
 
 class Evaluator(ABC):
+    """Scores a suite's :class:`RawArtifacts` into namespaced :class:`Measurement`s.
+
+    A pure function of the artifacts — no cloud, no credentials — so a stored run
+    is re-scorable. Register under ``clousight_bench.evaluators``; set
+    ``evaluator_id`` and ``official`` (True = the suite's canonical numbers,
+    emitted under the ``<suite_id>.`` namespace, which conformance enforces).
+    """
+
     evaluator_id: str = "abstract"
     official: bool = True
     requires_plugin_api: str = ">=1.0,<2.0"
@@ -105,9 +145,15 @@ class Evaluator(ABC):
     extra_metric_ids: tuple[str, ...] = ()
 
     @abstractmethod
-    def supports(self, suite_id: str, product: str) -> bool: ...
+    def supports(self, suite_id: str, product: str) -> bool:
+        """Whether this evaluator scores ``suite_id`` (usually
+        ``suite_id == self.suite_id``). The registry picks a supporting
+        evaluator, preferring ``official`` ones."""
+
     @abstractmethod
-    def evaluate(self, raw: RawArtifacts) -> dict[str, Measurement]: ...
+    def evaluate(self, raw: RawArtifacts) -> dict[str, Measurement]:
+        """Map the artifacts to ``{"<suite_id>.<metric>": Measurement}``. Must be
+        fail-safe — a missing/corrupt artifact returns ``{}``, never raises."""
 
     def items(self, raw: RawArtifacts) -> list[ItemResult]:  # noqa: ARG002
         """Optional per-item substrate (schema 0.4). Return per-example

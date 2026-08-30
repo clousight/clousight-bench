@@ -1,7 +1,7 @@
 """Campaign manifests: a live, readable progress record for a run-plan.
 
 A ``run-plan`` runs many tasks serially, each through its own ``execute_plan``.
-Every single run still lands its own auditable ``0.2`` record, but *while the
+Every single run still lands its own auditable ``0.4`` record, but *while the
 campaign is in flight* there is nothing to read but stdout and the records
 trickling onto disk -- you cannot tell how many tasks are left, or which one is
 running now, without grepping logs.

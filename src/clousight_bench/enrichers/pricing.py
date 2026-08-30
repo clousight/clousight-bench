@@ -1,6 +1,6 @@
 """Reference cost enricher: price usage measurements into a cost estimate.
 
-The open reference implementation of cost attribution for ResultRecord 0.2. It
+The open reference implementation of cost attribution for ResultRecord 0.4. It
 reads the usage measurements a task records (names in
 :data:`core.usage.USAGE_METRIC_KEYS`) and multiplies them by unit prices from a
 small bundled seed of public list prices.

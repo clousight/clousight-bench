@@ -35,21 +35,39 @@
             ]
           },
           {
-            "group": "Guides",
+            "group": "Core concepts",
             "pages": [
-              "docs/plugins",
-              "docs/probe-carrier",
-              "docs/swe-bench-live-runbook",
-              "docs/tpcds-suite",
-              "docs/ycsb-suite",
-              "docs/tpcc-suite",
+              "docs/metrics",
+              "docs/judges",
+              "docs/dataset-tiers"
+            ]
+          },
+          {
+            "group": "Build a benchmark",
+            "pages": [
+              "docs/adding-a-suite",
+              "docs/plugins"
+            ]
+          },
+          {
+            "group": "Benchmarks",
+            "pages": [
               "docs/mmlu-suite",
               "docs/gsm8k-suite",
               "docs/human-eval-suite",
+              "docs/tpcds-suite",
+              "docs/ycsb-suite",
+              "docs/tpcc-suite",
+              "docs/swe-bench-live-runbook"
+            ]
+          },
+          {
+            "group": "Operate",
+            "pages": [
               "docs/pytest-ci",
               "docs/viewer",
               "docs/querying",
-              "docs/dataset-tiers"
+              "docs/probe-carrier"
             ]
           },
           {
@@ -72,21 +90,39 @@
             ]
           },
           {
-            "group": "指南",
+            "group": "核心概念",
             "pages": [
-              "docs/zh/plugins",
-              "docs/zh/probe-carrier",
-              "docs/zh/swe-bench-live-runbook",
-              "docs/zh/tpcds-suite",
-              "docs/zh/ycsb-suite",
-              "docs/zh/tpcc-suite",
+              "docs/zh/metrics",
+              "docs/zh/judges",
+              "docs/zh/dataset-tiers"
+            ]
+          },
+          {
+            "group": "构建 benchmark",
+            "pages": [
+              "docs/zh/adding-a-suite",
+              "docs/zh/plugins"
+            ]
+          },
+          {
+            "group": "基准套件",
+            "pages": [
               "docs/zh/mmlu-suite",
               "docs/zh/gsm8k-suite",
               "docs/zh/human-eval-suite",
+              "docs/zh/tpcds-suite",
+              "docs/zh/ycsb-suite",
+              "docs/zh/tpcc-suite",
+              "docs/zh/swe-bench-live-runbook"
+            ]
+          },
+          {
+            "group": "运维",
+            "pages": [
               "docs/zh/pytest-ci",
               "docs/zh/viewer",
               "docs/zh/querying",
-              "docs/zh/dataset-tiers"
+              "docs/zh/probe-carrier"
             ]
           },
           {

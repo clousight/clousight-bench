@@ -1,16 +1,17 @@
-"""Shared helpers for the ``llm``-domain benchmark suites (mmlu / gsm8k /
-human-eval).
+"""Reusable building blocks for ``llm``-domain benchmark suites (public).
 
-These suites all wrap an OpenAI-compatible ``/chat/completions`` endpoint, write
-a ``<rows>.json`` + ``summary.json`` artifact pair, and emit the same serving
-dimensions (latency / tokens / cost). The per-suite files keep only what genuinely
-differs — the prompt, the answer parsing/scoring, and the objective metric — and
-import the rest from here so the scaffolding lives in one place.
+The bundled mmlu / gsm8k / human-eval suites are built from these; a third-party
+or commercial LLM suite is expected to reuse them too — hence this is a public
+module (not underscore-prefixed). It provides: artifact writing (``sha256_bytes``,
+``write_artifacts``), per-item construction + aggregation (``rows_to_items``,
+``serving_measurements``), and the SSRF-guarded OpenAI-compatible transport
+(``resolve_endpoint``, ``chat_once``, ``EndpointJudge``, ``extract_code``,
+``validate_endpoint``). Requires the ``[llm]`` extra (``requests``) for the real
+endpoint path; offline/mock paths need nothing.
 """
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import json
 import re
@@ -18,14 +19,23 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from clousight_bench.core.canonical import sha256_bytes  # re-exported for suites
 from clousight_bench.core.judge import JudgeModel
 from clousight_bench.core.observation import ItemResult, ItemScore, Measurement
 from clousight_bench.core.suite import RawArtifacts
 from clousight_bench.enrichers.pricing import tokens_1k_price
 
-
-def sha256_bytes(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
+__all__ = [
+    "sha256_bytes",
+    "rows_to_items",
+    "write_artifacts",
+    "serving_measurements",
+    "extract_code",
+    "validate_endpoint",
+    "resolve_endpoint",
+    "chat_once",
+    "EndpointJudge",
+]
 
 
 def rows_to_items(

@@ -1,49 +1,59 @@
 # Examples
 
-Copy-paste runnable flows. None of these need a cloud account.
-
-## 1. Agent runtime: fault recovery, two policies
-
-```bash
-# auto-retry runtime absorbs a transient tool fault -> completes
-csbench run --domain agent-runtime --task T1.3 --platform local-sim
-
-# fail-fast runtime surfaces the same fault -> aborts
-csbench run --domain agent-runtime --task T1.3 --platform local-sim \
-    --config configs/local-sim.fail-fast.yaml
-```
-
-The mock tool universe is pinned and the fault is deterministic (the 3rd call
-fails), so both runs are replayable and their `config_hash` values are stable.
-
-## 2. Big data: a batch job on a local "cluster"
+Copy-paste runnable flows. None of these need a cloud account or an API key —
+they run the real stage machine over each benchmark's bundled fixture in
+`mode: mock`.
 
 ```bash
-csbench run --domain bigdata-emr --task J1.1 --platform local-process
+printf 'target:\n  mode: mock\n' > mock.yaml
 ```
 
-Same lifecycle as the agent-runtime run, but the "system under test" is a
-packaged subprocess workload reached over the cross-language JSONL protocol —
-proof the abstraction carries a non-agent product. Resolve it safely from either
-an editable or wheel install:
-
-```python
-from clousight_bench.core.resources import reference_workload_path
-from clousight_bench.core.workload import WorkloadEngine
-
-engine = WorkloadEngine(reference_workload_path("wordcount-py"))
-```
-
-## 3. Aggregate into a comparison report
+## 1. Run a coding benchmark (agent-runtime)
 
 ```bash
-csbench report            # writes results/comparison.md
+csbench run --domain agent-runtime --benchmark swe-bench --platform local-sim --config mock.yaml
 ```
 
-## 4. Point a real platform at it
+A full `resolve → prepare → run → score → persist` over SWE-bench Verified's
+bundled fixture; emits a `status: completed`, schema-0.4 record. Swap
+`--benchmark swe-bench-lite` or `swe-bench-multimodal` for the variants.
 
-1. `cp configs/agent-runtime.aliyun.example.yaml my-aliyun.yaml` and fill it in.
-2. Expose the mock server where the cloud runtime can reach it:
-   `python -m clousight_bench.domains.agent_runtime.mock_tools --port 8770`
-3. Implement the adapter, then:
-   `csbench run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config my-aliyun.yaml`
+## 2. Run an LLM benchmark (llm domain)
+
+```bash
+csbench run --domain llm --benchmark mmlu       --platform llm-mock --config mock.yaml
+csbench run --domain llm --benchmark gsm8k      --platform llm-mock --config mock.yaml
+csbench run --domain llm --benchmark human-eval --platform llm-mock --config mock.yaml
+```
+
+Point at a real managed LLM by switching to `--platform llm-endpoint` and a config
+with `target: {mode: runtime, endpoint, model, credentials_ref}` (see the
+[MMLU](../docs/mmlu-suite.mdx) doc).
+
+## 3. Run a data-systems benchmark
+
+```bash
+csbench run --domain data-warehouse   --benchmark tpc-ds --platform duckdb-local   --config mock.yaml
+csbench run --domain key-value        --benchmark ycsb   --platform ycsb-local     --config mock.yaml
+csbench run --domain transactional-db --benchmark tpc-c  --platform benchbase-local --config mock.yaml
+```
+
+`tpc-ds` / `tpc-h` also run for real against DuckDB (the `[tpcds]`/`[tpch]` extra)
+with `target: {mode: runtime}`.
+
+## 4. Browse results
+
+```bash
+csbench serve            # web viewer at http://127.0.0.1:8787 (EN | 中文)
+csbench query 'SELECT * FROM measurements'   # DuckDB over the canonical records (needs [store])
+```
+
+## 5. Point a real platform at it
+
+Config-connect to an already-running service (no provisioning): fill in a
+`target.endpoint` / `credentials_ref` and switch `--platform` to the connect
+adapter (`llm-endpoint`, `ycsb-endpoint`, `jdbc-endpoint`). For a cloud the
+framework provisions, install the provider plugin and use `--allow-live`. See the
+[SWE-bench live runbook](../docs/swe-bench-live-runbook.mdx).
+
+To add your own benchmark, see [docs/adding-a-suite.mdx](../docs/adding-a-suite.mdx).

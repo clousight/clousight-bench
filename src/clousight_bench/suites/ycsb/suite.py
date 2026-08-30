@@ -17,7 +17,6 @@ latency (environmental). There is no answer-correctness dimension.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import subprocess
@@ -25,6 +24,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.canonical import sha256_bytes as _sha256_bytes
 from clousight_bench.core.suite import (
     BenchmarkSuite,
     DatasetHandle,
@@ -48,10 +48,6 @@ _CORE_WORKLOADS: tuple[str, ...] = (
     "workloade",
     "workloadf",
 )
-
-
-def _sha256_bytes(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def _write_artifacts(tmp_dir: Path, ycsb_output: str, summary: dict[str, Any]) -> RawArtifacts:

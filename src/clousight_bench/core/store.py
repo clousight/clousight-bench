@@ -1,4 +1,4 @@
-"""ResultStore: persist a ResultRecord 0.2, or say loudly where it went instead.
+"""ResultStore: persist a ResultRecord 0.4, or say loudly where it went instead.
 
 Record layout stays ``results/<domain>/<adapter>/<task_id>-<run_id>.json`` so
 existing tooling keeps finding results. Three promises hold on every path:
@@ -235,7 +235,7 @@ class ResultStore:
         return payload
 
     def _assert_schema(self, record: ResultRecord, payload: dict[str, Any]) -> None:
-        """Refuse to persist a record that fails the published 0.3 schema.
+        """Refuse to persist a record that fails the published 0.4 schema.
 
         Hard fail -- but never lose the produced record: dump it raw first so no
         measurement vanishes because the shape was wrong."""
@@ -247,7 +247,7 @@ class ResultStore:
                 dump_path = _emergency_write_unique(name, _dump(payload))
                 print(
                     f"clousight-bench: run {record.run.run_id} produced a record that "
-                    f"fails the 0.3 schema; raw record dumped to {dump_path}",
+                    f"fails the 0.4 schema; raw record dumped to {dump_path}",
                     file=sys.stderr,
                 )
             except Exception:  # noqa: BLE001 - the dump is best-effort
@@ -477,7 +477,7 @@ def _emergency_write_unique(name: str, text: str) -> Path:
 
 
 def _minimal_payload(record: ResultRecord) -> dict[str, Any]:
-    """Build a hand-owned canonical 0.3 record when every plugin field is bad."""
+    """Build a hand-owned canonical 0.4 record when every plugin field is bad."""
 
     def text(value: Any) -> str:
         try:

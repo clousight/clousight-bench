@@ -17,7 +17,6 @@ TPC-C via BenchBase is a performance benchmark: the evaluator reports throughput
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
@@ -26,6 +25,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.canonical import sha256_bytes as _sha256_bytes
 from clousight_bench.core.suite import (
     BenchmarkSuite,
     DatasetHandle,
@@ -39,10 +39,6 @@ _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 # Pins the BenchBase distribution the bundled mock fixture reflects.
 _SUITE_VERSION = "benchbase-2023"
-
-
-def _sha256_bytes(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def _write_artifacts(tmp_dir: Path, summary_json: str, meta: dict[str, Any]) -> RawArtifacts:

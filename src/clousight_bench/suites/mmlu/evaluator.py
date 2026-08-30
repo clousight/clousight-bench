@@ -20,7 +20,7 @@ from typing import Any
 from clousight_bench.core.aggregate import aggregate, aggregate_by_group
 from clousight_bench.core.observation import ItemResult, Measurement
 from clousight_bench.core.suite import Evaluator, RawArtifacts
-from clousight_bench.suites._llm_shared import rows_to_items, serving_measurements
+from clousight_bench.suites.llm_common import rows_to_items, serving_measurements
 
 _ACC_NOTES = "MMLU (cais/mmlu, MIT) 0-shot; objective multiple-choice accuracy"
 

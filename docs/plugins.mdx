@@ -4,7 +4,7 @@ description: Add a platform, dimension, domain, or workload engine.
 ---
 
 Clousight Bench is a **core engine + entry-point plugins**. The engine knows how
-to run a benchmark, attribute provenance, and persist schema-0.3 records; it
+to run a benchmark, attribute provenance, and persist schema-0.4 records; it
 knows nothing about any specific cloud, task, or dataset. Everything
 domain-specific — tasks, platform adapters, enrichers, reapers — is a **plugin**
 discovered at runtime through Python entry points.
@@ -59,46 +59,25 @@ installing the provider plugin wires it, without editing the adapter.
 
 ## Write your own plugin
 
-A minimal custom domain lives in its own package. Two files plus one entry point:
+The primary extension is a **benchmark** — a `BenchmarkSuite` + `Evaluator`, run
+with `csbench run --benchmark <id>`. That has its own worked, copy-pasteable
+walkthrough:
 
-```python
-# my_bench/domain.py
-from clousight_bench.core.domain import DomainPack
-from clousight_bench.core.task import Task, TaskResult
+<Card title="Add a benchmark" icon="plus" href="/docs/adding-a-suite">
+Implement a Suite + Evaluator, register two entry points, run it.
+</Card>
 
-class MyLatencyTask(Task):
-    task_id = "M1.1"
-    title = "my custom latency probe"
-    # measurements declare reproducibility_class="environmental" at score time
-    capability_tags = ("latency",)
+Add-on **[metrics](/docs/metrics)** and **[judges](/docs/judges)** follow the same
+pattern (a class + an entry point under `clousight_bench.metrics` / `.judges`).
 
-    def execute(self, adapter, params) -> TaskResult:
-        # adapter is resolved from the platform; return measurements + findings
-        ...
+Everything ships from your own package's `pyproject.toml` entry points — you never
+touch the installed `clousight-bench`. A commercial suite/metric/judge/dataset is
+just a private package that registers the same entry points; install it and
+`csbench list` picks it up, `requires_plugin_api` guarding compatibility.
 
-class MyDomain(DomainPack):
-    name = "my-bench"
-    description = "my custom benchmark"
-    def tasks(self): return {MyLatencyTask.task_id: MyLatencyTask}
-    def adapters(self): return {...}   # platform -> adapter class
-```
-
-```toml
-# my_bench/pyproject.toml
-[project.entry-points."clousight_bench.domains"]
-my-bench = "my_bench.domain:MyDomain"
-```
-
-```
-pip install ./my_bench        # or from your index
-csbench list                  # → my-bench shows up next to agent-runtime
-csbench run --domain my-bench --task M1.1 --platform local-sim
-```
-
-You never touched the installed `clousight-bench`. To **customize a reference
-task**, either register a task under the same id from a higher-precedence plugin,
-or copy the reference task's source (it is open on GitHub) into your own plugin
-and adjust it there — the installed core stays pristine either way.
+`DomainPack` + `ProviderAdapter` remain the way to add a whole product category
+and its platform adapters (e.g. a new cloud); `DomainPack.tasks()` is an internal
+execution contract, not the way to add a benchmark.
 
 ## Why the reference logic is packaged, not download-only
 

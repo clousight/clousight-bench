@@ -1,0 +1,120 @@
+---
+title: Add a benchmark
+description: Write a BenchmarkSuite + Evaluator, register two entry points, run it with csbench run --benchmark.
+---
+
+Adding a benchmark is the primary way to extend Clousight Bench — for open-source
+*and* commercial suites (a commercial suite ships the same entry points from a
+private package). You implement two classes and register two entry points; no core
+change.
+
+<Tip>
+Copy an existing self-contained suite as your template:
+`src/clousight_bench/suites/gsm8k/` (bundled fixture + evaluator + a tiny suite).
+SWE-bench is the most complete example but drags in Docker/HF — start from GSM8K.
+</Tip>
+
+## The two contracts
+
+- **`BenchmarkSuite`** produces raw artifacts: `resolve` (pick the dataset,
+  offline) → `prepare` (connect/provision) → `run` (produce a `RawArtifacts`
+  dir+manifest) → `teardown`; plus `mock_artifacts` (the offline path CI uses).
+- **`Evaluator`** scores those artifacts into namespaced `Measurement`s — a pure,
+  offline function (no cloud, no credentials), so a stored run is re-scorable.
+
+Import both from the stable surface — `clousight_bench` (or `clousight_bench.api`),
+never `clousight_bench.core.*`.
+
+## A minimal suite
+
+```python
+# my_pkg/echo_suite.py
+from clousight_bench import (
+    BenchmarkSuite, Evaluator, DatasetHandle, EnvHandle, RawArtifacts,
+    Target, DriverContext, Measurement,
+)
+import json, tempfile
+from pathlib import Path
+
+
+class EchoSuite(BenchmarkSuite):
+    suite_id = "echo"                 # == entry-point name == measurement namespace
+    suite_version = "echo/v1"         # provenance pin; bump when the dataset/harness changes
+
+    def resolve(self, cfg, assets):   # offline: choose the dataset/subset
+        n = int(cfg.get("n", 3))
+        return DatasetHandle(version=self.suite_version, digest=f"sha256:echo-{n}", payload={"n": n})
+
+    def prepare(self, target, dataset, driver):   # connect/provision (mock → nothing)
+        return EnvHandle({"n": dataset.payload["n"]})
+
+    def run(self, target, env, driver) -> RawArtifacts:
+        return self._emit(env.payload["n"])       # real path would call the SUT here
+
+    def mock_artifacts(self, cfg) -> RawArtifacts:  # offline fixture path (CI / mode: mock)
+        return self._emit(int(cfg.get("n", 3)))
+
+    def _emit(self, n: int) -> RawArtifacts:
+        d = Path(tempfile.mkdtemp())
+        rows = [{"id": f"q{i}", "correct": True} for i in range(n)]
+        (d / "results.json").write_text(json.dumps(rows))
+        return RawArtifacts(dir=d, manifest={"results": {"path": "results.json"}})
+
+
+class OfficialEchoEvaluator(Evaluator):
+    evaluator_id = "official-echo-evaluator"
+    official = True                    # emits under the "echo." namespace
+
+    def supports(self, suite_id, product) -> bool:
+        return suite_id == "echo"
+
+    def evaluate(self, raw) -> dict[str, Measurement]:
+        try:
+            rows = json.loads(raw.path("results").read_text())
+        except Exception:              # fail-safe: never raise on a missing/corrupt artifact
+            return {}
+        total = len(rows) or 1
+        passed = sum(1 for r in rows if r.get("correct"))
+        return {"echo.pass_rate": Measurement(
+            value=passed / total, unit="ratio",
+            reproducibility_class="deterministic", official=True, sample_count=len(rows),
+        )}
+```
+
+## Register + run
+
+```toml
+# pyproject.toml
+[project.entry-points."clousight_bench.benchmark_suites"]
+echo = "my_pkg.echo_suite:EchoSuite"
+
+[project.entry-points."clousight_bench.evaluators"]
+official-echo-evaluator = "my_pkg.echo_suite:OfficialEchoEvaluator"
+```
+
+```bash
+pip install -e .          # register the entry points
+csbench list             # → suite:echo shows up
+csbench conformance --suite echo                         # namespace + official-flag checks
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain agent-runtime --benchmark echo --platform local-sim --config mock.yaml   # ✅
+```
+
+<Note>
+`conformance` enforces the contract: an `official` evaluator may only emit keys
+under `<suite_id>.`, all `official=True`. That's what makes a number trustworthy.
+</Note>
+
+## Going further (optional)
+
+- **Per-item scores** — implement `Evaluator.items(raw) -> list[ItemResult]` to
+  emit per-example evidence; scalar measurements become their aggregation (with
+  confidence intervals + per-`group` breakdowns). See [Architecture](/docs/architecture).
+- **Add-on [metrics](/docs/metrics)** — bind extra metrics with
+  `extra_metric_ids` (or a run's `params.extra_metrics`); they score over your
+  `items` and emit `<suite_id>.<metric_id>`.
+- **[Judge-based scoring](/docs/judges)** — add the `response-quality` metric (or
+  your own) and config-connect a judge via `params.judge`.
+- **Config-connect a real SUT** — read `target.endpoint` / `target.credentials_ref`
+  in `prepare`/`run`; for LLM suites reuse `clousight_bench.suites.llm_common`
+  (`resolve_endpoint`, `chat_once`, SSRF-guarded).

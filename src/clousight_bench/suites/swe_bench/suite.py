@@ -20,6 +20,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.canonical import sha256_bytes as _sha256_bytes
 from clousight_bench.core.suite import (
     BenchmarkSuite,
     DatasetHandle,
@@ -73,10 +74,6 @@ def _normalize_upstream_report(report: dict[str, Any], instance_ids: list[str]) 
         "resolved": int(report["resolved_instances"]),
         "total": int(report["total_instances"]),
     }
-
-
-def _sha256_bytes(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def _sha256_file(p: Path) -> str:

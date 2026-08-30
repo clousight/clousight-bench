@@ -22,7 +22,6 @@ label is the same pinned-reference reproducibility as TPC-DS.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import tempfile
@@ -30,6 +29,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.canonical import sha256_bytes as _sha256_bytes
 from clousight_bench.core.suite import (
     BenchmarkSuite,
     DatasetHandle,
@@ -47,10 +47,6 @@ _REFERENCE_FILE = _FIXTURES_DIR / "reference" / "sf1_digests.json"
 _SUITE_VERSION = "duckdb-1.5.4/tpch/sf1-ref-v1"
 
 _ALL_QUERY_IDS: tuple[int, ...] = tuple(range(1, 23))  # TPC-H has 22 queries
-
-
-def _sha256_bytes(data: bytes) -> str:
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 # Field separator inside a row, and the numeric rounding, are the wire rules of

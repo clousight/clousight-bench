@@ -85,6 +85,10 @@ tpcds = ["duckdb>=1.0"]
 # data-warehouse adapter (schema/data generation + 22 queries). Same duckdb pin.
 tpch = ["duckdb>=1.0"]
 validate = ["jsonschema>=4.20"]
+# LLM endpoint path: the mmlu/gsm8k/human-eval `llm-endpoint` real run and the
+# openai-compatible judge POST to /chat/completions via `requests`. Required only
+# for the real endpoint path; mock / reference paths need nothing.
+llm = ["requests>=2.28"]
 # Upstream SWE-bench evaluation harness. Required only for the real Docker-backed
 # run() path; mock_artifacts() and resolve() work without it.
 swebench = ["swebench>=3.0"]

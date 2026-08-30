@@ -1,81 +1,89 @@
 ---
 title: Clousight Bench
-description: 公认基准套件,在受管云产品上可复现地运行。
+description: 一条命令,把公认基准可复现地跑在托管云产品与大模型上,得到带溯源链的数字。
 ---
 
-**[Clousight](https://clousight.com) 的度量标尺 —— 原封不动地运行公认基准套件
-(首个为 SWE-bench Verified),测的是受管云产品,每个数字都带可校验的来源链。**
+**Clousight Bench** 把公认基准——SWE-bench、TPC-DS/H、YCSB、TPC-C、MMLU、GSM8K、
+HumanEval——**原样**跑在托管云产品与大模型 endpoint 上,并给出带可验证溯源链的
+数字:哪个基准、哪份固定数据集、哪个 evaluator、跑在哪个被测系统上。
 
-Clousight Bench 从不重新计分、从不混合分数。判定由套件自己的 harness 产出;
-框架补上**云产品维度**(运行时行为、延迟、轨迹、成本)和可复现性记账:
-哪个套件、哪个固定数据集版本、哪个评测器、哪个脚手架 —— 全部折叠进可 diff 的内容指纹。
+它从不二次打分、也不混合分数。基准自带的 harness 出结论;框架只补上可复现性簿记
+与云产品维度(延迟、成本、逐项分数、可选的 LLM 判定)。
 
+## 快速开始
+
+<Steps>
+<Step title="安装">
+```bash
+pip install clousight-bench          # 按需加 extra:[store] [llm] [tpcds] [swebench]
+# 或从源码克隆:  uv sync --all-extras
 ```
-BenchmarkSuite.resolve → prepare → run   (套件自己的 harness,原封不动)
-        ▼
-Evaluator.evaluate(RawArtifacts)          (纯函数、离线、命名空间化的测量值)
-        ▼
-schema-0.3 记录 → csbench serve(Web 查看器)/ csbench query(SQL)
+</Step>
+<Step title="看已注册了什么">
+```bash
+csbench list
 ```
+所有已注册的 benchmark、evaluator、platform——外加一条可直接复制的"run one"提示。
+</Step>
+<Step title="跑一个——离线,无云,无密钥">
+```bash
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain agent-runtime --benchmark swe-bench --platform local-sim --config mock.yaml
+```
+stdout 上得到 `status: completed` 记录。✅ 这是完整跑了一遍阶段机
+(resolve → prepare → run → score → persist),基于内置 fixture——无云账号、无 API key。
+</Step>
+<Step title="对准真实系统(配置接入)">
+```bash
+printf 'target:\n  mode: runtime\n  endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\n' > qwen.yaml
+export DASHSCOPE_API_KEY=...
+csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen.yaml
+```
+同样的命令形状;现在数字来自你已在运行的 endpoint。之后 `csbench serve` 在
+`http://127.0.0.1:8787` 打开 web 查看器。
+</Step>
+</Steps>
 
-一切与套件或产品相关的东西都是插件。
+<Tip>
+在 CI 里用阈值门控:`csbench run … --assert thresholds.yaml`,任一测量未达标即非零退出。
+见 [pytest 与 CI](/docs/zh/pytest-ci)。
+</Tip>
+
+## 心智模型
+
+三样东西,各自是一个由入口点发现的插件:
+
+- **`BenchmarkSuite`** 包装一个公认 harness(或任意可复现负载):`resolve → prepare
+  → run → mock_artifacts`。
+- **`Evaluator`** 把运行产物变成命名空间化的 **`Measurement`**(以及可选逐项 **`items`**)
+  ——一个纯粹、离线、可重打分的函数。
+- **被测系统**由 `--platform` + 一个 `target` 选定:模拟参考、**你配置接入的已运行
+  服务**(endpoint + 凭证)、或框架为你制备的云。
+
+新增基准 = 写一个 Suite + Evaluator;运行 = `csbench run --benchmark <id>`。见
+[新增一个 benchmark](/docs/zh/adding-a-suite)。
 
 ## 可复现性契约
 
-每条记录携带 `provenance` 块(套件 id、固定数据集版本、评测器 id、`unmodified`
-标志、脚手架)以及三个独立指纹(`benchmark` / `environment` / `implementation`),
-让你能判断两个数字是否可比。每个测量值携带 `reproducibility_class`:
+每条记录带一个 `provenance` 块(benchmark id、固定数据集 digest、evaluator id、
+`unmodified` 标记、scaffold)+ 三个独立指纹(`benchmark` / `environment` /
+`implementation`),让你能判断两个数字是否可比。每条测量带一个 `reproducibility_class`:
 
 | 类别 | 含义 |
 |---|---|
-| **deterministic** | 同输入同结果 —— 如 `swe-bench.resolved` |
-| **environmental** | 方法可复现;数值随网络/地域/账号变化 —— 如成本、延迟 |
-| **judge-based** | 判定链路中有 LLM 或人工 |
+| **deterministic** | 同输入同数字——如 `swe-bench.resolved`、`mmlu.accuracy` |
+| **environmental** | 方法可复现;数字随网络/区域/账号漂移——成本、延迟 |
+| **judge-based** | 有 LLM 判定参与——见 [判定](/docs/zh/judges) |
 
-官方测量值(`official=true`)是上游套件自己的判定,置于套件命名空间下;
-自定义评测器被结构性地约束在自己的命名空间。结果永远**按维度呈现,绝不混分**。
+`official=true` 的测量是基准自身在 `<suite_id>.` 命名空间下的结论(一个溯源标记,
+由 `csbench conformance` 强制);附加 [metrics](/docs/zh/metrics) 与社区 evaluator
+待在各自的命名空间。结果始终**按维度——从不混合成一个分**。
 
-## 快速开始(无需云账号、无需 docker)
-
-```bash
-pip install clousight-bench
-csbench list                       # 已注册的套件、评测器、适配器
-
-# 以 mock 模式把 SWE-bench Verified 跑过完整的 stage 机器:
-cat > mock.yaml <<'EOF'
-target:
-  mode: mock
-EOF
-csbench run --domain agent-runtime --benchmark swe-bench \
-    --platform local-sim --config mock.yaml
-
-# 打开 Web 查看器(中英切换、深浅主题、轨迹瀑布图):
-csbench serve
-```
-
-mock 运行走的是真实代码路径,基于套件自带的 fixture 产出 schema-0.3 记录;
-`csbench serve` 在 `http://127.0.0.1:8787` 渲染。可选分析存储(Parquet + DuckDB):
-`pip install clousight-bench[store]`。
-
-## 深入了解
+## 下一步
 
 <CardGroup cols={2}>
-  <Card title="架构" icon="sitemap" href="/docs/zh/architecture">
-    生命周期、插件契约与来源模型。
-  </Card>
-  <Card title="SWE-bench 实跑手册" icon="rocket" href="/docs/zh/swe-bench-live-runbook">
-    在阿里云 ECS driver host 上真实运行套件。
-  </Card>
-  <Card title="Web 查看器" icon="chart-gantt" href="/docs/zh/viewer">
-    记录浏览 + 轨迹对话流与瀑布图。
-  </Card>
-  <Card title="扩展(插件)" icon="puzzle-piece" href="/docs/zh/plugins">
-    新增套件、评测器、平台适配器或领域。
-  </Card>
-  <Card title="查询结果" icon="database" href="/docs/zh/querying">
-    基于 DuckDB 的规范记录分析。
-  </Card>
-  <Card title="API 参考" icon="code" href="/docs/zh/reference">
-    核心数据模式与插件基类。
-  </Card>
+  <Card title="新增一个 benchmark" icon="plus" href="/docs/zh/adding-a-suite">写一个 Suite + Evaluator 并运行。</Card>
+  <Card title="Metrics" icon="chart-simple" href="/docs/zh/metrics">在任意运行上组合逐项指标。</Card>
+  <Card title="判定(LLM-as-judge)" icon="gavel" href="/docs/zh/judges">可复现的判定型打分。</Card>
+  <Card title="架构" icon="sitemap" href="/docs/zh/architecture">阶段机、记录 schema、插件。</Card>
 </CardGroup>

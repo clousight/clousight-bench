@@ -1,5 +1,5 @@
 # Aliyun AgentRun. Copy to a private file, fill in, DO NOT commit real values.
-#   csbench run --domain agent-runtime --task T1.3 --platform aliyun-agentrun --config your.yaml --allow-live
+#   csbench run --domain agent-runtime --benchmark swe-bench --platform aliyun-agentrun --config your.yaml --allow-live
 # A live (real-cloud) run needs --allow-live (or CSBENCH_ALLOW_LIVE=1): it spends
 # real money. Simulated dry-run instead: set mode: mock (no account, no cost).
 target:

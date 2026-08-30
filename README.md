@@ -46,7 +46,7 @@ cat > mock.yaml <<'EOF'
 target:
   mode: mock
 EOF
-.venv/bin/csbench run --domain agent-runtime --task suite:swe-bench \
+.venv/bin/csbench run --domain agent-runtime --benchmark swe-bench \
     --platform local-sim --config mock.yaml
 
 # open the web viewer: record list, provenance, trajectory waterfall (EN | 中文)
@@ -54,14 +54,14 @@ EOF
 ```
 
 The mock run exercises the real code path — RESOLVE → PREFLIGHT → SETUP → EXECUTE →
-SCORE → PERSIST — over the suite's bundled fixture artifacts, and persists a schema-0.3
+SCORE → PERSIST — over the suite's bundled fixture artifacts, and persists a schema-0.4
 record with `swe-bench.resolved` and a full provenance block. `csbench serve` renders
 it at `http://127.0.0.1:8787` (React UI, bilingual, dark/light, strict CSP, read-only).
 
 One run is not a measurement — repeat and pool:
 
 ```bash
-csbench run --domain agent-runtime --task suite:swe-bench --platform local-sim \
+csbench run --domain agent-runtime --benchmark swe-bench --platform local-sim \
     --config mock.yaml --repeat 5 --warmup 1
 ```
 
@@ -69,7 +69,7 @@ Only runs sharing a `benchmark` **and** `environment` fingerprint are ever poole
 
 ## The reproducibility contract (read this first)
 
-Every schema-0.3 record is attributable on independent axes, so you can tell whether
+Every schema-0.4 record is attributable on independent axes, so you can tell whether
 two numbers are even comparable:
 
 | Field | Answers |
@@ -99,7 +99,7 @@ BenchmarkSuite.resolve → prepare → run   (the suite's OWN upstream harness, 
         ▼                        ▼
 Evaluator.evaluate(RawArtifacts) — pure, offline, namespaced Measurements
         ▼
-schema-0.3 record  →  csbench serve (web viewer)  /  csbench query (SQL)
+schema-0.4 record  →  csbench serve (web viewer)  /  csbench query (SQL)
 ```
 
 The core only orchestrates the lifecycle. Everything product- or suite-specific is a plugin:
@@ -162,7 +162,7 @@ see [docs/querying.md](docs/querying.md)).
 
 ## Status
 
-- [x] Core: lifecycle orchestrator, `RunSpec`/`ResultRecord` schema 0.3 with provenance-folded fingerprints, entry-point plugin registry, cross-language workload protocol, DuckDB-backed `csbench query`, cost budget + live-run gate + resource reaper (`csbench sweep`)
+- [x] Core: lifecycle orchestrator, `RunSpec`/`ResultRecord` schema 0.4 with provenance-folded fingerprints, entry-point plugin registry, cross-language workload protocol, DuckDB-backed `csbench query`, cost budget + live-run gate + resource reaper (`csbench sweep`)
 - [x] **Suite contract (Sub-project B)**: `BenchmarkSuite`/`Evaluator` ABCs, `suite:<id>` runs, SWE-bench Verified at a pinned HF revision with real gold-patch fixtures, official evaluator + namespace conformance, real SUT invocation on Aliyun AgentRun (oracle/llm agent modes) with real trajectory + token capture
 - [x] **Driver host (Sub-project A)**: docker-capable ECS controller (`csbench submit`), suite-aware LaunchSpec, OSS-only control plane, self-destruct reaper
 - [x] **Web viewer (Sub-project C)**: `csbench serve` — React UI (prebuilt, shipped in the wheel), record list/detail, transcript + ECharts waterfall trace views, EN | 中文, dark/light, strict CSP, offline-first
@@ -179,7 +179,7 @@ see [docs/querying.md](docs/querying.md)).
 
 Sign your commits (`git commit -s`, [DCO](https://developercertificate.org/)).
 Adding a suite = one `BenchmarkSuite` + one `Evaluator` (the SWE-bench pilot in
-`suites/swe_bench/` is the template); adding a platform = one adapter file + one
+`src/clousight_bench/suites/gsm8k/` is the simplest template; see docs/adding-a-suite); adding a platform = one adapter file + one
 example config; adding a product category = one DomainPack. PRs that change suite
 wiring or scoring for a shipped suite require a version bump and a changelog entry —
 published numbers must stay attributable.

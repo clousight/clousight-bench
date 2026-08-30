@@ -1,4 +1,4 @@
-"""ResultRecord 0.3: one benchmark result, fully attributable.
+"""ResultRecord 0.4: one benchmark result, fully attributable.
 
 Everything a reader needs to trust a number is a top-level field: which
 benchmark ran (``identity`` + ``fingerprints.benchmark``), where it ran
@@ -38,7 +38,7 @@ EXECUTIONS: tuple[str, ...] = ("simulated", "live", "unknown")
 
 
 class RecordError(ValueError):
-    """A record or one of its parts violates the 0.3 contract."""
+    """A record or one of its parts violates the 0.4 contract."""
 
 
 @dataclass

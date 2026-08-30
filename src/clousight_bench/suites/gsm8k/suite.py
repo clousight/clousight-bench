@@ -25,7 +25,7 @@ from clousight_bench.core.suite import (
     RawArtifacts,
     Target,
 )
-from clousight_bench.suites._llm_shared import (
+from clousight_bench.suites.llm_common import (
     chat_once,
     resolve_endpoint,
     sha256_bytes,

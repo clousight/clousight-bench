@@ -3,7 +3,7 @@
 Phase 1C sits *on top of* the Phase 1B lifecycle without reaching into it. A
 ``RunPlan`` runs the same ``RunSpec`` ``warmup + repeat`` times through the
 ordinary :func:`clousight_bench.core.orchestrator.execute`, so every single run
-is still its own auditable, digested ``0.2`` record -- no evidence is ever
+is still its own auditable, digested ``0.4`` record -- no evidence is ever
 collapsed away. What Phase 1C adds is a *reading* of those records:
 
 - warmup runs are executed first and excluded from the statistics (first-call
