@@ -44,7 +44,7 @@ thresholds:
   mmlu.accuracy: {min: 0.75}
   mmlu.avg_latency_ms: {max: 3000}
 YAML
-csbench run --domain llm --task suite:mmlu --platform llm-endpoint \
+csbench run --domain llm --benchmark mmlu --platform llm-endpoint \
   --config prod.yaml --assert gate.yaml
 # 运行未完成或任一阈值不达 → 退出码非零
 ```

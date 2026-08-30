@@ -35,11 +35,22 @@ Register a plugin by advertising an entry point in your package's
 | Group | Provides | Reference example |
 |---|---|---|
 | `clousight_bench.domains` | A `DomainPack` — a named set of tasks + adapters | `agent-runtime` |
+| `clousight_bench.benchmark_suites` | A `BenchmarkSuite` — wraps a recognized upstream benchmark harness | `swe-bench` |
+| `clousight_bench.evaluators` | An `Evaluator` — turns a suite's artifacts into namespaced `Measurement`s (+ per-item `items()`) | `official-mmlu-evaluator` |
+| `clousight_bench.metrics` | A `Metric` — a composable per-item scorer applied over `items` and aggregated; multiple per run, emitted as `<suite_id>.<metric_id>` | `answered-rate` |
+| `clousight_bench.judges` | A `JudgeProvider` — config-connect factory for an LLM-as-judge (`JudgeModel`), selected by config; powers judge-based metrics | `openai-compatible` |
 | `clousight_bench.runtime_providers` | A `RuntimeProviderPlugin` — real-cloud transport + campaign probe hook for a provider | `aliyun` |
 | `clousight_bench.resource_reapers` | A `ResourceReaper` — finds/deletes orphaned cloud resources for `csbench sweep` | `aliyun` |
 | `clousight_bench.enrichers` | An `Enricher` — post-run enrichment of records (e.g. pricing) | `pricing` |
 | `clousight_bench.span_exporters` | A span exporter for trace export | `local` |
 | `clousight_bench.asset_resolvers` | Resolves workload assets (datasets, scripts) | — |
+
+**Adding a benchmark = implement a `BenchmarkSuite` + `Evaluator`** (optionally
+`Metric` / judge), register those entry points, and run it with
+`csbench run --benchmark <id>`. This is the one public benchmark contract — for
+open-source *and* commercial suites alike (a commercial suite ships the same
+entry points from a private package). `DomainPack.tasks()` is an internal
+execution contract, not the way to add a benchmark.
 
 The adapter's `status` literal (`skeleton` / `reference` / …) is not flipped by
 installing a plugin: a `skeleton` adapter becomes *runnable* in real mode purely

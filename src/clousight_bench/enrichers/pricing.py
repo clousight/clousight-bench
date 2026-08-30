@@ -42,6 +42,30 @@ def _load_prices() -> list[dict[str, Any]]:
     return _load_feed()["prices"]
 
 
+# Fallback when the seed has no tokens_1k entry (or is unreadable): azure /
+# agent-runtime / tokens_1k list price.
+_FALLBACK_TOKENS_1K_PRICE = 0.002
+
+
+def tokens_1k_price() -> tuple[float, str]:
+    """Return ``(price_per_1k_tokens, source)`` from the SAME price feed the
+    pricing enricher uses — so it honours the ``CLOUSIGHT_PRICING_DATA`` override.
+
+    ``source`` is ``"seed"`` when the feed supplied a ``tokens_1k`` entry,
+    ``"fallback"`` otherwise. Suites' official evaluators use this for the
+    ``*.cost_usd`` / ``*.cost_per_resolved`` dimensions instead of each
+    re-reading the seed via a brittle relative path (which silently ignored the
+    override).
+    """
+    try:
+        for entry in _load_feed().get("prices", []):
+            if entry.get("unit") == "tokens_1k" and isinstance(entry.get("price"), (int, float)):
+                return float(entry["price"]), "seed"
+    except Exception:  # noqa: BLE001 - unreadable feed → fallback
+        pass
+    return _FALLBACK_TOKENS_1K_PRICE, "fallback"
+
+
 def _load_discounts() -> dict[str, Any]:
     """The private discount layer (separate from the public list feed). Default:
     no discount, so net == list and behaviour is backwards-compatible."""

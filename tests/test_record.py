@@ -62,6 +62,7 @@ def test_top_level_keys_are_the_fixed_contract():
         "observations",
         "series",
         "artifacts",
+        "items",
         "extensions",
         "errors",
         "status",
@@ -166,7 +167,7 @@ def test_from_dict_rejects_a_legacy_record_with_schema_version_error():
 
 
 def test_schema_version_is_0_3():
-    assert SCHEMA_VERSION == "0.3"
+    assert SCHEMA_VERSION == "0.4"
 
 
 def test_provenance_defaults():

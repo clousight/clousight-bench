@@ -69,17 +69,20 @@ jobs:
           csbench conformance --domain transactional-db --platform benchbase-local
           csbench conformance --domain llm --platform llm-mock
           csbench conformance --suite swe-bench
+          csbench conformance --suite swe-bench-lite
+          csbench conformance --suite swe-bench-multimodal
           csbench conformance --suite tpc-ds
           csbench conformance --suite tpc-h
           csbench conformance --suite ycsb
           csbench conformance --suite tpc-c
           csbench conformance --suite mmlu
           csbench conformance --suite gsm8k
+          csbench conformance --suite human-eval
 
       - name: Local baseline smoke (no cloud account)
         # The suite-first world runs `suite:<id>` jobs; `target: {mode: mock}`
         # drives the offline mock path (no cloud, no LLM key), emitting a real
-        # schema-0.3 record the assertion step below reads. tpc-ds also gets a
+        # schema-0.4 record the assertion step below reads. tpc-ds also gets a
         # real duckdb-local run of a 3-query SF1 subset (the [tpcds] extra ships
         # duckdb) to exercise the actual engine path, incl. the cross-platform
         # reference-digest match on linux.
@@ -87,6 +90,10 @@ jobs:
           csbench list --verbose
           printf 'target:\n  mode: mock\nparams: {}\n' > /tmp/mock.yaml
           csbench run --domain agent-runtime --task suite:swe-bench \
+            --platform local-sim --config /tmp/mock.yaml
+          csbench run --domain agent-runtime --task suite:swe-bench-lite \
+            --platform local-sim --config /tmp/mock.yaml
+          csbench run --domain agent-runtime --task suite:swe-bench-multimodal \
             --platform local-sim --config /tmp/mock.yaml
           csbench run --domain data-warehouse --task suite:tpc-ds \
             --platform duckdb-local --config /tmp/mock.yaml
@@ -110,8 +117,16 @@ jobs:
             --platform llm-mock --config /tmp/mock.yaml
           csbench run --domain llm --task suite:gsm8k \
             --platform llm-mock --config /tmp/mock.yaml
+          # HumanEval: offline fixture path, PLUS a reference-execution run that
+          # really runs the dataset's canonical solutions through the sandboxed
+          # executor (no LLM, no network) — exercises the actual code-exec path.
+          csbench run --domain llm --task suite:human-eval \
+            --platform llm-mock --config /tmp/mock.yaml
+          printf 'target:\n  mode: mock\nparams:\n  execute: true\n' > /tmp/humaneval-exec.yaml
+          csbench run --domain llm --task suite:human-eval \
+            --platform llm-mock --config /tmp/humaneval-exec.yaml
 
-      - name: Assert every emitted record is schema 0.3
+      - name: Assert every emitted record is schema 0.4
         run: |
           python - <<'PY'
           import json, pathlib
@@ -126,14 +141,14 @@ jobs:
           assert paths, "the smoke wrote no records"
           for path in paths:
               data = json.loads(path.read_text(encoding="utf-8"))
-              assert data["schema_version"] == "0.3", (path, data["schema_version"])
+              assert data["schema_version"] == "0.4", (path, data["schema_version"])
               assert data["status"] in {
                   "completed", "failed", "invalid", "unsupported", "interrupted"
               }, (path, data["status"])
               assert data["fingerprints"]["record_digest"].startswith("sha256:"), path
               for gone in ("ok", "metrics", "evidence_layer", "config_hash"):
                   assert gone not in data, (path, gone)
-          print(f"{len(paths)} records verified at schema 0.3")
+          print(f"{len(paths)} records verified at schema 0.4")
           PY
 
       - name: Run plan aggregates repeats and drops warmups
@@ -205,14 +220,14 @@ jobs:
       - name: Smoke installed wheel outside checkout
         working-directory: /tmp
         run: |
-          /tmp/csbench-wheel/bin/python -c "import importlib.metadata as m, importlib.resources as r, clousight_bench as cb; assert cb.__version__ == m.version('clousight-bench'), (cb.__version__, m.version('clousight-bench')); assert cb.RESULT_SCHEMA_VERSION == '0.3', cb.RESULT_SCHEMA_VERSION; root = r.files('clousight_bench.resources.workloads'); reqs = [('wordcount-py', 'run.py'), ('gsm8k-stats', 'run.py'), ('ycsb-wrapper', 'run.sh')]; missing = [n for n, e in reqs if not (root.joinpath(n, 'manifest.yaml').is_file() and root.joinpath(n, e).is_file())]; assert not missing, missing; assert r.files('clousight_bench').joinpath('py.typed').is_file(), 'py.typed marker missing from wheel'; schemas = r.files('clousight_bench.resources').joinpath('schemas'); need = ['runspec.schema.json', 'workload-manifest.schema.json', 'result-record-0.3.schema.json']; smissing = [s for s in need if not schemas.joinpath(s).is_file()]; assert not smissing, smissing; print('wheel version + workloads + py.typed + schemas + schema 0.3 verified')"
+          /tmp/csbench-wheel/bin/python -c "import importlib.metadata as m, importlib.resources as r, clousight_bench as cb; assert cb.__version__ == m.version('clousight-bench'), (cb.__version__, m.version('clousight-bench')); assert cb.RESULT_SCHEMA_VERSION == '0.4', cb.RESULT_SCHEMA_VERSION; root = r.files('clousight_bench.resources.workloads'); reqs = [('wordcount-py', 'run.py'), ('gsm8k-stats', 'run.py'), ('ycsb-wrapper', 'run.sh')]; missing = [n for n, e in reqs if not (root.joinpath(n, 'manifest.yaml').is_file() and root.joinpath(n, e).is_file())]; assert not missing, missing; assert r.files('clousight_bench').joinpath('py.typed').is_file(), 'py.typed marker missing from wheel'; schemas = r.files('clousight_bench.resources').joinpath('schemas'); need = ['runspec.schema.json', 'workload-manifest.schema.json', 'result-record-0.4.schema.json']; smissing = [s for s in need if not schemas.joinpath(s).is_file()]; assert not smissing, smissing; print('wheel version + workloads + py.typed + schemas + schema 0.4 verified')"
           /tmp/csbench-wheel/bin/csbench list --verbose
           printf 'target:\n  mode: mock\nparams: {}\n' > /tmp/wheel-mock.yaml
           /tmp/csbench-wheel/bin/csbench run \
             --domain agent-runtime --task suite:swe-bench --platform local-sim \
             --config /tmp/wheel-mock.yaml --results /tmp/csbench-wheel-results
           # A completed suite:swe-bench mock run from the installed wheel, outside
-          # the checkout, is the wheel smoke. Record integrity (schema 0.3 +
+          # the checkout, is the wheel smoke. Record integrity (schema 0.4 +
           # record_digest) is asserted in the `test` job's schema step above.
 
   docs:

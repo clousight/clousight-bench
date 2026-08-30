@@ -29,8 +29,8 @@ def test_list_shows_registered_suites_first(capsys):
     assert "benchmark suites:" in out
     assert "suite:swe-bench" in out
     assert "official-swe-evaluator (official)" in out
-    # the hint must be copy-pasteable with the real task id
-    assert "csbench run --domain agent-runtime --task suite:swe-bench" in out
+    # the hint must be copy-pasteable with the real benchmark id
+    assert "csbench run --domain agent-runtime --benchmark swe-bench" in out
     # suites section comes BEFORE the domain section
     assert out.index("benchmark suites:") < out.index("domain: agent-runtime")
 
@@ -250,3 +250,53 @@ def test_run_rejects_a_directory_config_with_usage_error(tmp_path, capsys):
     assert rc == 2
     assert str(directory) in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_run_with_benchmark_flag_runs_mock(tmp_path, capsys):
+    """R3: --benchmark <id> is the standard way to run a benchmark suite."""
+    cfg = tmp_path / "mock.yaml"
+    cfg.write_text("target:\n  mode: mock\n", encoding="utf-8")
+    rc = main(
+        [
+            "run",
+            "--domain",
+            "agent-runtime",
+            "--benchmark",
+            "swe-bench",
+            "--platform",
+            "local-sim",
+            "--config",
+            str(cfg),
+            "--results",
+            str(tmp_path / "r"),
+            "--skip-preflight",
+        ]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert '"status": "completed"' in out
+    assert "suite:swe-bench" in out  # canonical id preserved in the record
+
+
+def test_run_without_task_or_benchmark_is_usage_error(tmp_path, capsys):
+    rc = main(["run", "--domain", "agent-runtime", "--platform", "local-sim"])
+    assert rc == 2
+    assert "--benchmark" in capsys.readouterr().err
+
+
+def test_run_benchmark_and_task_together_is_usage_error(capsys):
+    rc = main(
+        [
+            "run",
+            "--domain",
+            "agent-runtime",
+            "--benchmark",
+            "swe-bench",
+            "--task",
+            "stub.ok",
+            "--platform",
+            "local-sim",
+        ]
+    )
+    assert rc == 2
+    assert "not both" in capsys.readouterr().err

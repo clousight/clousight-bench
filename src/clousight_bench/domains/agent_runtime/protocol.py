@@ -89,6 +89,12 @@ def encode_swe_invoke(
     The user message content is JSON ``{"swe": {...}}``. ``gold_patch`` is
     included ONLY in oracle mode — llm mode must never leak the answer into
     the runtime.
+
+    SWE-bench Multimodal instances carry an ``image_assets`` field (a JSON
+    string of image URLs keyed by ``problem_statement``/``patch``/``test_patch``);
+    when present it is forwarded verbatim so a multimodal agent can fetch the
+    screenshots. Text-only splits (Verified/Lite) omit the field, so the payload
+    is unchanged for them.
     """
     swe: dict[str, Any] = {
         "instance_id": str(instance.get("instance_id") or ""),
@@ -97,6 +103,9 @@ def encode_swe_invoke(
         "agent_mode": agent_mode,
         "llm_model": llm_model,
     }
+    image_assets = instance.get("image_assets")
+    if image_assets:
+        swe["image_assets"] = image_assets
     if agent_mode == "oracle":
         swe["gold_patch"] = str(instance.get("patch") or "")
     return {"model": MODEL, "messages": [{"role": "user", "content": json.dumps({"swe": swe})}]}

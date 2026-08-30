@@ -87,7 +87,7 @@ is a throughput/latency benchmark):
 ## CI
 Add `conformance --domain key-value --platform ycsb-local`,
 `conformance --suite ycsb`, and an offline `csbench run --domain key-value
---task suite:ycsb --platform ycsb-local --config <mock>` to the existing smoke
+--benchmark ycsb --platform ycsb-local --config <mock>` to the existing smoke
 lane (schema-0.3 assertion already scoped). No Java in CI → only the mock path
 runs (like SWE-bench's Docker-gated real path).
 

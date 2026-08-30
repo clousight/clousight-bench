@@ -73,31 +73,29 @@ def test_suite_task_provenance():
     assert p.evaluator_id == "demo-eval" and p.evaluator_official is True and p.unmodified is True
 
 
-def test_provenance_scaffold_is_mode_aware():
-    """scaffold tracks params['agent_kind'] on NON-mock runs only: oracle/llm are
-    slice-2 scaffolds; anything else (including absent) keeps the slice-1 pin."""
+def test_provenance_scaffold_comes_from_the_suite():
+    """R3: scaffold is sourced from suite.scaffold(), not hardcoded in core. A
+    plain suite (no agent scaffold) yields "" in both mock and real modes — the
+    non-agent-suite mis-tagging bug (previously always "mock-agent@slice1") is
+    fixed."""
+    assert SuiteTask(_Suite(), _Eval(), mock=True, params={}).provenance().scaffold == ""
     assert (
-        SuiteTask(_Suite(), _Eval(), mock=False, params={"agent_kind": "oracle"}).provenance().scaffold
-        == "oracle@slice2"
-    )
-    assert (
-        SuiteTask(_Suite(), _Eval(), mock=False, params={"agent_kind": "llm"}).provenance().scaffold
-        == "qwen-llm@slice2"
-    )
-    assert SuiteTask(_Suite(), _Eval(), mock=False, params={}).provenance().scaffold == "mock-agent@slice1"
-    assert (
-        SuiteTask(_Suite(), _Eval(), mock=False, params={"agent_kind": "gold"}).provenance().scaffold
-        == "mock-agent@slice1"
+        SuiteTask(_Suite(), _Eval(), mock=False, params={"agent_kind": "oracle"}).provenance().scaffold == ""
     )
 
 
-def test_provenance_scaffold_mock_run_never_claims_slice2():
-    """A mock run produced mock artifacts — the scaffold must say mock-agent
-    regardless of agent_kind (a canned-fixture run must never wear @slice2)."""
-    for kind in ("oracle", "llm", "gold", None):
-        params = {} if kind is None else {"agent_kind": kind}
-        st = SuiteTask(_Suite(), _Eval(), mock=True, params=params)
-        assert st.provenance().scaffold == "mock-agent@slice1", f"agent_kind={kind!r}"
+def test_provenance_scaffold_flows_a_suite_override():
+    """A suite that overrides scaffold() drives Provenance.scaffold."""
+
+    class _ScaffoldSuite(_Suite):
+        def scaffold(self, params, *, mock):
+            return "mock-x" if mock else f"real-{params.get('agent_kind', '')}"
+
+    assert SuiteTask(_ScaffoldSuite(), _Eval(), mock=True).provenance().scaffold == "mock-x"
+    assert (
+        SuiteTask(_ScaffoldSuite(), _Eval(), mock=False, params={"agent_kind": "llm"}).provenance().scaffold
+        == "real-llm"
+    )
 
 
 def test_suite_task_id_is_namespaced():
@@ -423,7 +421,7 @@ def test_teardown_scoped_filter(monkeypatch, tmp_path) -> None:
 
 
 def test_record_from_suite_run_validates_against_tightened_schema(monkeypatch, tmp_path) -> None:
-    """A ResultRecord produced from a SuiteTask mock run validates against schema 0.3."""
+    """A ResultRecord produced from a SuiteTask mock run validates against schema 0.4."""
     import jsonschema
 
     import clousight_bench.core.orchestrator as orch
@@ -494,7 +492,7 @@ def test_record_from_suite_run_validates_against_tightened_schema(monkeypatch, t
         / "clousight_bench"
         / "resources"
         / "schemas"
-        / "result-record-0.3.schema.json"
+        / "result-record-0.4.schema.json"
     )
     schema = json.loads(schema_path.read_text())
     record_dict = json.loads(json.dumps(rec.to_dict()))

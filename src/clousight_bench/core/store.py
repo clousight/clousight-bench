@@ -240,7 +240,7 @@ class ResultStore:
         Hard fail -- but never lose the produced record: dump it raw first so no
         measurement vanishes because the shape was wrong."""
         try:
-            validate_against_schema(payload, "result-record-0.3")
+            validate_against_schema(payload, "result-record-0.4")
         except SchemaValidationError:
             name = f"INVALID-{record.identity.domain}-{record.identity.task_id}-{record.run.run_id}.json"
             try:

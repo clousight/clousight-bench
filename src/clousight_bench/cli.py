@@ -1,7 +1,7 @@
 """csbench: the Clousight Bench command line.
 
     csbench list                                        # installed domains / tasks / platforms
-    csbench run --domain agent-runtime --task suite:swe-bench \
+    csbench run --domain agent-runtime --benchmark swe-bench \
             --platform local-sim [--config cfg.yaml] [--param k=v ...] [--debug]
     #   --repeat N --warmup W  -> run a plan and print a statistical aggregate
     #   results/publish-receipts.jsonl records publish attempts (append-only)
@@ -72,7 +72,7 @@ def _cmd_list(args: argparse.Namespace) -> int:
         else:
             ex_suite, ex_domain = sorted(suites)[0], "<domain>"
         print(
-            f"  run one    : csbench run --domain {ex_domain} --task suite:{ex_suite}"
+            f"  run one    : csbench run --domain {ex_domain} --benchmark {ex_suite}"
             " --platform local-sim --config <yaml with 'target: {mode: mock}'>"
         )
         print()
@@ -169,6 +169,20 @@ def _exit_code(record: Any) -> int:
     return code
 
 
+def _resolve_task_id(args: argparse.Namespace) -> str:
+    """The run's task_id from --benchmark (the standard way) or --task (native /
+    legacy). ``--benchmark <id>`` is sugar for the canonical ``suite:<id>``."""
+    benchmark = getattr(args, "benchmark", None)
+    task = getattr(args, "task", None)
+    if benchmark and task:
+        raise UserInputError("pass either --benchmark or --task, not both")
+    if benchmark:
+        return benchmark if benchmark.startswith("suite:") else f"suite:{benchmark}"
+    if task:
+        return task
+    raise UserInputError("a run needs --benchmark <id> (a registered benchmark suite) or --task <id>")
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     target: dict[str, Any] = {}
     params: dict[str, Any] = {}
@@ -180,7 +194,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     spec = RunSpec(
         domain=args.domain,
-        task_id=args.task,
+        task_id=_resolve_task_id(args),
         platform=args.platform,
         target=target,
         params=params,
@@ -590,6 +604,7 @@ def _cmd_conformance_suite(suite_id: str) -> int:
 
     from clousight_bench.core.conformance import CheckResult, check_evaluator
     from clousight_bench.core.registry import load_benchmark_suites, load_evaluators
+    from clousight_bench.core.suite import evaluate_with_metrics
 
     suites = load_benchmark_suites()
     if suite_id not in suites:
@@ -622,7 +637,9 @@ def _cmd_conformance_suite(suite_id: str) -> int:
             for ev in supporting:
                 ev_label = getattr(ev, "evaluator_id", str(ev))
                 print(f"\n[evaluator: {ev_label}]")
-                measurements = ev.evaluate(raw)
+                # Include bound add-on metric outputs so the namespace/official
+                # checks cover them too (they emit <suite_id>.<metric_id>).
+                measurements, _ = evaluate_with_metrics(ev, raw, suite_id=suite_id)
                 results = check_evaluator(ev, suite_id, measurements, known_suite_ids=known_suite_ids)
                 for r in results:
                     mark = "✓" if r.ok else "✗"
@@ -1117,9 +1134,17 @@ def main(argv: list[str] | None = None) -> int:
     list_p.add_argument("--verbose", action="store_true", help="show task and adapter metadata")
     list_p.add_argument("--json", action="store_true", help="output as JSON (LLM-friendly)")
 
-    run_p = sub.add_parser("run", help="run one task against one platform")
+    run_p = sub.add_parser("run", help="run one benchmark against one platform")
     run_p.add_argument("--domain", required=True)
-    run_p.add_argument("--task", required=True)
+    run_p.add_argument(
+        "--benchmark",
+        help="a registered benchmark suite id (e.g. swe-bench) — the standard way to run",
+    )
+    run_p.add_argument(
+        "--task",
+        help="a native/internal task id, or the explicit canonical form suite:<id> "
+        "(--benchmark <id> is the preferred sugar)",
+    )
     run_p.add_argument("--platform", required=True)
     run_p.add_argument("--config", help="YAML file with `target:` and `params:` sections")
     run_p.add_argument("--param", action="append", default=[], help="override a task param, key=value")

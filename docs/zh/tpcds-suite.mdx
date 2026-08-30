@@ -13,12 +13,12 @@ TPC-DS 是 Clousight Bench 的第二个基准套件，也是 `data-warehouse`（
 ```bash
 # 离线 mock 路径——无需 DuckDB，跑通整条阶段机：
 printf 'target:\n  mode: mock\n' > mock.yaml
-csbench run --domain data-warehouse --task suite:tpc-ds \
+csbench run --domain data-warehouse --benchmark tpc-ds \
   --platform duckdb-local --config mock.yaml
 
 # 真实 DuckDB SF1 运行（需要 [tpcds] extra：pip install clousight-bench[tpcds]）：
 printf 'target:\n  mode: runtime\nparams:\n  scale_factor: 1\n  query_ids: [3, 7, 42]\n' > real.yaml
-csbench run --domain data-warehouse --task suite:tpc-ds \
+csbench run --domain data-warehouse --benchmark tpc-ds \
   --platform duckdb-local --config real.yaml
 ```
 
@@ -64,7 +64,7 @@ SF1、固化 SF1 参考摘要正确性、老实的每查询延迟、不产审计
 DuckDB 的 `tpch` 扩展（`dbgen` + 22 条查询经 `PRAGMA tpch(n)`）。
 
 ```bash
-csbench run --domain data-warehouse --task suite:tpc-h \
+csbench run --domain data-warehouse --benchmark tpc-h \
   --platform duckdb-local --config mock.yaml   # 或 mode: runtime 的 real.yaml
 ```
 

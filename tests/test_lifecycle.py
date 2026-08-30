@@ -100,7 +100,7 @@ def _run(tmp_path, **kwargs):
 
 def test_happy_path_produces_a_completed_0_3_record(tmp_path):
     record = _run(tmp_path)
-    assert record.schema_version == "0.3"
+    assert record.schema_version == "0.4"
     assert record.status == "completed"
     assert record.errors == []
     assert record.measurements["hits"] == {

@@ -1,0 +1,15 @@
+{
+  "per_instance": {
+    "chartjs__Chart.js-10301": {
+      "resolved": true
+    },
+    "diegomura__react-pdf-1178": {
+      "resolved": false
+    },
+    "markedjs__marked-1535": {
+      "resolved": true
+    }
+  },
+  "resolved": 2,
+  "total": 3
+}

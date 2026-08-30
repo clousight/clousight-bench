@@ -22,12 +22,12 @@ SUT 是一个 OpenAI 兼容端点,从 `Target` 解析:
 ```bash
 # 离线 mock(无网络、无 key)——CI 路径:
 printf 'target:\n  mode: mock\n' > mock.yaml
-csbench run --domain llm --task suite:mmlu --platform llm-mock --config mock.yaml
+csbench run --domain llm --benchmark mmlu --platform llm-mock --config mock.yaml
 
 # 对托管 LLM 真实运行(配置接入):
 printf 'target:\n  mode: runtime\n  endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  limit: 100\n' > qwen.yaml
 export DASHSCOPE_API_KEY=...
-csbench run --domain llm --task suite:mmlu --platform llm-endpoint --config qwen.yaml
+csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen.yaml
 ```
 
 `params.subjects` 过滤学科;`params.limit` 限题数。

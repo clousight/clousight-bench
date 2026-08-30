@@ -23,6 +23,7 @@ from clousight_bench.core.suite import (
     DriverContext,
     RawArtifacts,
     Target,
+    evaluate_with_metrics,
 )
 from clousight_bench.core.sut_span import validate_span
 
@@ -224,8 +225,10 @@ class SuiteTask(Task):
             dir=stage_dir,
             manifest=observations.observations["manifest"],
         )
-        measurements = self._evaluator.evaluate(raw)
-        return TaskResult(measurements=measurements)
+        measurements, items = evaluate_with_metrics(
+            self._evaluator, raw, suite_id=self._suite.suite_id, params=self._params
+        )
+        return TaskResult(measurements=measurements, items=items)
 
     # ------------------------------------------------------------------
     # Provenance
@@ -246,18 +249,11 @@ class SuiteTask(Task):
         by contract (see _dataset() docstring).  The digest is stable across the task
         lifetime because _dataset() is cached on constructor params.
 
-        The scaffold field is mode-aware: a mock run (self.mock) is ALWAYS the
-        slice-1 mock-agent pin regardless of agent_kind — mock artifacts must
-        never claim a real-SUT scaffold.  Only a non-mock run derives the slice-2
-        scaffolds from params["agent_kind"] "oracle"/"llm"; anything else
-        (including absent) keeps the slice-1 mock-agent pin.
+        The scaffold tag comes from the suite (``suite.scaffold(params, mock=...)``)
+        — suite-specific SUT/agent identity knowledge lives on the suite, not in
+        this core shim. Agent suites (SWE-bench) return a mode-aware agent
+        scaffold; non-agent suites return "" (no separate scaffold to attribute).
         """
-        if self.mock:
-            scaffold = "mock-agent@slice1"
-        else:
-            scaffold = {"oracle": "oracle@slice2", "llm": "qwen-llm@slice2"}.get(
-                str(self._params.get("agent_kind") or ""), "mock-agent@slice1"
-            )
         return Provenance(
             suite_id=self._suite.suite_id,
             suite_version=self._suite.suite_version,
@@ -265,6 +261,6 @@ class SuiteTask(Task):
             unmodified=True,
             evaluator_id=self._evaluator.evaluator_id,
             evaluator_official=self._evaluator.official,
-            scaffold=scaffold,
+            scaffold=self._suite.scaffold(self._params, mock=self.mock),
             division="",
         )

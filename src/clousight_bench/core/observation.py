@@ -16,6 +16,11 @@ from clousight_bench.core.canonical import canonical_json
 
 REPRODUCIBILITY_CLASSES: tuple[str, ...] = ("deterministic", "environmental", "judge-based")
 SEVERITIES: tuple[str, ...] = ("info", "warning", "critical")
+# Per-item / per-metric outcome states (R1: the 4-state model borrowed from
+# DeepEval). ``fail`` is a RESULT (the SUT underperformed), ``skip`` means a
+# required input/capability was absent (not scored), ``error`` means the metric
+# itself crashed (a bug, isolated per-metric so one failure never voids a run).
+ITEM_SCORE_STATUSES: tuple[str, ...] = ("ok", "fail", "skip", "error")
 
 
 class ObservationError(ValueError):
@@ -40,6 +45,7 @@ class Measurement:
     aggregation: str = ""
     sample_count: int | None = None
     notes: str = ""
+    ci: tuple[float, float] | None = None  # optional (lo, hi) confidence interval
 
     def __post_init__(self) -> None:
         if self.reproducibility_class and self.reproducibility_class not in REPRODUCIBILITY_CLASSES:
@@ -47,6 +53,10 @@ class Measurement:
                 f"reproducibility_class must be one of {REPRODUCIBILITY_CLASSES} or empty, "
                 f"got {self.reproducibility_class!r}"
             )
+        if self.ci is not None:
+            lo, hi = self.ci  # unpacking rejects any non-2-tuple with a clear error
+            if lo > hi:
+                raise ObservationError(f"ci lower bound {lo} exceeds upper bound {hi}")
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -62,6 +72,8 @@ class Measurement:
             out["sample_count"] = self.sample_count
         if self.notes:
             out["notes"] = self.notes
+        if self.ci is not None:
+            out["ci"] = [self.ci[0], self.ci[1]]
         return out
 
 
@@ -90,6 +102,74 @@ class Finding:
 
 
 @dataclass
+class ItemScore:
+    """One metric's score for one item — the atom that Measurements aggregate.
+
+    ``status`` is the 4-state outcome (see ``ITEM_SCORE_STATUSES``): a ``fail`` is
+    a real result, ``skip``/``error`` are not scored / a bug. ``reason`` carries a
+    judge rationale or diagnostic; ``error`` is set only when ``status=="error"``.
+    """
+
+    metric: str
+    value: Any
+    status: str = "ok"
+    reason: str = ""
+    error: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.metric:
+            raise ObservationError("ItemScore.metric must be a non-empty metric id")
+        if self.status not in ITEM_SCORE_STATUSES:
+            raise ObservationError(f"status must be one of {ITEM_SCORE_STATUSES}, got {self.status!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"metric": self.metric, "value": self.value, "status": self.status}
+        if self.reason:
+            out["reason"] = self.reason
+        if self.error:
+            out["error"] = self.error
+        return out
+
+
+@dataclass
+class ItemResult:
+    """First-class, portable, re-scorable per-example evidence.
+
+    ``input``/``output``/``reference`` may hold the value directly or a pointer
+    ``{"$artifact": "<manifest-key-or-relpath>"}`` for large blobs resolved
+    against the staged artifacts dir, so the substrate scales to swe-bench-size
+    patches without bloating the record.
+    """
+
+    item_id: str
+    group: str = ""
+    input: Any = None
+    output: Any = None
+    reference: Any = None
+    scores: list[ItemScore] = field(default_factory=list)
+    usage: dict[str, Any] = field(default_factory=dict)
+    attrs: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.item_id:
+            raise ObservationError("ItemResult.item_id must be a stable, non-empty string")
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"item_id": self.item_id, "scores": [s.to_dict() for s in self.scores]}
+        if self.group:
+            out["group"] = self.group
+        for key in ("input", "output", "reference"):
+            val = getattr(self, key)
+            if val is not None:
+                out[key] = val
+        if self.usage:
+            out["usage"] = self.usage
+        if self.attrs:
+            out["attrs"] = self.attrs
+        return out
+
+
+@dataclass
 class ObservationBundle:
     """Raw, replayable evidence. Never a conclusion."""
 
@@ -111,6 +191,7 @@ class TaskResult:
 
     measurements: dict[str, Measurement] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
+    items: list[ItemResult] = field(default_factory=list)
     notes: str = ""
     task_revision: str = ""
     scorer_revision: str = ""

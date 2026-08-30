@@ -51,7 +51,7 @@ cat > mock.yaml <<'EOF'
 target:
   mode: mock
 EOF
-csbench run --domain agent-runtime --task suite:swe-bench \
+csbench run --domain agent-runtime --benchmark swe-bench \
     --platform local-sim --config mock.yaml
 
 # open the web viewer (EN | 中文, dark/light, trajectory waterfall):

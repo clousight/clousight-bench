@@ -1,0 +1,14 @@
+[
+  {
+    "instance_id": "django__django-10914",
+    "patch": "diff --git a/django/conf/global_settings.py b/django/conf/global_settings.py\n--- a/django/conf/global_settings.py\n+++ b/django/conf/global_settings.py\n@@ -304,7 +304,7 @@ def gettext_noop(s):\n \n # The numeric mode to set newly-uploaded files to. The value should be a mode\n # you'd pass directly to os.chmod; see https://docs.python.org/library/os.html#files-and-directories.\n-FILE_UPLOAD_PERMISSIONS = None\n+FILE_UPLOAD_PERMISSIONS = 0o644\n \n # The numeric mode to assign to newly-created directories, when uploading files.\n # The value should be a mode as you'd pass to os.chmod;\n"
+  },
+  {
+    "instance_id": "sympy__sympy-11400",
+    "patch": "diff --git a/sympy/printing/ccode.py b/sympy/printing/ccode.py\n--- a/sympy/printing/ccode.py\n+++ b/sympy/printing/ccode.py\n@@ -231,6 +231,20 @@ def _print_Symbol(self, expr):\n         else:\n             return name\n \n+    def _print_Relational(self, expr):\n+        lhs_code = self._print(expr.lhs)\n+        rhs_code = self._print(expr.rhs)\n+        op = expr.rel_op\n+        return (\"{0} {1} {2}\").format(lhs_code, op, rhs_code)\n+\n+    def _print_sinc(self, expr):\n+        from sympy.functions.elementary.trigonometric import sin\n+        from sympy.core.relational import Ne\n+        from sympy.functions import Piecewise\n+        _piecewise = Piecewise(\n+            (sin(expr.args[0]) / expr.args[0], Ne(expr.args[0], 0)), (1, True))\n+        return self._print(_piecewise)\n+\n     def _print_AugmentedAssignment(self, expr):\n         lhs_code = self._print(expr.lhs)\n         op = expr.rel_op\n"
+  },
+  {
+    "instance_id": "astropy__astropy-12907",
+    "patch": "diff --git a/astropy/modeling/separable.py b/astropy/modeling/separable.py\n--- a/astropy/modeling/separable.py\n+++ b/astropy/modeling/separable.py\n@@ -242,7 +242,7 @@ def _cstack(left, right):\n         cright = _coord_matrix(right, 'right', noutp)\n     else:\n         cright = np.zeros((noutp, right.shape[1]))\n-        cright[-right.shape[0]:, -right.shape[1]:] = 1\n+        cright[-right.shape[0]:, -right.shape[1]:] = right\n \n     return np.hstack([cleft, cright])\n \n"
+  }
+]

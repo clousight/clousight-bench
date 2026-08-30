@@ -1,0 +1,38 @@
+[
+  {
+    "task_id": "HumanEval/0",
+    "passed": true,
+    "latency_ms": 180.0,
+    "error": ""
+  },
+  {
+    "task_id": "HumanEval/1",
+    "passed": true,
+    "latency_ms": 220.0,
+    "error": ""
+  },
+  {
+    "task_id": "HumanEval/2",
+    "passed": true,
+    "latency_ms": 90.0,
+    "error": ""
+  },
+  {
+    "task_id": "HumanEval/3",
+    "passed": false,
+    "latency_ms": 150.0,
+    "error": "AssertionError"
+  },
+  {
+    "task_id": "HumanEval/4",
+    "passed": true,
+    "latency_ms": 130.0,
+    "error": ""
+  },
+  {
+    "task_id": "HumanEval/5",
+    "passed": true,
+    "latency_ms": 160.0,
+    "error": ""
+  }
+]

@@ -1,0 +1,74 @@
+---
+title: HumanEval 套件（llm 域）
+description: 用 HumanEval 评测托管大模型——通过执行生成代码跑单元测试得到 pass@1 正确率。
+---
+
+`llm` 域评测的是**云厂商作为产品售卖的托管大模型**。**HumanEval**
+（openai/openai_humaneval,MIT）是第一个通过**运行模型写的代码**来评分的套件:
+每题让 SUT 补全一个函数签名 + docstring,再把补全与该题自带的
+`check(candidate)` 单元测试一起执行。经典指标 `pass@1` = 测试通过的题目比例。
+
+这是客观评分,不是主观 judging:候选要么通过单元测试,要么不通过
+(`deterministic`)。
+
+## 三条路径
+
+| 路径 | 连接到 | 是否执行代码 |
+| --- | --- | --- |
+| `llm-mock`(默认) | 离线——回放内置的预打分 fixture | 否 |
+| `llm-mock` + `params.execute=true` | 离线——把数据集自带的**标准答案**代码送进沙箱执行器 | 是(经审阅的内置代码) |
+| `llm-endpoint` | 一个**已运行**的托管大模型:`endpoint` + `model` + `credentials_ref` | 是(**模型输出——不可信**) |
+
+```bash
+# 离线 fixture 路径(无网络、无密钥、不执行)——CI 冒烟路径:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain llm --benchmark human-eval --platform llm-mock --config mock.yaml
+
+# 参考执行——真正把标准答案送进沙箱运行(无 LLM),端到端验证执行 + 评分:
+printf 'target:\n  mode: mock\nparams:\n  execute: true\n' > exec.yaml
+csbench run --domain llm --benchmark human-eval --platform llm-mock --config exec.yaml
+
+# 对托管大模型真跑(配置接入)——执行的是模型的代码。
+# 必须显式设置 params.allow_code_execution: true(它会在本地执行不可信的模型输出),
+# 请在隔离环境中运行:
+printf 'target:\n  mode: runtime\n  endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  allow_code_execution: true\n' > qwen.yaml
+export DASHSCOPE_API_KEY=...
+csbench run --domain llm --benchmark human-eval --platform llm-endpoint --config qwen.yaml
+```
+
+`params.limit` 限制题目数量。执行前会剥离模型补全外层的单个 ```` ```python … ``` ````
+代码围栏(真实 endpoint 常无视"不要围栏"的提示),因此"带围栏但正确"的答案不会被误判。
+
+## 沙箱与安全
+
+执行复用第一方 `core.sandbox` helper:每个候选在**全新子进程**中运行,带
+**剥离机密的环境**(模型代码无法从 `os.environ` 读到运营方的 `*_API_KEY`)、
+墙钟 `timeout`、新会话(超时时杀掉整个进程组)以及 POSIX `rlimit` 上限
+(CPU、地址空间、文件大小、fd 数量,经 `preexec_fn` 施加),工作目录用完即弃。
+`llm-endpoint` 路径额外**要求显式 `params.allow_code_execution: true`** 才会执行,
+并在发送 Bearer key 前对 endpoint URL 做 SSRF 校验(仅 http(s)、禁止云 metadata/
+link-local 主机)。正如 `core.sandbox` 所声明,这是纵深防御,**不是容器**——它
+限制失控的 CPU/内存/输出,而非文件系统或网络访问。
+离线参考路径只执行数据集**经审阅的标准答案代码**;执行**模型生成**的补全
+(`llm-endpoint`)属于不可信操作,应由你在自己的隔离环境中决定。
+
+## 度量
+
+`official-humaneval-evaluator` 发出 `human-eval.*` 度量:
+
+| 度量 | 含义 | 类别 |
+| --- | --- | --- |
+| `human-eval.pass_at_1` | 通过题数 / 总题数(HumanEval 经典指标) | `deterministic` |
+| `human-eval.avg_latency_ms` | 每题平均墙钟耗时 | `environmental` |
+| `human-eval.total_tokens` | prompt + completion token | `environmental` |
+| `human-eval.cost_usd` | token × seed 单价 | `environmental` |
+
+均为 `official=True`(provenance 标记——由套件的公认 evaluator 发出,不是审计
+断言)。当运行未记录用量时(如参考/fixture 路径),token/延迟维度会省略。
+
+## 有意的范围(切片 1)
+- 一个小的**真实 HumanEval 样本**(openai/openai_humaneval,MIT)以 fixture 形式
+  内置,固定到数据集 main-commit,使 mock / 参考路径无需网络。完整 164 题的抓取
+  是未来增项——如今它被明确标注为样本,而非完整榜单运行。
+- 贪心单样本 `pass@1`;`pass@k` 采样是未来增项。
+- 本套件是其他"按执行评分"的基准(SciCode、USACO)所依赖的代码执行基座。

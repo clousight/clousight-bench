@@ -23,7 +23,16 @@ from clousight_bench.core.plugin import ProviderAdapter, Task
 
 
 class _LlmAdapterBase(ProviderAdapter):
-    """Shared LLM adapter: expose the model + resolve the API key reference."""
+    """Shared LLM adapter: expose the model + resolve the API key reference.
+
+    Both llm adapters are **connect-only**: the mock replays a fixture and the
+    endpoint config-connects to an already-running managed LLM — neither
+    provisions billable cloud resources, so this is declared explicitly rather
+    than inferred, and the framework's live-gate / cost / reaper machinery never
+    runs for them."""
+
+    def provisions_resources(self) -> bool:
+        return False
 
     def model(self) -> str:
         return str(self.target.get("model") or "")

@@ -9,7 +9,7 @@ core never imports a domain by path. Installing a plugin package is enough for
 from __future__ import annotations
 
 from importlib.metadata import entry_points
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from clousight_bench.core.errors import UnknownDomainError, UserInputError
 from clousight_bench.core.plugin import (
@@ -22,6 +22,8 @@ from clousight_bench.core.plugin import (
 from clousight_bench.core.versioning import range_contains
 
 if TYPE_CHECKING:
+    from clousight_bench.core.judge import JudgeModel, JudgeProvider
+    from clousight_bench.core.metric import Metric
     from clousight_bench.core.suite import BenchmarkSuite, Evaluator
     from clousight_bench.core.tracing import SpanExporter
 
@@ -244,6 +246,8 @@ def load_asset_resolvers() -> list[PrivateAssetResolver]:
 
 BENCHMARK_SUITE_ENTRY_POINT_GROUP = "clousight_bench.benchmark_suites"
 EVALUATOR_ENTRY_POINT_GROUP = "clousight_bench.evaluators"
+METRIC_ENTRY_POINT_GROUP = "clousight_bench.metrics"
+JUDGE_ENTRY_POINT_GROUP = "clousight_bench.judges"
 
 
 def load_benchmark_suites() -> dict[str, BenchmarkSuite]:
@@ -272,3 +276,68 @@ def load_evaluators() -> list[Evaluator]:
         _check_api_version(ep, inst)
         out.append(inst)
     return out
+
+
+def load_metrics(only: tuple[str, ...] | None = None) -> dict[str, Metric]:
+    """Discover composable metrics (R2). ``only`` filters to specific metric ids;
+    a requested id that is not registered raises so a suite's binding fails loud."""
+    from clousight_bench.core.metric import Metric
+
+    metrics: dict[str, Metric] = {}
+    for ep in entry_points(group=METRIC_ENTRY_POINT_GROUP):
+        inst = ep.load()()
+        if not isinstance(inst, Metric):
+            raise RegistryError(f"entry point {ep.name!r} is not a Metric")
+        _check_api_version(ep, inst)
+        if inst.metric_id in metrics:
+            raise DuplicatePluginError(f"metric {inst.metric_id!r} provided twice")
+        metrics[inst.metric_id] = inst
+    if only is not None:
+        missing = [m for m in only if m not in metrics]
+        if missing:
+            raise RegistryError(f"unknown metric id(s): {missing}; registered: {sorted(metrics)}")
+        return {m: metrics[m] for m in only}
+    return metrics
+
+
+def load_judge_providers() -> dict[str, JudgeProvider]:
+    """Discover judge providers (R3b) — the config-connect seam for LLM-as-judge
+    (open-source + commercial). Keyed by provider name."""
+    from clousight_bench.core.judge import JudgeProvider
+
+    providers: dict[str, JudgeProvider] = {}
+    for ep in entry_points(group=JUDGE_ENTRY_POINT_GROUP):
+        inst = ep.load()()
+        if not isinstance(inst, JudgeProvider):
+            raise RegistryError(f"entry point {ep.name!r} is not a JudgeProvider")
+        _check_api_version(ep, inst)
+        if inst.name in providers:
+            raise DuplicatePluginError(f"judge provider {inst.name!r} provided twice")
+        providers[inst.name] = inst
+    return providers
+
+
+def build_judge(config: dict[str, Any] | None) -> JudgeModel | None:
+    """Build a JudgeModel from run config via the selected provider, or None.
+
+    ``config`` shape: ``{"provider": "<name>", ...provider-specific...}``. Returns
+    None when no judge is configured (``config`` empty / no ``provider``) so a
+    judge-based metric skips cleanly. An unknown provider name fails loud. A
+    ``cache`` path in the config wraps the judge in a content-addressed
+    :class:`CachingJudge` (R6) so repeat verdicts skip the LLM call.
+    """
+    if not config:
+        return None
+    name = config.get("provider")
+    if not name:
+        return None
+    providers = load_judge_providers()
+    if name not in providers:
+        raise RegistryError(f"unknown judge provider {name!r}; registered: {sorted(providers)}")
+    judge = providers[name].build(dict(config))
+    cache_path = config.get("cache")
+    if cache_path:
+        from clousight_bench.core.judge import CachingJudge
+
+        judge = CachingJudge(judge, cache_path)
+    return judge

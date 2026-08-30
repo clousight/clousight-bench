@@ -107,6 +107,30 @@ def test_enricher_name():
     assert PricingEnricher().name == "pricing"
 
 
+def test_tokens_1k_price_honors_data_override(tmp_path, monkeypatch):
+    """The suites' cost_usd / cost_per_resolved dimensions read this helper; it
+    MUST honor CLOUSIGHT_PRICING_DATA (the old per-evaluator copies ignored it)."""
+    from clousight_bench.enrichers.pricing import tokens_1k_price
+
+    feed = tmp_path / "feed.json"
+    feed.write_text('{"prices": [{"unit": "tokens_1k", "price": 0.999}]}', encoding="utf-8")
+    monkeypatch.setenv("CLOUSIGHT_PRICING_DATA", str(feed))
+    price, source = tokens_1k_price()
+    assert price == 0.999
+    assert source == "seed"
+
+
+def test_tokens_1k_price_falls_back_when_absent(tmp_path, monkeypatch):
+    from clousight_bench.enrichers.pricing import tokens_1k_price
+
+    feed = tmp_path / "feed.json"
+    feed.write_text('{"prices": []}', encoding="utf-8")
+    monkeypatch.setenv("CLOUSIGHT_PRICING_DATA", str(feed))
+    price, source = tokens_1k_price()
+    assert price == 0.002
+    assert source == "fallback"
+
+
 def _write_discounts(tmp_path, payload):
     import json
 

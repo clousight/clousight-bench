@@ -1,0 +1,6 @@
+{"kind": "llm_tokens", "value": 1400, "unit": "tokens", "attrs": {"role": "prompt", "instance_id": "chartjs__Chart.js-10301"}}
+{"kind": "llm_tokens", "value": 360, "unit": "tokens", "attrs": {"role": "completion", "instance_id": "chartjs__Chart.js-10301"}}
+{"kind": "llm_tokens", "value": 1050, "unit": "tokens", "attrs": {"role": "prompt", "instance_id": "diegomura__react-pdf-1178"}}
+{"kind": "llm_tokens", "value": 240, "unit": "tokens", "attrs": {"role": "completion", "instance_id": "diegomura__react-pdf-1178"}}
+{"kind": "llm_tokens", "value": 900, "unit": "tokens", "attrs": {"role": "prompt", "instance_id": "markedjs__marked-1535"}}
+{"kind": "llm_tokens", "value": 190, "unit": "tokens", "attrs": {"role": "completion", "instance_id": "markedjs__marked-1535"}}

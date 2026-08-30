@@ -45,7 +45,7 @@ def test_persist_keeps_the_domain_adapter_task_run_layout(tmp_path):
     expected = (tmp_path / "agent-runtime" / "local-sim" / "stub.ok-run-x.json").resolve()
     assert path == expected
     data = json.loads(expected.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "0.3"
+    assert data["schema_version"] == "0.4"
     assert data["measurements"]["p99_ms"]["value"] == 9
     assert data["run"]["stages"]["PERSIST"] == "ok"
 
