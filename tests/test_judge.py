@@ -132,7 +132,7 @@ def test_response_quality_registered() -> None:
 
 
 def test_endpoint_judge_ssrf_guard_on_construction() -> None:
-    from clousight_bench.suites._llm_shared import EndpointJudge
+    from clousight_bench.suites.llm_common import EndpointJudge
 
     with pytest.raises(RuntimeError):
         EndpointJudge(endpoint="http://169.254.169.254/v1", model="m")

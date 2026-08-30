@@ -8,36 +8,50 @@ plugin. This page names the load-bearing types and the entry points that
 register them. For line-level code questions, use the in-page **Ask** assistant
 or [DeepWiki](https://deepwiki.com/clousight/clousight-bench).
 
+Import the public contracts + data model from `clousight_bench` (or
+`clousight_bench.api`) — never from `clousight_bench.core.*` (internal). The public
+surface is what the plugin-API version (`clousight_bench.PLUGIN_API_VERSION`) governs.
+
 ## Result contract
 
-A run emits a `ResultRecord` (schema `0.2`): `status` (`completed` / `failed` /
+A run emits a `ResultRecord` (schema `0.4`): `status` (`completed` / `failed` /
 `invalid` / `unsupported`), `measurements` (each with `value`, `unit`,
-`reproducibility_class`, `official`), `findings` (each with a stable `code`, `severity`), and
-`fingerprints` (`benchmark` / `environment` / `implementation` / `record_digest`).
-See [Architecture](/docs/architecture) for the full field table.
+`reproducibility_class`, `official`, optional `ci`), optional per-item `items`
+(`ItemResult`s with 4-state `ItemScore`s the measurements aggregate), `findings`
+(stable `code`, `severity`), and `fingerprints` (`benchmark` / `environment` /
+`implementation` / `record_digest`). See [Architecture](/docs/architecture) for
+the full field table.
 
-## Plugin base classes
+## Plugin contracts
 
-| Base class | One per | Registered via |
+The primary public unit is a **benchmark** — a `BenchmarkSuite` + `Evaluator`
+(see [Add a benchmark](/docs/adding-a-suite)). `Task` / `DomainPack.tasks()` is an
+internal execution contract; you do not implement a `Task` to add a benchmark.
+
+| Contract | One per | Registered via |
 |---|---|---|
+| `BenchmarkSuite` | a benchmark | `clousight_bench.benchmark_suites` |
+| `Evaluator` | a benchmark's scoring | `clousight_bench.evaluators` |
+| `Metric` | a composable add-on score | `clousight_bench.metrics` |
+| `JudgeProvider` | an LLM-as-judge factory | `clousight_bench.judges` |
 | `DomainPack` | product category | `clousight_bench.domains` |
-| `ProviderAdapter` | (domain, cloud) | in the domain pack |
-| `Task` | dimension | in the domain pack |
-| `WorkloadEngine` | load generator | `manifest.yaml` + executable |
-
-A `Task` implements `config()` (controlled inputs), `execute()` (raw observation
-only), `score()` (a pure function of the bundle), and carries `task_revision` /
-`scorer_revision`.
+| `ProviderAdapter` | (domain, platform) SUT | in the domain pack |
 
 ## Entry points
 
-Third-party packages extend the harness by declaring these entry points (see
-`pyproject.toml`):
+Third-party (and commercial) packages extend the harness by declaring these entry
+points (see `pyproject.toml`):
 
-- `clousight_bench.domains` — domain packs
+- `clousight_bench.benchmark_suites` — benchmark suites
+- `clousight_bench.evaluators` — evaluators (namespaced measurements + `items()`)
+- `clousight_bench.metrics` — composable add-on metrics
+- `clousight_bench.judges` — LLM-as-judge providers
+- `clousight_bench.domains` — domain packs (tasks + platform adapters)
 - `clousight_bench.runtime_providers` — cloud runtime providers
 - `clousight_bench.resource_reapers` — orphan-resource reapers
 - `clousight_bench.enrichers` — post-run enrichers (e.g. pricing)
 - `clousight_bench.span_exporters` — trace span exporters
+- `clousight_bench.asset_resolvers` — private/gated dataset resolvers
 
-See [Extending (plugins)](/docs/plugins) for a worked example.
+See [Add a benchmark](/docs/adding-a-suite) and [Plugins](/docs/plugins) for
+worked examples.

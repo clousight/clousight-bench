@@ -35,7 +35,7 @@ class OpenAiCompatibleJudgeProvider(JudgeProvider):
     name = "openai-compatible"
 
     def build(self, config: dict[str, Any]) -> JudgeModel:
-        from clousight_bench.suites._llm_shared import EndpointJudge
+        from clousight_bench.suites.llm_common import EndpointJudge
 
         endpoint = str(config.get("endpoint") or "")
         model = str(config.get("model") or "")

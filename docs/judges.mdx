@@ -1,0 +1,76 @@
+---
+title: Judges (LLM-as-judge)
+description: Reproducible judge-based scoring — categorical verdicts, config-connected judge, content-addressed cache.
+---
+
+For fuzzy judgments you can't score deterministically, a **judge** (an LLM) rates
+a SUT response. Clousight Bench makes this *reproducible-by-construction*: the
+judge is asked for a **categorical verdict** and fixed arithmetic maps it to a
+score. G-Eval-style top-logprob weighting (provider-dependent, non-reproducible)
+is deliberately **not** used. Judge-based measurements carry
+`reproducibility_class="judge-based"` — auditable via recorded judge id + verdict,
+even though a judge run is not bit-reproducible.
+
+## Run the reference judge metric
+
+`response-quality` is a rubric judge (excellent / good / fair / poor →
+1.0 / 0.75 / 0.5 / 0.25, optional self-consistency). Opt it in and config-connect a
+judge:
+
+```yaml
+# run config
+target: { mode: mock }
+params:
+  extra_metrics: [response-quality]
+  judge:
+    provider: openai-compatible          # the clousight_bench.judges seam
+    endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: qwen-max
+    credentials_ref: env:DASHSCOPE_API_KEY
+    cache: .judge_cache.json             # reuse verdicts across re-runs
+    judge_samples: 1                     # >1 = self-consistency majority
+```
+
+<Warning>
+With **no** `judge` configured, judge-based metrics `skip` cleanly — so mock /
+conformance / CI never call a live judge. A judge-configured run does network I/O
+in scoring and is **not** offline-re-scorable, by design.
+</Warning>
+
+## The judge seam
+
+- **`JudgeModel`** — the judge interface (`generate` / optional native
+  `generate_schema` / `capabilities`). `judge_emit(judge, prompt, schema, extract)`
+  gets structured output from any judge (native JSON-schema mode, else a
+  prompt + brace-slice / trailing-comma repair).
+- **`JudgeProvider`** — a config-connect factory registered under
+  `clousight_bench.judges`, selected by `params.judge.provider`. The OSS
+  `openai-compatible` provider builds an SSRF-guarded endpoint judge. A commercial
+  judge ships its own provider from a private package.
+- **`CachingJudge`** — a `cache` path in the judge config wraps the judge so
+  repeat `(model, prompt)` verdicts skip the (slow, costly) call. Only judge
+  scoring is cached — never environmental numbers.
+
+## Security
+
+The endpoint is SSRF-guarded before the Bearer credential is sent (http(s) only;
+cloud-metadata / link-local / integer-encoded-IP hosts refused; no redirects). A
+judge metric that executes code (or the code-execution [suites](/docs/human-eval-suite))
+runs in a secret-stripped subprocess. `credentials_ref` names an env var — never an
+inline secret.
+
+## Write your own judge provider
+
+```python
+from clousight_bench import JudgeProvider, JudgeModel
+
+class MyJudgeProvider(JudgeProvider):
+    name = "my-judge"
+    def build(self, config: dict) -> JudgeModel:
+        return MyJudge(model=config["model"], ...)   # your JudgeModel
+```
+
+```toml
+[project.entry-points."clousight_bench.judges"]
+my-judge = "my_pkg.judges:MyJudgeProvider"
+```

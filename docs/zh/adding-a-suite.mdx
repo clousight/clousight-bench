@@ -1,0 +1,115 @@
+---
+title: 新增一个 benchmark
+description: 写一个 BenchmarkSuite + Evaluator,注册两个入口点,用 csbench run --benchmark 运行。
+---
+
+新增 benchmark 是扩展 Clousight Bench 的主要方式——开源与商业套件一视同仁(商业套件
+从私有包发布同样的入口点)。你实现两个类、注册两个入口点;不改动 core。
+
+<Tip>
+拿一个自包含套件当模板复制:`src/clousight_bench/suites/gsm8k/`(内置 fixture +
+evaluator + 极小的 suite)。SWE-bench 是最完整的例子,但带 Docker/HF——先从 GSM8K 起步。
+</Tip>
+
+## 两个契约
+
+- **`BenchmarkSuite`** 产出原始产物:`resolve`(选数据集,离线)→ `prepare`(连接/制备)
+  → `run`(产出一个 `RawArtifacts` 目录 + manifest)→ `teardown`;外加 `mock_artifacts`
+  (CI 用的离线路径)。
+- **`Evaluator`** 把这些产物打分成命名空间化的 `Measurement`——一个纯粹、离线的函数
+  (无云、无凭证),因此一次已存运行可被重打分。
+
+两者都从稳定入口导入——`clousight_bench`(或 `clousight_bench.api`),绝不用
+`clousight_bench.core.*`。
+
+## 一个最小套件
+
+```python
+# my_pkg/echo_suite.py
+from clousight_bench import (
+    BenchmarkSuite, Evaluator, DatasetHandle, EnvHandle, RawArtifacts,
+    Target, DriverContext, Measurement,
+)
+import json, tempfile
+from pathlib import Path
+
+
+class EchoSuite(BenchmarkSuite):
+    suite_id = "echo"                 # == 入口点名 == 测量命名空间
+    suite_version = "echo/v1"         # 溯源固定版本;数据集/harness 变更时递增
+
+    def resolve(self, cfg, assets):   # 离线:选数据集/子集
+        n = int(cfg.get("n", 3))
+        return DatasetHandle(version=self.suite_version, digest=f"sha256:echo-{n}", payload={"n": n})
+
+    def prepare(self, target, dataset, driver):   # 连接/制备(mock → 无操作)
+        return EnvHandle({"n": dataset.payload["n"]})
+
+    def run(self, target, env, driver) -> RawArtifacts:
+        return self._emit(env.payload["n"])       # 真实路径在此调用被测系统
+
+    def mock_artifacts(self, cfg) -> RawArtifacts:  # 离线 fixture 路径(CI / mode: mock)
+        return self._emit(int(cfg.get("n", 3)))
+
+    def _emit(self, n: int) -> RawArtifacts:
+        d = Path(tempfile.mkdtemp())
+        rows = [{"id": f"q{i}", "correct": True} for i in range(n)]
+        (d / "results.json").write_text(json.dumps(rows))
+        return RawArtifacts(dir=d, manifest={"results": {"path": "results.json"}})
+
+
+class OfficialEchoEvaluator(Evaluator):
+    evaluator_id = "official-echo-evaluator"
+    official = True                    # 在 "echo." 命名空间下发出
+
+    def supports(self, suite_id, product) -> bool:
+        return suite_id == "echo"
+
+    def evaluate(self, raw) -> dict[str, Measurement]:
+        try:
+            rows = json.loads(raw.path("results").read_text())
+        except Exception:              # fail-safe:产物缺失/损坏时绝不抛异常
+            return {}
+        total = len(rows) or 1
+        passed = sum(1 for r in rows if r.get("correct"))
+        return {"echo.pass_rate": Measurement(
+            value=passed / total, unit="ratio",
+            reproducibility_class="deterministic", official=True, sample_count=len(rows),
+        )}
+```
+
+## 注册 + 运行
+
+```toml
+# pyproject.toml
+[project.entry-points."clousight_bench.benchmark_suites"]
+echo = "my_pkg.echo_suite:EchoSuite"
+
+[project.entry-points."clousight_bench.evaluators"]
+official-echo-evaluator = "my_pkg.echo_suite:OfficialEchoEvaluator"
+```
+
+```bash
+pip install -e .          # 注册入口点
+csbench list             # → 出现 suite:echo
+csbench conformance --suite echo                         # 命名空间 + official-flag 检查
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain agent-runtime --benchmark echo --platform local-sim --config mock.yaml   # ✅
+```
+
+<Note>
+`conformance` 强制契约:一个 `official` evaluator 只能发出 `<suite_id>.` 下的 key,
+且全部 `official=True`。这正是让一个数字可信的东西。
+</Note>
+
+## 进阶(可选)
+
+- **逐项分数**——实现 `Evaluator.items(raw) -> list[ItemResult]` 发出逐例证据;标量
+  测量成为其聚合(带置信区间 + 按 `group` 切片)。见[架构](/docs/zh/architecture)。
+- **附加 [metrics](/docs/zh/metrics)**——用 `extra_metric_ids`(或运行的
+  `params.extra_metrics`)绑定额外指标;它们作用于你的 `items`,发出 `<suite_id>.<metric_id>`。
+- **[判定型打分](/docs/zh/judges)**——加上 `response-quality` 指标(或你自己的),经
+  `params.judge` 配置接入一个判定模型。
+- **配置接入真实被测系统**——在 `prepare`/`run` 里读 `target.endpoint` /
+  `target.credentials_ref`;LLM 套件复用 `clousight_bench.suites.llm_common`
+  (`resolve_endpoint`、`chat_once`,带 SSRF 守护)。

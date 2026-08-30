@@ -1,0 +1,67 @@
+---
+title: 判定(LLM-as-judge)
+description: 可复现的判定型打分——分类判定、配置接入的判定模型、内容寻址缓存。
+---
+
+对无法确定性打分的模糊判断,一个**判定模型(judge,一个 LLM)**给被测响应评级。
+Clousight Bench 让这件事**结构上可复现**:判定模型被要求给出**分类判定**,再由固定算术
+映射为分数。刻意**不用** G-Eval 式的 top-logprob 加权(依赖 provider、不可复现)。判定型
+测量带 `reproducibility_class="judge-based"`——通过记录的判定模型 id + 判定结果可审计,
+即便一次判定运行不是逐位可复现。
+
+## 运行参考判定指标
+
+`response-quality` 是一个 rubric 判定(excellent / good / fair / poor →
+1.0 / 0.75 / 0.5 / 0.25,可选自一致性)。把它 opt-in 并配置接入一个判定模型:
+
+```yaml
+# 运行配置
+target: { mode: mock }
+params:
+  extra_metrics: [response-quality]
+  judge:
+    provider: openai-compatible          # clousight_bench.judges 接缝
+    endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: qwen-max
+    credentials_ref: env:DASHSCOPE_API_KEY
+    cache: .judge_cache.json             # 跨重跑复用判定
+    judge_samples: 1                     # >1 = 自一致性多数
+```
+
+<Warning>
+**未**配置 `judge` 时,判定型指标干净地 `skip`——因此 mock / conformance / CI 从不调用
+真实判定模型。配置了判定模型的运行会在打分阶段做网络 I/O,按设计**不可**离线重打分。
+</Warning>
+
+## 判定接缝
+
+- **`JudgeModel`**——判定模型接口(`generate` / 可选原生 `generate_schema` /
+  `capabilities`)。`judge_emit(judge, prompt, schema, extract)` 从任意判定模型取得
+  结构化输出(原生 JSON-schema 模式,否则 prompt + 花括号切片 / 尾逗号修复)。
+- **`JudgeProvider`**——一个配置接入工厂,注册在 `clousight_bench.judges` 下,由
+  `params.judge.provider` 选择。开源 `openai-compatible` provider 构建一个 SSRF 守护的
+  endpoint 判定模型。商业判定模型从私有包发布自己的 provider。
+- **`CachingJudge`**——判定配置里给一个 `cache` 路径会包裹判定模型,使重复的
+  `(model, prompt)` 判定跳过(慢、贵的)调用。只缓存判定打分——绝不缓存 environmental 数值。
+
+## 安全
+
+发送 Bearer 凭证前对 endpoint 做 SSRF 守护(仅 http(s);拒绝云 metadata / link-local /
+整数编码 IP 主机;不跟随重定向)。执行代码的判定指标(或代码执行[套件](/docs/zh/human-eval-suite))
+在剥离机密的子进程中运行。`credentials_ref` 指向一个环境变量名——绝不是内联密钥。
+
+## 写你自己的判定 provider
+
+```python
+from clousight_bench import JudgeProvider, JudgeModel
+
+class MyJudgeProvider(JudgeProvider):
+    name = "my-judge"
+    def build(self, config: dict) -> JudgeModel:
+        return MyJudge(model=config["model"], ...)   # 你的 JudgeModel
+```
+
+```toml
+[project.entry-points."clousight_bench.judges"]
+my-judge = "my_pkg.judges:MyJudgeProvider"
+```

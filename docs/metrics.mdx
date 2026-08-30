@@ -1,0 +1,72 @@
+---
+title: Metrics
+description: Compose per-item metrics over any benchmark run — multiple per run, isolated, namespaced.
+---
+
+A **metric** scores one item at a time and defines how its per-item scores
+aggregate. Metrics are decoupled from suites: a run can apply several over the same
+items (the suite's objective score lives in its evaluator; add-ons — an
+answered-rate, a cost-efficiency, an [LLM-judge rubric](/docs/judges) — plug in
+without forking the evaluator).
+
+Requires a suite that emits **per-item `items`** (`Evaluator.items(raw)`), since
+metrics score items. The bundled `mmlu` / `gsm8k` / `human-eval` suites do.
+
+## Run a metric
+
+Bind it on the evaluator, or opt in per run:
+
+```bash
+# opt a metric into a single run
+csbench run --domain llm --benchmark mmlu --platform llm-mock \
+    --config mock.yaml --param extra_metrics='["answered_rate"]'
+```
+
+A metric emits measurements under `<suite_id>.<metric_id>` and appends a per-item
+`ItemScore` (4-state: `ok` / `fail` / `skip` / `error`) to every item. Metrics are
+**isolated**: one metric raising on an item is recorded as `status="error"` and
+the run continues — it never voids the run or another metric.
+
+## The reference metric: `answered-rate`
+
+Deterministic, judge-free: the fraction of items the SUT actually answered (a
+non-null `output`). Bound to `mmlu` / `gsm8k` out of the box → they also emit
+`mmlu.answered_rate` / `gsm8k.answered_rate`. A model can be accurate on what it
+answers yet answer little.
+
+## Write your own
+
+```python
+from clousight_bench import Metric, MetricContext, ItemResult, ItemScore
+
+class NonEmptyOutput(Metric):
+    metric_id = "nonempty"
+    reproducibility_class = "deterministic"   # or "judge-based" (see Judges)
+    required_inputs = ("output",)             # items missing these are scored "skip"
+
+    def score_item(self, item: ItemResult, ctx: MetricContext) -> ItemScore | None:
+        ok = bool(str(item.output or "").strip())
+        return ItemScore(metric=self.metric_id, value=1.0 if ok else 0.0,
+                         status="ok" if ok else "fail")
+    # default aggregate() = mean over ok/fail scores → one <suite>.nonempty Measurement
+```
+
+Register it and bind or opt-in:
+
+```toml
+[project.entry-points."clousight_bench.metrics"]
+nonempty = "my_pkg.metrics:NonEmptyOutput"
+```
+
+<Note>
+`required_inputs` are validated per item: an item missing a required field is
+scored `skip` (excluded from the aggregate), never a crash. Return `None` from
+`score_item` to leave an item unscored by this metric.
+</Note>
+
+## Aggregation
+
+The default `aggregate()` uses `core.aggregate` — `ratio`/`mean` (with a Wilson or
+normal confidence interval), `geomean`, percentiles — over the metric's `ok`/`fail`
+scores; `skip`/`error` are excluded from the denominator. Override `aggregate()`
+for custom shapes, or emit per-`group` breakdowns (e.g. MMLU by subject).

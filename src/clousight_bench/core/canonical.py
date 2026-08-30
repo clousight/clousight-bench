@@ -54,3 +54,10 @@ def canonical_json(value: Any) -> str:
 def digest(value: Any) -> str:
     blob = canonical_json(value).encode("utf-8")
     return "sha256:" + hashlib.sha256(blob).hexdigest()
+
+
+def sha256_bytes(data: bytes) -> str:
+    """``"sha256:" + sha256(data).hexdigest()`` for RAW bytes (vs :func:`digest`,
+    which hashes canonical JSON). The one hash helper for suite artifact manifests
+    and reference-result digests — keeps every suite on an identical format."""
+    return "sha256:" + hashlib.sha256(data).hexdigest()

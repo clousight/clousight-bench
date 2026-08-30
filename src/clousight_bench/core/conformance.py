@@ -7,7 +7,7 @@ must all pass, which makes this the core's own contract regression.
 The checks are static (they never provision a cloud): they load the plugin,
 verify its declared plugin-API range, look for name conflicts, and validate each
 task's declared contract. Emitted-record conformance itself is guaranteed at a
-different layer -- the PERSIST gate validates every record against the 0.2
+different layer -- the PERSIST gate validates every record against the 0.4
 schema -- so a successful ``csbench run`` already proves records conform.
 """
 

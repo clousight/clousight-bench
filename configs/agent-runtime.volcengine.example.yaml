@@ -1,5 +1,5 @@
 # Volcengine AgentKit. Copy to a private file, fill in, DO NOT commit real values.
-#   csbench run --domain agent-runtime --task T1.3 --platform volcengine-agentkit --config your.yaml
+#   csbench run --domain agent-runtime --benchmark swe-bench --platform volcengine-agentkit --config your.yaml
 target:
   region: cn-beijing
   endpoint: ""            # AgentKit invoke endpoint

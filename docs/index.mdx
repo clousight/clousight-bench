@@ -1,87 +1,98 @@
 ---
 title: Clousight Bench
-description: Recognized benchmark suites, run reproducibly against managed cloud products.
+description: Run recognized benchmarks reproducibly against managed cloud products and LLMs — one command, a provenance-checked number.
 ---
 
-**The measuring stick of [Clousight](https://clousight.com) — recognized benchmark
-suites (SWE-bench Verified first), run unmodified against managed cloud products,
-with a verifiable provenance chain on every number.**
+**Clousight Bench** runs recognized benchmarks — SWE-bench, TPC-DS/H, YCSB, TPC-C,
+MMLU, GSM8K, HumanEval — **unmodified** against managed cloud products and LLM
+endpoints, and gives you a number with a verifiable provenance chain: which
+benchmark, which pinned dataset, which evaluator, on which system-under-test.
 
-Clousight Bench never re-scores a suite and never blends scores. The suite's own
-harness produces the verdict; the framework adds the **cloud-product dimension**
-(runtime behavior, latency, trajectory, cost) and the reproducibility bookkeeping:
-which suite, which pinned dataset revision, which evaluator, which scaffold —
-folded into content fingerprints you can diff.
+It never re-scores a benchmark or blends scores. The benchmark's own harness
+produces the verdict; the framework adds the reproducibility bookkeeping and the
+cloud-product dimensions (latency, cost, per-item scores, an optional LLM judge).
 
+## Quickstart
+
+<Steps>
+<Step title="Install">
+```bash
+pip install clousight-bench          # extras as needed: [store] [llm] [tpcds] [swebench]
+# or, from a clone:  uv sync --all-extras
 ```
-BenchmarkSuite.resolve → prepare → run   (the suite's OWN harness, unmodified)
-        ▼
-Evaluator.evaluate(RawArtifacts)          (pure, offline, namespaced measurements)
-        ▼
-schema-0.3 record → csbench serve (web viewer) / csbench query (SQL)
+</Step>
+<Step title="See what's installed">
+```bash
+csbench list
 ```
+Every registered benchmark, evaluator, and platform — plus a copy-pasteable
+"run one" hint.
+</Step>
+<Step title="Run one — offline, no cloud, no key">
+```bash
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain agent-runtime --benchmark swe-bench --platform local-sim --config mock.yaml
+```
+You get a `status: completed` record on stdout. ✅ That's a full run of the stage
+machine (resolve → prepare → run → score → persist) over a bundled fixture — no
+cloud account, no API key.
+</Step>
+<Step title="Point it at a real system (config-connect)">
+```bash
+printf 'target:\n  mode: runtime\n  endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\n' > qwen.yaml
+export DASHSCOPE_API_KEY=...
+csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen.yaml
+```
+Same command shape; now the number comes from a live endpoint you already run.
+Then `csbench serve` opens the web viewer at `http://127.0.0.1:8787`.
+</Step>
+</Steps>
 
-Everything suite- or product-specific is a plugin.
+<Tip>
+Gate a benchmark in CI with a threshold: `csbench run … --assert thresholds.yaml`
+exits non-zero if any measurement misses its bound. See [pytest & CI](/docs/pytest-ci).
+</Tip>
+
+## The mental model
+
+Three things, each a plugin discovered by an entry point:
+
+- A **`BenchmarkSuite`** wraps a recognized harness (or any reproducible workload):
+  `resolve → prepare → run → mock_artifacts`.
+- An **`Evaluator`** turns the run's artifacts into namespaced **`Measurement`s**
+  (and optional per-item **`items`**) — a pure, offline, re-scorable function.
+- The **system under test** is chosen by `--platform` + a `target`: a simulated
+  reference, an **already-running service you config-connect to** (endpoint +
+  credentials), or a cloud the framework provisions.
+
+You add a benchmark by writing a Suite + Evaluator; you run it with
+`csbench run --benchmark <id>`. See [Add a benchmark](/docs/adding-a-suite).
 
 ## The reproducibility contract
 
-Every record carries a `provenance` block (suite id, pinned dataset revision,
+Every record carries a `provenance` block (benchmark id, pinned dataset digest,
 evaluator id, `unmodified` flag, scaffold) plus three independent fingerprints
 (`benchmark` / `environment` / `implementation`), so you can tell whether two
 numbers are even comparable. Every measurement carries a `reproducibility_class`:
 
 | Class | Meaning |
 |---|---|
-| **deterministic** | Same inputs, same number — e.g. `swe-bench.resolved` |
-| **environmental** | Method reproducible; numbers vary by network/region/account — e.g. cost, latency |
-| **judge-based** | An LLM or human judgement is in the loop |
+| **deterministic** | Same inputs, same number — e.g. `swe-bench.resolved`, `mmlu.accuracy` |
+| **environmental** | Method reproducible; the number drifts with network/region/account — cost, latency |
+| **judge-based** | An LLM-as-judge is in the loop — see [Judges](/docs/judges) |
 
-Official measurements (`official=true`) are the upstream suite's own verdict under
-the suite's namespace; custom evaluators are structurally confined to their own
-namespace. Results are always **per dimension — never a blended score**.
+`official=true` measurements are the benchmark's own verdict under its
+`<suite_id>.` namespace (a provenance flag, enforced by `csbench conformance`);
+add-on [metrics](/docs/metrics) and community evaluators stay in their own space.
+Results are always **per dimension — never a blended score**.
 
-## Quick start (no cloud account, no docker)
-
-```bash
-pip install clousight-bench
-csbench list                       # registered suites, evaluators, adapters
-
-# run SWE-bench Verified through the full stage machine, in mock mode:
-cat > mock.yaml <<'EOF'
-target:
-  mode: mock
-EOF
-csbench run --domain agent-runtime --benchmark swe-bench \
-    --platform local-sim --config mock.yaml
-
-# open the web viewer (EN | 中文, dark/light, trajectory waterfall):
-csbench serve
-```
-
-The mock run exercises the real code path over the suite's bundled fixtures and
-persists a schema-0.3 record; `csbench serve` renders it at
-`http://127.0.0.1:8787`. Optional analytics store (Parquet + DuckDB):
-`pip install clousight-bench[store]`.
-
-## Learn more
+## Next
 
 <CardGroup cols={2}>
-  <Card title="Architecture" icon="sitemap" href="/docs/architecture">
-    The lifecycle, plugin contracts, and the provenance model.
-  </Card>
-  <Card title="SWE-bench live runbook" icon="rocket" href="/docs/swe-bench-live-runbook">
-    Run the suite for real on an Aliyun ECS driver host.
-  </Card>
-  <Card title="Web viewer" icon="chart-gantt" href="/docs/viewer">
-    Record browser + trace transcript & waterfall.
-  </Card>
-  <Card title="Extending (plugins)" icon="puzzle-piece" href="/docs/plugins">
-    Add a suite, evaluator, platform adapter, or domain.
-  </Card>
-  <Card title="Querying results" icon="database" href="/docs/querying">
-    DuckDB-backed analytics over the canonical records.
-  </Card>
-  <Card title="API reference" icon="code" href="/docs/reference">
-    Core data schema and plugin base classes.
-  </Card>
+  <Card title="Add a benchmark" icon="plus" href="/docs/adding-a-suite">Write a Suite + Evaluator and run it.</Card>
+  <Card title="Metrics" icon="chart-simple" href="/docs/metrics">Compose per-item metrics over any run.</Card>
+  <Card title="Judges (LLM-as-judge)" icon="gavel" href="/docs/judges">Reproducible judge-based scoring.</Card>
+  <Card title="Architecture" icon="sitemap" href="/docs/architecture">The stage machine, record schema, plugins.</Card>
+  <Card title="pytest & CI" icon="vial" href="/docs/pytest-ci">Assert thresholds in your test suite.</Card>
+  <Card title="Web viewer" icon="chart-gantt" href="/docs/viewer">Record browser + trace waterfall.</Card>
 </CardGroup>

@@ -1,0 +1,66 @@
+---
+title: Metrics
+description: 在任意基准运行上组合逐项指标——一次运行多个、相互隔离、命名空间化。
+---
+
+一个**指标(metric)**一次给一条 item 打分,并定义其逐项分数如何聚合。指标与套件解耦:
+一次运行可在同一批 items 上应用多个(套件的客观分在其 evaluator 里;附加项——answered-rate、
+成本效率、[LLM 判定 rubric](/docs/zh/judges)——无需 fork evaluator 即可接入)。
+
+需要套件发出**逐项 `items`**(`Evaluator.items(raw)`),因为指标是对 items 打分。内置的
+`mmlu` / `gsm8k` / `human-eval` 套件都有。
+
+## 运行一个指标
+
+在 evaluator 上绑定,或按运行 opt-in:
+
+```bash
+# 把一个指标 opt-in 到单次运行
+csbench run --domain llm --benchmark mmlu --platform llm-mock \
+    --config mock.yaml --param extra_metrics='["answered_rate"]'
+```
+
+指标在 `<suite_id>.<metric_id>` 下发出测量,并给每条 item 追加一个逐项 `ItemScore`
+(4 态:`ok` / `fail` / `skip` / `error`)。指标是**隔离**的:一个指标在某条 item 上抛异常
+会被记为 `status="error"` 且运行继续——绝不作废整次运行或另一个指标。
+
+## 参考指标:`answered-rate`
+
+确定性、无判定:被测系统实际作答的 item 比例(`output` 非空)。开箱绑定到 `mmlu` / `gsm8k`
+→ 它们也发出 `mmlu.answered_rate` / `gsm8k.answered_rate`。一个模型可以在它作答的部分很准,
+却答得很少。
+
+## 写你自己的
+
+```python
+from clousight_bench import Metric, MetricContext, ItemResult, ItemScore
+
+class NonEmptyOutput(Metric):
+    metric_id = "nonempty"
+    reproducibility_class = "deterministic"   # 或 "judge-based"(见 判定)
+    required_inputs = ("output",)             # 缺这些字段的 item 记为 "skip"
+
+    def score_item(self, item: ItemResult, ctx: MetricContext) -> ItemScore | None:
+        ok = bool(str(item.output or "").strip())
+        return ItemScore(metric=self.metric_id, value=1.0 if ok else 0.0,
+                         status="ok" if ok else "fail")
+    # 默认 aggregate() = 对 ok/fail 分数取均值 → 一条 <suite>.nonempty 测量
+```
+
+注册并绑定或 opt-in:
+
+```toml
+[project.entry-points."clousight_bench.metrics"]
+nonempty = "my_pkg.metrics:NonEmptyOutput"
+```
+
+<Note>
+`required_inputs` 按 item 校验:缺必需字段的 item 记为 `skip`(不计入聚合),绝不崩溃。
+从 `score_item` 返回 `None` 表示该指标不给这条 item 打分。
+</Note>
+
+## 聚合
+
+默认 `aggregate()` 用 `core.aggregate`——`ratio`/`mean`(带 Wilson 或正态置信区间)、
+`geomean`、百分位——作用于该指标的 `ok`/`fail` 分数;`skip`/`error` 不计入分母。覆写
+`aggregate()` 做自定义形状,或发出按 `group` 的切片(如 MMLU 按学科)。
