@@ -50,10 +50,15 @@ from clousight_bench.core.plugin import (
 )
 from clousight_bench.core.record import Provenance
 from clousight_bench.core.registry import (
+    ASSET_RESOLVER_ENTRY_POINT_GROUP,
     BENCHMARK_SUITE_ENTRY_POINT_GROUP,
+    ENRICHER_ENTRY_POINT_GROUP,
     EVALUATOR_ENTRY_POINT_GROUP,
     JUDGE_ENTRY_POINT_GROUP,
     METRIC_ENTRY_POINT_GROUP,
+    RESOURCE_REAPER_ENTRY_POINT_GROUP,
+    RUNTIME_PROVIDER_ENTRY_POINT_GROUP,
+    SPAN_EXPORTER_ENTRY_POINT_GROUP,
     DuplicatePluginError,
     RegistryError,
     build_judge,
@@ -61,6 +66,9 @@ from clousight_bench.core.registry import (
     load_evaluators,
     load_judge_providers,
     load_metrics,
+)
+from clousight_bench.core.registry import (
+    ENTRY_POINT_GROUP as DOMAIN_ENTRY_POINT_GROUP,
 )
 from clousight_bench.core.schema import ResultRecord, RunSpec, new_run_id, utc_now
 from clousight_bench.core.suite import (
@@ -132,4 +140,10 @@ __all__ = [
     "EVALUATOR_ENTRY_POINT_GROUP",
     "METRIC_ENTRY_POINT_GROUP",
     "JUDGE_ENTRY_POINT_GROUP",
+    "DOMAIN_ENTRY_POINT_GROUP",
+    "ENRICHER_ENTRY_POINT_GROUP",
+    "ASSET_RESOLVER_ENTRY_POINT_GROUP",
+    "RUNTIME_PROVIDER_ENTRY_POINT_GROUP",
+    "RESOURCE_REAPER_ENTRY_POINT_GROUP",
+    "SPAN_EXPORTER_ENTRY_POINT_GROUP",
 ]

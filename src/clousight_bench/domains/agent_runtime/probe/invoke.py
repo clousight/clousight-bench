@@ -87,7 +87,7 @@ class ProbeInvoker:
             timeout=120,
         )
         resp.raise_for_status()
-        # Capture trace ID from response headers for T4.x ARMS queries.
+        # Capture trace ID from response headers for trace/ARMS queries.
         for h in ("x-trace-id", "x-b3-traceid", "traceparent", "eagleeye-traceid"):
             tid = resp.headers.get(h) or resp.headers.get(h.upper())
             if tid:

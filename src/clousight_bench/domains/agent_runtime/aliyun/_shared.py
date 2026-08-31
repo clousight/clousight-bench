@@ -10,10 +10,10 @@ Design (see clousight-bench-pro/docs/agentrun-b-design.md and
 agentrun-integration-research.md):
 
 - Control plane (``agentrun.<region>.aliyuncs.com``): CreateAgentRuntime ->
-  poll GetAgentRuntime to ready -> DeleteAgentRuntime. Drives T0.1 / T0.2.
+  poll GetAgentRuntime to ready -> DeleteAgentRuntime. Drives the provision/teardown lifecycle.
 - Data plane (``agentrun-data.<region>.aliyuncs.com``): InvokeRuntime
   (OpenAI-compatible), carrying an ``X-AgentRun-Session-ID`` header for session
-  affinity; Memory API for state (T1.2); MCP activation for tools (T2.1).
+  affinity; Memory API for state persistence; MCP activation for tools.
   Traces go to ARMS, not a synchronous API -> CapabilityNotSupported.
 
 The SDK (``alibabacloud-agentrun20250910``) is imported lazily inside the ops,
@@ -95,7 +95,7 @@ class _DataPlaneNotWired(CapabilityNotSupported):
     """Data-plane seam not yet wired for live invocation.
 
     Inherits CapabilityNotSupported so all task-level except-clauses that
-    catch CapabilityNotSupported will also catch this (T2.1, T4.1, T4.2…).
+    catch CapabilityNotSupported will also catch this (tool-activation and tracing probes).
     """
 
     def __init__(self, op: str) -> None:

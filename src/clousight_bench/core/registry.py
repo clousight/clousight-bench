@@ -279,7 +279,7 @@ def load_evaluators() -> list[Evaluator]:
 
 
 def load_metrics(only: tuple[str, ...] | None = None) -> dict[str, Metric]:
-    """Discover composable metrics (R2). ``only`` filters to specific metric ids;
+    """Discover composable metrics. ``only`` filters to specific metric ids;
     a requested id that is not registered raises so a suite's binding fails loud."""
     from clousight_bench.core.metric import Metric
 
@@ -301,7 +301,7 @@ def load_metrics(only: tuple[str, ...] | None = None) -> dict[str, Metric]:
 
 
 def load_judge_providers() -> dict[str, JudgeProvider]:
-    """Discover judge providers (R3b) — the config-connect seam for LLM-as-judge
+    """Discover judge providers — the config-connect seam for LLM-as-judge
     (open-source + commercial). Keyed by provider name."""
     from clousight_bench.core.judge import JudgeProvider
 
@@ -324,7 +324,7 @@ def build_judge(config: dict[str, Any] | None) -> JudgeModel | None:
     None when no judge is configured (``config`` empty / no ``provider``) so a
     judge-based metric skips cleanly. An unknown provider name fails loud. A
     ``cache`` path in the config wraps the judge in a content-addressed
-    :class:`CachingJudge` (R6) so repeat verdicts skip the LLM call.
+    :class:`CachingJudge` so repeat verdicts skip the LLM call.
     """
     if not config:
         return None

@@ -204,7 +204,7 @@ def main() -> None:
     region = os.environ["CB_PROBE_REGION"]
     campaign_id = os.environ["CB_PROBE_CONTROL_PREFIX"]
     # A whole-campaign carrier must outlive the gaps between data-plane jobs
-    # (control-plane tasks like T0.x provisioning dispatch none). The control
+    # (control-plane tasks like provisioning dispatch none). The control
     # plane sets this to span the campaign; default stays short for one-shot use.
     idle_timeout_s = float(os.environ.get("CB_PROBE_IDLE_TIMEOUT", "120"))
     # Per-job execution cap. Long probes (warm-keepalive, elasticity, sustained

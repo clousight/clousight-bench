@@ -138,7 +138,7 @@ class Evaluator(ABC):
     evaluator_id: str = "abstract"
     official: bool = True
     requires_plugin_api: str = ">=1.0,<2.0"
-    # Composable add-on metrics (R2) applied over this evaluator's items() at
+    # Composable add-on metrics applied over this evaluator's items() at
     # score time, emitted as ``<suite_id>.<metric_id>``. Empty = objective
     # evaluate() only. Bound metric ids must be registered under the
     # ``clousight_bench.metrics`` entry-point group (fail-loud if missing).

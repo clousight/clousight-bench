@@ -1,7 +1,7 @@
 """Aggregate per-item scores (:class:`ItemResult`) into whole-run Measurements.
 
-Pure, dependency-free (stdlib ``math``/``statistics`` only). This is the R1 seam:
-the atom of scoring is now a per-item :class:`ItemScore`; a :class:`Measurement`
+Pure, dependency-free (stdlib ``math``/``statistics`` only). This is the per-item
+scoring seam: the atom of scoring is a per-item :class:`ItemScore`; a :class:`Measurement`
 is an *aggregation* of those. Only ``ok``/``fail`` scores are counted (a ``fail``
 is a real 0/low result); ``skip``/``error`` are excluded from the denominator so
 a skipped or crashed metric never silently drags a mean down.

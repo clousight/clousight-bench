@@ -1,7 +1,7 @@
 """OpenInference / OTel helpers for agent-runtime trace scoring.
 
 We adopt a small, stable subset of the OpenInference semantic conventions so
-T4.1 (span completeness) and T4.2 (OTel export compatibility) measure the same
+Span completeness and OTel export compatibility measure the same
 thing across platforms:
 
 - Each span carries ``openinference.span.kind`` in {CHAIN, LLM, TOOL}.
@@ -10,8 +10,8 @@ thing across platforms:
 
 ``build_spans`` turns an InvocationTrace into this shape (used by local-sim and
 as the reference the scorer compares real platform traces against).
-``to_otel`` maps those spans to a minimal OTLP resourceSpans structure so T4.2
-can validate a runtime's OTel export against a known-good schema.
+``to_otel`` maps those spans to a minimal OTLP resourceSpans structure so the
+OTel-export probe can validate a runtime's OTel export against a known-good schema.
 """
 
 from __future__ import annotations
@@ -109,7 +109,7 @@ def to_otel(spans: list[dict[str, Any]], service_name: str) -> dict[str, Any]:
 
 
 def validate_otel(payload: dict[str, Any]) -> tuple[bool, list[str]]:
-    """Check a payload against the minimal OTLP shape T4.2 requires.
+    """Check a payload against the minimal OTLP shape the OTel-export probe requires.
 
     Returns (ok, problems). Every span must carry non-empty spanId + name; the
     resource must declare service.name.

@@ -4,7 +4,7 @@ The minimal permissions a run needs are a (benchmark x cloud) matrix. We split
 that cleanly:
 
 - A **Task** declares WHICH abstract capabilities it exercises (these tokens),
-  independent of any cloud -- e.g. T4.1 needs to read traces, T2.1 needs to
+  independent of any cloud -- e.g. tracing needs to read traces, tool activation needs to
   register tools.
 - An **Adapter** (per cloud) maps each token to that cloud's concrete minimal
   IAM/RAM actions (`PERMISSION_MAP`) and verifies them.
