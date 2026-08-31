@@ -26,7 +26,7 @@ def test_controller_tf_declares_restricted_role_and_instance():
     assert "ecs:DeleteInstance" in src  # self-destruct permission
     assert "vpc:DeleteNatGateway" in src  # NAT teardown permission
     assert "var.enable_controller ? 1 : 0" in src  # gated
-    assert "clousight_bench.core.controller_main" in src  # runs cb-controller
+    assert "clousight_bench.core.campaign.controller_main" in src  # runs cb-controller
 
 
 def test_controller_tf_docker_driver_knobs():

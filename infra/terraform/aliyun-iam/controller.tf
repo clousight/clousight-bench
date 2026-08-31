@@ -235,7 +235,7 @@ locals {
     ],
     local._install_lines,
     local._driver_image_lines,
-    ["exec python3.11 -m clousight_bench.core.controller_main"]
+    ["exec python3.11 -m clousight_bench.core.campaign.controller_main"]
   )))
 }
 

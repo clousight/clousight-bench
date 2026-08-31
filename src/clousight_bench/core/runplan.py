@@ -1,10 +1,10 @@
 """Run plans: repeat a benchmark, discard warmups, aggregate the rest.
 
-Phase 1C sits *on top of* the Phase 1B lifecycle without reaching into it. A
+Run plans sit *on top of* the single-run lifecycle without reaching into it. A
 ``RunPlan`` runs the same ``RunSpec`` ``warmup + repeat`` times through the
 ordinary :func:`clousight_bench.core.orchestrator.execute`, so every single run
 is still its own auditable, digested ``0.4`` record -- no evidence is ever
-collapsed away. What Phase 1C adds is a *reading* of those records:
+collapsed away. A run plan then adds a *reading* of those records:
 
 - warmup runs are executed first and excluded from the statistics (first-call
   JIT / cache / cold-connection effects are not the steady state you publish);
@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from clousight_bench.core.campaign import CAMPAIGNS_DIRNAME
+from clousight_bench.core.campaign.manifest import CAMPAIGNS_DIRNAME
 from clousight_bench.core.canonical import canonical_json, digest
 from clousight_bench.core.errors import UserInputError
 from clousight_bench.core.fingerprints import UNKNOWN

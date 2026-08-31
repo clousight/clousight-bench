@@ -4,7 +4,7 @@ The vendor half of the ``ControllerReaperSpec`` seam: the neutral
 ``RestrictedReaper`` (in ``domains/agent_runtime/controller_reaper.py``) owns the
 delete ORDER + best-effort semantics; these functions own the Aliyun SDK calls,
 resource names, endpoints and VPC-teardown ordering. They used to live in
-``core/controller_main.py``; moving them here keeps ``core`` free of any
+``core/campaign/controller_main.py``; moving them here keeps ``core`` free of any
 ``alibabacloud`` import (module-level OR lazy). See
 ``AliyunRuntimeProvider.controller_reaper_spec``.
 

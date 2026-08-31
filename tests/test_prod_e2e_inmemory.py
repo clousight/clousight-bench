@@ -6,10 +6,10 @@ guarantee that the whole loop closes: a campaign submitted, run, fetched, and
 torn down with residuals cleared.
 """
 
-from clousight_bench.core import prod_submit
 from clousight_bench.core.blobstore import InMemoryBlobStore
-from clousight_bench.core.campaign_channel import CampaignChannel
-from clousight_bench.core.controller import CampaignController, TaskOutcome
+from clousight_bench.core.campaign import prod_submit
+from clousight_bench.core.campaign.channel import CampaignChannel
+from clousight_bench.core.campaign.controller import CampaignController, TaskOutcome
 from clousight_bench.core.resource_ledger import LEDGER_FILE, ResourceLedger
 
 

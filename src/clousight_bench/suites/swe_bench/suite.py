@@ -311,7 +311,7 @@ class SweBenchSuite(BenchmarkSuite):
                     + "\n"
                 )
 
-        # Invoke upstream harness — run_id is guaranteed by prepare() (Task 2).
+        # Invoke upstream harness — run_id is guaranteed by prepare().
         run_id: str = env.payload["run_id"]
         cmd = [
             sys.executable,

@@ -17,7 +17,7 @@ import time
 from collections.abc import Callable
 
 from clousight_bench.core.blobstore import BlobStore
-from clousight_bench.core.campaign_spec import CampaignManifest, LaunchSpec
+from clousight_bench.core.campaign.spec import CampaignManifest, LaunchSpec
 
 
 class CampaignChannel:

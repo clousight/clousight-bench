@@ -1,8 +1,8 @@
 """Tests for SelfDestructWatchdog — terminal detection + one-shot reap."""
 
 from clousight_bench.core.blobstore import InMemoryBlobStore
-from clousight_bench.core.campaign_channel import CampaignChannel
-from clousight_bench.core.watchdog import SelfDestructWatchdog
+from clousight_bench.core.campaign.channel import CampaignChannel
+from clousight_bench.core.campaign.watchdog import SelfDestructWatchdog
 
 
 def _channel(now=lambda: 0.0):

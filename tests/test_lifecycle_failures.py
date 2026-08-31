@@ -11,6 +11,7 @@ from copy import deepcopy
 
 import pytest
 
+import clousight_bench.core.finalize as fin
 import clousight_bench.core.orchestrator as orch
 from clousight_bench.core.observation import (
     Measurement,
@@ -80,7 +81,7 @@ class _Domain(DomainPack):
 def _reset(monkeypatch):
     CALLS.clear()
     monkeypatch.setattr(orch, "get_domain", lambda name: _Domain())
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
 
 
 def _run(tmp_path, **kwargs):
@@ -111,7 +112,7 @@ def test_an_enricher_that_raises_is_recorded_and_the_record_still_persists(tmp_p
         def enrich(self, record):
             raise RuntimeError("commercial enricher exploded")
 
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [Boom()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [Boom()])
     record = _run(tmp_path)
 
     assert record.status == "completed"
@@ -129,7 +130,7 @@ def test_an_enricher_returning_none_does_not_destroy_the_record(tmp_path, monkey
         def enrich(self, record):
             return None
 
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [Dropper()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [Dropper()])
     record = _run(tmp_path)
 
     assert record is not None
@@ -144,7 +145,7 @@ def test_enricher_discovery_failure_is_recorded(tmp_path, monkeypatch):
     def _boom():
         raise ImportError("broken enricher entry point")
 
-    monkeypatch.setattr(orch, "load_enrichers", _boom)
+    monkeypatch.setattr(fin, "load_enrichers", _boom)
     record = _run(tmp_path)
 
     assert record.status == "completed"
@@ -160,7 +161,7 @@ def test_one_failing_enricher_does_not_stop_the_next_one(tmp_path, monkeypatch):
         def enrich(self, record):
             raise RuntimeError("nope")
 
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [Boom(), _Tagger()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [Boom(), _Tagger()])
     record = _run(tmp_path)
 
     assert record.extensions["tagger"] == {"applied": True}
@@ -179,7 +180,7 @@ def test_a_mutating_enricher_cannot_corrupt_core_fields(tmp_path, monkeypatch):
             record.measurements["hits"]["value"] = float("nan")
             return record
 
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [Malicious()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [Malicious()])
     record = _run(tmp_path)
 
     assert record.status == "completed"
@@ -202,7 +203,7 @@ def test_each_enricher_gets_a_copy_and_a_bad_candidate_is_discarded(tmp_path, mo
             return record
 
     baseline = deepcopy
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [Bad()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [Bad()])
     record = _run(tmp_path)
 
     assert seen["input"] is not record
@@ -219,7 +220,7 @@ def test_enricher_candidate_must_pass_record_structure_sanity(tmp_path, monkeypa
             record.measurements["broken"] = {"value": 1}
             return record
 
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [StructurallyBad()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [StructurallyBad()])
     record = _run(tmp_path)
 
     assert "broken" not in record.measurements
@@ -246,7 +247,7 @@ def test_enricher_cannot_rewrite_core_scoring(tmp_path, monkeypatch, target):
                 )
             return record
 
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [ScoreRewriter()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [ScoreRewriter()])
     record = _run(tmp_path)
 
     assert record.measurements["hits"]["value"] == 3

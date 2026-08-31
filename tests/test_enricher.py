@@ -5,6 +5,7 @@ from clousight_bench.core.record import ResultRecord
 
 
 def test_orchestrator_applies_enrichers(monkeypatch, tmp_path):
+    import clousight_bench.core.finalize as fin
     import clousight_bench.core.orchestrator as orch
     from clousight_bench.core.schema import RunSpec
 
@@ -15,13 +16,14 @@ def test_orchestrator_applies_enrichers(monkeypatch, tmp_path):
             record.extensions["tagger"] = {"applied": True}
             return record
 
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [Tagger()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [Tagger()])
     rec = orch.execute(RunSpec("agent-runtime", "stub.ok", "local-sim"), results_dir=tmp_path)
     assert rec.extensions["tagger"] == {"applied": True}
     assert rec.run.stages["ENRICH"] == "ok"
 
 
 def test_orchestrator_skips_enrichers_when_disabled(monkeypatch, tmp_path):
+    import clousight_bench.core.finalize as fin
     import clousight_bench.core.orchestrator as orch
     from clousight_bench.core.schema import RunSpec
 
@@ -31,7 +33,7 @@ def test_orchestrator_skips_enrichers_when_disabled(monkeypatch, tmp_path):
         called["n"] += 1
         return []
 
-    monkeypatch.setattr(orch, "load_enrichers", _boom)
+    monkeypatch.setattr(fin, "load_enrichers", _boom)
     rec = orch.execute(RunSpec("agent-runtime", "stub.ok", "local-sim"), results_dir=tmp_path, enrich=False)
     assert called["n"] == 0
     assert rec.run.stages["ENRICH"] == "skipped"

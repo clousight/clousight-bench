@@ -1,6 +1,6 @@
 """SuiteTask: wraps a BenchmarkSuite + Evaluator into the Task plugin shape.
 
-A SuiteTask is the thin glue between the benchmark-suite contract (Task 1) and
+A SuiteTask is the thin glue between the benchmark-suite contract and
 the orchestrator's stage machine.  It delegates the three Task lifecycle methods
 to the suite/evaluator pair and exposes a ``provenance()`` method so the
 orchestrator can thread the credibility chain into the benchmark fingerprint and
@@ -36,7 +36,7 @@ class SuiteTask(Task):
     """Task adapter that wraps a ``BenchmarkSuite`` and an ``Evaluator``.
 
     ``mock=True`` (the default): ``execute`` calls ``suite.mock_artifacts``
-    instead of the real prepare/run chain.  This lets the TDD slice exercise
+    instead of the real prepare/run chain.  This lets tests exercise
     the full stage machine without a live cloud target.
 
     The ``provenance()`` method returns the credibility chain for this run,
@@ -56,8 +56,9 @@ class SuiteTask(Task):
     persisted records contain only relative paths (no absolute temp paths).
     """
 
-    # task_revision / scorer_revision stay at "0" (default) for the slice-1
-    # placeholder; suites that change their scoring logic bump these.
+    # Class defaults; __init__ overrides task_revision to the suite's
+    # suite_version so the fingerprint tracks the dataset/harness. scorer_revision
+    # stays "0" until an evaluator versions its scoring logic.
     task_revision: str = "0"
     scorer_revision: str = "0"
 

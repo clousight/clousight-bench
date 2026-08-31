@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+import clousight_bench.core.finalize as fin
 import clousight_bench.core.orchestrator as orch
 from clousight_bench.core.fingerprints import record_digest
 from clousight_bench.core.plugin import ResultEnricher
@@ -55,7 +56,7 @@ def _receipts(tmp_path):
 
 
 def test_a_failing_enricher_does_not_change_the_core_status(monkeypatch, tmp_path):
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [_Boom()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [_Boom()])
     rec = orch.execute(_SPEC, results_dir=tmp_path)
     assert rec.status == "completed"
     assert rec.measurements  # stub task emits an "ok" measurement; just verify it's non-empty
@@ -68,7 +69,7 @@ def test_a_failing_enricher_does_not_change_the_core_status(monkeypatch, tmp_pat
 
 
 def test_a_failing_enricher_does_not_block_the_others(monkeypatch, tmp_path):
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [_Boom(), _Good()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [_Boom(), _Good()])
     rec = orch.execute(_SPEC, results_dir=tmp_path)
     assert rec.extensions["good"] == {"applied": True}
     assert rec.run.stages["ENRICH"] == "failed"
@@ -81,7 +82,7 @@ def test_an_enricher_returning_the_wrong_type_is_rejected(monkeypatch, tmp_path)
         def enrich(self, record):
             return {"not": "a record"}
 
-    monkeypatch.setattr(orch, "load_enrichers", lambda: [_Wrong()])
+    monkeypatch.setattr(fin, "load_enrichers", lambda: [_Wrong()])
     rec = orch.execute(_SPEC, results_dir=tmp_path)
     assert isinstance(rec, ResultRecord)
     assert rec.status == "completed"
@@ -89,7 +90,7 @@ def test_an_enricher_returning_the_wrong_type_is_rejected(monkeypatch, tmp_path)
 
 
 def test_publish_is_off_unless_a_publisher_is_injected(monkeypatch, tmp_path):
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path)
     assert rec.run.stages["PUBLISH"] == "skipped"
     assert not (tmp_path / RECEIPTS_FILE).exists()
@@ -105,7 +106,7 @@ def test_a_failing_publisher_writes_a_receipt_and_leaves_the_record_alone(monkey
             calls.append(record.run.run_id)
             raise ConnectionError("data service unreachable")
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_BadPublisher())
 
     assert rec.status == "completed"
@@ -138,7 +139,7 @@ def test_a_successful_publisher_writes_an_ok_receipt(monkeypatch, tmp_path):
         def publish(self, record):
             return {"remote_id": "abc"}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_GoodPublisher())
     assert rec.run.stages["PUBLISH"] == "skipped"
     assert rec.to_dict() == _persisted(tmp_path, rec)
@@ -165,7 +166,7 @@ def test_publisher_receives_the_durable_record_and_cannot_mutate_core(monkeypatc
             record.measurements.clear()
             return {"remote_id": "abc"}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_MutatingPublisher())
     persisted = _persisted(tmp_path, rec)
 
@@ -189,7 +190,7 @@ def test_receipts_redact_secrets_and_machine_identity(monkeypatch, tmp_path):
                 "remote_path": "/home/build-user/results",
             }
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     monkeypatch.setattr("clousight_bench.core.publish.identity_values", lambda: ("build-user",))
     orch.execute(_SPEC, results_dir=tmp_path, publisher=_LeakyPublisher())
     text = (tmp_path / RECEIPTS_FILE).read_text(encoding="utf-8")
@@ -219,7 +220,7 @@ def test_publisher_reads_and_validates_the_actual_persisted_path(monkeypatch, tm
         return path
 
     monkeypatch.setattr(orch.ResultStore, "persist", persist_then_tamper)
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_Publisher())
 
     assert calls == []
@@ -240,7 +241,7 @@ def test_sidecar_validation_failure_never_calls_the_publisher(monkeypatch, tmp_p
             calls.append(record)
             return {}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     monkeypatch.setattr(
         "clousight_bench.core.publish.validate_sidecar",
         lambda results_dir, payload: (None, "sidecar sha256 mismatch"),
@@ -262,7 +263,7 @@ def test_sidecar_changing_during_snapshot_fails_closed(monkeypatch, tmp_path):
             calls.append(record)
             return {}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path)
     path = _record_path(tmp_path, rec)
     payload = _persisted(tmp_path, rec)
@@ -326,7 +327,7 @@ def test_schema_and_identity_validation_fail_closed(monkeypatch, tmp_path, tampe
         return path
 
     monkeypatch.setattr(orch.ResultStore, "persist", persist_then_tamper)
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     orch.execute(_SPEC, results_dir=tmp_path, publisher=_Publisher())
 
     assert calls == []
@@ -343,9 +344,9 @@ def test_pending_receipt_failure_prevents_the_remote_call(monkeypatch, tmp_path)
             calls.append(record)
             return {}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     monkeypatch.setattr(
-        orch,
+        fin,
         "begin_publish_attempt",
         lambda *args, **kwargs: (_ for _ in ()).throw(OSError("receipt read-only")),
     )
@@ -367,9 +368,9 @@ def test_name_and_failure_receipt_errors_are_both_isolated(monkeypatch, tmp_path
             calls.append(record)
             return {}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     monkeypatch.setattr(
-        orch,
+        fin,
         "append_receipt",
         lambda *args, **kwargs: (_ for _ in ()).throw(OSError("read-only")),
     )
@@ -390,22 +391,22 @@ def test_terminal_receipt_failure_keeps_pending_and_retry_does_not_republish(mon
             calls.append(record.fingerprints.record_digest)
             return {"remote_id": "sent"}
 
-    original_append = orch.append_receipt
+    original_append = fin.append_receipt
 
     def fail_terminal(results_dir, receipt):
         if receipt.get("state") == "success":
             raise OSError("disk full")
         return original_append(results_dir, receipt)
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
-    monkeypatch.setattr(orch, "append_receipt", fail_terminal)
+    monkeypatch.setattr(fin, "load_enrichers", list)
+    monkeypatch.setattr(fin, "append_receipt", fail_terminal)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_Publisher())
     path = _record_path(tmp_path, rec)
 
     assert len(calls) == 1
     assert [item["state"] for item in _receipts(tmp_path)] == ["pending"]
 
-    monkeypatch.setattr(orch, "append_receipt", original_append)
+    monkeypatch.setattr(fin, "append_receipt", original_append)
     orch._publish(path, tmp_path, _Publisher(), debug=False)
     assert len(calls) == 1
     assert _receipts(tmp_path)[-1]["state"] == "indeterminate"
@@ -422,7 +423,7 @@ def test_existing_success_never_republishes_the_same_record(monkeypatch, tmp_pat
             calls.append(record.run.run_id)
             return {}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_Publisher())
     path = _record_path(tmp_path, rec)
     orch._publish(path, tmp_path, _Publisher(), debug=False)
@@ -443,7 +444,7 @@ def test_a_malicious_name_property_is_isolated_and_normalized(monkeypatch, tmp_p
             calls.append(record)
             return {}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_Publisher())
 
     assert calls == []
@@ -465,7 +466,7 @@ def test_non_json_detail_is_indeterminate_after_remote_success(monkeypatch, tmp_
             calls.append(record.run.run_id)
             return {"bad": object()}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_Publisher())
 
     pending, terminal = _receipts(tmp_path)
@@ -489,7 +490,7 @@ def test_hostile_detail_serialization_is_isolated(monkeypatch, tmp_path):
         def publish(self, record):
             return _HostileDict()
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_Publisher())
 
     assert rec.run.stages["PUBLISH"] == "skipped"
@@ -512,7 +513,7 @@ def test_publisher_file_tampering_is_detected_after_the_remote_call(monkeypatch,
             path.write_text(json.dumps(payload), encoding="utf-8")
             return {}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path, publisher=_Publisher())
 
     assert rec.status == "completed"
@@ -532,7 +533,7 @@ def test_publisher_sidecar_tampering_is_restored_atomically(monkeypatch, tmp_pat
             sidecar.write_bytes(b"tampered")
             return {}
 
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
     rec = orch.execute(_SPEC, results_dir=tmp_path)
     path = _record_path(tmp_path, rec)
     payload = _persisted(tmp_path, rec)

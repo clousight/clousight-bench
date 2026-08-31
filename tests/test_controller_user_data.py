@@ -14,7 +14,7 @@ def test_controller_user_data_installs_store_and_runs_controller():
     # installs the [probe,store] extra so parquet sidecars can be written in-cloud
     assert "clousight-bench[probe,store]" in script
     # runs the controller entrypoint, not the probe loop
-    assert "clousight_bench.core.controller_main" in script
+    assert "clousight_bench.core.campaign.controller_main" in script
     # exposes the CB_* env vars controller_main.build reads
     assert "export CB_CAMPAIGN_ID='camp-1'" in script
     assert "export CB_OSS_BUCKET='bench-bkt'" in script
@@ -45,7 +45,7 @@ def test_controller_user_data_default_flags_byte_identical_to_pre_docker_shape()
                 "python3.11 -m ensurepip --upgrade",
                 "python3.11 -m pip install -i 'https://mirrors.cloud.aliyuncs.com/pypi/simple/'"
                 " 'clousight-bench[probe,store]'",
-                "exec python3.11 -m clousight_bench.core.controller_main",
+                "exec python3.11 -m clousight_bench.core.campaign.controller_main",
             ]
         )
         + "\n"
@@ -77,7 +77,9 @@ def test_controller_user_data_docker_and_hf_lines():
     autodetect = "python3.11 -m clousight_bench.domains.agent_runtime.driver_image"
     assert autodetect in script
     assert script.index("clousight-bench[probe,store]") < script.index(autodetect)
-    assert script.index(autodetect) < script.index("exec python3.11 -m clousight_bench.core.controller_main")
+    assert script.index(autodetect) < script.index(
+        "exec python3.11 -m clousight_bench.core.campaign.controller_main"
+    )
 
 
 def test_controller_user_data_install_docker_without_mirror_still_auto_detects():

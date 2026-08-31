@@ -1,6 +1,6 @@
 """Pure statistical aggregation over repeated benchmark measurements.
 
-Phase 1C reduces many ResultRecords of *the same benchmark in the same
+Run-plan aggregation reduces many ResultRecords of *the same benchmark in the same
 environment* to one distribution per measurement. Everything here is a pure
 function of its inputs -- no records are read, no clocks are consulted -- so an
 aggregate is reproducible from the same set of measurements.

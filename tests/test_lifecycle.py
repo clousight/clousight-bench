@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+import clousight_bench.core.finalize as fin
 import clousight_bench.core.orchestrator as orch
 from clousight_bench.core.observation import (
     Measurement,
@@ -91,7 +92,7 @@ def _reset(monkeypatch):
     _Task.execute_raises = False
     _Task.score_raises = False
     monkeypatch.setattr(orch, "get_domain", lambda name: _Domain())
-    monkeypatch.setattr(orch, "load_enrichers", list)
+    monkeypatch.setattr(fin, "load_enrichers", list)
 
 
 def _run(tmp_path, **kwargs):

@@ -1,9 +1,9 @@
 """The publishing boundary: a place to send a result, and proof of the attempt.
 
-Phase 1B ships the interface and nothing that implements it. A publisher is
+The core ships the interface and nothing that implements it. A publisher is
 injected explicitly -- it is deliberately not discovered through an entry point,
-because entry-point discovery needs the API-range and conflict governance that
-belongs to Phase 1D.
+because entry-point discovery would need API-range and conflict governance that
+is out of scope here.
 
 PUBLISH runs after PERSIST and can never rewrite the core record. Every state
 transition appends one line to an append-only receipt file: a durable pending
@@ -150,8 +150,8 @@ def restore_trusted_snapshot(snapshot: TrustedRecordSnapshot, results_dir: Path)
     """Atomically restore synchronous tampering, then verify the restoration.
 
     A publisher can still launch a background process that tampers again after
-    this check. Preventing sustained out-of-process mutation requires the
-    Phase 1D sandbox boundary.
+    this check. Preventing sustained out-of-process mutation would require a
+    stronger sandbox boundary.
     """
     if snapshot.sidecar_path is not None and snapshot.sidecar_bytes is not None:
         atomic_write_bytes(snapshot.sidecar_path, snapshot.sidecar_bytes)

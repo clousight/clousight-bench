@@ -6,7 +6,7 @@ import json
 import yaml
 
 from clousight_bench.cli import main
-from clousight_bench.core.campaign import CAMPAIGNS_DIRNAME
+from clousight_bench.core.campaign.manifest import CAMPAIGNS_DIRNAME
 
 
 def _plan(tmp_path):

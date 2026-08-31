@@ -1,8 +1,8 @@
 """Tests for CampaignChannel — campaign-level OSS objects (ecs prod profile)."""
 
 from clousight_bench.core.blobstore import InMemoryBlobStore
-from clousight_bench.core.campaign_channel import CampaignChannel
-from clousight_bench.core.campaign_spec import CampaignManifest, LaunchSpec, TaskEntry
+from clousight_bench.core.campaign.channel import CampaignChannel
+from clousight_bench.core.campaign.spec import CampaignManifest, LaunchSpec, TaskEntry
 
 
 def _chan(now=None):

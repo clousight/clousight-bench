@@ -1,6 +1,6 @@
 """Tests for job_progress + chunk_refs fields added in plan-4b (Task 5)."""
 
-from clousight_bench.core.campaign import CampaignManifest, TaskProgress
+from clousight_bench.core.campaign.manifest import CampaignManifest, TaskProgress
 
 
 def _manifest():
