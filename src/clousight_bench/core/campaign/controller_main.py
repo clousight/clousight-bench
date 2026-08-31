@@ -21,13 +21,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clousight_bench.core.blobstore import BlobStore
-from clousight_bench.core.campaign_channel import CampaignChannel
-from clousight_bench.core.campaign_spec import DEFAULT_WATCHDOG_TIMEOUT_S
-from clousight_bench.core.controller import CampaignController, RunTask, TaskOutcome
+from clousight_bench.core.campaign.channel import CampaignChannel
+from clousight_bench.core.campaign.controller import CampaignController, RunTask, TaskOutcome
+from clousight_bench.core.campaign.spec import DEFAULT_WATCHDOG_TIMEOUT_S
+from clousight_bench.core.campaign.watchdog import SelfDestructWatchdog
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.resource_ledger import LEDGER_FILE, ResourceLedger, live_runtimes_from_ledger
 from clousight_bench.core.schema import RunSpec
-from clousight_bench.core.watchdog import SelfDestructWatchdog
 
 if TYPE_CHECKING:  # composition root: the concrete reaper is provider code
     from clousight_bench.domains.agent_runtime.controller_reaper import RestrictedReaper
@@ -231,7 +231,7 @@ def main() -> int:  # pragma: no cover - live entrypoint, exercised by the smoke
         raise
 
 
-if __name__ == "__main__":  # pragma: no cover - `python -m clousight_bench.core.controller_main`
+if __name__ == "__main__":  # pragma: no cover - `python -m clousight_bench.core.campaign.controller_main`
     # cloud-init boots the controller via `python3.11 -m ...`; without this guard
     # that only imports the module and exits WITHOUT calling main() (observed live
     # 2026-08-15: controller wrote zero OSS, no stdout — main() never ran).

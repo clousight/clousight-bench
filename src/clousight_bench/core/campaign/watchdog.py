@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from clousight_bench.core.campaign_channel import CampaignChannel
+from clousight_bench.core.campaign.channel import CampaignChannel
 
 
 class SelfDestructWatchdog:

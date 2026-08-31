@@ -18,8 +18,8 @@ from typing import Any
 
 import yaml
 
-from clousight_bench.core.campaign_channel import CampaignChannel
-from clousight_bench.core.campaign_spec import LaunchSpec
+from clousight_bench.core.campaign.channel import CampaignChannel
+from clousight_bench.core.campaign.spec import LaunchSpec
 from clousight_bench.core.credentials import infer_provider
 from clousight_bench.core.errors import UserInputError
 from clousight_bench.core.plugin import ControllerTfSpec

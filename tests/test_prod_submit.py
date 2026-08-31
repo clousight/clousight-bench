@@ -2,9 +2,9 @@
 
 import pytest
 
-from clousight_bench.core import prod_submit
 from clousight_bench.core.blobstore import InMemoryBlobStore
-from clousight_bench.core.campaign_channel import CampaignChannel
+from clousight_bench.core.campaign import prod_submit
+from clousight_bench.core.campaign.channel import CampaignChannel
 from clousight_bench.core.errors import UserInputError
 from clousight_bench.core.resource_ledger import LEDGER_FILE, ResourceLedger
 
@@ -19,7 +19,7 @@ def _write(p, text):
 
 def test_aliyun_controller_tf_spec_is_verbatim_legacy_constants():
     """The Aliyun provider's spec must equal the constants that used to live in
-    core/prod_submit.py — same targets, same order, same driver-var mapping."""
+    core/campaign/prod_submit.py — same targets, same order, same driver-var mapping."""
     from clousight_bench.domains.agent_runtime.aliyun.provider import AliyunRuntimeProvider
 
     spec = AliyunRuntimeProvider().controller_tf_spec()

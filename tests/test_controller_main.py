@@ -2,12 +2,12 @@
 
 from types import SimpleNamespace
 
-from clousight_bench.core import controller_main
 from clousight_bench.core.blobstore import InMemoryBlobStore
-from clousight_bench.core.campaign_channel import CampaignChannel
-from clousight_bench.core.campaign_spec import LaunchSpec
-from clousight_bench.core.controller import CampaignController, TaskOutcome
-from clousight_bench.core.watchdog import SelfDestructWatchdog
+from clousight_bench.core.campaign import controller_main
+from clousight_bench.core.campaign.channel import CampaignChannel
+from clousight_bench.core.campaign.controller import CampaignController, TaskOutcome
+from clousight_bench.core.campaign.spec import LaunchSpec
+from clousight_bench.core.campaign.watchdog import SelfDestructWatchdog
 
 
 def _fake_record(status="completed"):

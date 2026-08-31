@@ -35,7 +35,7 @@ def build_controller_user_data(
 
     Mirrors the probe carrier's install pattern but installs the ``[probe,store]``
     extra (so the controller can write parquet sidecars in-cloud) and runs
-    ``cb-controller`` (``core.controller_main``) instead of the probe loop. Env
+    ``cb-controller`` (``core.campaign.controller_main``) instead of the probe loop. Env
     vars follow the ``CB_*`` names ``controller_main.build`` reads.
 
     The driver-host knobs (``install_docker`` / ``docker_registry_mirror`` /
@@ -73,7 +73,7 @@ def build_controller_user_data(
         # fail-loud, and write daemon.json before the harness runs. No per-account
         # mirror address needed. Non-zero exit (blocked region) aborts the boot.
         lines.append(f"{py} -m clousight_bench.domains.agent_runtime.driver_image")
-    lines.append(f"exec {py} -m clousight_bench.core.controller_main")
+    lines.append(f"exec {py} -m clousight_bench.core.campaign.controller_main")
     script = "\n".join(lines) + "\n"
     return base64.b64encode(script.encode()).decode()
 

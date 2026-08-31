@@ -1,9 +1,9 @@
 """Tests for prod status / logs / fetch readback."""
 
-from clousight_bench.core import prod_submit
 from clousight_bench.core.blobstore import InMemoryBlobStore
-from clousight_bench.core.campaign_channel import CampaignChannel
-from clousight_bench.core.campaign_spec import CampaignManifest, TaskEntry
+from clousight_bench.core.campaign import prod_submit
+from clousight_bench.core.campaign.channel import CampaignChannel
+from clousight_bench.core.campaign.spec import CampaignManifest, TaskEntry
 
 
 def _seed():

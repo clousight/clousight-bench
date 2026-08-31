@@ -24,9 +24,9 @@ from typing import Any
 import yaml
 
 import clousight_bench.core.orchestrator as orch
-from clousight_bench.core import prod_submit
 from clousight_bench.core.blobstore import InMemoryBlobStore
-from clousight_bench.core.campaign_channel import CampaignChannel
+from clousight_bench.core.campaign import prod_submit
+from clousight_bench.core.campaign.channel import CampaignChannel
 from clousight_bench.core.schema import RunSpec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

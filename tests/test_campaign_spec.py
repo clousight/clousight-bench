@@ -2,7 +2,7 @@
 
 import pytest
 
-from clousight_bench.core.campaign_spec import CampaignManifest, LaunchSpec, TaskEntry
+from clousight_bench.core.campaign.spec import CampaignManifest, LaunchSpec, TaskEntry
 
 
 def test_launch_spec_json_round_trip():

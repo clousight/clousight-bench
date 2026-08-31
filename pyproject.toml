@@ -96,7 +96,7 @@ swebench = ["swebench>=3.0"]
 [project.scripts]
 csbench = "clousight_bench.cli:main"
 cb-probe = "clousight_bench.domains.agent_runtime.probe.agent_loop:main"
-cb-controller = "clousight_bench.core.controller_main:main"
+cb-controller = "clousight_bench.core.campaign.controller_main:main"
 
 [project.entry-points.pytest11]
 clousight_bench = "clousight_bench.pytest_plugin"

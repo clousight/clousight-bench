@@ -1,9 +1,9 @@
 """Tests for CampaignController — the serial campaign orchestration loop."""
 
 from clousight_bench.core.blobstore import InMemoryBlobStore
-from clousight_bench.core.campaign_channel import CampaignChannel
-from clousight_bench.core.campaign_spec import LaunchSpec
-from clousight_bench.core.controller import CampaignController, TaskOutcome
+from clousight_bench.core.campaign.channel import CampaignChannel
+from clousight_bench.core.campaign.controller import CampaignController, TaskOutcome
+from clousight_bench.core.campaign.spec import LaunchSpec
 
 
 def _channel():

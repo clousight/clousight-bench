@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from clousight_bench.core.campaign import (
+from clousight_bench.core.campaign.manifest import (
     CAMPAIGNS_DIRNAME,
     CampaignManifest,
     TaskProgress,
