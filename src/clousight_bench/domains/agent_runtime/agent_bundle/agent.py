@@ -10,7 +10,7 @@ as the *payload under test*. It supports two execution modes:
 
 2. **Stub mode** (no arms_config, or LangChain not available):
    Makes the single requested tool call directly via HTTP.  Used for
-   performance/reliability tasks (T1.x) where tracing overhead is unwanted.
+   performance/reliability probes where tracing overhead is unwanted.
 
 Invoke contract:
     request  = {"tool": {...}, "mock_base_url": "...", "arms_config": {...}}
@@ -46,7 +46,7 @@ for _candidate in (
 
 # Pinned retry policy — part of the benchmark agent contract. Applied on BOTH
 # the stub/reliability path (handle_invoke) and the traced path (lc_agent), so
-# reliability tasks (T1.3/T1.10/T1.12) observe the agent's real retry behavior
+# reliability probes observe the agent's real retry behavior
 # via the mock's per-correlation call counter. Kept in lock-step with
 # lc_agent.AGENT_RETRY_POLICY (a drift-guard test asserts they are equal).
 AGENT_RETRY_POLICY: dict[str, Any] = {"max_retries": 2, "backoff_ms": 200, "retry_on": "5xx"}
@@ -157,7 +157,7 @@ def handle_invoke(body: dict[str, Any]) -> dict[str, Any]:
     Per AGENT_RETRY_POLICY: a transient 5xx (500-598) is retried up to
     ``max_retries`` times with a fixed backoff; 4xx and connection failures (599)
     are terminal and never retried. Each attempt re-issues the SAME request (same
-    correlation id), so reliability probes (T1.3/T1.10/T1.12) can read the agent's
+    correlation id), so reliability probes can read the agent's
     attempt count from the mock's per-correlation call counter -- the agent owns
     the retry; the platform is measured for whether it lets the retries through."""
     tool = body.get("tool") or {}
@@ -214,7 +214,7 @@ def handle_invoke_traced(body: dict[str, Any]) -> dict[str, Any]:
     1. Embedded in the response under ``_spans`` for the transport to read (primary).
     2. Best-effort exported to ARMS via OTLP/HTTP (secondary; may fail in some envs).
 
-    This dual approach ensures T4.x always gets proper OpenInference spans even if
+    This dual approach ensures tracing always gets proper OpenInference spans even if
     the ARMS OTLP endpoint is unreachable from inside the FC function.
     """
     arms_config: dict = body.get("arms_config") or {}
@@ -411,7 +411,7 @@ def handle_chat_completion(openai_body: dict[str, Any]) -> dict[str, Any]:
 
     A payload carrying a ``swe`` key routes to the SWE-bench mode (oracle/llm).
     Otherwise, when ``arms_config`` is present, runs the full LangChain LCEL
-    chain with OpenInference instrumentation (T4.x tracing mode).  Falls back to
+    chain with OpenInference instrumentation (tracing mode).  Falls back to
     the stub path when LangChain is unavailable or arms_config is absent.
     """
     req = protocol.decode_request(openai_body)

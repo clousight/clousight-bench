@@ -1,4 +1,4 @@
-"""Judge base (R4) — make the ``judge-based`` reproducibility class real.
+"""Judge base — make the ``judge-based`` reproducibility class real.
 
 A :class:`JudgeModel` is the LLM-as-judge seam: a metric that needs a fuzzy
 judgment asks a judge for a CATEGORICAL verdict (never a free float), and fixed
@@ -120,7 +120,7 @@ def judge_emit(
 
 
 class CachingJudge(JudgeModel):
-    """Content-addressed judge cache (R6): memoize a judge's replies by
+    """Content-addressed judge cache: memoize a judge's replies by
     ``sha256(model_id + prompt)`` to a JSON file, so re-running a judge-based eval
     reuses verdicts and never re-pays the slow, costly LLM calls.
 

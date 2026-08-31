@@ -72,7 +72,7 @@ class Ec2CarrierConfig:
     # How long the in-region probe stays alive with no dispatched job before it
     # self-exits (failsafe against a crashed control plane). Must exceed the
     # longest gap between data-plane jobs in a campaign — a full 25-task sweep has
-    # control-plane stretches (T0.x provisioning) with no data-plane job, so the
+    # control-plane stretches (provisioning) with no data-plane job, so the
     # control plane sets this to span the whole campaign. Default 1h.
     idle_timeout_s: float = 3600.0
     # Per-job execution cap on the probe side; should match the control plane's

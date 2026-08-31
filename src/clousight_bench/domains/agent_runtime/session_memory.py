@@ -1,6 +1,6 @@
 """ObjectStoreSessionMemory: the session-state K/V shared by every cloud transport.
 
-T1.2 (state persistence), T1.11 (concurrent writes) and T6.1 (isolation) each
+State persistence, concurrent writes and isolation each
 store a session's state as one JSON object and read it back. A managed agent
 runtime's own "memory" API is typically a RAG/vector store, not a plain K/V, so
 we use the object store the adapter already has (OSS on Aliyun, S3 on AWS). The

@@ -158,7 +158,7 @@ csbench export measurements --out m.parquet   # optional [store] extra: Parquet 
 
 Cost is presented as **list → discount → net** (public price feed via
 `CLOUSIGHT_PRICING_DATA`, private discounts via `CLOUSIGHT_PRICING_DISCOUNTS`;
-see [docs/querying.md](docs/querying.md)).
+see [docs/querying.mdx](docs/querying.mdx)).
 
 ## Status
 

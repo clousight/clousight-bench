@@ -2,7 +2,7 @@
 
 This is the composition seam: apply N metrics to the same items, append their
 per-item :class:`ItemScore`s, and collect their aggregated Measurements under a
-namespace. Isolation is the R2 honesty guarantee — a metric that raises on an
+namespace. Isolation is the honesty guarantee — a metric that raises on an
 item yields ``status="error"`` for that item and keeps going; a metric missing a
 required input on an item yields ``status="skip"``; neither ever voids the run or
 another metric.
@@ -22,7 +22,7 @@ class MetricRunConfig:
     """Runner knobs, grouped so the signature stays stable as options grow."""
 
     fail_closed: bool = False  # if True, a metric erroring on ANY item re-raises
-    # (async concurrency knobs land here with R4's judge metrics)
+    # (async concurrency knobs land here with judge-based metrics)
 
 
 def _apply_one(metric: Metric, item: ItemResult, ctx: MetricContext, cfg: MetricRunConfig) -> None:

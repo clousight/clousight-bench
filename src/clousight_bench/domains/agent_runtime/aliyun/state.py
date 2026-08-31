@@ -13,7 +13,7 @@ class _LiveMemory(ObjectStoreSessionMemory):
     """OSS-backed session state for AgentRun.
 
     AgentRun's Memory Collection API is a RAG/vector store, not a plain K/V, so
-    T1.2 (does state persist across sessions?) uses the OSS bucket the adapter
+    State-persistence probe (does state persist across sessions?) uses the OSS bucket the adapter
     already has. This is the Aliyun binding of ``ObjectStoreSessionMemory`` over
     ``Oss2Client`` (public endpoint, shared credential chain); the key layout and
     store/fetch/cleanup live in the base class. State files are cleaned up at
@@ -30,7 +30,7 @@ class _LiveMcp:
     """AgentRun MCP: template-based, no dynamic tool registration.
 
     AgentRun's MCP activates a pre-registered template via ActivateTemplateMCP.
-    T2.1's _TOOL_SPEC is an arbitrary tool definition that does not map to a
+    The tool-activation _TOOL_SPEC is an arbitrary tool definition that does not map to a
     registered template name, so this path is reported as CapabilityNotSupported.
     That is a faithful record of the platform's real behaviour, not a bug.
     """

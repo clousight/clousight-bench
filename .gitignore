@@ -34,3 +34,14 @@ web/node_modules/
 *.tfvars
 !*.tfvars.example
 mock-tools-fc.zip
+
+# Internal working notes — kept locally, NOT published. The public docs are the
+# Mintlify site (docs/*.mdx + docs/zh/*.mdx). These dirs hold plans, specs,
+# runbooks and handoffs with internal process language; do not commit them.
+docs/plans/
+docs/specs/
+docs/runbooks/
+docs/superpowers/
+docs/agentrun-integration-research.md
+docs/strategy-seed-stage.md
+docs/architecture-decisions.md

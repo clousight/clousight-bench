@@ -45,7 +45,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
 
     # AgentRun has no CreateSession API: session affinity is via a header.
     # Session creation is local-only (UUID generation); no cloud round-trip occurs.
-    # Cold-start cost is incurred at provision (T0.1), not at create_session (T1.1).
+    # Cold-start cost is incurred at provision, not at create_session.
     session_cold_start_is_provision = True
 
     def __init__(self, adapter: Any) -> None:
@@ -54,7 +54,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         self._data = None
         self._session_ids: set[str] = set()
         # Runtime ID — set by provision(); also lazily provisioned on first
-        # data-plane call for T1.x-T6.x tasks that don't call provision() explicitly.
+        # data-plane call for probes that don't call provision() explicitly.
         self._runtime_id: str | None = None
         self._endpoint_public_url: str | None = None  # set by _create_default_endpoint
         self._lazy_provisioned: bool = False  # True = we own teardown
@@ -153,7 +153,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
     def create_session(self, spec: dict[str, Any] | None = None) -> str:
         # AgentRun has no CreateSession API: affinity is via X-AgentRun-Session-ID header.
         # Session creation is purely local: generate a UUID and track it for teardown.
-        # Cold-start cost is attributed to provision (T0.1), not here. T1.1 will
+        # Cold-start cost is attributed to provision, not here. Startup latency will
         # therefore record ~0 ms for create_session, which is the correct, honest number
         # for a platform where session ids are client-side tokens, not server resources.
         session_id = uuid.uuid4().hex
@@ -177,7 +177,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             raise _SdkMissing() from exc
 
         if not self._runtime_id:
-            # Lazily provision for data-plane tasks (T1.x-T6.x) that don't call
+            # Lazily provision for data-plane probes that don't call
             # provision() explicitly. The transport's stop() will deprovision.
             target = self._adapter.target
             self.provision({"blob_bucket": str(target.get("blob_bucket") or "")})
@@ -201,7 +201,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             timeout=120,
         )
         resp.raise_for_status()
-        # Capture trace ID from response headers for T4.x ARMS queries.
+        # Capture trace ID from response headers for trace/ARMS queries.
         for h in ("x-trace-id", "x-b3-traceid", "traceparent", "eagleeye-traceid"):
             tid = resp.headers.get(h) or resp.headers.get(h.upper())
             if tid:
@@ -372,7 +372,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         return False  # openapi not supported by AgentRun
 
     def _register_tool_mcp(self) -> bool:
-        """T2.1 MCP path: list available templates → activate first one → stop.
+        """MCP tool-activation path: list available templates → activate first one → stop.
 
         AgentRun MCP is template-based (pre-registered in console).
         If any templates exist, we activate + stop one to confirm the path works.
@@ -407,7 +407,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             raise CapabilityNotSupported(f"register_tool[mcp]: {exc}") from exc
 
     def _register_tool_native(self) -> bool:
-        """T2.1 native path: list_tools confirms the native tool API is accessible.
+        """Native tool-activation path: list_tools confirms the native tool API is accessible.
 
         AgentRun's CreateTool deploys a new FC function (heavyweight; not probed here).
         Confirming list_tools succeeds proves the native registration path is open.
@@ -424,7 +424,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         except Exception as exc:
             raise CapabilityNotSupported(f"register_tool[native]: {exc}") from exc
 
-    # --- probe methods (T1.4-T1.8): implemented via run_tool_plan ---------------
+    # --- reliability probe methods: implemented via run_tool_plan ---------------
 
     def _one_tool_call(self) -> tuple[bool, float]:
         """Single tool-plan invocation used by all probe implementations."""
@@ -744,7 +744,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         Uses the SSE streaming path (_measure_ttft) which was added to both
         agent.py (deployed) and the transport. If the deployed agent does not
         yet support streaming, _measure_ttft falls back to full RTT (returns
-        the time to the full non-streaming response) and T1.9 surfaces a finding.
+        the time to the full non-streaming response) and the TTFT probe surfaces a finding.
         """
         from clousight_bench.domains.agent_runtime.adapters.base import ToolCall
 
@@ -758,7 +758,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             self.destroy_session(session)
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
-        """T1.10: mock-counted total attempts + storm-bounded-by attribution.
+        """Retry-storm probe: mock-counted total attempts + storm-bounded-by attribution.
 
         Configures the mock server to fail ALL calls on a per-correlation bucket
         (fail_from_call:1, fail_count:999), issues a single invoke with that
@@ -845,7 +845,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
 
     def probe_concurrent_writes(self) -> ConcurrentWriteResult:
-        """T1.11: two sessions write to the same state key simultaneously.
+        """Concurrent state-write probe: two sessions write to the same state key simultaneously.
 
         Uses threads to overlap two OSS-backed persist_state calls, then
         reads each session's state to verify no cross-write corruption.
@@ -891,7 +891,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         return ConcurrentWriteResult(write_safe=write_safe, winner=winner)
 
     def probe_hol_blocking(self) -> HOLResult:
-        """T1.12: two-phase HOL probe (live Aliyun path).
+        """Two-phase head-of-line-blocking probe (live Aliyun path).
 
         Phase A (baseline): 20 concurrent fast requests (``prices``) with no
         slow request running — establishes ``fast_p50_baseline``.
@@ -983,7 +983,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             # Lazy provision for tasks that skip explicit provision().
             target = self._adapter.target
             prov_spec: dict[str, Any] = {"blob_bucket": str(target.get("blob_bucket") or "")}
-            # T1.14: honor probe asks for a runtime with a small configured idle
+            # Idle-timeout honor probe asks for a runtime with a small configured idle
             # timeout so recycling can be observed cheaply — thread it through.
             idle_timeout_s = params.get("session_idle_timeout_s")
             if idle_timeout_s is not None:
@@ -1024,7 +1024,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
         return bundle
 
-    # --- traces: read from ARMS after async export (T4.1 / T4.2) --------------
+    # --- traces: read from ARMS after async export (span completeness / OTel export) --------------
 
     def _arms_client(self) -> Any:
         """Lazy ARMS client for trace queries."""
@@ -1148,7 +1148,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         return {"license_key": arms_key, "region": region}
 
     def probe_span_propagation(self) -> Any:
-        """T4.4: verify parent/child span linkage using collected OpenInference spans.
+        """Span-propagation probe: verify parent/child span linkage using collected OpenInference spans.
 
         Runs a multi-call tool plan to collect spans, then checks:
         - orphan_spans: spans whose parent_id points to a non-existent span
@@ -1187,7 +1187,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
 
     def probe_signals(self) -> Any:
-        """T4.3: verify ARMS metrics are present for the FC function.
+        """Signals probe: verify ARMS metrics are present for the FC function.
 
         Makes one tool call to ensure a recent invocation exists, waits ~15s
         for ARMS metric propagation, then probes three FC metric names that
@@ -1247,7 +1247,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         )
 
     def probe_export_latency(self) -> Any:
-        """T4.5: measure wall-clock time from invocation to trace visible in ARMS.
+        """Export-latency probe: measure wall-clock time from invocation to trace visible in ARMS.
 
         Uses _arms_get_spans_by_time() which polls up to 90s for a new trace.
         If no trace appears within 90s the span is counted as dropped.
@@ -1271,12 +1271,12 @@ class AliyunAgentRunTransport(RuntimeTransport):
             return ExportLatencyResult(export_latency_ms=90_000.0, dropped_ratio=1.0)
 
     def get_trace(self, session_id: str) -> list[dict[str, Any]]:
-        """T4.1: return OpenInference spans collected from agent response bodies.
+        """Span-completeness probe: return OpenInference spans collected from agent response bodies.
 
         agent.py embeds CHAIN/LLM/TOOL spans in ``_spans`` when arms_config is
         injected. run_tool_plan collects them in _collected_spans. This method
         returns those spans, converting them to the openinference-compatible dict
-        shape expected by the T4.1 scorer.
+        shape expected by the span-completeness scorer.
 
         Falls back to ARMS time-range query if no spans were collected in-band
         (e.g. old agent without _spans support or arms_config not configured).
@@ -1314,7 +1314,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             "Ensure the deployed agent supports the _spans response field."
         )
 
-        # Convert ARMS span format → OpenInference-compatible dict expected by T4.1 scorer.
+        # Convert ARMS span format → OpenInference-compatible dict expected by the span-completeness scorer.
         # Map ARMS operation_name to OpenInference kind via tag inspection.
         def _oi_kind(span: dict) -> str:
             tags = span.get("tags", {})
@@ -1345,7 +1345,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         ]
 
     def export_otel(self, session_id: str) -> dict[str, Any]:
-        """T4.2: return OTLP-compatible span dict using the openinference.to_otel helper.
+        """OTel-export probe: return OTLP-compatible span dict using the openinference.to_otel helper.
 
         Delegates to get_trace() for the span list, then formats as OTLP resourceSpans
         using the same helper the scorer's validate_otel() expects.
@@ -1382,7 +1382,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         return None
 
     def probe_isolation(self) -> Any:
-        """Isolation probe (T6.1): session state isolation + platform-asserted sandbox.
+        """Isolation probe: session state isolation + platform-asserted sandbox.
 
         Measured:
           tenant_isolated — OSS state keys are scoped per session; cross-session
@@ -1824,7 +1824,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             vsw_list = list(target.get("vswitch_ids") or ([vsw] if vsw else []))
             if vsw_list:
                 net_cfg.vswitch_ids = vsw_list
-        # Include run_id suffix + sample index so repeated provision cycles (e.g. T0.1
+        # Include run_id suffix + sample index so repeated provision cycles (e.g. provisioning
         # 3-sample) and concurrent runs never share a name on the server.
         base_name = str(target.get("runtime_name") or "clousight-bench")
         run_id = getattr(self._adapter, "run_id", None)
@@ -1844,8 +1844,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
             memory=int(target.get("memory") or 2048),
             port=int(target.get("port") or 9000),
         )
-        # Optional session idle timeout override (T1.14 idle-timeout honor check).
-        # When unset the platform default applies (undocumented — T1.5 measures it).
+        # Optional session idle timeout override (idle-timeout honor check).
+        # When unset the platform default applies (undocumented — the warm-pool probe measures it).
         # When set (e.g. 10s), the instance should recycle ~this long after the last
         # request, letting us verify the platform honors the configured knob cheaply.
         idle_timeout_s = (spec or {}).get("session_idle_timeout_s")
@@ -1863,7 +1863,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
             env_vars["CLOUSIGHT_RUN_ID"] = run_id
         if env_vars:
             body.environment_variables = env_vars
-        # Enable ARMS tracing if arms_license_key is configured (T4.x trace probes).
+        # Enable ARMS tracing if arms_license_key is configured (trace probes).
         arms_key = str(target.get("arms_license_key") or "")
         if arms_key:
             body.arms_configuration = m.ArmsConfiguration(

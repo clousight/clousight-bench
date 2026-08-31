@@ -172,7 +172,7 @@ class RuntimeTransport(ABC):
     def probe_hol_blocking(self) -> HOLResult:
         raise CapabilityNotSupported("probe_hol_blocking")
 
-    # Provisioning lifecycle (T0.1 / T0.2). Optional -> default not supported.
+    # Provisioning lifecycle. Optional -> default not supported.
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
         raise CapabilityNotSupported("provision")
 
@@ -208,25 +208,25 @@ class MockRuntimeTransport(RuntimeTransport):
         self.trace_completeness: str = trace_cfg.get("completeness", "full")  # "full" | "partial"
         self.otel_export_enabled: bool = bool(trace_cfg.get("otel_export", True))
         self.mock_port: int = int(cfg.get("mock_port", 0))
-        # T1.1 startup latency: the FIRST session pays cold_ms (container spin-up),
+        # Startup latency: the FIRST session pays cold_ms (container spin-up),
         # every later one pays warm_ms (reuse). Default 0/0 -> no simulated penalty.
         startup = cfg.get("startup", {})
         self.cold_start_ms: float = float(startup.get("cold_ms", 0))
         self.warm_start_ms: float = float(startup.get("warm_ms", 0))
-        # T5.2 elasticity model: within concurrency_limit it holds base_ms at full
+        # Elasticity model: within concurrency_limit it holds base_ms at full
         # success; beyond it, excess load is throttled and queued requests slow by
         # overload_penalty_ms per extra unit. Default: effectively unlimited.
         scaling = cfg.get("scaling", {})
         self.concurrency_limit: int = int(scaling.get("concurrency_limit", 10_000))
         self.scale_base_ms: float = float(scaling.get("base_ms", 10))
         self.overload_penalty_ms: float = float(scaling.get("overload_penalty_ms", 50))
-        # T0.1/T0.2 provisioning model: provision pays ready_ms (create->ready);
+        # Provisioning model: provision pays ready_ms (create->ready);
         # deprovision reports clean_teardown and any residual_on_delete resources.
         provision = cfg.get("provision", {})
         self.provision_ready_ms: float = float(provision.get("ready_ms", 0))
         self.provision_clean_teardown: bool = bool(provision.get("clean_teardown", True))
         self.provision_residual: list[str] = list(provision.get("residual_on_delete", []))
-        # T1.4 sustained-load model: the runtime sustains up to sustained_rps at
+        # Sustained-load model: the runtime sustains up to sustained_rps at
         # p50=base_ms, tail p99=base_ms+tail_ms; asking for more than it can
         # sustain spills into errors. Defaults model a modest healthy runtime.
         load = cfg.get("load", {})
@@ -234,62 +234,62 @@ class MockRuntimeTransport(RuntimeTransport):
         self.load_base_ms: float = float(load.get("base_ms", 20))
         self.load_tail_ms: float = float(load.get("tail_ms", 60))
         self.load_error_rate: float = float(load.get("error_rate", 0.0))
-        # T1.5 warm-pool retention: keep-alive window before an idle instance goes
+        # Warm-pool retention: keep-alive window before an idle instance goes
         # cold again. Default: no warm pool (goes cold immediately).
         warm = cfg.get("warm", {})
         self.warm_retention_ms: float = float(warm.get("retention_ms", 0))
         self.warm_keeps_warm: bool = bool(warm.get("keeps_warm", self.warm_retention_ms > 0))
-        # T1.14 idle-timeout honor: does the platform recycle at the configured
+        # Idle-timeout honor: does the platform recycle at the configured
         # sessionIdleTimeoutSeconds? Default: honored (well-behaved sim).
         idle = cfg.get("idle_timeout", {})
         self.idle_honored: bool = bool(idle.get("honored", True))
         self.idle_configured_s: float = float(idle.get("configured_s", 10.0))
         self.idle_deep_onset_s = idle.get("deep_onset_s")  # None unless configured
         self.idle_cold_onset_s = idle.get("cold_onset_s")
-        # T1.6 soak: steady-state availability over a window. availability defaults
+        # Soak: steady-state availability over a window. availability defaults
         # to 1 - error_rate unless set explicitly. Default: perfectly available.
         soak = cfg.get("soak", {})
         self.soak_error_rate: float = float(soak.get("error_rate", 0.0))
         self.soak_availability: float = float(soak.get("availability", 1.0 - self.soak_error_rate))
         self.soak_rps: float = float(soak.get("rps", 20))
-        # T1.7 rate limiting: onset_rps=0 -> no throttle observed. honors_429 =
+        # Rate limiting: onset_rps=0 -> no throttle observed. honors_429 =
         # returns a proper 429 + Retry-After rather than silently dropping.
         rate_limit = cfg.get("rate_limit", {})
         self.rl_onset_rps: float = float(rate_limit.get("onset_rps", 0))
         self.rl_retry_after_ms: float = float(rate_limit.get("retry_after_ms", 0))
         self.rl_honors_429: bool = bool(rate_limit.get("honors_429", True))
-        # T1.8 cancellation: whether a timeout/cancel is honored and still tears
+        # Cancellation: whether a timeout/cancel is honored and still tears
         # down cleanly. Default: well-behaved (honored, teardown ran, no residual).
         cancellation = cfg.get("cancellation", {})
         self.cancel_honored: bool = bool(cancellation.get("honors_cancel", True))
         self.cancel_teardown: bool = bool(cancellation.get("teardown_on_cancel", True))
         self.cancel_residual: list[str] = list(cancellation.get("residual_on_cancel", []))
-        # T4.3 signals: metrics & log completeness beyond traces. Default: complete.
+        # Signals: metrics & log completeness beyond traces. Default: complete.
         signals = cfg.get("signals", {})
         self.sig_metrics_expected: int = int(signals.get("metrics_expected", 6))
         self.sig_metrics_present: int = int(signals.get("metrics_present", self.sig_metrics_expected))
         self.sig_logs_expected: int = int(signals.get("logs_expected", 4))
         self.sig_logs_present: int = int(signals.get("logs_present", self.sig_logs_expected))
         self.sig_structured: bool = bool(signals.get("structured_logs", True))
-        # T4.4 span propagation: orphaned spans + root count (clean = 0 / 1).
+        # Span propagation: orphaned spans + root count (clean = 0 / 1).
         propagation = cfg.get("span_propagation", {})
         self.prop_spans: int = int(propagation.get("spans", 8))
         self.prop_orphans: int = int(propagation.get("orphan_spans", 0))
         self.prop_roots: int = int(propagation.get("root_count", 1))
-        # T4.5 export: emit->visible latency and drop ratio. Default: fast, lossless.
+        # Export: emit->visible latency and drop ratio. Default: fast, lossless.
         export = cfg.get("export", {})
         self.export_latency_ms: float = float(export.get("latency_ms", 0))
         self.export_dropped_ratio: float = float(export.get("dropped_ratio", 0.0))
-        # T5.3 idle cost: scales to zero -> no idle bill. Default: scales to zero.
+        # Idle cost: scales to zero -> no idle bill. Default: scales to zero.
         idle = cfg.get("idle", {})
         self.idle_cost_per_hour: float = float(idle.get("cost_per_hour", 0.0))
         self.idle_scales_to_zero: bool = bool(idle.get("scales_to_zero", self.idle_cost_per_hour <= 0))
-        # T6.1 isolation: tenant / network-egress / filesystem. Default: all on.
+        # Isolation: tenant / network-egress / filesystem. Default: all on.
         isolation = cfg.get("isolation", {})
         self.iso_tenant: bool = bool(isolation.get("tenant_isolated", True))
         self.iso_egress: bool = bool(isolation.get("network_egress_controlled", True))
         self.iso_fs: bool = bool(isolation.get("filesystem_isolated", True))
-        # T5.4 concurrency ceiling. Default: mirror the scaling limit as a hard cap.
+        # Concurrency ceiling. Default: mirror the scaling limit as a hard cap.
         ceiling = cfg.get("ceiling", {})
         self.ceiling_max: int = int(ceiling.get("max_in_flight", self.concurrency_limit))
         self.ceiling_hard: bool = bool(ceiling.get("hard_limit", True))
@@ -468,7 +468,7 @@ class MockRuntimeTransport(RuntimeTransport):
         )
 
     def probe_startup_curve(self, n_calls: int = 8) -> StartupCurveResult:
-        """Deterministic startup-convergence curve from the startup knob (T1.13).
+        """Deterministic startup-convergence curve from the startup knob.
 
         Call 1 pays ``cold_ms + warm_ms`` (spin-up + processing); every later
         call pays just ``warm_ms`` (instance reused). The warm threshold sits
@@ -573,7 +573,7 @@ class MockRuntimeTransport(RuntimeTransport):
         )
 
     def probe_fault_recovery(self) -> FaultRecoveryResult:
-        """T1.3 deterministic local-sim fault + agent retry simulation.
+        """Deterministic local-sim fault + agent retry simulation.
 
         Models a healthy platform (auto-retry mode): the mock fails call #1,
         the simulated agent retries to call #3 and succeeds.
@@ -603,7 +603,7 @@ class MockRuntimeTransport(RuntimeTransport):
         )
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
-        """T1.10 deterministic local-sim: mock-counted total attempts + storm-bounded-by.
+        """Retry-storm deterministic local-sim: mock-counted total attempts + storm-bounded-by.
 
         Models the lc_agent 5xx-retry-2 contract (3 total attempts) against
         persistent all-fail conditions. The agent retries up to 2 times (3 total)
@@ -619,7 +619,7 @@ class MockRuntimeTransport(RuntimeTransport):
         )
 
     def probe_concurrent_writes(self) -> ConcurrentWriteResult:
-        """T1.11: two sessions write to the same state key simultaneously.
+        """Concurrent state-write probe: two sessions write to the same state key simultaneously.
 
         Uses Python threads to overlap the two writes, then reads the result.
         A safe runtime yields one of the two written values; corruption yields
@@ -659,7 +659,7 @@ class MockRuntimeTransport(RuntimeTransport):
         return ConcurrentWriteResult(write_safe=write_safe, winner=winner)
 
     def probe_hol_blocking(self) -> HOLResult:
-        """T1.12: two-phase HOL probe against the MockRuntimeTransport.
+        """Two-phase head-of-line-blocking probe against the MockRuntimeTransport.
 
         Phase A (baseline): 20 concurrent fast requests (prices) with no slow.
         Phase B (under-slow): 1 slow (reports, no extra sleep injected in sim)

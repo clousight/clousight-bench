@@ -1,4 +1,4 @@
-"""Response-quality metric (R4) — the first real judge-based metric.
+"""Response-quality metric — the first real judge-based metric.
 
 An LLM-as-judge rates a SUT response against the task input on a fixed
 categorical rubric; the verdict maps to a score by fixed arithmetic (no logprob

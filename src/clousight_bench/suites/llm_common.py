@@ -49,7 +49,7 @@ def rows_to_items(
     reference_key: str | None = None,
     latency_key: str = "latency_ms",
 ) -> list[ItemResult]:
-    """Turn per-answer artifact rows into per-item :class:`ItemResult`s (R1).
+    """Turn per-answer artifact rows into per-item :class:`ItemResult`s.
 
     Each row carries a boolean correctness flag (``correct_key``); it becomes one
     ``ItemScore`` valued 1.0/0.0 with status ``ok``/``fail``. The whole-run

@@ -65,7 +65,7 @@ def measure_ttft(
     """One streaming invoke; return time-to-first-SSE-data-line in ms.
 
     Falls back to 0.0 if the endpoint does not return an event-stream (an older
-    non-streaming agent), matching the T1.9 fallback contract.
+    non-streaming agent), matching the TTFT fallback contract.
     """
     tool = {"target": "prices", "method": "GET", "params": {"provider": "aliyun"}}
     body = protocol.encode_invoke_stream(
@@ -126,7 +126,7 @@ def run_ttft(
        a few retries; samples that never warm are dropped, and ``warm_reliable``
        flags whether we got enough clean warm samples to trust the steady-state.
 
-    ``warmup``/``samples`` still come from ``spec.params`` (T1.9); the module
+    ``warmup``/``samples`` still come from ``spec.params`` (TTFT probe); the module
     constants are the fallback defaults.
     """
     samples = int(spec.params.get("samples", TTFT_SAMPLES))
@@ -192,7 +192,7 @@ STARTUP_CURVE_CALLS = 8
 def run_startup_curve(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.13 startup-convergence curve: fire ``n_calls`` calls on the same session
+    """Startup-convergence curve: fire ``n_calls`` calls on the same session
     and record each end-to-end latency.
 
     Characterises the platform's **instance reuse / warm-up behaviour**: the 1st
@@ -439,7 +439,7 @@ def run_soak(
     )
 
 
-# --- idle-retention tiering (T1.5 / T1.14) -----------------------------------
+# --- idle-retention tiering (warm-pool / idle-timeout) -----------------------------------
 #
 # AgentRun/FC idle instances are NOT binary hot/cold — the platform docs describe
 # three tiers whose wake cost differs by orders of magnitude:
@@ -587,7 +587,7 @@ def run_warm_retention(
 def run_idle_timeout_honor(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.14 — idle-timeout config honor + post-promise decay curve.
+    """Idle-timeout config honor + post-promise decay curve.
 
     ``sessionIdleTimeoutSeconds`` is a "keep-alive within the promised time"
     contract: set T seconds and the platform should guarantee the **instance
@@ -1047,7 +1047,7 @@ def run_scaling(
 def run_hol_blocking(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.12: two-phase HOL blocking probe.
+    """Two-phase head-of-line-blocking probe.
 
     Phase A (baseline): ``fast_count`` concurrent fast requests (``fast_target``)
         with NO latency injected — establishes the clean p50 baseline.
@@ -1179,7 +1179,7 @@ def run_hol_blocking(
 def run_fault_recovery(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.3 platform-visible fault injection + agent retry observation.
+    """Platform-visible fault injection + agent retry observation.
 
     Uses a per-correlation mock bucket to isolate this probe's call counts from
     concurrent traffic, then issues a SINGLE invoke and lets the deployed agent
@@ -1290,7 +1290,7 @@ def run_fault_recovery(
 def run_retry_storm(
     spec: JobSpec, progress_cb: ProgressCb, *, sink: BlobChunkSink | None = None
 ) -> ObservationBundle:
-    """T1.10: mock-counted total attempts + storm-bounded-by attribution.
+    """Retry-storm probe: mock-counted total attempts + storm-bounded-by attribution.
 
     Uses a per-correlation mock bucket to isolate this probe's call counts from
     concurrent traffic. Configures the mock server to fail ALL calls (fail_from_call=1,

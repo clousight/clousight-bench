@@ -16,7 +16,7 @@ from clousight_bench.core.canonical import canonical_json
 
 REPRODUCIBILITY_CLASSES: tuple[str, ...] = ("deterministic", "environmental", "judge-based")
 SEVERITIES: tuple[str, ...] = ("info", "warning", "critical")
-# Per-item / per-metric outcome states (R1: the 4-state model borrowed from
+# Per-item / per-metric outcome states (the 4-state model borrowed from
 # DeepEval). ``fail`` is a RESULT (the SUT underperformed), ``skip`` means a
 # required input/capability was absent (not scored), ``error`` means the metric
 # itself crashed (a bug, isolated per-metric so one failure never voids a run).

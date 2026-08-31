@@ -9,13 +9,13 @@ Mirrors ``AliyunAgentRunTransport`` for the AWS control + data planes:
   POST ``{url}/openai/v1/chat/completions`` with session header
   ``X-Amzn-Bedrock-AgentCore-Runtime-Session-Id`` (no CreateSession API —
   sessions are header-based affinity, exactly like AgentRun).
-- State (T1.2): S3-backed ``_AwsMemory`` mirroring ``_LiveMemory``.
-- Probe dispatch (T5.x / T6.1): identical shape to Aliyun — resolves endpoint,
+- State persistence: S3-backed ``_AwsMemory`` mirroring ``_LiveMemory``.
+- Probe dispatch (elasticity / isolation): identical shape to Aliyun — resolves endpoint,
   builds ``JobSpec`` with the AWS session-header scheme, dispatches to
   ``_probe_client.run_job()`` when configured (S3-mediated blob channel), else
   runs in-process via ``_PROBE_FNS``.
 
-T4.x traces (X-Ray) and T2.1 tools (AgentCore Gateway) are out of scope for
+Tracing (X-Ray) and tool activation (AgentCore Gateway) are out of scope for
 this task — they raise ``CapabilityNotSupported`` with TODO stubs.
 
 All SDK imports are lazy / local so this module can be imported without boto3
@@ -112,7 +112,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
     """
 
     # AgentCore has no CreateSession API: header-based affinity only.
-    # Cold-start cost is at provision (T0.1), not create_session (T1.1).
+    # Cold-start cost is at provision, not create_session.
     session_cold_start_is_provision = True
 
     def __init__(
@@ -207,7 +207,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
 
     def create_session(self, spec: dict[str, Any] | None = None) -> str:
         # AgentCore has no CreateSession API — generate a UUID locally.
-        # Cold-start cost is attributed to provision (T0.1), not here.
+        # Cold-start cost is attributed to provision, not here.
         session_id = f"sess-{uuid.uuid4().hex}"
         self._session_ids.add(session_id)
         return session_id
@@ -251,7 +251,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
             timeout=120,
         )
         resp.raise_for_status()
-        # Capture X-Ray / CloudWatch trace ids for T4.x (best-effort).
+        # Capture X-Ray / CloudWatch trace ids for tracing (best-effort).
         for h in ("x-amzn-requestid", "x-amzn-trace-id", "x-ray-trace-id", "traceparent"):
             tid = resp.headers.get(h) or resp.headers.get(h.upper())
             if tid:
@@ -377,7 +377,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
         return InvocationTrace(session_id, attempts, completed, final_state)
 
     # ---------------------------------------------------------------------- #
-    # Session state (T1.2): S3-backed
+    # Session state: S3-backed
     # ---------------------------------------------------------------------- #
 
     def persist_state(self, session_id: str, state: dict[str, Any]) -> None:
@@ -390,7 +390,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
         return session_id
 
     # ---------------------------------------------------------------------- #
-    # Tools (T2.1): AgentCore Gateway — out of scope
+    # Tool activation: AgentCore Gateway — out of scope
     # ---------------------------------------------------------------------- #
 
     def register_tool(self, path: str, spec: dict[str, Any]) -> bool:
@@ -401,7 +401,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
         )
 
     # ---------------------------------------------------------------------- #
-    # Traces (T4.x): X-Ray — out of scope
+    # Traces: X-Ray — out of scope
     # ---------------------------------------------------------------------- #
 
     def get_trace(self, session_id: str) -> list[dict[str, Any]]:
@@ -1056,7 +1056,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
         return bundle
 
     # ---------------------------------------------------------------------- #
-    # Provisioning lifecycle (T0.1 / T0.2)
+    # Provisioning lifecycle
     # ---------------------------------------------------------------------- #
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:

@@ -1,6 +1,6 @@
 """Answered-rate metric — the fraction of items the SUT actually answered.
 
-A deterministic, judge-free add-on metric that demonstrates the R2 plugin point:
+A deterministic, judge-free add-on metric that demonstrates the plugin point:
 an item counts as answered when it has a non-null ``output`` (for the llm suites,
 ``output`` is the parsed prediction — ``None`` means the model produced nothing
 parseable, i.e. a refusal or a format miss). Complements a suite's objective

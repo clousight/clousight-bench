@@ -1,4 +1,4 @@
-"""The composable Metric plugin point (R2).
+"""The composable Metric plugin point.
 
 A :class:`Metric` scores one :class:`ItemResult` at a time and defines how its
 per-item scores aggregate into Measurements. This decouples *metrics* from
@@ -29,10 +29,10 @@ from clousight_bench.core.observation import ItemResult, ItemScore, Measurement
 
 @dataclass
 class MetricContext:
-    """What a metric needs beyond a single item: run params (and, from R4, a judge)."""
+    """What a metric needs beyond a single item: run params (and, optionally, a judge)."""
 
     params: dict[str, Any] = field(default_factory=dict)
-    judge: Any = None  # a JudgeModel, wired in R4; None for deterministic metrics
+    judge: Any = None  # a JudgeModel, wired for judge-based metrics; None for deterministic metrics
 
 
 class Metric(ABC):

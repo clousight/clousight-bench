@@ -56,7 +56,7 @@ class ScalePoint:
 
 @dataclass
 class LoadResult:
-    """Behaviour under sustained steady load (the throughput / tail dimension, T1.4)."""
+    """Behaviour under sustained steady load (the throughput / tail dimension)."""
 
     throughput_rps: float  # sustained requests/sec actually served
     p50_ms: float  # median request latency under load
@@ -76,7 +76,7 @@ class LoadResult:
 
 @dataclass
 class RetentionResult:
-    """How long an idle instance stays warm before going cold again (T1.5)."""
+    """How long an idle instance stays warm before going cold again."""
 
     retention_ms: float  # keep-alive window: idle time before the next start is cold
     keeps_warm: bool  # whether the runtime keeps any warm instance at all
@@ -84,7 +84,7 @@ class RetentionResult:
 
 @dataclass
 class IdleTimeoutHonorResult:
-    """Whether the platform honors a configured session idle timeout (T1.14).
+    """Whether the platform honors a configured session idle timeout.
 
     ``sessionIdleTimeoutSeconds`` is a keep-warm PROMISE: for that long, the
     instance must stay hot. The probe idles within the promised window and checks
@@ -101,7 +101,7 @@ class IdleTimeoutHonorResult:
 
 @dataclass
 class SoakResult:
-    """Steady-state availability over a soak window (the reliability dimension, T1.6)."""
+    """Steady-state availability over a soak window (the reliability dimension)."""
 
     availability: float  # 0.0..1.0 of the window the runtime served successfully
     error_rate: float  # 0.0..1.0 of requests that failed during the window
@@ -111,7 +111,7 @@ class SoakResult:
 
 @dataclass
 class RateLimitResult:
-    """How the runtime throttles once demand exceeds quota (T1.7)."""
+    """How the runtime throttles once demand exceeds quota."""
 
     throttle_onset_rps: float  # rps at which throttling begins (0 = none observed)
     retry_after_ms: float  # advertised Retry-After when throttled (0 = none)
@@ -120,7 +120,7 @@ class RateLimitResult:
 
 @dataclass
 class CancellationResult:
-    """Whether a timed-out / cancelled request is cleanly torn down (T1.8)."""
+    """Whether a timed-out / cancelled request is cleanly torn down."""
 
     honored: bool  # the cancel/timeout actually stopped the work
     teardown_ran: bool  # cleanup still ran after the cancel (no orphaned work)
@@ -129,7 +129,7 @@ class CancellationResult:
 
 @dataclass
 class SignalsResult:
-    """Metrics & log completeness beyond traces (the observability dimension, T4.3)."""
+    """Metrics & log completeness beyond traces (the observability dimension)."""
 
     metrics_present: int  # distinct metric signals actually exported
     metrics_expected: int  # metric signals a complete runtime should export
@@ -140,7 +140,7 @@ class SignalsResult:
 
 @dataclass
 class PropagationResult:
-    """Trace parent/child correctness across tool calls (T4.4)."""
+    """Trace parent/child correctness across tool calls."""
 
     spans: int  # total spans in the trace
     orphan_spans: int  # spans whose parent id points nowhere (broken context)
@@ -149,7 +149,7 @@ class PropagationResult:
 
 @dataclass
 class ExportLatencyResult:
-    """How fast telemetry lands and whether any is dropped (T4.5)."""
+    """How fast telemetry lands and whether any is dropped."""
 
     export_latency_ms: float  # emit -> visible-in-backend latency
     dropped_ratio: float  # 0.0..1.0 of spans/metrics lost on export
@@ -157,7 +157,7 @@ class ExportLatencyResult:
 
 @dataclass
 class IdleCostResult:
-    """Cost while warm-but-idle and whether the runtime scales to zero (T5.3)."""
+    """Cost while warm-but-idle and whether the runtime scales to zero."""
 
     scales_to_zero: bool  # whether an idle runtime bills nothing
     idle_cost_per_hour: float  # cost per hour of a warm-but-idle instance
@@ -165,7 +165,7 @@ class IdleCostResult:
 
 @dataclass
 class IsolationResult:
-    """Tenant isolation / sandbox strength (the security dimension, T6.1)."""
+    """Tenant isolation / sandbox strength (the security dimension)."""
 
     tenant_isolated: bool  # workloads of different tenants are isolated
     network_egress_controlled: bool  # outbound network is restricted by default
@@ -174,7 +174,7 @@ class IsolationResult:
 
 @dataclass
 class CeilingResult:
-    """The concurrency ceiling: max in-flight the runtime admits (T5.4)."""
+    """The concurrency ceiling: max in-flight the runtime admits."""
 
     max_in_flight: int  # highest concurrent invocations admitted
     hard_limit: bool  # whether the ceiling is a hard cap (vs soft/burstable)
@@ -182,7 +182,7 @@ class CeilingResult:
 
 @dataclass
 class ProvisionResult:
-    """Outcome of standing up a runtime instance (the deploy dimension, T0.1)."""
+    """Outcome of standing up a runtime instance (the deploy dimension)."""
 
     runtime_id: str
     ready_latency_ms: float  # create -> ready (the cold provisioning cost)
@@ -193,7 +193,7 @@ class ProvisionResult:
 
 @dataclass
 class DeprovisionResult:
-    """Outcome of tearing a runtime instance down (the teardown dimension, T0.2)."""
+    """Outcome of tearing a runtime instance down (the teardown dimension)."""
 
     teardown_ms: float
     clean: bool  # True iff nothing was left behind
@@ -202,7 +202,7 @@ class DeprovisionResult:
 
 @dataclass
 class RetryStormResult:
-    """Mock-counted total attempts + storm-bounded-by attribution (T1.10).
+    """Mock-counted total attempts + storm-bounded-by attribution.
 
     capability:       always "supported"
     total_attempts:   how many times the agent hit the tool (per mock corr-bucket counter)
@@ -221,7 +221,7 @@ class RetryStormResult:
 
 @dataclass
 class ConcurrentWriteResult:
-    """Whether two simultaneous writes to the same state key corrupt it (T1.11)."""
+    """Whether two simultaneous writes to the same state key corrupt it."""
 
     write_safe: bool  # True if the final value is one of the two written values
     winner: str  # "session_a" | "session_b" | "unknown"
@@ -229,7 +229,7 @@ class ConcurrentWriteResult:
 
 @dataclass
 class HOLResult:
-    """Two-phase HOL blocking result (T1.12 v2).
+    """Two-phase HOL blocking result (v2).
 
     Phase A (baseline): N fast requests with no slow → fast_p50_baseline.
     Phase B (under-slow): 1 slow (real injected latency) + N fast concurrent
@@ -250,7 +250,7 @@ class HOLResult:
 
 @dataclass
 class FaultRecoveryResult:
-    """Platform-visible fault + agent retry observation (T1.3 three-state).
+    """Platform-visible fault + agent retry observation (three-state).
 
     recovered:           invoke completed successfully after agent retried (True = platform allowed recovery)
     observed_attempts:   how many times the tool was hit (per mock corr-bucket counter)
@@ -266,7 +266,7 @@ class FaultRecoveryResult:
 
 @dataclass
 class StartupCurveResult:
-    """Instance-reuse / warm-up convergence curve for the data plane (T1.13).
+    """Instance-reuse / warm-up convergence curve for the data plane.
 
     The SAME session is invoked ``n_calls`` times back to back: call 1 pays cold
     start (instance spin-up), later calls should drop to a warm steady state iff
@@ -354,7 +354,7 @@ class AgentRuntimeAdapter(ProviderAdapter):
     @property
     def session_cold_start_is_provision(self) -> bool:
         """True when ``create_session`` has no cloud round-trip (session ID is
-        client-local). Cold-start cost lives in T0.1 (provision), not T1.1.
+        client-local). Cold-start cost lives in provision, not create_session.
         Override in transports where session creation is a cheap local operation."""
         return False
 
@@ -490,68 +490,68 @@ class AgentRuntimeAdapter(ProviderAdapter):
 
         return _dispatch(self, name, params)
 
-    # --- Optional capabilities (probed by T1.2 / T2.1 / T4.1 / T4.2) ---------
+    # --- Optional capabilities (state persistence, tool activation, tracing) ---------
     # Default = CapabilityNotSupported so an adapter opts in by overriding.
     # Real adapters must surface the platform's OWN behavior, never emulate it.
 
     def persist_state(self, session_id: str, state: dict[str, Any]) -> None:
-        """Persist opaque session state on the runtime (T1.2)."""
+        """Persist opaque session state on the runtime."""
         raise CapabilityNotSupported("persist_state")
 
     def load_state(self, session_id: str) -> dict[str, Any]:
-        """Load previously persisted session state (T1.2)."""
+        """Load previously persisted session state."""
         raise CapabilityNotSupported("load_state")
 
     def resume_session(self, session_id: str) -> str:
         """Simulate an interruption + resume; return the session id to use after
         resume (may equal session_id). Persisted state should survive iff the
-        runtime is durable (T1.2)."""
+        runtime is durable."""
         raise CapabilityNotSupported("resume_session")
 
     def register_tool(self, path: str, spec: dict[str, Any]) -> bool:
         """Register a tool via one path in {'mcp','openapi','native'}; return
-        True if the runtime accepts that registration path (T2.1)."""
+        True if the runtime accepts that registration path."""
         raise CapabilityNotSupported("register_tool")
 
     def get_trace(self, session_id: str) -> list[dict[str, Any]]:
         """Return the runtime's own trace of the last invocation as
-        OpenInference-shaped spans (T4.1)."""
+        OpenInference-shaped spans."""
         raise CapabilityNotSupported("get_trace")
 
     def export_otel(self, session_id: str) -> dict[str, Any]:
-        """Return the last invocation's trace as an OTLP-compatible dict (T4.2)."""
+        """Return the last invocation's trace as an OTLP-compatible dict."""
         raise CapabilityNotSupported("export_otel")
 
     def probe_scaling(self, levels: list[int]) -> list[ScalePoint]:
-        """Report elasticity: success rate + p95 latency at each concurrency level
-        (T5.2). A real adapter actually drives concurrent load and measures; it
+        """Report elasticity: success rate + p95 latency at each concurrency level.
+        A real adapter actually drives concurrent load and measures; it
         must surface the platform's OWN behaviour under load, never model it."""
         raise CapabilityNotSupported("probe_scaling")
 
     def probe_sustained_load(self, duration_s: float, target_rps: float) -> LoadResult:
-        """Report sustained throughput + tail latency under steady load (T1.4). A
+        """Report sustained throughput + tail latency under steady load. A
         real adapter drives ``target_rps`` for ``duration_s`` and measures the
         platform's OWN throughput / p50 / p99 / error rate, never models it."""
         raise CapabilityNotSupported("probe_sustained_load")
 
     def probe_warm_retention(self) -> RetentionResult:
         """Report the keep-alive window: how long an idle instance stays warm
-        before the next start pays a cold penalty again (T1.5)."""
+        before the next start pays a cold penalty again."""
         raise CapabilityNotSupported("probe_warm_retention")
 
     def probe_soak(self, duration_s: float) -> SoakResult:
-        """Report steady-state availability + error rate over a soak window (T1.6).
+        """Report steady-state availability + error rate over a soak window.
         A real adapter runs continuous traffic for ``duration_s`` and measures the
         platform's OWN availability, never models it."""
         raise CapabilityNotSupported("probe_soak")
 
     def probe_rate_limit(self) -> RateLimitResult:
-        """Report throttling behaviour once demand exceeds quota (T1.7): the onset
+        """Report throttling behaviour once demand exceeds quota: the onset
         rps, advertised Retry-After, and whether a proper 429 is returned."""
         raise CapabilityNotSupported("probe_rate_limit")
 
     def probe_ttft(self) -> float:
-        """Time-to-first-token via streaming invoke (T1.9).
+        """Time-to-first-token via streaming invoke.
 
         Fire a single tool call with ``stream=True`` and return the milliseconds
         elapsed from sending the request to receiving the first non-empty SSE
@@ -562,41 +562,41 @@ class AgentRuntimeAdapter(ProviderAdapter):
 
     def probe_cancellation(self) -> CancellationResult:
         """Report whether a timed-out / cancelled request is honored and still
-        torn down cleanly, leaving nothing orphaned (T1.8)."""
+        torn down cleanly, leaving nothing orphaned."""
         raise CapabilityNotSupported("probe_cancellation")
 
     def probe_signals(self) -> SignalsResult:
-        """Report metrics & log completeness beyond traces (T4.3): how many of
+        """Report metrics & log completeness beyond traces: how many of
         the expected metric/log signals the runtime actually exports."""
         raise CapabilityNotSupported("probe_signals")
 
     def probe_span_propagation(self) -> PropagationResult:
-        """Report trace parent/child correctness (T4.4): orphaned spans and the
+        """Report trace parent/child correctness: orphaned spans and the
         root-span count, i.e. whether context propagates across tool calls."""
         raise CapabilityNotSupported("probe_span_propagation")
 
     def probe_export_latency(self) -> ExportLatencyResult:
-        """Report telemetry export latency and drop ratio (T4.5): how fast spans
+        """Report telemetry export latency and drop ratio: how fast spans
         land in the backend and whether any are lost."""
         raise CapabilityNotSupported("probe_export_latency")
 
     def probe_idle_cost(self) -> IdleCostResult:
-        """Report idle / scale-to-zero cost (T5.3): whether a warm-but-idle
+        """Report idle / scale-to-zero cost: whether a warm-but-idle
         instance bills, and how much per hour."""
         raise CapabilityNotSupported("probe_idle_cost")
 
     def probe_isolation(self) -> IsolationResult:
-        """Report tenant isolation / sandbox strength (T6.1): tenant, network
+        """Report tenant isolation / sandbox strength: tenant, network
         egress, and filesystem isolation."""
         raise CapabilityNotSupported("probe_isolation")
 
     def probe_concurrency_ceiling(self) -> CeilingResult:
-        """Report the concurrency ceiling (T5.4): max in-flight admitted and
+        """Report the concurrency ceiling: max in-flight admitted and
         whether it is a hard cap."""
         raise CapabilityNotSupported("probe_concurrency_ceiling")
 
     def probe_fault_recovery(self) -> FaultRecoveryResult:
-        """Run the T1.3 platform-visible fault + agent retry probe.
+        """Run the platform-visible fault + agent retry probe.
 
         Configures the mock server to fail call #1 on a per-correlation bucket,
         issues a single invoke (with that correlation id), and reads the mock
@@ -607,7 +607,7 @@ class AgentRuntimeAdapter(ProviderAdapter):
         raise CapabilityNotSupported("probe_fault_recovery")
 
     def probe_startup_curve(self, n_calls: int = 8) -> StartupCurveResult:
-        """Run the T1.13 startup-convergence curve probe.
+        """Run the startup-convergence curve probe.
 
         Invoke the SAME session ``n_calls`` times back to back and record each
         call's end-to-end latency: call 1 pays cold start, later calls reveal
@@ -618,7 +618,7 @@ class AgentRuntimeAdapter(ProviderAdapter):
         raise CapabilityNotSupported("probe_startup_curve")
 
     def probe_idle_timeout_honor(self, session_idle_timeout_s: float = 10.0) -> IdleTimeoutHonorResult:
-        """Run the T1.14 idle-timeout honor probe.
+        """Run the idle-timeout honor probe.
 
         Provision (or expect) a runtime with a small configured session idle
         timeout, idle just below it (expect still-warm) then just above it
@@ -629,7 +629,7 @@ class AgentRuntimeAdapter(ProviderAdapter):
         raise CapabilityNotSupported("probe_idle_timeout_honor")
 
     def probe_retry_storm(self, max_window_s: float = 30.0) -> RetryStormResult:
-        """Run the T1.10 retry-storm probe.
+        """Run the retry-storm probe.
 
         Injects a persistent fault (every call fails) on a 5-call plan and
         observes whether the runtime aborts cleanly on the first failure or
@@ -638,7 +638,7 @@ class AgentRuntimeAdapter(ProviderAdapter):
         raise CapabilityNotSupported("probe_retry_storm")
 
     def probe_concurrent_writes(self) -> ConcurrentWriteResult:
-        """Run the T1.11 concurrent state-write probe.
+        """Run the concurrent state-write probe.
 
         Two sessions simultaneously write to the same state key; the result
         must be one of the two written values (last-writer-wins, no corruption).
@@ -646,7 +646,7 @@ class AgentRuntimeAdapter(ProviderAdapter):
         raise CapabilityNotSupported("probe_concurrent_writes")
 
     def probe_hol_blocking(self) -> HOLResult:
-        """Run the T1.12 head-of-line blocking probe.
+        """Run the head-of-line blocking probe.
 
         Fires 1 slow request and 5 fast requests concurrently on the same
         session. If the fast requests are delayed nearly as long as the slow
@@ -654,14 +654,14 @@ class AgentRuntimeAdapter(ProviderAdapter):
         """
         raise CapabilityNotSupported("probe_hol_blocking")
 
-    # --- Provisioning: the deploy / teardown lifecycle (T0.1 / T0.2) ---------
+    # --- Provisioning: the deploy / teardown lifecycle ---------
     # An always-on runtime instance is stood up before it can host sessions and
     # torn down after. Default = CapabilityNotSupported so an adapter opts in; a
     # real adapter surfaces the platform's OWN CreateRuntime->ready and
     # Delete->clean behaviour (timed / verified), never fabricates it.
 
     def provision(self, spec: dict[str, Any] | None = None) -> ProvisionResult:
-        """Stand up a runtime instance from an artifact; time create->ready (T0.1)."""
+        """Stand up a runtime instance from an artifact; time create->ready."""
         raise CapabilityNotSupported("provision")
 
     def provision_status(self, runtime_id: str) -> str:
@@ -669,5 +669,5 @@ class AgentRuntimeAdapter(ProviderAdapter):
         raise CapabilityNotSupported("provision_status")
 
     def deprovision(self, runtime_id: str) -> DeprovisionResult:
-        """Tear a runtime instance down; report whether teardown was clean (T0.2)."""
+        """Tear a runtime instance down; report whether teardown was clean."""
         raise CapabilityNotSupported("deprovision")
