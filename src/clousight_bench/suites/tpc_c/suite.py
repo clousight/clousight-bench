@@ -132,11 +132,17 @@ class TpccSuite(BenchmarkSuite):
         if target.mock or env.payload.get("mock"):
             return self.mock_artifacts(dict(env.payload))
         p = env.payload
-        work = Path(tempfile.mkdtemp(prefix="csbench-tpcc-"))
+        work = Path(tempfile.mkdtemp(prefix="csbench-tpcc-"))  # mkdtemp is 0o700
         results_dir = work / "results"
         results_dir.mkdir(parents=True, exist_ok=True)
+        # BenchBase reads the DB credentials from this XML (there is no env-var
+        # path), so the password is unavoidably on disk while it runs. Minimize
+        # exposure: create owner-only (0o600) inside the already-0o700 work dir,
+        # and rmtree the whole tree after the run (see below).
         config_path = work / "tpcc_config.xml"
+        config_path.touch(mode=0o600)
         config_path.write_text(_render_config(p, work), encoding="utf-8")
+        config_path.chmod(0o600)  # re-assert: touch() honours umask, chmod does not
         cmd = [
             p["launcher"],
             "-b",
