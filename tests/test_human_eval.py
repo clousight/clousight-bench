@@ -310,7 +310,7 @@ def test_endpoint_run_executes_mocked_completion(monkeypatch: pytest.MonkeyPatch
                 "usage": {"prompt_tokens": 40, "completion_tokens": 12},
             }
 
-    import requests
+    requests = pytest.importorskip("requests")
 
     captured: dict = {}
 
