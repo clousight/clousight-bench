@@ -19,3 +19,10 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+          # GHSA-qh6h-p6c9-ff54 — path traversal in langchain-core's legacy
+          # load_prompt(). Not applicable: clousight-bench never calls load_prompt,
+          # langchain is an optional [agent] extra, and the entire 0.3.x line is
+          # affected with no backport (first patch is 1.2.22, a breaking major that
+          # removed the AgentExecutor API we use). Tracked for a langchain-1.x
+          # migration; see the "langchain 1.x" follow-up issue.
+          allow-ghsas: GHSA-qh6h-p6c9-ff54
