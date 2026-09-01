@@ -28,8 +28,12 @@ import gzip
 import json
 import re
 from importlib.resources import files as resource_files
-from importlib.resources.abc import Traversable
 from pathlib import Path
+
+try:  # Traversable moved to importlib.resources.abc in 3.11; it lives in importlib.abc on 3.10
+    from importlib.resources.abc import Traversable
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+    from importlib.abc import Traversable
 
 import pytest
 
