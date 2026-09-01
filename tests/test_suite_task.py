@@ -422,7 +422,7 @@ def test_teardown_scoped_filter(monkeypatch, tmp_path) -> None:
 
 def test_record_from_suite_run_validates_against_tightened_schema(monkeypatch, tmp_path) -> None:
     """A ResultRecord produced from a SuiteTask mock run validates against schema 0.4."""
-    import jsonschema
+    jsonschema = pytest.importorskip("jsonschema")
 
     import clousight_bench.core.orchestrator as orch
     from clousight_bench.core.plugin import DomainPack, ProviderAdapter
