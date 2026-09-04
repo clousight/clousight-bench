@@ -51,7 +51,7 @@ def test_hook_lifecycle_start_sync_stop(monkeypatch, tmp_path):
     # Make execute_plan a no-op returning a minimal aggregate so we exercise only
     # the loop's carrier wiring (not real task execution).
     agg = types.SimpleNamespace(plan_id="plan-1", status_counts={"passed": 1})
-    monkeypatch.setattr("clousight_bench.core.runplan.execute_plan", lambda *a, **k: agg)
+    monkeypatch.setattr("clousight_bench.ops.runplan.execute_plan", lambda *a, **k: agg)
 
     plan = tmp_path / "plan.yaml"
     plan.write_text(
@@ -83,7 +83,7 @@ def test_stop_runs_even_on_exception(monkeypatch, tmp_path):
     def _boom(*a, **k):
         raise RuntimeError("task blew up")
 
-    monkeypatch.setattr("clousight_bench.core.runplan.execute_plan", _boom)
+    monkeypatch.setattr("clousight_bench.ops.runplan.execute_plan", _boom)
 
     plan = tmp_path / "plan.yaml"
     plan.write_text("domain: agent_runtime\nplatform: aliyun\ntasks:\n  - task: T1.4\n", encoding="utf-8")

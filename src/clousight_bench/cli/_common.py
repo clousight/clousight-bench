@@ -113,7 +113,7 @@ def _load_thresholds(path: str) -> dict[str, Any]:
 def _load_aggregates(results_dir: Path) -> list[dict]:
     import json
 
-    from clousight_bench.core.runplan import AGGREGATES_DIRNAME
+    from clousight_bench.ops.runplan import AGGREGATES_DIRNAME
 
     agg_dir = results_dir / AGGREGATES_DIRNAME
     if not agg_dir.exists():

@@ -4,7 +4,7 @@ run is byte-for-byte unchanged."""
 import json
 
 from clousight_bench.cli import main
-from clousight_bench.core.runplan import AGGREGATES_DIRNAME
+from clousight_bench.ops.runplan import AGGREGATES_DIRNAME
 
 
 def _run(argv):

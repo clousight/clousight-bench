@@ -32,6 +32,7 @@ import json
 import logging
 import sys
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from fnmatch import fnmatch
 from pathlib import Path
@@ -380,8 +381,6 @@ class ResultStore:
             raise ImportError("query_series needs the [store] extra: pip install clousight-bench[store]")
         import duckdb
 
-        from clousight_bench.core.analytics import iter_verified_records
-
         paths: list[str] = []
         for _record_path, payload in iter_verified_records(self.results_dir):
             sidecar, error = validate_sidecar(self.results_dir, payload)
@@ -548,3 +547,28 @@ def _minimal_payload(record: ResultRecord) -> dict[str, Any]:
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     return payload
+
+
+def iter_verified_records(results_dir: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
+    """Yield (path, payload) for each result JSON whose record_digest verifies.
+
+    Skips run_plan aggregates (results/aggregates/**), non-dict payloads,
+    unreadable files, and any record whose recomputed digest != stored digest.
+    """
+    root = Path(results_dir)
+    agg = (root / "aggregates").resolve()
+    campaigns = (root / "campaigns").resolve()
+    for record_path in sorted(root.rglob("*.json")):
+        try:
+            resolved = record_path.resolve()
+            if agg in resolved.parents or campaigns in resolved.parents:
+                continue
+            payload = json.loads(record_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                continue
+            expected = payload.get("fingerprints", {}).get("record_digest")
+            if not isinstance(expected, str) or record_digest(payload) != expected:
+                continue
+        except (OSError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+        yield record_path, payload

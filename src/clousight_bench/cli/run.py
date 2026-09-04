@@ -62,7 +62,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 "--repeat/--warmup/--plan-id/--resume (the aggregate path is not gated).",
                 file=sys.stderr,
             )
-        from clousight_bench.core.runplan import RunPlan, execute_plan
+        from clousight_bench.ops.runplan import RunPlan, execute_plan
 
         plan = RunPlan(spec, repeat=args.repeat, warmup=args.warmup)
         aggregate = execute_plan(
@@ -129,8 +129,8 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
         new_campaign_id,
         write_manifest,
     )
-    from clousight_bench.core.runplan import RunPlan, execute_plan
     from clousight_bench.core.schema import RunSpec
+    from clousight_bench.ops.runplan import RunPlan, execute_plan
 
     plan_path = Path(args.plan_file)
     try:

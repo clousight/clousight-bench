@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from clousight_bench.core.analytics import Analytics
 from clousight_bench.core.fingerprints import record_digest
+from clousight_bench.ops.analytics import Analytics
 
 
 def _write(root: Path, run_id="r1"):

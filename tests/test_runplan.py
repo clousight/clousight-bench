@@ -12,14 +12,14 @@ from clousight_bench.core.record import (
     ResultRecord,
     RunInfo,
 )
-from clousight_bench.core.runplan import (
+from clousight_bench.core.schema import RunSpec
+from clousight_bench.ops.runplan import (
     AGGREGATES_DIRNAME,
     RunPlan,
     RunPlanError,
     build_aggregate,
     execute_plan,
 )
-from clousight_bench.core.schema import RunSpec
 
 _SPEC = RunSpec("agent-runtime", "suite:stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
