@@ -51,7 +51,7 @@ def _check_api_version(ep: object, obj: object) -> None:
     """Reject a plugin whose declared plugin-API range excludes this core."""
     from clousight_bench import PLUGIN_API_VERSION
 
-    rng = getattr(obj, "requires_plugin_api", ">=1.0,<2.0")
+    rng = getattr(obj, "requires_plugin_api", ">=2.0,<3.0")
     if not range_contains(rng, PLUGIN_API_VERSION):
         dist = getattr(getattr(ep, "dist", None), "name", None)
         where = f" from {dist}" if dist else ""
