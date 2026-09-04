@@ -9,12 +9,16 @@ callables, so a DuckDB suite and a future config-connect suite share it verbatim
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import hashlib
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
 from typing import Any
 
 QueryResult = dict[str, Any]  # {"query_nr","interval_s","row_count","result_digest"}
+
+# Bumped if the generated-ordering algorithm changes (folded into run provenance).
+GENERATOR_VERSION = "gen-v1"
 
 # Official TPC-H minimum query-stream count by scale factor (spec clause 5.4.1).
 _MIN_STREAMS_BY_SF: tuple[tuple[float, int], ...] = (
@@ -60,6 +64,55 @@ def resolve_orders(table: dict[str, list[int]], *, num_streams: int) -> tuple[li
                 "requested — extend the table from TPC-H Appendix A"
             )
         throughput.append(list(table[key]))
+    return power, throughput
+
+
+def _keystream(seed: bytes) -> Iterator[int]:
+    """Endless deterministic byte stream from sha256(seed || counter)."""
+    counter = 0
+    while True:
+        yield from hashlib.sha256(seed + counter.to_bytes(8, "big")).digest()
+        counter += 1
+
+
+def _rand_below(ks: Iterator[int], n: int) -> int:
+    """Uniform integer in [0, n) drawn from *ks*, rejection-sampled to avoid bias."""
+    limit = 256 - (256 % n)  # largest multiple of n <= 256
+    while True:
+        b = next(ks)
+        if b < limit:
+            return b % n
+
+
+def _shuffle(items: Sequence[int], seed: bytes) -> list[int]:
+    """Deterministic Fisher-Yates shuffle of *items* seeded by *seed*."""
+    arr = list(items)
+    ks = _keystream(seed)
+    for i in range(len(arr) - 1, 0, -1):
+        j = _rand_below(ks, i + 1)
+        arr[i], arr[j] = arr[j], arr[i]
+    return arr
+
+
+def generate_orders(query_ids: Sequence[int], *, num_streams: int) -> tuple[list[int], list[list[int]]]:
+    """Deterministic (power stream 0, throughput streams 1..S) permutations.
+
+    A **clousight-generated** ordering (NOT the official Appendix A sequences): each
+    stream is a distinct, reproducible Fisher-Yates permutation of *query_ids*,
+    seeded by the query set + stream index. Lets the Throughput test scale to any S
+    the official minimum requires without shipping guessed permutation tables. The
+    throughput metric depends only on running all queries per stream, so a valid
+    distinct permutation is metric-correct; only strict comparability to a published
+    run needs the exact Appendix A order.
+    """
+    base = ",".join(str(int(q)) for q in query_ids)
+
+    def order_for(stream_id: int) -> list[int]:
+        seed = hashlib.sha256(f"{GENERATOR_VERSION}|{base}|{stream_id}".encode()).digest()
+        return _shuffle(query_ids, seed)
+
+    power = order_for(0)
+    throughput = [order_for(sid) for sid in range(1, int(num_streams) + 1)]
     return power, throughput
 
 

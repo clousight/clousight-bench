@@ -49,7 +49,14 @@ from clousight_bench.suites._duckdb_tpc import (
 )
 from clousight_bench.suites._duckdb_tpc import run_query_set as _run_query_set
 from clousight_bench.suites._tpc_official import phases, refresh
-from clousight_bench.suites._tpc_official.streams import official_min_streams, resolve_orders
+from clousight_bench.suites._tpc_official.streams import (
+    GENERATOR_VERSION,
+    generate_orders,
+    official_min_streams,
+    resolve_orders,
+)
+
+_QUERY_ORDER_SOURCES = ("official", "generated")
 
 # Re-exported for scripts/capture_tpch_reference.py + the suite tests.
 __all__ = ["TpchSuite", "run_query_set", "result_digest", "_ALL_QUERY_IDS"]
@@ -109,10 +116,18 @@ class TpchSuite(DuckDbTpcSuite):
         sf = float(cfg.get("scale_factor", 1.0))
         streams = int(cfg.get("streams", official_min_streams(sf)))
         query_ids = [int(q) for q in cfg.get("query_ids", self.all_query_ids)]
-        try:
-            order_sha = sha256_bytes(_QUERY_ORDER_FILE.read_bytes())
-        except OSError:
-            order_sha = "sha256:none"
+        query_order = str(cfg.get("query_order", "official"))
+        if query_order not in _QUERY_ORDER_SOURCES:
+            raise ValueError(f"query_order must be one of {_QUERY_ORDER_SOURCES}, got {query_order!r}")
+        # The ordering provenance folded into the digest: the Appendix A file's sha
+        # for official, the generator version for generated.
+        if query_order == "official":
+            try:
+                order_prov = sha256_bytes(_QUERY_ORDER_FILE.read_bytes())
+            except OSError:
+                order_prov = "sha256:none"
+        else:
+            order_prov = GENERATOR_VERSION
         try:
             ref_sha = sha256_bytes(self._reference_file.read_bytes())
         except OSError:
@@ -123,16 +138,23 @@ class TpchSuite(DuckDbTpcSuite):
                 "sf": sf,
                 "streams": streams,
                 "query_ids": sorted(query_ids),
-                "order": order_sha,
+                "query_order": query_order,
+                "order": order_prov,
                 "ref": ref_sha,
                 "version": f"{self.suite_version}/{_OFFICIAL_VERSION}",
             },
             sort_keys=True,
         )
         return DatasetHandle(
-            version=f"{self.suite_version}/{_OFFICIAL_VERSION}/sf{sf:g}/s{streams}",
+            version=f"{self.suite_version}/{_OFFICIAL_VERSION}/sf{sf:g}/s{streams}/{query_order}",
             digest=sha256_bytes(canonical.encode()),
-            payload={"mode": "official", "scale_factor": sf, "streams": streams, "query_ids": query_ids},
+            payload={
+                "mode": "official",
+                "scale_factor": sf,
+                "streams": streams,
+                "query_ids": query_ids,
+                "query_order": query_order,
+            },
         )
 
     # ------------------------------------------------------------------ prepare
@@ -162,6 +184,8 @@ class TpchSuite(DuckDbTpcSuite):
                 "db_path": db_path,
                 "scale_factor": sf,
                 "streams": int(dataset.payload["streams"]),
+                "query_ids": list(dataset.payload["query_ids"]),
+                "query_order": dataset.payload.get("query_order", "official"),
                 "load_time_s": load_time_s,
             }
         )
@@ -177,8 +201,15 @@ class TpchSuite(DuckDbTpcSuite):
         db_path = env.payload["db_path"]
         sf = float(env.payload["scale_factor"])
         streams = int(env.payload["streams"])
-        table = json.loads(_QUERY_ORDER_FILE.read_text())
-        power_order, throughput_orders = resolve_orders(table, num_streams=streams)
+        query_ids = [int(q) for q in env.payload.get("query_ids", self.all_query_ids)]
+        query_order = env.payload.get("query_order", "official")
+        if query_order == "generated":
+            power_order, throughput_orders = generate_orders(query_ids, num_streams=streams)
+            ordering_source = f"clousight-generated/{GENERATOR_VERSION}"
+        else:
+            table = json.loads(_QUERY_ORDER_FILE.read_text())
+            power_order, throughput_orders = resolve_orders(table, num_streams=streams)
+            ordering_source = "official-appendix-a"
 
         con = _connect_loaded(duckdb, db_path)
         ext_version = con.execute(
@@ -197,6 +228,7 @@ class TpchSuite(DuckDbTpcSuite):
                 power_order=power_order,
                 throughput_orders=throughput_orders,
                 load_time_s=float(env.payload["load_time_s"]),
+                ordering_source=ordering_source,
                 engine_meta={
                     "duckdb_version": duckdb.__version__,
                     "extension_version": ext_version[0] if ext_version else "unknown",

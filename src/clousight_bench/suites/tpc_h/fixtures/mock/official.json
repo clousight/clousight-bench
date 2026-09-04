@@ -1,6 +1,7 @@
 {
   "scale_factor": 1.0,
   "streams": 2,
+  "ordering_source": "official-appendix-a",
   "load": {
     "load_time_s": 12.34
   },

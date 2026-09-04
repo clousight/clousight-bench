@@ -50,3 +50,23 @@ def test_qphh_is_geometric_mean_of_power_and_throughput() -> None:
 def test_throughput_rejects_nonpositive_elapsed() -> None:
     with pytest.raises(ValueError):
         throughput_at_size(num_streams=2, num_queries=22, elapsed_s=0.0, scale_factor=1.0)
+
+
+def test_metrics_scale_linearly_with_scale_factor() -> None:
+    # @Size: at a fixed timing profile, all three official numbers scale with SF.
+    qi, ri = [1.0] * 22, [1.0, 1.0]
+    p1 = power_at_size(qi, ri, scale_factor=1.0)
+    p10 = power_at_size(qi, ri, scale_factor=10.0)
+    assert math.isclose(p10, 10 * p1)
+
+    t1 = throughput_at_size(num_streams=3, num_queries=22, elapsed_s=200.0, scale_factor=1.0)
+    t10 = throughput_at_size(num_streams=3, num_queries=22, elapsed_s=200.0, scale_factor=10.0)
+    assert math.isclose(t10, 10 * t1)
+
+    assert math.isclose(qphh_at_size(p10, t10), 10 * qphh_at_size(p1, t1))
+
+
+def test_throughput_grows_with_stream_count() -> None:
+    two = throughput_at_size(num_streams=2, num_queries=22, elapsed_s=200.0, scale_factor=1.0)
+    five = throughput_at_size(num_streams=5, num_queries=22, elapsed_s=200.0, scale_factor=1.0)
+    assert math.isclose(five / two, 2.5)

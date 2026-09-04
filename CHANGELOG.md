@@ -17,6 +17,12 @@ All notable changes to Clousight Bench are recorded here.
   RF1/RF2 refresh set is clousight-generated). The default `mode: reference`
   single-stream path and `official-tpch-evaluator` are unchanged. Select the
   composite via `params.evaluator: official-tpch-qphh-evaluator`. Docs: `tpch-suite`.
+- **TPC-H scale dimension**: `params.streams` (default = the official minimum for the
+  scale factor) drives the Throughput stream count, and `params.query_order` selects the
+  stream permutations — `official` (the Appendix A table, comparable, ships streams 0–2 and
+  fails loudly beyond) or `generated` (a deterministic, reproducible clousight ordering that
+  scales to any `S`, e.g. SF ≥ 10). The chosen `ordering_source` is recorded in
+  `official.json` and folded into the run's dataset digest.
 
 An eval-core refactor (per-item scoring, composable metrics, LLM-as-judge) plus
 more coding benchmarks. **Record schema 0.3 → 0.4** (additive). The one public

@@ -70,17 +70,21 @@ def run_official(
     throughput_orders: list[list[int]],
     load_time_s: float,
     engine_meta: dict[str, Any],
+    ordering_source: str = "official-appendix-a",
     clock: Callable[[], float] = perf_counter,
 ) -> dict[str, Any]:
     """Run the full official pipeline and return the ``official.json`` document.
 
     ``con`` drives the Power test and ACID probes; each throughput query stream and
     the refresh stream get their own connection from ``open_conn`` (same database)
-    so DuckDB MVCC isolates them.
+    so DuckDB MVCC isolates them. ``ordering_source`` is recorded as provenance (the
+    query-stream permutations are either the official Appendix A table or a
+    clousight-generated ordering).
     """
     doc: dict[str, Any] = {
         "scale_factor": float(scale_factor),
         "streams": len(throughput_orders),
+        "ordering_source": ordering_source,
         "load": {"load_time_s": float(load_time_s)},
     }
     doc["power"] = run_power(

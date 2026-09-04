@@ -51,9 +51,36 @@ csbench run --domain data-warehouse --benchmark tpc-h \
   --platform duckdb-local --config off-real.yaml
 ```
 
-`params.streams` defaults to the official minimum for the scale factor (SF1 → 2).
-The query stream permutations come from the official Appendix A table
-(`suites/tpc_h/fixtures/query_order.json`); extend it for `streams > 2`.
+## Scaling up
+
+`params.scale_factor` sets the size (`QphH` is reported `@Size`), and
+`params.streams` sets the number of concurrent Throughput query streams. It
+defaults to the **official minimum for the scale factor** (SF1 → 2, SF10 → 3,
+SF30 → 4, SF100 → 5, …). All three composites scale with `SF`, and
+`Throughput@Size` grows with the stream count.
+
+The query-stream permutations come from `params.query_order`:
+
+| `query_order` | Ordering | Use when |
+| --- | --- | --- |
+| `official` (default) | the official Appendix A table (`suites/tpc_h/fixtures/query_order.json`) — comparable to published runs | streams covered by the table (ships streams 0–2, i.e. up to `S = 2`) |
+| `generated` | a deterministic, reproducible clousight-generated ordering (distinct permutation per stream) | any `S` — needed for SF ≥ 10 until the Appendix A table is extended |
+
+<Note>
+`official` fails loudly if you ask for more streams than the shipped Appendix A
+table covers — it never silently substitutes an unofficial order. Use
+`query_order: generated` to scale past `S = 2` (each stream still runs all 22
+queries, so the throughput metric is correct; only strict comparability to a
+published run needs the exact Appendix A sequences). The chosen ordering is
+recorded in `official.json` as `ordering_source` and folded into the run's
+dataset digest.
+</Note>
+
+```bash
+# SF10 official-minimum 3 streams, generated ordering:
+printf 'target:\n  mode: runtime\nparams:\n  mode: official\n  scale_factor: 10\n  streams: 3\n  query_order: generated\n  evaluator: official-tpch-qphh-evaluator\n' > sf10.yaml
+csbench run --domain data-warehouse --benchmark tpc-h --platform duckdb-local --config sf10.yaml
+```
 
 ## What official mode measures
 
@@ -79,5 +106,7 @@ recognized evaluator"), not an audit claim; drift is carried by
 ## Out of scope (today)
 
 `price/QphH` (the formula seam exists; a system price input is not yet wired),
-real-SUT `config-connect` engines (duckdb-local only), and SF ≥ 100 scaling
-validation. Durability crash-recovery is not tested on embedded DuckDB.
+real-SUT `config-connect` engines (duckdb-local only), and extending the official
+Appendix A permutation table beyond streams 0–2 (use `query_order: generated` to
+scale in the meantime). Very large scale factors are bounded by single-node DuckDB
+memory/disk. Durability crash-recovery is not tested on embedded DuckDB.

@@ -46,8 +46,31 @@ csbench run --domain data-warehouse --benchmark tpc-h \
   --platform duckdb-local --config off-real.yaml
 ```
 
-`params.streams` 默认取该 scale factor 的官方最小值（SF1 → 2）。查询流排列来自官方
-Appendix A 表（`suites/tpc_h/fixtures/query_order.json`）；`streams > 2` 时请从该表扩展。
+## 规模放大
+
+`params.scale_factor` 决定数据规模（`QphH` 按 `@Size` 报告），`params.streams` 决定并发
+Throughput 查询流数，默认取该 scale factor 的**官方最小值**（SF1 → 2、SF10 → 3、SF30 → 4、
+SF100 → 5、…）。三个复合分都随 `SF` 线性放大，`Throughput@Size` 随流数增长。
+
+查询流排列由 `params.query_order` 决定：
+
+| `query_order` | 排列 | 适用 |
+| --- | --- | --- |
+| `official`（默认） | 官方 Appendix A 表（`suites/tpc_h/fixtures/query_order.json`）—— 与已发布结果可比 | 表覆盖到的流数（当前内置 streams 0–2,即 `S = 2`） |
+| `generated` | 确定性、可复现的 clousight 生成排列（每流一个不同排列） | 任意 `S` —— SF ≥ 10 在 Appendix A 表扩展前需要它 |
+
+<Note>
+`official` 在请求流数超过内置 Appendix A 表覆盖时**直接报错**,绝不静默替换成非官方排列。
+用 `query_order: generated` 突破 `S = 2`（每个流仍跑全部 22 条查询,故吞吐指标正确;只有与已发布
+结果的严格可比才需要精确的 Appendix A 序列）。所选排列会记入 `official.json` 的 `ordering_source`,
+并折入本次运行的 dataset digest。
+</Note>
+
+```bash
+# SF10 官方最小 3 流,generated 排列：
+printf 'target:\n  mode: runtime\nparams:\n  mode: official\n  scale_factor: 10\n  streams: 3\n  query_order: generated\n  evaluator: official-tpch-qphh-evaluator\n' > sf10.yaml
+csbench run --domain data-warehouse --benchmark tpc-h --platform duckdb-local --config sf10.yaml
+```
 
 ## 官方模式测量的维度
 
@@ -71,4 +94,6 @@ pass/fail 门，**不**参与 `QphH@Size` 复合分。
 ## 暂不在范围内
 
 `price/QphH`（公式接缝已留；系统报价输入尚未接入）、真实 SUT 的 `config-connect` 引擎（目前仅
-duckdb-local）、以及 SF ≥ 100 的规模验证。嵌入式 DuckDB 不测 Durability 崩溃恢复。
+duckdb-local）、以及把官方 Appendix A 排列表扩展到 streams 0–2 以外（在此之前用
+`query_order: generated` 放大）。很大的 scale factor 受单机 DuckDB 内存/磁盘限制。嵌入式
+DuckDB 不测 Durability 崩溃恢复。
