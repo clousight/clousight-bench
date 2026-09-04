@@ -14,7 +14,7 @@ RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
         -> SCORE -> ENRICH -> PERSIST -> optional PUBLISH
 ```
 
-- **RESOLVE** — look up the DomainPack, Task and Adapter for a `RunSpec`.
+- **RESOLVE** — look up the DomainPack, benchmark suite (`suite:<id>`) and Adapter for a `RunSpec`.
 - **VALIDATE** — parse and check the RunSpec, target, params and task config
   (`core/validation.py`). RESOLVE and VALIDATE failures are `UserInputError`s:
   CLI exit code 2, **no record written**.
@@ -142,22 +142,27 @@ scalar `measurements`, not time series.
 
 ```
 CLI (csbench)
-  └─ Orchestrator (lifecycle state machine)
-       ├─ Registry (entry-point domain discovery)
-       ├─ DomainPack  → Task(s) + Adapter(s)         [per product category]
+  └─ Orchestrator (lifecycle state machine)          [layer ① single-run eval]
+       ├─ Registry (entry-point discovery)
+       ├─ BenchmarkSuite + Evaluator (+ Metric/Judge)  [the benchmark contract]
+       │     └─ SuiteRunner (internal: observation packing + pure scoring)
+       ├─ DomainPack → Adapter(s)                    [layer ② cloud lifecycle]
        │     └─ Adapter (setup/submit/teardown)      [per (domain, cloud)]
        │           └─ WorkloadEngine (JSONL, any language)  [per load generator]
        ├─ Schema (RunSpec / ResultRecord 0.4 / fingerprints / provenance)
        └─ Viewer (csbench serve: records, provenance, trace)
+
+clousight_bench.ops (run-plans, analytics/rollups)   [layer ③ campaign ops]
+  └─ imports core; core never imports ops
 ```
 
 ## Plugin contracts
 
 | Contract | Responsibility | Loaded via |
 |---|---|---|
-| `DomainPack` | declare tasks + adapters for a product category | `clousight_bench.domains` entry point |
+| `BenchmarkSuite` + `Evaluator` | THE benchmark contract: drive an upstream harness unmodified → `RawArtifacts`; score them as a pure function | `clousight_bench.benchmark_suites` / `.evaluators` entry points |
+| `DomainPack` | declare a product category's adapters + vocabulary | `clousight_bench.domains` entry point |
 | `ProviderAdapter` | provision / talk to / tear down one system under test | referenced by a DomainPack |
-| `Task` | one benchmark dimension: `config()`, `execute()` (raw observation), `score()` (pure), `task_revision` / `scorer_revision` | referenced by a DomainPack |
 | `WorkloadEngine` | run a manifest-described load generator as a subprocess | `src/clousight_bench/resources/workloads/<name>/manifest.yaml`, resolved via `core/resources.py::reference_workload_path()` |
 | `RuntimeProvider` | supply a wired, SDK-backed transport for a `skeleton` cloud adapter in real mode | `clousight_bench.runtime_providers` entry point, resolved via `registry.get_runtime_provider(provider)` |
 | `CampaignProbeHook` | provision / sync / reap a per-campaign in-region load probe (see "Control plane vs. data plane" below) | looked up by `campaign_probe_hook(provider)` off the registered runtime provider |
@@ -178,9 +183,9 @@ providers to register the same way.
 The `execute` (touches the cloud) / `score` (pure) split is also the control
 plane / data plane split. `AgentRuntimeAdapter` carries one extra seam,
 `run_data_plane_probe(name, params) -> ObservationBundle`
-(`domains/agent_runtime/adapters/base.py`): a latency-class "data-plane" task's
-`execute()` collapses to `return adapter.run_data_plane_probe("<probe>", {...})`,
-so the *adapter*, not the task, decides where the measurement runs. The base
+(`domains/agent_runtime/adapters/base.py`): a latency-class "data-plane"
+measurement collapses to `adapter.run_data_plane_probe("<probe>", {...})`,
+so the *adapter*, not the benchmark, decides where the measurement runs. The base
 adapter dispatches to an in-process packer registry
 (`domains/agent_runtime/dataplane_dispatch.py`), which is exactly what
 `local-sim` and any not-yet-wired cloud use. A wired cloud can instead override
@@ -199,10 +204,10 @@ Aliyun ECI probe carrier and its cloud transport in-tree**; additional carriers
 `A` docs · `B` environment observation · `C` controlled measurement · `D` marketing.
 Reports never blend dimensions into one score.
 
-## Suite / evaluator contract layer
+## The benchmark contract (BenchmarkSuite + Evaluator)
 
-Alongside the domain-task pipeline, Clousight Bench ships a second contract for
-**externally-defined benchmark suites** such as SWE-bench:
+The ONE way to add a benchmark — recognized external suites (SWE-bench, TPC-H)
+and any new benchmark alike:
 
 - **`BenchmarkSuite`** drives an upstream harness unmodified and returns opaque
   `RawArtifacts` (a directory + manifest of named files).  Core treats the
@@ -219,7 +224,8 @@ Alongside the domain-task pipeline, Clousight Bench ships a second contract for
   `list[CheckResult]`; run it from the CLI with `csbench conformance --suite
   <suite_id>` (exercises every registered evaluator over the suite's mock
   artifacts), or compose with `run_conformance` for CI gates.
-- **`SuiteTask` + `Provenance`**: threads provenance metadata (suite_id,
+- **`SuiteRunner` + `Provenance`** (internal runner, not a plugin contract):
+  threads provenance metadata (suite_id,
   suite_version, evaluator_id, unmodified flag) through every `TaskResult` and
   folds it into the benchmark fingerprint, so records from different suite
   versions or evaluators are never pooled.
@@ -251,7 +257,7 @@ Alongside the domain-task pipeline, Clousight Bench ships a second contract for
 ## Current domains
 
 - `agent-runtime` — the cloud-infra shell for managed agent runtimes: adapters, runtime providers, probes, reaper. Since the suite-first pivot it registers **no self-designed tasks** — benchmark runs arrive as `suite:<id>` jobs through the benchmark-suite contract. Adapters use a `managed`/`transport`/`mode` split so the same code drives the local simulated runtime or, once a runtime-provider plugin is installed, a real cloud; capability probes raise `CapabilityNotSupported` → recorded as a finding, never a crash. The adapter statuses below are **generated from the registry** (never hand-maintained — see "Maintaining this document").
-### Task & adapter inventory
+### Benchmark & adapter inventory
 
 {/* BEGIN generated:task-inventory */}
 {/* Generated by scripts/gen_docs.py from the domain registry (same source as `csbench list --json`). Do not edit by hand; run `python scripts/gen_docs.py`. */}
@@ -347,10 +353,10 @@ Principle: **never require users to generate a separate set of keys for the benc
 
 The minimum permissions required by a given benchmark differ across cloud providers, so permission validation is **mapped per task**, with responsibilities split across two sides:
 
-- **Task declares WHAT**: `Task.required_permissions: tuple[str, ...]` lists **abstract capability tokens** (cloud-agnostic). Tokens are defined in `domains/agent_runtime/permissions.py`: `session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`. (No self-designed tasks remain after the suite-first pivot; suite tasks declare these tokens as needed.)
+- **The benchmark declares WHAT**: a suite's `required_permissions: tuple[str, ...]` lists **abstract capability tokens** (cloud-agnostic). Tokens are defined in `domains/agent_runtime/permissions.py`: `session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`.
 - **Adapter says HOW + verifies**: each real-cloud adapter defines a `PERMISSION_MAP` (token → the concrete minimum IAM/RAM actions for that cloud). `required_actions(task)` resolves the task's tokens into the cloud-specific action set; `_probe_permissions(actions)` performs the actual authorization check (the default implementation returns `None` = unverified → emits a WARNING listing the minimum actions required for this benchmark run on this cloud; real adapter overrides call STS GetCallerIdentity / RAM policy simulation / dry-run and return `(ok, missing)` — any missing action is a CRITICAL blocker).
 
-The minimum permissions for a given run equal the adapter's mapping of the task's tokens. **Adding a new benchmark dimension** only requires declaring tokens on the Task; **adding a new cloud** only requires supplying a `PERMISSION_MAP` on the Adapter — the two sides are entirely decoupled. `csbench doctor --domain <d> --platform <p> --task <t>` prints the minimum action list for any (benchmark × cloud) combination directly.
+The minimum permissions for a given run equal the adapter's mapping of the benchmark's tokens. **Adding a benchmark** only requires declaring tokens on the suite; **adding a new cloud** only requires supplying a `PERMISSION_MAP` on the Adapter — the two sides are entirely decoupled. `csbench doctor --domain <d> --platform <p> --task suite:<id>` prints the minimum action list for any (benchmark × cloud) combination directly.
 
 ## Dataset distribution (three tiers, one resolver)
 

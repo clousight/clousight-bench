@@ -11,7 +11,7 @@ Clousight Bench 采用**核心引擎 + 入口点插件**的架构。引擎负责
 
 | 层次 | 内容 | 分发方式 |
 |---|---|---|
-| **核心包**（`clousight-bench`） | 引擎（编排器、schema/记录格式、CLI、插件注册表）、插件**契约**（`Task`、`AgentRuntimeAdapter`、`RuntimeProviderPlugin`、`ResourceReaper`、`Enricher`、`DomainPack`）、报告/查询/追踪/汇总工具，以及**数据平面探针**运行时。 | pip 可安装，开源（Apache-2.0） |
+| **核心包**（`clousight-bench`） | 引擎（编排器、schema/记录格式、CLI、插件注册表）、插件**契约**（`BenchmarkSuite`、`Evaluator`、`Metric`、`AgentRuntimeAdapter`、`RuntimeProviderPlugin`、`ResourceReaper`、`Enricher`、`DomainPack`）、报告/查询/追踪/汇总工具，以及**数据平面探针**运行时。 | pip 可安装，开源（Apache-2.0） |
 | **参考领域** | `agent-runtime`（T0–T6）——含电池的基准测试。 | 捆绑在核心包中，但以*插件*方式注册（见下文） |
 | **你的插件** | 你的任务、适配器、领域、enricher、reaper。 | 你发布或本地安装的独立 pip 包 |
 | **商业版（pro）** | 精选数据集、托管服务、SLA、私有适配器。 | 通过相同入口点在顶层安装的私有插件 |
@@ -35,7 +35,13 @@ Clousight Bench 采用**核心引擎 + 入口点插件**的架构。引擎负责
 | `clousight_bench.span_exporters` | 用于追踪导出的 span 导出器 | `local` |
 | `clousight_bench.asset_resolvers` | 解析负载资产（数据集、脚本） | — |
 
-**新增一个 benchmark = 实现 `BenchmarkSuite` + `Evaluator`**(可选 `Metric` / judge),注册这些入口点,用 `csbench run --benchmark <id>` 运行。这是唯一对外的 benchmark 契约——开源与商业套件一视同仁(商业套件从私有包发布同样的入口点)。`DomainPack.tasks()` 是内部执行契约,**不是**新增 benchmark 的方式。
+**新增一个 benchmark = 实现 `BenchmarkSuite` + `Evaluator`**(可选 `Metric` / judge),注册这些入口点,用 `csbench run --benchmark <id>` 运行。这是唯一对外的 benchmark 契约——开源与商业套件一视同仁(商业套件从私有包发布同样的入口点)。自插件 API 2.0 起,suite/evaluator 就是唯一的基准轨道——旧的内部 `Task` 契约已删除。
+
+**打分器三角**——三个打分器,三种职责:
+
+- **`Evaluator`**——套件的官方判定(artifacts → measurements),never-re-score 的载体。每套件一个,命名空间 `<suite_id>.*`。
+- **`Metric`**——叠加的、可组合的逐条维度,作用在 evaluator 的 `items()` 上,产出 `<suite_id>.<metric_id>`。
+- **`Judge`**——`Metric` 可选用的实现手段(经 `clousight_bench.judges` 接缝的 LLM 裁判),绝不是第三条打分路径。
 
 适配器的 `status` 字面量（`skeleton` / `reference` / …）不会因安装插件而改变：一个 `skeleton` 适配器在真实模式下变为*可运行*，纯粹是因为 `get_runtime_provider(<provider>)` 现在返回了非 None 的插件——也就是说，安装 provider 插件即可完成连接，无需修改适配器。
 
@@ -56,7 +62,7 @@ Clousight Bench 采用**核心引擎 + 入口点插件**的架构。引擎负责
 即可发现,由 `requires_plugin_api` 守护兼容性。
 
 `DomainPack` + `ProviderAdapter` 仍是新增一整个产品类别及其 platform 适配器(如一个新云)
-的方式;`DomainPack.tasks()` 是内部执行契约,**不是**新增 benchmark 的方式。
+的方式;benchmark 本身始终以 `BenchmarkSuite` + `Evaluator` 入口点落地。
 
 ## 为什么参考逻辑打包在内而非仅供下载
 

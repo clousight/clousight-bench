@@ -6,7 +6,7 @@ description: Add a platform, dimension, domain, or workload engine.
 Clousight Bench is a **core engine + entry-point plugins**. The engine knows how
 to run a benchmark, attribute provenance, and persist schema-0.4 records; it
 knows nothing about any specific cloud, task, or dataset. Everything
-domain-specific — tasks, platform adapters, enrichers, reapers — is a **plugin**
+domain-specific — benchmark suites, platform adapters, enrichers, reapers — is a **plugin**
 discovered at runtime through Python entry points.
 
 The guiding principle: **customize by writing a plugin, never by forking the
@@ -17,9 +17,9 @@ so you have a canonical example to copy; your own logic lives in your own packag
 
 | Layer | What it contains | Distribution |
 |---|---|---|
-| **Core package** (`clousight-bench`) | The engine (orchestrator, schema/record format, CLI, plugin registry), the plugin **contracts** (`Task`, `AgentRuntimeAdapter`, `RuntimeProviderPlugin`, `ResourceReaper`, `Enricher`, `DomainPack`), the report/query/trace/rollup tooling, and the **data-plane probe** runtime. | pip-installable, open source (Apache-2.0) |
+| **Core package** (`clousight-bench`) | The engine (orchestrator, schema/record format, CLI, plugin registry), the plugin **contracts** (`BenchmarkSuite`, `Evaluator`, `Metric`, `AgentRuntimeAdapter`, `RuntimeProviderPlugin`, `ResourceReaper`, `Enricher`, `DomainPack`), the report/query/trace/rollup tooling, and the **data-plane probe** runtime. | pip-installable, open source (Apache-2.0) |
 | **Reference domains** | `agent-runtime` (T0–T6) — the batteries-included benchmark. | Bundled in the core package, but registered *as plugins* (see below) |
-| **Your plugins** | Your tasks / adapters / domains / enrichers / reapers. | A separate pip package you publish or install locally |
+| **Your plugins** | Your suites / evaluators / adapters / domains / enrichers / reapers. | A separate pip package you publish or install locally |
 | **Commercial (pro)** | Curated datasets, managed service, SLA, private adapters. | Private plugins installed on top via the same entry points |
 
 Because the reference domains are themselves registered through the entry-point
@@ -34,7 +34,7 @@ Register a plugin by advertising an entry point in your package's
 
 | Group | Provides | Reference example |
 |---|---|---|
-| `clousight_bench.domains` | A `DomainPack` — a named set of tasks + adapters | `agent-runtime` |
+| `clousight_bench.domains` | A `DomainPack` — a product category's adapters + vocabulary | `agent-runtime` |
 | `clousight_bench.benchmark_suites` | A `BenchmarkSuite` — wraps a recognized upstream benchmark harness | `swe-bench` |
 | `clousight_bench.evaluators` | An `Evaluator` — turns a suite's artifacts into namespaced `Measurement`s (+ per-item `items()`) | `official-mmlu-evaluator` |
 | `clousight_bench.metrics` | A `Metric` — a composable per-item scorer applied over `items` and aggregated; multiple per run, emitted as `<suite_id>.<metric_id>` | `answered-rate` |
@@ -49,8 +49,17 @@ Register a plugin by advertising an entry point in your package's
 `Metric` / judge), register those entry points, and run it with
 `csbench run --benchmark <id>`. This is the one public benchmark contract — for
 open-source *and* commercial suites alike (a commercial suite ships the same
-entry points from a private package). `DomainPack.tasks()` is an internal
-execution contract, not the way to add a benchmark.
+entry points from a private package). Since plugin API 2.0 the suite/evaluator
+pair is the ONLY benchmark rail — the old internal `Task` contract is gone.
+
+**The scorer triangle** — three scorers, three distinct jobs:
+
+- **`Evaluator`** — the suite's official verdict (artifacts → measurements);
+  the never-re-score carrier. One per suite, namespaced `<suite_id>.*`.
+- **`Metric`** — additive, composable per-item dimensions layered over the
+  evaluator's `items()`, emitted as `<suite_id>.<metric_id>`.
+- **`Judge`** — an implementation detail a `Metric` may use (LLM-as-judge via
+  the `clousight_bench.judges` seam); never a third scoring path of its own.
 
 The adapter's `status` literal (`skeleton` / `reference` / …) is not flipped by
 installing a plugin: a `skeleton` adapter becomes *runnable* in real mode purely
@@ -76,8 +85,8 @@ just a private package that registers the same entry points; install it and
 `csbench list` picks it up, `requires_plugin_api` guarding compatibility.
 
 `DomainPack` + `ProviderAdapter` remain the way to add a whole product category
-and its platform adapters (e.g. a new cloud); `DomainPack.tasks()` is an internal
-execution contract, not the way to add a benchmark.
+and its platform adapters (e.g. a new cloud); benchmarks themselves always land
+as `BenchmarkSuite` + `Evaluator` entry points.
 
 ## Why the reference logic is packaged, not download-only
 

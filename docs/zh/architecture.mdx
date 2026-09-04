@@ -61,7 +61,9 @@ Phase 1C **本身不**包含插件 API 版本范围、JSON Schema、合规套件
 CLI (csbench)
   └─ Orchestrator (lifecycle state machine)
        ├─ Registry (entry-point domain discovery)
-       ├─ DomainPack  → Task(s) + Adapter(s)         [per product category]
+       ├─ BenchmarkSuite + Evaluator (+ Metric/Judge)  [基准契约,层①]
+       │     └─ SuiteRunner (内部执行器:观测打包+纯函数评分)
+       ├─ DomainPack → Adapter(s)                    [云生命周期,层②]
        │     └─ Adapter (setup/submit/teardown)      [per (domain, cloud)]
        │           └─ WorkloadEngine (JSONL, any language)  [per load generator]
        ├─ Schema (RunSpec / ResultRecord 0.4 / fingerprints / provenance)
@@ -74,7 +76,6 @@ CLI (csbench)
 |---|---|---|
 | `DomainPack` | 为某类产品声明任务 + 适配器 | `clousight_bench.domains` 入口点 |
 | `ProviderAdapter` | 制备 / 对接 / 拆除被测系统 | 由 DomainPack 引用 |
-| `Task` | 一个基准测试维度：`config()`、`execute()`（原始观测）、`score()`（纯函数）、`task_revision` / `scorer_revision` | 由 DomainPack 引用 |
 | `WorkloadEngine` | 将 manifest 描述的负载生成器作为子进程运行 | `src/clousight_bench/resources/workloads/<name>/manifest.yaml`，通过 `core/resources.py::reference_workload_path()` 解析 |
 | `RuntimeProvider` | 为 `skeleton` 云适配器在真实模式下提供已接线、SDK 支持的传输层 | `clousight_bench.runtime_providers` 入口点，通过 `registry.get_runtime_provider(provider)` 解析 |
 | `CampaignProbeHook` | 为每个 campaign 制备 / 同步 / 回收区域内负载探针（见下文"控制平面与数据平面"） | 通过注册 runtime provider 的 `campaign_probe_hook(provider)` 查找 |
@@ -98,7 +99,7 @@ CLI (csbench)
 - **`BenchmarkSuite`** 原封不动地驱动上游 harness，并返回不透明的 `RawArtifacts`（一个目录 + 命名文件的 manifest）。核心将 artifacts 视为黑盒；只有配对的 evaluator 才理解其内容。
 - **`Evaluator`** 以纯函数方式（无云、无凭证）读取 `RawArtifacts`，返回 `dict[str, Measurement]`，其中每个 key 均以 `"<suite_id>.<metric_name>"` 命名空间（官方 evaluator）或 `"<evaluator_id>.<metric_name>"` 命名空间（自定义 evaluator）。
 - **命名空间 / official 不变量**：`conformance.check_evaluator(evaluator, suite_id, measurements)` 验证官方 evaluator 仅在套件命名空间下发出 `official=True` 的测量值，自定义 evaluator 仅在自身 id 下发出 `official=False` 的测量值，且自定义 evaluator 不得抢注已注册套件的命名空间。返回 `list[CheckResult]`；CLI 侧可用 `csbench conformance --suite <suite_id>` 对套件的 mock 工件跑全部已注册 evaluator，也可与 `run_conformance` 组合用于 CI 门控。
-- **`SuiteTask` + `Provenance`**：将溯源元数据（suite_id、suite_version、evaluator_id、unmodified 标志）线程化传递到每个 `TaskResult`，并折叠进基准指纹，确保来自不同套件版本或 evaluator 的记录永远不会混入同一分析池。
+- **`SuiteRunner` + `Provenance`**（内部执行器,不是插件契约）：将溯源元数据（suite_id、suite_version、evaluator_id、unmodified 标志）线程化传递到每个 `TaskResult`，并折叠进基准指纹，确保来自不同套件版本或 evaluator 的记录永远不会混入同一分析池。
 - **SWE-bench 试点**（切片 1）：`SweBenchSuite`（注册入口点 `swe-bench`）+ `OfficialSweEvaluator`（发出 `swe-bench.resolved` 和 `swe-bench.cost_per_resolved`）+ 内置 fixtures（支持离线 / CI 使用）。真实 Docker 支持的 `run()` 路径需要 `[swebench]` 可选包，并由 `@pytest.mark.slow` 门控。
 - **SWE-bench Lite**（变体）：300 实例的精选子集，以 `SweBenchLiteSuite`（入口点 `swe-bench-lite`）+ `OfficialSweLiteEvaluator`（发出 `swe-bench-lite.resolved` / `swe-bench-lite.cost_per_resolved`）提供。它是旗舰的**薄子类**——harness、报告结构、agent-runtime 接线完全相同,仅数据集固定版本（`princeton-nlp/SWE-bench_Lite`）、内置真实 fixtures 与命名空间不同。这正是未来变体（Multimodal）复用的参数化接缝:变体只需覆盖 `suite_id` / `suite_version` / `fixtures_dir` / `dataset_name` 类属性,其余全部继承。
 - **SWE-bench Multimodal**（变体）：来自真实 JavaScript / 前端可视化仓库的图像增强任务,以 `SweBenchMultimodalSuite`（入口点 `swe-bench-multimodal`）+ `OfficialSweMultimodalEvaluator`（发出 `swe-bench-multimodal.resolved` / `.cost_per_resolved`）提供。与 Lite 相同的薄子类接缝,外加第 7 个 fixture 字段 `image_assets`（图像 URL），由 `_load_instance` 透传给 agent。它**刻意绑定 `dev` split**:510 实例的 `test` 榜单 split 的 gold patch 是隐藏的（经托管 `sb-cli` 服务评分),而 102 实例的 `dev` split 带真实 gold patch、可本地 Docker 运行——与 Verified/Lite 一致。接入托管 test-split 路径是已记录的未来（受门控）增项。
@@ -184,7 +185,7 @@ Phase 1B 发布了 ResultRecord schema `0.4`（见上文"结果契约"）；插�
 
 给定基准测试所需的最低权限因云 provider 而异，因此权限验证**按任务映射**，职责分属两侧：
 
-- **任务声明 WHAT**：`Task.required_permissions: tuple[str, ...]` 列出**抽象能力令牌**（与云无关）。令牌在 `domains/agent_runtime/permissions.py` 中定义：`session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`。(套件优先转向后不再有自设任务;suite 任务按需声明这些令牌。)
+- **基准声明 WHAT**：suite 的 `required_permissions: tuple[str, ...]` 列出**抽象能力令牌**（与云无关）。令牌在 `domains/agent_runtime/permissions.py` 中定义：`session:create` / `session:state` / `tool:invoke` / `tool:register` / `trace:read` / `trace:export`。
 - **适配器说明 HOW + 验证**：每个真实云适配器定义 `PERMISSION_MAP`（令牌 → 该云具体的最低 IAM/RAM 操作）。`required_actions(task)` 将任务的令牌解析为云特定的操作集；`_probe_permissions(actions)` 执行实际的授权检查（默认实现返回 `None` = 未验证 → 发出 WARNING，列出本次基准测试在该云上所需的最低操作；真实适配器覆盖此方法，调用 STS GetCallerIdentity / RAM policy 模拟 / dry-run，返回 `(ok, missing)`——任何缺失操作均为 CRITICAL 阻断）。
 
 给定运行的最低权限等于适配器对任务令牌的映射。**新增一个基准测试维度**只需在任务上声明令牌；**新增一个云**只需在适配器上提供 `PERMISSION_MAP`——两侧完全解耦。`csbench doctor --domain <d> --platform <p> --task <t>` 可直接打印任意（基准测试 × 云）组合的最低操作列表。
@@ -260,5 +261,5 @@ run_id | domain | task_id | platform | config_hash | series | t | value | unit
 
 本文档的一部分由脚本生成，其余部分需要你手动与行为变更同步——在*同一次变更*中更新。
 
-- **生成块**位于 `{/* BEGIN generated:… */}` / `{/* END generated:… */}` 标记之间（目前为任务与适配器清单）。它们由领域注册表渲染——与 `csbench list --json` 的数据来源相同——通过 `scripts/gen_docs.py` 生成。永远不要手动编辑标记内的内容。新增/重命名任务或更改适配器状态后，运行 `python scripts/gen_docs.py` 并提交结果。CI 会运行 `python scripts/gen_docs.py --check` 和 `tests/test_docs_inventory.py`，因此过时的块（手写的"28 tasks"与注册表不符）会导致构建失败，而不会被发布。
+- **生成块**位于 `{/* BEGIN generated:… */}` / `{/* END generated:… */}` 标记之间（目前为基准套件与适配器清单）。它们由领域注册表渲染——与 `csbench list --json` 的数据来源相同——通过 `scripts/gen_docs.py` 生成。永远不要手动编辑标记内的内容。新增/重命名基准套件或更改适配器状态后，运行 `python scripts/gen_docs.py` 并提交结果。CI 会运行 `python scripts/gen_docs.py --check` 和 `tests/test_docs_inventory.py`，因此过时的块（手写的"28 tasks"与注册表不符）会导致构建失败，而不会被发布。
 - **散文段落**（标记之外的所有内容）是行为变更完成定义的一部分：当某个任务的测量形状、适配器契约或生命周期规则发生变化时，在同一 PR 中更新描述它的段落。比文档落后一个版本更糟糕的是没有文档——审阅者会停止信任它。每次编辑应尽量小而聚焦；生成块吸收机械性事实，散文只需承载意图。
