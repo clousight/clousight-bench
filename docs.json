@@ -56,6 +56,7 @@
               "docs/gsm8k-suite",
               "docs/human-eval-suite",
               "docs/tpcds-suite",
+              "docs/tpch-suite",
               "docs/ycsb-suite",
               "docs/tpcc-suite",
               "docs/swe-bench-live-runbook"
@@ -111,6 +112,7 @@
               "docs/zh/gsm8k-suite",
               "docs/zh/human-eval-suite",
               "docs/zh/tpcds-suite",
+              "docs/zh/tpch-suite",
               "docs/zh/ycsb-suite",
               "docs/zh/tpcc-suite",
               "docs/zh/swe-bench-live-runbook"

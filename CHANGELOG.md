@@ -2,7 +2,27 @@
 
 All notable changes to Clousight Bench are recorded here.
 
-## [0.5.0] — 2026-08-30
+## [Unreleased]
+
+### Added
+
+- **TPC-H official mode (`QphH@Size`)**: the `tpc-h` suite gains `params.mode:
+  official` — the full official pipeline (Load → Power incl. RF1/RF2 → multi-stream
+  Throughput → ACID) via the new engine-agnostic `suites/_tpc_official` phase
+  machine (`metrics`/`streams`/`refresh`/`acid`/`phases`), emitting `official.json`.
+  The new `official-tpch-qphh-evaluator` computes the official `Power@Size`,
+  `Throughput@Size` and `QphH@Size` composites (plus load time, SF1 correctness, and
+  A/C/I ACID pass/fail; Durability is `n/a` on embedded DuckDB). Numbers reproduce
+  the official formulas but are **unaudited** (no membership/audit/priced FDR; the
+  RF1/RF2 refresh set is clousight-generated). The default `mode: reference`
+  single-stream path and `official-tpch-evaluator` are unchanged. Select the
+  composite via `params.evaluator: official-tpch-qphh-evaluator`. Docs: `tpch-suite`.
+- **TPC-H scale dimension**: `params.streams` (default = the official minimum for the
+  scale factor) drives the Throughput stream count, and `params.query_order` selects the
+  stream permutations — `official` (the Appendix A table, comparable, ships streams 0–2 and
+  fails loudly beyond) or `generated` (a deterministic, reproducible clousight ordering that
+  scales to any `S`, e.g. SF ≥ 10). The chosen `ordering_source` is recorded in
+  `official.json` and folded into the run's dataset digest.
 
 An eval-core refactor (per-item scoring, composable metrics, LLM-as-judge) plus
 more coding benchmarks. **Record schema 0.3 → 0.4** (additive). The one public

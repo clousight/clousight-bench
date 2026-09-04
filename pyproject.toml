@@ -127,6 +127,7 @@ official-swe-evaluator = "clousight_bench.suites.swe_bench.evaluator:OfficialSwe
 official-swe-lite-evaluator = "clousight_bench.suites.swe_bench_lite.evaluator:OfficialSweLiteEvaluator"
 official-swe-multimodal-evaluator = "clousight_bench.suites.swe_bench_multimodal.evaluator:OfficialSweMultimodalEvaluator"
 official-tpch-evaluator = "clousight_bench.suites.tpc_h.evaluator:OfficialTpchEvaluator"
+official-tpch-qphh-evaluator = "clousight_bench.suites.tpc_h.official_evaluator:OfficialTpchQphhEvaluator"
 official-ycsb-evaluator = "clousight_bench.suites.ycsb.evaluator:OfficialYcsbEvaluator"
 official-tpcc-evaluator = "clousight_bench.suites.tpc_c.evaluator:OfficialTpccEvaluator"
 official-mmlu-evaluator = "clousight_bench.suites.mmlu.evaluator:OfficialMmluEvaluator"

@@ -1,0 +1,99 @@
+---
+title: TPC-H 套件（data-warehouse）
+description: 在 duckdb-local 参考平台上通过 benchmark-suite 契约运行 TPC-H —— 参考模式与官方 QphH@Size 全流程。
+---
+
+TPC-H 运行在 `data-warehouse` 域的 `duckdb-local` 参考平台上（无 provider 的单机引擎，是
+`tpc-ds` 套件的兄弟）。通过 `params.mode` 选择两种模式：
+
+- **`reference`**（默认）—— 单流跑一遍 22 条查询，对每个结果取摘要，产出 `queries.json` +
+  `summary.json`。便宜的 CI/离线路径，由 `official-tpch-evaluator` 评分。
+- **`official`** —— 完整官方全流程（Load → Power 含 RF1/RF2 → 多流 Throughput → ACID），
+  产出 `official.json`，由 `official-tpch-qphh-evaluator` 算出官方 **`QphH@Size`** 复合分。
+
+<Note>
+官方模式的数字复现官方 TPC-H 公式，但**未经审计**：无 TPC 会员、无审计、无带报价的完整披露报告。
+RF1/RF2 刷新集由 clousight 生成。每个分数都会在 `notes` 里注明。
+</Note>
+
+## 运行参考模式（无需云账号）
+
+```bash
+# 离线 mock 路径 —— 无需 DuckDB，跑通整个阶段机：
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain data-warehouse --benchmark tpc-h \
+  --platform duckdb-local --config mock.yaml
+
+# 真实 DuckDB SF1 运行（需要 [tpch] extra：pip install clousight-bench[tpch]）：
+printf 'target:\n  mode: runtime\nparams:\n  scale_factor: 1\n  query_ids: [1, 6, 14]\n' > real.yaml
+csbench run --domain data-warehouse --benchmark tpc-h \
+  --platform duckdb-local --config real.yaml
+```
+
+## 运行官方模式（QphH@Size）
+
+官方模式需显式选择其 evaluator（两个 evaluator 都支持 `tpc-h`，默认选参考那个）：
+
+```bash
+# 离线 mock 官方全流程：
+printf 'target:\n  mode: mock\nparams:\n  mode: official\n  evaluator: official-tpch-qphh-evaluator\n' > off-mock.yaml
+csbench run --domain data-warehouse --benchmark tpc-h \
+  --platform duckdb-local --config off-mock.yaml
+
+# 真实 DuckDB 官方运行（需要 [tpch] extra）：
+printf 'target:\n  mode: runtime\nparams:\n  mode: official\n  scale_factor: 1\n  streams: 2\n  evaluator: official-tpch-qphh-evaluator\n' > off-real.yaml
+csbench run --domain data-warehouse --benchmark tpc-h \
+  --platform duckdb-local --config off-real.yaml
+```
+
+## 规模放大
+
+`params.scale_factor` 决定数据规模（`QphH` 按 `@Size` 报告），`params.streams` 决定并发
+Throughput 查询流数，默认取该 scale factor 的**官方最小值**（SF1 → 2、SF10 → 3、SF30 → 4、
+SF100 → 5、…）。三个复合分都随 `SF` 线性放大，`Throughput@Size` 随流数增长。
+
+查询流排列由 `params.query_order` 决定：
+
+| `query_order` | 排列 | 适用 |
+| --- | --- | --- |
+| `official`（默认） | 官方 Appendix A 表（`suites/tpc_h/fixtures/query_order.json`）—— 与已发布结果可比 | 表覆盖到的流数（当前内置 streams 0–2,即 `S = 2`） |
+| `generated` | 确定性、可复现的 clousight 生成排列（每流一个不同排列） | 任意 `S` —— SF ≥ 10 在 Appendix A 表扩展前需要它 |
+
+<Note>
+`official` 在请求流数超过内置 Appendix A 表覆盖时**直接报错**,绝不静默替换成非官方排列。
+用 `query_order: generated` 突破 `S = 2`（每个流仍跑全部 22 条查询,故吞吐指标正确;只有与已发布
+结果的严格可比才需要精确的 Appendix A 序列）。所选排列会记入 `official.json` 的 `ordering_source`,
+并折入本次运行的 dataset digest。
+</Note>
+
+```bash
+# SF10 官方最小 3 流,generated 排列：
+printf 'target:\n  mode: runtime\nparams:\n  mode: official\n  scale_factor: 10\n  streams: 3\n  query_order: generated\n  evaluator: official-tpch-qphh-evaluator\n' > sf10.yaml
+csbench run --domain data-warehouse --benchmark tpc-h --platform duckdb-local --config sf10.yaml
+```
+
+## 官方模式测量的维度
+
+`official-tpch-qphh-evaluator` 产出这些 `tpc-h.*` 测量：
+
+| 测量 | 含义 | reproducibility_class |
+| --- | --- | --- |
+| `tpc-h.qphh_at_size` | **QphH@Size** = `sqrt(Power@Size · Throughput@Size)` | `environmental` |
+| `tpc-h.power_at_size` | `Power@Size` = `(3600 / geomean(24 个区间)) · SF` | `environmental` |
+| `tpc-h.throughput_at_size` | `Throughput@Size` = `(S · 22 / Ts) · 3600 · SF` | `environmental` |
+| `tpc-h.load_time_s` | 数据装载墙钟 | `environmental` |
+| `tpc-h.queries_passed` | 对钉定 SF1 参考的通过率（Power 流；仅 SF1） | `deterministic` |
+| `tpc-h.acid_atomicity` / `_consistency` / `_isolation` | `1.0` pass / `0.0` fail | `deterministic` |
+
+ACID Durability 报为 `n/a`（嵌入式 DuckDB 无崩溃/恢复夹具），故不进入测量集。ACID 是独立的
+pass/fail 门，**不**参与 `QphH@Size` 复合分。
+
+所有测量都带 `official=True` —— 这是一个*溯源*标记（"由套件公认的 evaluator 产出"），并非审计声明；
+是否会漂移由 `reproducibility_class` 承载。
+
+## 暂不在范围内
+
+`price/QphH`（公式接缝已留；系统报价输入尚未接入）、真实 SUT 的 `config-connect` 引擎（目前仅
+duckdb-local）、以及把官方 Appendix A 排列表扩展到 streams 0–2 以外（在此之前用
+`query_order: generated` 放大）。很大的 scale factor 受单机 DuckDB 内存/磁盘限制。嵌入式
+DuckDB 不测 Durability 崩溃恢复。

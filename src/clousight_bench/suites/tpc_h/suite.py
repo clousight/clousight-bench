@@ -7,36 +7,68 @@ the ``tpc-ds`` suite, a thin subclass of
 :class:`clousight_bench.suites._duckdb_tpc.DuckDbTpcSuite` sharing the same
 lifecycle, artifact schema, and digest rules.
 
+Two modes (config ``mode``):
+
+* ``reference`` (default) — the single-stream path from ``DuckDbTpcSuite``: run the
+  query set once, digest each result, emit ``queries.json`` + ``summary.json``. The
+  cheap CI/offline path, scored by ``official-tpch-evaluator``.
+* ``official`` — the full official pipeline (Load → Power incl. RF1/RF2 →
+  multi-stream Throughput → ACID) via :mod:`clousight_bench.suites._tpc_official`,
+  emitting ``official.json`` scored by ``official-tpch-qphh-evaluator`` into the
+  official ``QphH@Size`` composite. Numbers are unaudited.
+
 The real ``run()`` path needs the optional ``[tpch]`` extra (``duckdb``); it is
-imported lazily so this module loads without it. ``mock_artifacts()`` /
-``resolve()`` work with no extra — the recommended CI/offline path.
+imported lazily so this module loads without it. ``mock_artifacts()`` / ``resolve()``
+work with no extra — the recommended CI/offline path.
 
 Correctness is a *pinned reference* — the normalized digest of each SF1 query
 result (``fixtures/reference/sf1_digests.json``, produced by
 ``scripts/capture_tpch_reference.py``), a deterministic reproducibility/
-regression check (SF1-only), NOT an audited TPC result. DuckDB does ship usable
-``tpch_answers()`` SF1 answers (unlike TPC-DS); the capture script cross-checks
-the reference against them informationally, but exact answer-text-format
-normalization (CHAR padding, numeric formatting) is a future upgrade — today the
-label is the same pinned-reference reproducibility as TPC-DS.
+regression check (SF1-only), NOT an audited TPC result.
 """
 
 from __future__ import annotations
 
+import json
+import tempfile
 from pathlib import Path
 from typing import Any
 
-from clousight_bench.suites._duckdb_tpc import DuckDbTpcSuite, result_digest
+from clousight_bench.core.canonical import sha256_bytes
+from clousight_bench.core.suite import (
+    DatasetHandle,
+    DriverContext,
+    EnvHandle,
+    RawArtifacts,
+    Target,
+)
+from clousight_bench.suites._duckdb_tpc import (
+    DuckDbTpcSuite,
+    import_duckdb,
+    result_digest,
+)
 from clousight_bench.suites._duckdb_tpc import run_query_set as _run_query_set
+from clousight_bench.suites._tpc_official import phases, refresh
+from clousight_bench.suites._tpc_official.streams import (
+    GENERATOR_VERSION,
+    generate_orders,
+    official_min_streams,
+    resolve_orders,
+)
+
+_QUERY_ORDER_SOURCES = ("official", "generated")
 
 # Re-exported for scripts/capture_tpch_reference.py + the suite tests.
 __all__ = ["TpchSuite", "run_query_set", "result_digest", "_ALL_QUERY_IDS"]
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
+_QUERY_ORDER_FILE = _FIXTURES_DIR / "query_order.json"
 
 # Pins the engine + extension + reference-capture that this suite's numbers are
 # attributable to. Bump (and re-capture the reference) on any of those changing.
 _SUITE_VERSION = "duckdb-1.5.4/tpch/sf1-ref-v1"
+# Bumped whenever the official phase machine / refresh set / order table changes.
+_OFFICIAL_VERSION = "official-v1"
 
 _ALL_QUERY_IDS: tuple[int, ...] = tuple(range(1, 23))  # TPC-H has 22 queries
 
@@ -47,8 +79,25 @@ def run_query_set(con: Any, query_ids: list[int]) -> list[dict[str, Any]]:
     return _run_query_set(con, query_ids, extension="tpch")
 
 
+def _write_official(tmp_dir: Path, doc: dict[str, Any]) -> RawArtifacts:
+    """Write official.json into *tmp_dir* and build the manifest."""
+    o_path = tmp_dir / "official.json"
+    o_path.write_text(json.dumps(doc), encoding="utf-8")
+    manifest = {
+        "official": {"path": "official.json", "sha256": sha256_bytes(o_path.read_bytes()), "rows": None}
+    }
+    return RawArtifacts(dir=tmp_dir, manifest=manifest)
+
+
+def _connect_loaded(duckdb: Any, db_path: str) -> Any:
+    """Open a new connection to *db_path* with the tpch extension loaded."""
+    con = duckdb.connect(db_path)
+    con.execute("LOAD tpch;")
+    return con
+
+
 class TpchSuite(DuckDbTpcSuite):
-    """TPC-H on the duckdb-local reference platform."""
+    """TPC-H on the duckdb-local reference platform (reference + official modes)."""
 
     suite_id = "tpc-h"
     suite_version = _SUITE_VERSION
@@ -58,3 +107,148 @@ class TpchSuite(DuckDbTpcSuite):
     slug = "tpch"
     all_query_ids = _ALL_QUERY_IDS
     fixtures_dir = _FIXTURES_DIR
+
+    # ------------------------------------------------------------------ resolve
+    def resolve(self, cfg: dict[str, Any], assets: Any) -> DatasetHandle:
+        if cfg.get("mode", "reference") != "official":
+            return super().resolve(cfg, assets)
+
+        sf = float(cfg.get("scale_factor", 1.0))
+        streams = int(cfg.get("streams", official_min_streams(sf)))
+        query_ids = [int(q) for q in cfg.get("query_ids", self.all_query_ids)]
+        query_order = str(cfg.get("query_order", "official"))
+        if query_order not in _QUERY_ORDER_SOURCES:
+            raise ValueError(f"query_order must be one of {_QUERY_ORDER_SOURCES}, got {query_order!r}")
+        # The ordering provenance folded into the digest: the Appendix A file's sha
+        # for official, the generator version for generated.
+        if query_order == "official":
+            try:
+                order_prov = sha256_bytes(_QUERY_ORDER_FILE.read_bytes())
+            except OSError:
+                order_prov = "sha256:none"
+        else:
+            order_prov = GENERATOR_VERSION
+        try:
+            ref_sha = sha256_bytes(self._reference_file.read_bytes())
+        except OSError:
+            ref_sha = "sha256:none"
+        canonical = json.dumps(
+            {
+                "mode": "official",
+                "sf": sf,
+                "streams": streams,
+                "query_ids": sorted(query_ids),
+                "query_order": query_order,
+                "order": order_prov,
+                "ref": ref_sha,
+                "version": f"{self.suite_version}/{_OFFICIAL_VERSION}",
+            },
+            sort_keys=True,
+        )
+        return DatasetHandle(
+            version=f"{self.suite_version}/{_OFFICIAL_VERSION}/sf{sf:g}/s{streams}/{query_order}",
+            digest=sha256_bytes(canonical.encode()),
+            payload={
+                "mode": "official",
+                "scale_factor": sf,
+                "streams": streams,
+                "query_ids": query_ids,
+                "query_order": query_order,
+            },
+        )
+
+    # ------------------------------------------------------------------ prepare
+    def prepare(self, target: Target, dataset: DatasetHandle, driver: DriverContext) -> EnvHandle:
+        if dataset.payload.get("mode") != "official":
+            return super().prepare(target, dataset, driver)
+        if target.mock:
+            return EnvHandle({"mock": True, "mode": "official"})
+
+        from time import perf_counter  # noqa: PLC0415
+
+        duckdb = import_duckdb(suite_id=self.suite_id, extra=self.extra)
+        sf = float(dataset.payload["scale_factor"])
+        tmp_dir = tempfile.mkdtemp(prefix=f"csbench-{self.slug}-official-")
+        db_path = str(Path(tmp_dir) / f"{self.slug}.duckdb")
+        con = duckdb.connect(db_path)
+        con.execute("INSTALL tpch; LOAD tpch;")
+        t = perf_counter()
+        con.execute("CALL dbgen(sf := ?)", [sf])
+        load_time_s = perf_counter() - t
+        con.close()
+        return EnvHandle(
+            {
+                "mock": False,
+                "mode": "official",
+                "_tmp_dir": tmp_dir,
+                "db_path": db_path,
+                "scale_factor": sf,
+                "streams": int(dataset.payload["streams"]),
+                "query_ids": list(dataset.payload["query_ids"]),
+                "query_order": dataset.payload.get("query_order", "official"),
+                "load_time_s": load_time_s,
+            }
+        )
+
+    # ---------------------------------------------------------------------- run
+    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:
+        if env.payload.get("mode") != "official":
+            return super().run(target, env, driver)
+        if target.mock or env.payload.get("mock"):
+            return self.mock_official_artifacts()
+
+        duckdb = import_duckdb(suite_id=self.suite_id, extra=self.extra)
+        db_path = env.payload["db_path"]
+        sf = float(env.payload["scale_factor"])
+        streams = int(env.payload["streams"])
+        query_ids = [int(q) for q in env.payload.get("query_ids", self.all_query_ids)]
+        query_order = env.payload.get("query_order", "official")
+        if query_order == "generated":
+            power_order, throughput_orders = generate_orders(query_ids, num_streams=streams)
+            ordering_source = f"clousight-generated/{GENERATOR_VERSION}"
+        else:
+            table = json.loads(_QUERY_ORDER_FILE.read_text())
+            power_order, throughput_orders = resolve_orders(table, num_streams=streams)
+            ordering_source = "official-appendix-a"
+
+        con = _connect_loaded(duckdb, db_path)
+        ext_version = con.execute(
+            "SELECT extension_version FROM duckdb_extensions() WHERE extension_name='tpch'"
+        ).fetchone()
+        try:
+            doc = phases.run_official(
+                con=con,
+                open_conn=lambda: _connect_loaded(duckdb, db_path),
+                execute_query=lambda c, nr: c.execute(f"PRAGMA tpch({nr})").fetchall(),
+                digest=result_digest,
+                rf1=refresh.rf1,
+                rf2=refresh.rf2,
+                n_refresh=refresh.refresh_rows(sf),
+                scale_factor=sf,
+                power_order=power_order,
+                throughput_orders=throughput_orders,
+                load_time_s=float(env.payload["load_time_s"]),
+                ordering_source=ordering_source,
+                engine_meta={
+                    "duckdb_version": duckdb.__version__,
+                    "extension_version": ext_version[0] if ext_version else "unknown",
+                },
+            )
+        finally:
+            con.close()
+
+        art_dir = Path(tempfile.mkdtemp(prefix=f"csbench-{self.slug}-official-art-"))
+        return _write_official(art_dir, doc)
+
+    # ------------------------------------------------------------ mock artifacts
+    def mock_artifacts(self, cfg: dict[str, Any]) -> RawArtifacts:
+        """Mock path (``mode: mock``): official fixture for official mode, else reference."""
+        if cfg.get("mode", "reference") == "official":
+            return self.mock_official_artifacts()
+        return super().mock_artifacts(cfg)
+
+    def mock_official_artifacts(self) -> RawArtifacts:
+        """Copy the bundled official-mode mock fixture — no duckdb, no network."""
+        art_dir = Path(tempfile.mkdtemp(prefix=f"csbench-{self.slug}-official-mock-"))
+        doc = json.loads((_FIXTURES_DIR / "mock" / "official.json").read_text())
+        return _write_official(art_dir, doc)
