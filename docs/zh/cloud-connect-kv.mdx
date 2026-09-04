@@ -1,0 +1,85 @@
+---
+title: 评测托管 KV 服务（YCSB）
+description: 操作手册——用 ycsb-endpoint 把 YCSB 套件指向云上 Redis 兼容服务（阿里云 Tair/Redis、AWS ElastiCache），并得到性价比。
+---
+
+本手册把 `ycsb-endpoint` 的 config-connect 接缝变成一次**云产品评测**:用公认的
+YCSB 工具测你运营的托管 Redis 兼容服务的吞吐 + 尾延迟,并叠加性价比复合数。
+
+<Note>
+连接链路(target → adapter → suite → evaluator)由本仓库 CI(单测 + mock)覆盖。
+下面的 live 步骤需要**你自己的**托管服务和上游 YCSB 工具——此路径下 clousight-bench
+绝不代你开通服务,不会产生意外云支出。
+</Note>
+
+## 0. 你需要
+
+- 一个驱动机可达的托管 Redis 兼容实例(阿里云 Tair/Redis、AWS ElastiCache 等,
+  VPC/白名单已配置)。
+- YCSB 启动器(Java ≥ 11):[YCSB releases](https://github.com/brianfrankcooper/YCSB/releases)
+  —— `ycsb` 放进 `PATH` 或设置 `YCSB_HOME`。
+- `pip install clousight-bench`。
+
+## 1. 驱动机放哪(必读)
+
+数字包含驱动机与服务之间的网络。要可比,就把驱动机放在**同 region/同 VPC**
+(一台 ECS/EC2),不要用笔记本走公网。记录你在哪跑的——环境指纹本来就会阻止
+跨机器数字混池,但对未来的自己好一点。
+
+## 2. 连接档案
+
+从已提交的示例出发(`examples/cloud-connect/aliyun-redis.yaml` /
+`aws-elasticache.yaml`):
+
+```yaml
+# aliyun-redis.yaml — Tair/Redis 实例,VPC endpoint
+target:
+  mode: runtime
+  binding: redis
+  endpoint: "r-xxxxxxxx.redis.rds.aliyuncs.com:6379"
+  credentials_ref: env:REDIS_PASSWORD     # 文件里绝不放密钥明文
+params:
+  workload: workloada
+  recordcount: 100000
+  operationcount: 100000
+```
+
+## 3. 先 preflight,再跑
+
+```bash
+export REDIS_PASSWORD=...
+csbench doctor --domain key-value --platform ycsb-endpoint --config aliyun-redis.yaml
+csbench run --domain key-value --benchmark ycsb --platform ycsb-endpoint \
+  --config aliyun-redis.yaml --repeat 5 --warmup 1
+```
+
+产出 `ycsb.throughput_ops`、`ycsb.read_p99_us`、`ycsb.update_p99_us` 等——来自
+原样上游工具的 environmental 测量。只有基准指纹**和**环境指纹都相同的运行才会混池。
+
+## 4. 性价比
+
+通过定价 feed 把实例价格映射到头牌指标(机制见
+[TPC-H price/QphH](/docs/zh/tpch-suite)):
+
+```json
+{
+  "currency": "USD",
+  "prices": [],
+  "system_prices": [
+    {"perf_metric": "ycsb.throughput_ops", "price": 320.0,
+     "basis": "monthly list price", "provider": "aliyun", "source": "console quote"}
+  ]
+}
+```
+
+`CLOUSIGHT_PRICING_DATA=feed.json csbench run …` 会在
+`extensions.pricing.price_performance[]` 里加上 `$ / (ops/sec)`——unaudited,
+来自你自己的报价输入,永远改变不了判定。
+
+## 5. 诚实注意事项
+
+- YCSB 的 Redis binding 面向单节点;cluster 模式服务需要上游的 cluster 客户端
+  开关——跨服务对比前先验证。
+- 托管服务的目录价会变;在 feed 里记录 `source` 和日期。
+- 只比较*同 workload、同 record/operation 数、同 region 局部性*的数字——前两者
+  指纹强制,第三条靠你自己。

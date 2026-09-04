@@ -1,0 +1,92 @@
+---
+title: Evaluate a managed KV service (YCSB)
+description: Runbook — point the YCSB suite at a cloud Redis-compatible service (Aliyun Tair/Redis, AWS ElastiCache) via ycsb-endpoint, and get price/perf.
+---
+
+This runbook turns the `ycsb-endpoint` config-connect seam into a **cloud product
+evaluation**: throughput + tail latency from the recognized YCSB tool, plus the
+price/performance composite, against a managed Redis-compatible service you
+operate.
+
+<Note>
+The connect chain (target → adapter → suite → evaluator) is covered by this
+repo's CI (unit + mock). The live steps below need **your** managed service and
+the upstream YCSB tool — clousight-bench never provisions the service for you on
+this path, so nothing here creates cloud spend by surprise.
+</Note>
+
+## 0. What you need
+
+- A managed Redis-compatible instance (Aliyun Tair/Redis, AWS ElastiCache, …)
+  reachable from the driver machine (VPC/allowlist configured).
+- The YCSB launcher (Java ≥ 11): [YCSB releases](https://github.com/brianfrankcooper/YCSB/releases)
+  — put `ycsb` on `PATH` or set `YCSB_HOME`.
+- `pip install clousight-bench`.
+
+## 1. Where to run the driver (read this)
+
+Numbers include the network between driver and service. For comparable results,
+run the driver **in the same region/VPC** as the service (an ECS/EC2 box), not
+your laptop over the public internet. Record where you ran it — the environment
+fingerprint keeps cross-machine numbers from pooling anyway, but be kind to your
+future self.
+
+## 2. Connect profile
+
+Start from the committed example (`examples/cloud-connect/aliyun-redis.yaml` /
+`aws-elasticache.yaml`):
+
+```yaml
+# aliyun-redis.yaml — Tair/Redis instance, VPC endpoint
+target:
+  mode: runtime
+  binding: redis
+  endpoint: "r-xxxxxxxx.redis.rds.aliyuncs.com:6379"
+  credentials_ref: env:REDIS_PASSWORD     # never a literal secret in the file
+params:
+  workload: workloada
+  recordcount: 100000
+  operationcount: 100000
+```
+
+## 3. Preflight, then run
+
+```bash
+export REDIS_PASSWORD=...
+csbench doctor --domain key-value --platform ycsb-endpoint --config aliyun-redis.yaml
+csbench run --domain key-value --benchmark ycsb --platform ycsb-endpoint \
+  --config aliyun-redis.yaml --repeat 5 --warmup 1
+```
+
+You get `ycsb.throughput_ops`, `ycsb.read_p99_us`, `ycsb.update_p99_us`, … —
+environmental measurements from the unmodified upstream tool. Only runs sharing
+a benchmark **and** environment fingerprint pool.
+
+## 4. Price/performance
+
+Map the instance's price to the headline metric via the pricing feed
+(see [TPC-H price/QphH](/docs/tpch-suite#priceperformance-priceqphh) for the
+mechanism):
+
+```json
+{
+  "currency": "USD",
+  "prices": [],
+  "system_prices": [
+    {"perf_metric": "ycsb.throughput_ops", "price": 320.0,
+     "basis": "monthly list price", "provider": "aliyun", "source": "console quote"}
+  ]
+}
+```
+
+`CLOUSIGHT_PRICING_DATA=feed.json csbench run …` adds
+`extensions.pricing.price_performance[]` — `$ per (ops/sec)`, unaudited, from
+your own price input. It can never change the verdict.
+
+## 5. Honest caveats
+
+- YCSB's Redis binding is single-node oriented; cluster-mode services need the
+  cluster client flag upstream — validate before comparing across services.
+- Managed-service list prices change; record `source`/date in your feed.
+- Compare *same workload, same record/operation counts, same region locality*
+  only — the fingerprints enforce the first two, you enforce the third.

@@ -58,6 +58,6 @@ full TPC-C audit.
 ## Deliberate scope (slice 1)
 - Real numbers need the BenchBase build + a database; offline is the mock path.
   `benchbase-local` (dbtype=sqlite) exercises the pipeline without a server.
-- `jdbc-endpoint` connects to an already-running database (Postgres/MySQL/…).
+- `jdbc-endpoint` connects to an already-running database (Postgres/MySQL/…) — full cloud runbook: [Evaluate a managed database](/docs/cloud-connect-rdbms).
 - Cloud-managed RDBMS backends attach later on the same seam; audited tpmC is out
   of scope.

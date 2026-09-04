@@ -1,0 +1,91 @@
+---
+title: Evaluate a managed database (TPC-C)
+description: Runbook — point the TPC-C suite at a cloud RDBMS (Aliyun RDS/PolarDB, AWS RDS/Aurora) via jdbc-endpoint, and get price/perf.
+---
+
+This runbook turns the `jdbc-endpoint` config-connect seam into a **cloud product
+evaluation**: OLTP throughput/goodput/latency from the recognized BenchBase
+TPC-C implementation, plus the price/performance composite, against a managed
+database you operate.
+
+<Note>
+The connect chain (target → adapter → suite → evaluator) is covered by this
+repo's CI (unit + mock). The live steps below need **your** managed database and
+a BenchBase build — clousight-bench never provisions the database on this path.
+The audited **tpmC** is not claimed; the numbers are BenchBase's, unaudited.
+</Note>
+
+## 0. What you need
+
+- A managed PostgreSQL/MySQL-compatible instance (Aliyun RDS/PolarDB, AWS
+  RDS/Aurora, …) with a `benchbase` database created and network access from the
+  driver machine.
+- A [BenchBase](https://github.com/cmu-db/benchbase) build (Java 17+):
+  put `benchbase` on `PATH` or set `BENCHBASE_HOME`.
+- `pip install clousight-bench`.
+
+## 1. Where to run the driver
+
+Same rule as every connect-mode evaluation: run the driver **in-region** (same
+VPC as the instance). OLTP tail latency over the public internet measures your
+ISP, not the database.
+
+## 2. Connect profile
+
+Start from the committed example (`examples/cloud-connect/aliyun-rds-postgres.yaml`
+/ `aws-aurora-postgres.yaml`):
+
+```yaml
+# aliyun-rds-postgres.yaml
+target:
+  mode: runtime
+  dbtype: postgres
+  endpoint: "pgm-xxxxxxxx.pg.rds.aliyuncs.com:5432"
+  credentials_ref: env:BENCHBASE_DB_PASSWORD
+params:
+  scalefactor: 100        # warehouses — size to the instance class
+  terminals: 32           # concurrent terminals
+  time: 300               # measured window, seconds
+```
+
+Credentials come from `BENCHBASE_DB_USER` / `BENCHBASE_DB_PASSWORD` env vars
+(BenchBase reads its config XML; the harness writes it owner-only 0600 into a
+0700 work dir and removes it after the run).
+
+## 3. Preflight, then run
+
+```bash
+export BENCHBASE_DB_USER=bench BENCHBASE_DB_PASSWORD=...
+csbench doctor --domain transactional-db --platform jdbc-endpoint --config aliyun-rds-postgres.yaml
+csbench run --domain transactional-db --benchmark tpc-c --platform jdbc-endpoint \
+  --config aliyun-rds-postgres.yaml --repeat 3 --warmup 1
+```
+
+You get `tpc-c.throughput_req_per_sec`, `tpc-c.goodput_req_per_sec`,
+`tpc-c.p99_latency_us`, … — environmental measurements from unmodified BenchBase.
+
+## 4. Price/performance
+
+```json
+{
+  "currency": "USD",
+  "prices": [],
+  "system_prices": [
+    {"perf_metric": "tpc-c.throughput_req_per_sec", "price": 1250.0,
+     "basis": "monthly list price", "provider": "aliyun", "source": "console quote"}
+  ]
+}
+```
+
+`CLOUSIGHT_PRICING_DATA=feed.json csbench run …` adds
+`$ per (req/sec)` under `extensions.pricing.price_performance[]` — unaudited,
+from your own price input, never able to change the verdict. (Official
+price/tpmC needs an audited tpmC; we deliberately do not claim either.)
+
+## 5. Honest caveats
+
+- `scalefactor` (warehouses) must scale with the instance class — an undersized
+  warehouse count measures lock contention, not the service.
+- Load phase (`--create --load`) is part of the run and can take long at high
+  scale factors; size `time` so the measured window dwarfs warmup effects.
+- Compare same dbtype, same scalefactor/terminals, same region locality only.

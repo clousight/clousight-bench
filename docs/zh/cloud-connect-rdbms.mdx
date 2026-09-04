@@ -1,0 +1,85 @@
+---
+title: 评测托管数据库（TPC-C）
+description: 操作手册——用 jdbc-endpoint 把 TPC-C 套件指向云数据库（阿里云 RDS/PolarDB、AWS RDS/Aurora），并得到性价比。
+---
+
+本手册把 `jdbc-endpoint` 的 config-connect 接缝变成一次**云产品评测**:用公认的
+BenchBase TPC-C 实现测你运营的托管数据库的 OLTP 吞吐/goodput/延迟,并叠加性价比。
+
+<Note>
+连接链路由本仓库 CI(单测 + mock)覆盖。live 步骤需要**你自己的**托管数据库和
+BenchBase 构建——此路径下 clousight-bench 绝不代你开通数据库。**不声称**经审计的
+tpmC;数字来自 BenchBase,unaudited。
+</Note>
+
+## 0. 你需要
+
+- 一个已建 `benchbase` 库、驱动机可达的托管 PostgreSQL/MySQL 兼容实例
+  (阿里云 RDS/PolarDB、AWS RDS/Aurora 等)。
+- 一个 [BenchBase](https://github.com/cmu-db/benchbase) 构建(Java 17+):
+  `benchbase` 放进 `PATH` 或设置 `BENCHBASE_HOME`。
+- `pip install clousight-bench`。
+
+## 1. 驱动机放哪
+
+与所有 connect 模式评测同一条规则:驱动机放**同 region**(与实例同 VPC)。
+公网上测 OLTP 尾延迟量的是你的运营商,不是数据库。
+
+## 2. 连接档案
+
+从已提交的示例出发(`examples/cloud-connect/aliyun-rds-postgres.yaml` /
+`aws-aurora-postgres.yaml`):
+
+```yaml
+# aliyun-rds-postgres.yaml
+target:
+  mode: runtime
+  dbtype: postgres
+  endpoint: "pgm-xxxxxxxx.pg.rds.aliyuncs.com:5432"
+  credentials_ref: env:BENCHBASE_DB_PASSWORD
+params:
+  scalefactor: 100        # warehouse 数——按实例规格定
+  terminals: 32           # 并发终端数
+  time: 300               # 测量窗口,秒
+```
+
+凭据来自 `BENCHBASE_DB_USER` / `BENCHBASE_DB_PASSWORD` 环境变量(BenchBase 读
+配置 XML;harness 以 0600 写进 0700 工作目录,跑完即删)。
+
+## 3. 先 preflight,再跑
+
+```bash
+export BENCHBASE_DB_USER=bench BENCHBASE_DB_PASSWORD=...
+csbench doctor --domain transactional-db --platform jdbc-endpoint --config aliyun-rds-postgres.yaml
+csbench run --domain transactional-db --benchmark tpc-c --platform jdbc-endpoint \
+  --config aliyun-rds-postgres.yaml --repeat 3 --warmup 1
+```
+
+产出 `tpc-c.throughput_req_per_sec`、`tpc-c.goodput_req_per_sec`、
+`tpc-c.p99_latency_us` 等——来自原样 BenchBase 的 environmental 测量。
+
+## 4. 性价比
+
+```json
+{
+  "currency": "USD",
+  "prices": [],
+  "system_prices": [
+    {"perf_metric": "tpc-c.throughput_req_per_sec", "price": 1250.0,
+     "basis": "monthly list price", "provider": "aliyun", "source": "console quote"}
+  ]
+}
+```
+
+`CLOUSIGHT_PRICING_DATA=feed.json csbench run …` 在
+`extensions.pricing.price_performance[]` 里加上 `$ / (req/sec)`——unaudited,
+来自你自己的报价,永远改变不了判定。(官方 price/tpmC 需要经审计的 tpmC;
+我们两者都刻意不声称。)
+
+## 5. 诚实注意事项
+
+- `scalefactor`(warehouse 数)必须随实例规格放大——warehouse 太小量到的是锁
+  竞争,不是服务能力。
+- 装载阶段(`--create --load`)在高 scalefactor 下耗时很长;把 `time` 设到让
+  测量窗口远大于预热效应。
+- 只比较同 dbtype、同 scalefactor/terminals、同 region 局部性的数字。
