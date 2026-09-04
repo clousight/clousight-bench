@@ -1,0 +1,12 @@
+# Evaluate a managed Aliyun RDS/PolarDB PostgreSQL instance with TPC-C (jdbc-endpoint).
+# Runbook: docs.clousight.com → "Evaluate a managed database (TPC-C)".
+# BenchBase reads BENCHBASE_DB_USER / BENCHBASE_DB_PASSWORD from the environment.
+target:
+  mode: runtime
+  dbtype: postgres
+  endpoint: "pgm-xxxxxxxx.pg.rds.aliyuncs.com:5432"
+  credentials_ref: env:BENCHBASE_DB_PASSWORD
+params:
+  scalefactor: 100
+  terminals: 32
+  time: 300

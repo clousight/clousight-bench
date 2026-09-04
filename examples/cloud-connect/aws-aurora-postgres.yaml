@@ -1,0 +1,11 @@
+# Evaluate a managed AWS RDS/Aurora PostgreSQL instance with TPC-C (jdbc-endpoint).
+# Runbook: docs.clousight.com → "Evaluate a managed database (TPC-C)".
+target:
+  mode: runtime
+  dbtype: postgres
+  endpoint: "my-aurora.cluster-xxxxxx.us-east-1.rds.amazonaws.com:5432"
+  credentials_ref: env:BENCHBASE_DB_PASSWORD
+params:
+  scalefactor: 100
+  terminals: 32
+  time: 300

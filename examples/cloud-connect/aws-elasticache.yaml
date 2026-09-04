@@ -1,0 +1,11 @@
+# Evaluate a managed AWS ElastiCache (Redis-compatible) node with YCSB.
+# Runbook: docs.clousight.com → "Evaluate a managed KV service (YCSB)".
+target:
+  mode: runtime
+  binding: redis
+  endpoint: "my-cache.xxxxxx.0001.use1.cache.amazonaws.com:6379"
+  credentials_ref: env:REDIS_PASSWORD    # omit if AUTH is disabled in your VPC
+params:
+  workload: workloada
+  recordcount: 100000
+  operationcount: 100000

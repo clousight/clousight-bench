@@ -1,0 +1,12 @@
+# Evaluate a managed Aliyun Tair/Redis instance with YCSB (ycsb-endpoint).
+# Runbook: docs.clousight.com → "Evaluate a managed KV service (YCSB)".
+# Secrets NEVER live in this file — credentials_ref points at an env var.
+target:
+  mode: runtime
+  binding: redis
+  endpoint: "r-xxxxxxxx.redis.rds.aliyuncs.com:6379"   # your VPC endpoint
+  credentials_ref: env:REDIS_PASSWORD
+params:
+  workload: workloada
+  recordcount: 100000
+  operationcount: 100000

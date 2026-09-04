@@ -39,6 +39,13 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
   measurement (e.g. `tpc-h.qphh_at_size` → price/QphH). The bundled seed ships no
   system prices (never invented); entries are annotated unaudited; enrichers stay
   additive (a price can never change a verdict).
+- **Cloud connect runbooks (R2)**: step-by-step guides for evaluating managed
+  cloud services over the existing config-connect seams — a managed
+  Redis-compatible KV service via `ycsb-endpoint` and a managed RDBMS
+  (RDS/PolarDB/Aurora) via `jdbc-endpoint` — including in-region driver guidance
+  and the price/performance feed tie-in. Committed example profiles under
+  `examples/cloud-connect/` (aliyun-redis, aws-elasticache, aliyun-rds-postgres,
+  aws-aurora-postgres). Docs: `cloud-connect-kv` / `cloud-connect-rdbms` (EN+zh).
 - **TPC-H official mode (`QphH@Size`)**: the `tpc-h` suite gains `params.mode:
   official` — the full official pipeline (Load → Power incl. RF1/RF2 → multi-stream
   Throughput → ACID) via the new engine-agnostic `suites/_tpc_official` phase
