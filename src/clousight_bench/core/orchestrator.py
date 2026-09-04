@@ -92,7 +92,7 @@ from clousight_bench.core.stage_support import log_traceback as _log_traceback
 from clousight_bench.core.stage_support import scrubbed as _scrubbed
 from clousight_bench.core.stage_support import stage_error as _stage_error
 from clousight_bench.core.store import ResultStore
-from clousight_bench.core.suite_task import SuiteTask
+from clousight_bench.core.suite_runner import SuiteRunner
 from clousight_bench.core.tracing import build_run_trace, export_trace, new_trace_id
 from clousight_bench.core.validation import validate_run_spec
 
@@ -532,7 +532,7 @@ def _is_benchmark_task_id(task_id: str) -> bool:
 
 
 def _resolve_benchmark(spec: RunSpec, results_dir: Path | None) -> Task:
-    """Resolve a ``suite:<id>`` task_id to a runnable SuiteTask via the
+    """Resolve a ``suite:<id>`` task_id to a runnable SuiteRunner via the
     benchmark-suite + evaluator registries."""
     from clousight_bench.core.registry import load_benchmark_suites, load_evaluators
 
@@ -556,7 +556,7 @@ def _resolve_benchmark(spec: RunSpec, results_dir: Path | None) -> Task:
     evaluator = sorted(candidates, key=lambda e: (not e.official, e.evaluator_id))[0]
     mock = str(spec.target.get("mode", "mock")) == "mock"
     artifacts_root = (Path(results_dir) / "artifacts") if results_dir is not None else None
-    return SuiteTask(suite, evaluator, mock=mock, params=dict(spec.params), artifacts_root=artifacts_root)
+    return SuiteRunner(suite, evaluator, mock=mock, params=dict(spec.params), artifacts_root=artifacts_root)
 
 
 def _resolve_native_task(pack: DomainPack, spec: RunSpec) -> Task:
@@ -577,7 +577,7 @@ def _resolve(
 ) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
     """Resolve a RunSpec to (DomainPack, Task, adapter_cls).
 
-    ``results_dir`` is forwarded to SuiteTask as ``artifacts_root=results_dir/artifacts``
+    ``results_dir`` is forwarded to SuiteRunner as ``artifacts_root=results_dir/artifacts``
     so that all suite artifacts are staged under the run's results directory and persisted
     records contain only relative paths (no absolute temp paths).
     """

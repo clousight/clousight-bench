@@ -1,7 +1,7 @@
-"""Tests for SuiteTask trajectory artifact surfacing.
+"""Tests for SuiteRunner trajectory artifact surfacing.
 
 When a BenchmarkSuite's mock_artifacts() manifest contains a 'trajectory' key,
-SuiteTask.execute() must surface a trajectory artifact in the ObservationBundle
+SuiteRunner.execute() must surface a trajectory artifact in the ObservationBundle
 that passes validate_observation_bundle (kind/media/sha256/path all present).
 """
 
@@ -18,7 +18,7 @@ from clousight_bench.core.suite import (
     Evaluator,
     RawArtifacts,
 )
-from clousight_bench.core.suite_task import SuiteTask
+from clousight_bench.core.suite_runner import SuiteRunner
 
 # ---------------------------------------------------------------------------
 # Minimal stub suite that emits a trajectory manifest entry
@@ -130,8 +130,8 @@ class _EvalNoTraj(Evaluator):
 
 
 def test_suite_task_surfaces_trajectory_artifact(tmp_path) -> None:
-    """SuiteTask.execute() adds a trajectory artifact when manifest has 'trajectory'."""
-    st = SuiteTask(_SuiteWithTrajectory(), _Eval(), mock=True)
+    """SuiteRunner.execute() adds a trajectory artifact when manifest has 'trajectory'."""
+    st = SuiteRunner(_SuiteWithTrajectory(), _Eval(), mock=True)
     bundle = st.execute(adapter=None, params={"_tmp": str(tmp_path)})
 
     traj_artifacts = [a for a in bundle.artifacts if a.get("kind") == "trajectory"]
@@ -140,7 +140,7 @@ def test_suite_task_surfaces_trajectory_artifact(tmp_path) -> None:
 
 def test_suite_task_trajectory_artifact_passes_validate_observation_bundle(tmp_path) -> None:
     """The trajectory artifact must satisfy validate_observation_bundle requirements."""
-    st = SuiteTask(_SuiteWithTrajectory(), _Eval(), mock=True)
+    st = SuiteRunner(_SuiteWithTrajectory(), _Eval(), mock=True)
     bundle = st.execute(adapter=None, params={"_tmp": str(tmp_path)})
     # Must not raise
     validate_observation_bundle(bundle)
@@ -148,7 +148,7 @@ def test_suite_task_trajectory_artifact_passes_validate_observation_bundle(tmp_p
 
 def test_suite_task_trajectory_artifact_has_correct_shape(tmp_path) -> None:
     """The trajectory artifact has kind, media, sha256, and path."""
-    st = SuiteTask(_SuiteWithTrajectory(), _Eval(), mock=True)
+    st = SuiteRunner(_SuiteWithTrajectory(), _Eval(), mock=True)
     bundle = st.execute(adapter=None, params={"_tmp": str(tmp_path)})
 
     traj = next(a for a in bundle.artifacts if a.get("kind") == "trajectory")
@@ -161,7 +161,7 @@ def test_suite_task_trajectory_artifact_has_correct_shape(tmp_path) -> None:
 
 def test_suite_task_no_trajectory_artifact_when_manifest_lacks_trajectory(tmp_path) -> None:
     """When manifest has no 'trajectory' key, artifacts list is empty."""
-    st = SuiteTask(_SuiteWithoutTrajectory(), _EvalNoTraj(), mock=True)
+    st = SuiteRunner(_SuiteWithoutTrajectory(), _EvalNoTraj(), mock=True)
     bundle = st.execute(adapter=None, params={"_tmp": str(tmp_path)})
 
     traj_artifacts = [a for a in bundle.artifacts if a.get("kind") == "trajectory"]
@@ -174,7 +174,7 @@ def test_suite_task_trajectory_artifact_sha256_matches_file(tmp_path) -> None:
     artifacts_root.mkdir()
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
-    st = SuiteTask(_SuiteWithTrajectory(), _Eval(), mock=True, artifacts_root=artifacts_root)
+    st = SuiteRunner(_SuiteWithTrajectory(), _Eval(), mock=True, artifacts_root=artifacts_root)
     bundle = st.execute(adapter=None, params={"_tmp": str(raw_dir)})
 
     traj = next(a for a in bundle.artifacts if a.get("kind") == "trajectory")
@@ -189,7 +189,7 @@ def test_suite_task_swe_bench_mock_surfaces_trajectory(tmp_path) -> None:
     from clousight_bench.suites.swe_bench.evaluator import OfficialSweEvaluator
     from clousight_bench.suites.swe_bench.suite import SweBenchSuite
 
-    st = SuiteTask(SweBenchSuite(), OfficialSweEvaluator(), mock=True)
+    st = SuiteRunner(SweBenchSuite(), OfficialSweEvaluator(), mock=True)
     bundle = st.execute(adapter=None, params={"_tmp_dir": str(tmp_path)})
 
     traj_artifacts = [a for a in bundle.artifacts if a.get("kind") == "trajectory"]
@@ -260,7 +260,7 @@ class _EvalBadTraj(Evaluator):
 
 def test_suite_task_execute_raises_on_invalid_span_in_trajectory(tmp_path) -> None:
     """execute() raises ValueError matching 'trajectory.jsonl:2' for invalid span on line 2."""
-    st = SuiteTask(_SuiteWithBadTrajectory(), _EvalBadTraj(), mock=True)
+    st = SuiteRunner(_SuiteWithBadTrajectory(), _EvalBadTraj(), mock=True)
     import pytest
 
     with pytest.raises(ValueError, match="trajectory.jsonl:2"):

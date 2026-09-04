@@ -1,4 +1,4 @@
-"""Tests for SuiteTask — the Task adapter that wraps a BenchmarkSuite + Evaluator."""
+"""Tests for SuiteRunner — the Task adapter that wraps a BenchmarkSuite + Evaluator."""
 
 import inspect
 import json
@@ -15,7 +15,7 @@ from clousight_bench.core.suite import (
     Evaluator,
     RawArtifacts,
 )
-from clousight_bench.core.suite_task import SuiteTask
+from clousight_bench.core.suite_runner import SuiteRunner
 
 
 class _Suite(BenchmarkSuite):
@@ -59,7 +59,7 @@ class _Eval(Evaluator):
 
 
 def test_suite_task_execute_then_score(tmp_path):
-    st = SuiteTask(_Suite(), _Eval(), mock=True)
+    st = SuiteRunner(_Suite(), _Eval(), mock=True)
     bundle = st.execute(adapter=None, params={"_tmp": str(tmp_path)})
     result = st.score(bundle)
     m = result.measurements
@@ -67,7 +67,7 @@ def test_suite_task_execute_then_score(tmp_path):
 
 
 def test_suite_task_provenance():
-    st = SuiteTask(_Suite(), _Eval(), mock=True)
+    st = SuiteRunner(_Suite(), _Eval(), mock=True)
     p = st.provenance()
     assert p.suite_id == "demo" and p.suite_version == "v1"
     assert p.evaluator_id == "demo-eval" and p.evaluator_official is True and p.unmodified is True
@@ -78,9 +78,9 @@ def test_provenance_scaffold_comes_from_the_suite():
     plain suite (no agent scaffold) yields "" in both mock and real modes — the
     non-agent-suite mis-tagging bug (previously always "mock-agent@slice1") is
     fixed."""
-    assert SuiteTask(_Suite(), _Eval(), mock=True, params={}).provenance().scaffold == ""
+    assert SuiteRunner(_Suite(), _Eval(), mock=True, params={}).provenance().scaffold == ""
     assert (
-        SuiteTask(_Suite(), _Eval(), mock=False, params={"agent_kind": "oracle"}).provenance().scaffold == ""
+        SuiteRunner(_Suite(), _Eval(), mock=False, params={"agent_kind": "oracle"}).provenance().scaffold == ""
     )
 
 
@@ -91,20 +91,20 @@ def test_provenance_scaffold_flows_a_suite_override():
         def scaffold(self, params, *, mock):
             return "mock-x" if mock else f"real-{params.get('agent_kind', '')}"
 
-    assert SuiteTask(_ScaffoldSuite(), _Eval(), mock=True).provenance().scaffold == "mock-x"
+    assert SuiteRunner(_ScaffoldSuite(), _Eval(), mock=True).provenance().scaffold == "mock-x"
     assert (
-        SuiteTask(_ScaffoldSuite(), _Eval(), mock=False, params={"agent_kind": "llm"}).provenance().scaffold
+        SuiteRunner(_ScaffoldSuite(), _Eval(), mock=False, params={"agent_kind": "llm"}).provenance().scaffold
         == "real-llm"
     )
 
 
 def test_suite_task_id_is_namespaced():
-    st = SuiteTask(_Suite(), _Eval(), mock=True)
+    st = SuiteRunner(_Suite(), _Eval(), mock=True)
     assert st.task_id == "suite:demo"
 
 
 def test_suite_task_config_contains_identity():
-    st = SuiteTask(_Suite(), _Eval(), mock=True)
+    st = SuiteRunner(_Suite(), _Eval(), mock=True)
     cfg = st.config({"foo": "bar"})
     assert cfg["suite_id"] == "demo"
     assert cfg["suite_version"] == "v1"
@@ -113,7 +113,7 @@ def test_suite_task_config_contains_identity():
 
 
 def test_suite_task_execute_stores_manifest_in_bundle(tmp_path):
-    st = SuiteTask(_Suite(), _Eval(), mock=True)
+    st = SuiteRunner(_Suite(), _Eval(), mock=True)
     bundle = st.execute(adapter=None, params={"_tmp": str(tmp_path)})
     assert "artifacts_subdir" in bundle.observations
     assert "manifest" in bundle.observations
@@ -122,7 +122,7 @@ def test_suite_task_execute_stores_manifest_in_bundle(tmp_path):
 
 def test_suite_task_mock_does_not_call_run(tmp_path):
     """run() would raise AssertionError — verifies mock path is used."""
-    st = SuiteTask(_Suite(), _Eval(), mock=True)
+    st = SuiteRunner(_Suite(), _Eval(), mock=True)
     bundle = st.execute(adapter=None, params={"_tmp": str(tmp_path)})
     assert bundle is not None  # no AssertionError from _Suite.run
 
@@ -146,7 +146,7 @@ def test_suite_task_execute_uses_constructor_params_for_resolve(tmp_path):
             (d / "r.json").write_text('{"resolved": 1, "total": 2}')
             return RawArtifacts(d, {"results": {"path": "r.json", "sha256": "x", "rows": None}})
 
-    st = SuiteTask(_CaptureSuite(), _Eval(), mock=False, params={"agent_kind": "gold", "keep": "me"})
+    st = SuiteRunner(_CaptureSuite(), _Eval(), mock=False, params={"agent_kind": "gold", "keep": "me"})
     st.execute(adapter=None, params={"agent_kind": "empty"})
     # resolve() is called with constructor params only — call-time params do NOT win
     assert received == [{"agent_kind": "gold", "keep": "me"}]
@@ -173,8 +173,8 @@ def test_base_task_provenance_empty():
 
 
 def test_suite_provenance_has_real_digest():
-    """SuiteTask.provenance().dataset_digest equals the suite's resolved digest (non-empty)."""
-    st = SuiteTask(_Suite(), _Eval(), params={"instance_ids": ["a", "b"]})
+    """SuiteRunner.provenance().dataset_digest equals the suite's resolved digest (non-empty)."""
+    st = SuiteRunner(_Suite(), _Eval(), params={"instance_ids": ["a", "b"]})
     p = st.provenance()
     expected = _Suite().resolve({"instance_ids": ["a", "b"]}, None).digest
     assert p.dataset_digest == expected
@@ -182,7 +182,7 @@ def test_suite_provenance_has_real_digest():
 
 
 def test_fingerprint_moves_with_dataset_digest():
-    """Two SuiteTasks with different instance_ids produce different benchmark fingerprints."""
+    """Two SuiteRunners with different instance_ids produce different benchmark fingerprints."""
     from clousight_bench.core.fingerprints import benchmark_fingerprint
 
     class _VaryingSuite(_Suite):
@@ -191,8 +191,8 @@ def test_fingerprint_moves_with_dataset_digest():
             digest = "sha256:" + "-".join(sorted(ids))
             return DatasetHandle("v1", digest, {})
 
-    st_a = SuiteTask(_VaryingSuite(), _Eval(), params={"instance_ids": ["a"]})
-    st_b = SuiteTask(_VaryingSuite(), _Eval(), params={"instance_ids": ["b"]})
+    st_a = SuiteRunner(_VaryingSuite(), _Eval(), params={"instance_ids": ["a"]})
+    st_b = SuiteRunner(_VaryingSuite(), _Eval(), params={"instance_ids": ["b"]})
 
     fp_a = benchmark_fingerprint(
         task_id=st_a.task_id,
@@ -232,7 +232,7 @@ def test_resolve_called_once(tmp_path):
             (d / "r.json").write_text('{"resolved": 1, "total": 2}')
             return RawArtifacts(d, {"results": {"path": "r.json", "sha256": "x", "rows": None}})
 
-    st = SuiteTask(_CountingSuite(), _Eval(), mock=False, params={})
+    st = SuiteRunner(_CountingSuite(), _Eval(), mock=False, params={})
     st.provenance()  # first call — should trigger resolve
     st.execute(adapter=None, params={})  # second call — should reuse cached handle
     assert call_count == 1
@@ -259,7 +259,7 @@ def test_execute_stages_into_artifacts_root(tmp_path):
                 {"results": {"path": "r.json", "sha256": "x", "rows": None}},
             )
 
-    st = SuiteTask(_SuiteWithKnownRaw(), _Eval(), mock=True, artifacts_root=artifacts_root)
+    st = SuiteRunner(_SuiteWithKnownRaw(), _Eval(), mock=True, artifacts_root=artifacts_root)
     bundle = st.execute(adapter=None, params={})
 
     # observations must have artifacts_subdir, NOT raw_dir
@@ -295,7 +295,7 @@ def test_no_absolute_paths_in_bundle(tmp_path):
                 {"results": {"path": "r.json", "sha256": "x", "rows": None}},
             )
 
-    st = SuiteTask(_SuiteWithKnownRaw(), _Eval(), mock=True, artifacts_root=artifacts_root)
+    st = SuiteRunner(_SuiteWithKnownRaw(), _Eval(), mock=True, artifacts_root=artifacts_root)
     bundle = st.execute(adapter=None, params={})
 
     bundle_text = json.dumps({"observations": bundle.observations, "artifacts": bundle.artifacts})
@@ -314,7 +314,7 @@ def test_no_absolute_paths_in_bundle(tmp_path):
 
 
 def test_score_roundtrip_from_staged(tmp_path):
-    """execute() then score() on the same SuiteTask yields the expected measurement."""
+    """execute() then score() on the same SuiteRunner yields the expected measurement."""
     artifacts_root = tmp_path / "arts"
     artifacts_root.mkdir()
 
@@ -329,7 +329,7 @@ def test_score_roundtrip_from_staged(tmp_path):
                 {"results": {"path": "r.json", "sha256": "x", "rows": None}},
             )
 
-    st = SuiteTask(_SuiteWithKnownRaw(), _Eval(), mock=True, artifacts_root=artifacts_root)
+    st = SuiteRunner(_SuiteWithKnownRaw(), _Eval(), mock=True, artifacts_root=artifacts_root)
     bundle = st.execute(adapter=None, params={})
     result = st.score(bundle)
 
@@ -354,15 +354,15 @@ def test_evaluate_signature_no_telemetry() -> None:
 
 
 def test_suite_task_revision_from_suite() -> None:
-    """SuiteTask.task_revision equals the suite's suite_version (not the default '0')."""
-    st = SuiteTask(_Suite(), _Eval(), mock=True)
+    """SuiteRunner.task_revision equals the suite's suite_version (not the default '0')."""
+    st = SuiteRunner(_Suite(), _Eval(), mock=True)
     assert st.task_revision == _Suite.suite_version
     assert st.task_revision == "v1"
 
 
 def test_workload_identity_from_suite() -> None:
     """workload_identity() returns suite_id, suite_version, and dataset digest."""
-    st = SuiteTask(_Suite(), _Eval(), mock=True)
+    st = SuiteRunner(_Suite(), _Eval(), mock=True)
     wi = st.workload_identity({})
     assert wi["workload"] == "demo"
     assert wi["workload_version"] == "v1"
@@ -372,7 +372,7 @@ def test_workload_identity_from_suite() -> None:
 
 
 def test_teardown_noop_without_run_id(monkeypatch, tmp_path) -> None:
-    """SuiteTask.teardown with empty payload never calls docker."""
+    """SuiteRunner.teardown with empty payload never calls docker."""
     import subprocess as _subprocess
 
     calls: list = []
@@ -421,7 +421,7 @@ def test_teardown_scoped_filter(monkeypatch, tmp_path) -> None:
 
 
 def test_record_from_suite_run_validates_against_tightened_schema(monkeypatch, tmp_path) -> None:
-    """A ResultRecord produced from a SuiteTask mock run validates against schema 0.4."""
+    """A ResultRecord produced from a SuiteRunner mock run validates against schema 0.4."""
     jsonschema = pytest.importorskip("jsonschema")
 
     import clousight_bench.core.orchestrator as orch
@@ -543,7 +543,7 @@ def test_execute_nonmock_calls_teardown_even_when_run_raises(tmp_path) -> None:
         def teardown(self, env):
             calls.append(f"teardown:{env.payload.get('run_id', '')}")
 
-    st = SuiteTask(_TeardownSuite(), _Eval(), mock=False, artifacts_root=tmp_path)
+    st = SuiteRunner(_TeardownSuite(), _Eval(), mock=False, artifacts_root=tmp_path)
     with pytest.raises(RuntimeError, match="harness exploded"):
         st.execute(adapter=None, params={})
     assert calls == ["prepare", "run", "teardown:csbench-test"]
@@ -566,6 +566,6 @@ def test_execute_nonmock_calls_teardown_on_success(tmp_path) -> None:
         def teardown(self, env):
             calls.append(f"teardown:{env.payload.get('run_id', '')}")
 
-    st = SuiteTask(_TeardownSuite(), _Eval(), mock=False, artifacts_root=tmp_path / "store")
+    st = SuiteRunner(_TeardownSuite(), _Eval(), mock=False, artifacts_root=tmp_path / "store")
     st.execute(adapter=None, params={})
     assert calls == ["teardown:csbench-ok"]

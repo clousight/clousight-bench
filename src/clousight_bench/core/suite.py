@@ -185,7 +185,7 @@ def evaluate_with_metrics(
     cleanly (mock / conformance / CI never call a judge). NOTE: a run that
     configures a judge does network I/O here and its judge-based measurements are
     not offline-re-scorable — by design (``reproducibility_class="judge-based"``).
-    Shared by SuiteTask.score and the suite conformance command so the namespace
+    Shared by SuiteRunner.score and the suite conformance command so the namespace
     guarantee covers metric outputs too. No items → no add-on metrics.
     """
     params = params or {}

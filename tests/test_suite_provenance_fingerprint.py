@@ -1,4 +1,4 @@
-"""Tests for provenance threading: SuiteTask provenance flows into benchmark_fingerprint
+"""Tests for provenance threading: SuiteRunner provenance flows into benchmark_fingerprint
 and into the persisted ResultRecord.
 """
 
@@ -36,7 +36,7 @@ def test_populated_provenance_moves_the_benchmark_fingerprint():
 
 
 # ---------------------------------------------------------------------------
-# Orchestrator-level: a SuiteTask run persists provenance.suite_id in the record
+# Orchestrator-level: a SuiteRunner run persists provenance.suite_id in the record
 # and the benchmark fingerprint differs from a plain (empty-provenance) task.
 # ---------------------------------------------------------------------------
 
