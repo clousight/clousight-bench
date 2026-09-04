@@ -3,9 +3,10 @@ title: Clousight Bench
 description: 一条命令,把公认基准可复现地跑在托管云产品与大模型上,得到带溯源链的数字。
 ---
 
-**Clousight Bench** 把公认基准——SWE-bench、TPC-DS/H、YCSB、TPC-C、MMLU、GSM8K、
-HumanEval——**原样**跑在托管云产品与大模型 endpoint 上,并给出带可验证溯源链的
-数字:哪个基准、哪份固定数据集、哪个 evaluator、跑在哪个被测系统上。
+**Clousight Bench 是面向云计算的 Eval 工具。** 它把公认基准——SWE-bench、
+TPC-DS/H、YCSB、TPC-C、MMLU、GSM8K、HumanEval——**原样**跑在五类云产品与服务上
+(agent 运行时、数据仓库、事务数据库、KV 存储、大模型 endpoint),并给出带可验证
+溯源链的数字:哪个基准、哪份固定数据集、哪个 evaluator、跑在哪个被测系统上。
 
 它从不二次打分、也不混合分数。基准自带的 harness 出结论;框架只补上可复现性簿记
 与云产品维度(延迟、成本、逐项分数、可选的 LLM 判定)。

@@ -7,22 +7,27 @@
 [![Docs](https://img.shields.io/badge/docs-docs.clousight.com-blue.svg)](https://docs.clousight.com)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/clousight/clousight-bench)
 
-**[Clousight](https://clousight.com)'s reproducible benchmark harness for cloud products** —
-it runs **recognized benchmark suites unmodified** (SWE-bench Verified first) against
-**managed cloud SUTs** (agent runtimes today), and every number it publishes carries a
-verifiable provenance chain: which suite, which pinned dataset revision, which evaluator,
-which scaffold — folded into a content fingerprint you can diff.
+**[Clousight](https://clousight.com) Bench is an eval tool for cloud computing** —
+it measures **cloud products and services** with **recognized benchmark suites, unmodified**,
+across five product categories today: agent runtimes (SWE-bench), data warehouses
+(TPC-H/TPC-DS), transactional databases (TPC-C), key-value stores (YCSB), and LLM
+endpoints (MMLU/GSM8K/HumanEval). Every published number stands on three legs:
 
-> Clousight Bench never re-scores a suite and never blends scores. The suite's own
-> harness produces the verdict; we add the cloud-product dimension (runtime behavior,
-> latency, trajectory, cost) and the reproducibility bookkeeping around it.
+1. **The verdict comes from the recognized suite's own harness** — never re-scored,
+   never blended.
+2. **The cloud dimensions ride alongside** — latency, cost, provisioning/teardown
+   behavior, trajectory — as separate measurements that can never change the verdict.
+3. **A verifiable provenance chain** — which suite, which pinned dataset revision,
+   which evaluator, which scaffold — folded into a content fingerprint you can diff.
 
 > **0.5.0 Developer Preview.** The whole pipeline runs locally with no cloud account
-> (`mode: mock`). The Aliyun AgentRun adapter is `experimental` and live-validated
-> (`cn-hangzhou` real-cloud campaigns); the docker-capable ECS driver host, the
-> AgentRun SUT agent (oracle/llm modes) and the SWE-bench Verified suite are code
-> complete — the first live SWE-bench smoke is gated only on account preconditions
-> (see the [live runbook](docs/swe-bench-live-runbook.mdx)). Other clouds are skeletons.
+> (`mode: mock`), and every data/LLM suite also runs against a real local engine or a
+> live endpoint you already operate (config-connect). On the provisioning side, the
+> Aliyun AgentRun adapter is `experimental` and live-validated (`cn-hangzhou`
+> real-cloud campaigns); the docker-capable ECS driver host, the AgentRun SUT agent
+> (oracle/llm modes) and the SWE-bench Verified suite are code complete — the first
+> live SWE-bench smoke is gated only on account preconditions (see the
+> [live runbook](docs/swe-bench-live-runbook.mdx)). Other clouds are skeletons.
 
 **Repository status.** This repository is public and Apache-2.0 licensed.
 `main` is protected: every change lands through a pull request that passes

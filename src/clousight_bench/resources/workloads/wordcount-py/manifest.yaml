@@ -5,8 +5,7 @@ version: 0.1.0
 entrypoint: ./run.py
 description: >
   Deterministic in-process wordcount smoke workload. Reference implementation of
-  the cross-language WorkloadEngine protocol; also the default load for the
-  bigdata-emr J1.1 task on the local-process adapter.
+  the cross-language WorkloadEngine protocol.
 params:
   rows: { type: integer, default: 100000, description: number of generated lines }
   seed: { type: integer, default: 42, description: RNG seed (determinism) }
