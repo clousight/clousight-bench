@@ -194,12 +194,31 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         adapter = adapter_cls(target)
         task = None
         if args.task:
-            task_classes = pack.tasks()
-            if args.task not in task_classes:
-                raise UnknownTaskError(
-                    f"task {args.task!r} not in domain {args.domain!r}: {sorted(task_classes)}"
+            if args.task.startswith("suite:"):
+                # Benchmarks are the public unit: resolve the suite and hand
+                # preflight its declared permission tokens.
+                from types import SimpleNamespace
+
+                from clousight_bench.core.registry import load_benchmark_suites
+
+                suite_id = args.task.removeprefix("suite:")
+                suites = load_benchmark_suites()
+                if suite_id not in suites:
+                    raise UnknownTaskError(
+                        f"suite {suite_id!r} is not a registered benchmark suite: {sorted(suites)}"
+                    )
+                suite = suites[suite_id]
+                task = SimpleNamespace(
+                    task_id=args.task,
+                    required_permissions=tuple(getattr(suite, "required_permissions", ()) or ()),
                 )
-            task = task_classes[args.task]()
+            else:
+                task_classes = pack.tasks()
+                if args.task not in task_classes:
+                    raise UnknownTaskError(
+                        f"task {args.task!r} not in domain {args.domain!r}: {sorted(task_classes)}"
+                    )
+                task = task_classes[args.task]()
         report = adapter.preflight(task)
         print(report.format())
         return 0 if report.ok else 1

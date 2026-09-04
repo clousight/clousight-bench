@@ -111,6 +111,7 @@ def test_incompatible_evaluator_rejected(monkeypatch):
     assert "future" in str(ei.value) and "1.0" in str(ei.value)
 
 
+@pytest.mark.real_registry
 def test_compatible_evaluator_loads(monkeypatch):
     monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("good", _GoodEvaluator)])
     evaluators = registry.load_evaluators()

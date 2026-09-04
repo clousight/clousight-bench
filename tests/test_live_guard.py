@@ -53,7 +53,7 @@ def test_live_run_blocked_before_setup(tmp_path, monkeypatch):
     monkeypatch.setattr(AliyunAgentRunAdapter, "execution_mode", lambda self: "live")
     setup_calls: list[int] = []
     monkeypatch.setattr(AliyunAgentRunAdapter, "setup", lambda self: setup_calls.append(1))
-    spec = RunSpec("agent-runtime", "stub.ok", "aliyun-agentrun", target={"mode": "mock"})
+    spec = RunSpec("agent-runtime", "suite:stub.ok", "aliyun-agentrun", target={"mode": "mock"})
     rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=False)
     assert rec.status == "invalid"
     assert any(f["code"] == "live.unconfirmed" for f in rec.findings)
@@ -63,7 +63,7 @@ def test_live_run_blocked_before_setup(tmp_path, monkeypatch):
 
 def test_live_run_proceeds_when_acknowledged(tmp_path, monkeypatch):
     monkeypatch.setattr(AliyunAgentRunAdapter, "execution_mode", lambda self: "live")
-    spec = RunSpec("agent-runtime", "stub.ok", "aliyun-agentrun", target={"mode": "mock"})
+    spec = RunSpec("agent-runtime", "suite:stub.ok", "aliyun-agentrun", target={"mode": "mock"})
     rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=True)
     assert rec.status == "completed"
     assert rec.extensions["core"]["live_run"]["acknowledged"] is True
@@ -73,6 +73,6 @@ def test_provider_less_simulator_is_never_gated(tmp_path, monkeypatch):
     # A provider-less local adapter cannot bill a cloud even if it (mis)declares
     # execution_mode "live" -- it must never be blocked.
     monkeypatch.setattr(LocalSimAdapter, "execution_mode", lambda self: "live")
-    spec = RunSpec("agent-runtime", "stub.ok", "local-sim", target={})
+    spec = RunSpec("agent-runtime", "suite:stub.ok", "local-sim", target={})
     rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=False)
     assert rec.status == "completed"

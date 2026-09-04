@@ -72,7 +72,7 @@ def test_connect_only_live_run_is_not_gated(tmp_path, monkeypatch) -> None:
     no live.unconfirmed, no accidental block."""
     monkeypatch.setattr(AliyunAgentRunAdapter, "execution_mode", lambda self: "live")
     monkeypatch.setattr(AliyunAgentRunAdapter, "provisions_resources", lambda self: False)
-    spec = RunSpec("agent-runtime", "stub.ok", "aliyun-agentrun", target={"mode": "mock"})
+    spec = RunSpec("agent-runtime", "suite:stub.ok", "aliyun-agentrun", target={"mode": "mock"})
     rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=False)
     assert rec.status == "completed"  # NOT blocked despite live execution
     assert not any(f["code"] == "live.unconfirmed" for f in rec.findings)
@@ -82,7 +82,7 @@ def test_provisioning_live_run_still_gated(tmp_path, monkeypatch) -> None:
     """Control: a provisioning live run IS still gated (regression guard)."""
     monkeypatch.setattr(AliyunAgentRunAdapter, "execution_mode", lambda self: "live")
     monkeypatch.setattr(AliyunAgentRunAdapter, "provisions_resources", lambda self: True)
-    spec = RunSpec("agent-runtime", "stub.ok", "aliyun-agentrun", target={"mode": "mock"})
+    spec = RunSpec("agent-runtime", "suite:stub.ok", "aliyun-agentrun", target={"mode": "mock"})
     rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=False)
     assert rec.status == "invalid"
     assert any(f["code"] == "live.unconfirmed" for f in rec.findings)

@@ -19,7 +19,7 @@ from clousight_bench.core.tracing import (
 
 
 def _spec():
-    return RunSpec("agent-runtime", "stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
+    return RunSpec("agent-runtime", "suite:stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
 
 def test_run_emits_a_linked_trace_of_stage_spans(tmp_path):

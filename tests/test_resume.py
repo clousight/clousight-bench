@@ -7,7 +7,7 @@ from clousight_bench.core.schema import RunSpec
 
 
 def _spec():
-    return RunSpec("agent-runtime", "stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
+    return RunSpec("agent-runtime", "suite:stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
 
 def _count_executes(monkeypatch) -> dict[str, int]:

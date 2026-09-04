@@ -11,7 +11,7 @@ def _write_record(root: Path, run_id: str, tamper: bool = False) -> None:
         "run": {"run_id": run_id, "stages": {}},
         "identity": {
             "domain": "agent-runtime",
-            "task_id": "stub.alt",
+            "task_id": "suite:stub.alt",
             "adapter": "local-sim",
             "task_revision": "1",
             "scorer_revision": "1",

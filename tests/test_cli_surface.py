@@ -12,7 +12,7 @@ def test_list_verbose_shows_task_and_adapter_status(capsys):
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert "stub.ok" in out
+    assert "suite:stub.ok" in out
     # Suite-first pivot: stub.ok is now the stub task; title check removed.
     assert "local-sim" in out and "reference" in out
     assert "aliyun-agentrun" in out and "experimental" in out
@@ -63,7 +63,7 @@ def test_run_skeleton_returns_usage_error(capsys):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "huawei-agentarts",
             "--skip-preflight",
@@ -82,7 +82,7 @@ def test_run_missing_config_returns_usage_error(capsys):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--config",
@@ -106,7 +106,7 @@ def test_run_rejects_non_mapping_config_roots(tmp_path, capsys, content):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--config",
@@ -173,7 +173,7 @@ def test_doctor_skeleton_warns_but_still_runs_preflight(capsys):
             "--platform",
             "huawei-agentarts",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
         ]
     )
     captured = capsys.readouterr()
@@ -238,7 +238,7 @@ def test_run_rejects_a_directory_config_with_usage_error(tmp_path, capsys):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--config",
@@ -293,7 +293,7 @@ def test_run_benchmark_and_task_together_is_usage_error(capsys):
             "--benchmark",
             "swe-bench",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
         ]

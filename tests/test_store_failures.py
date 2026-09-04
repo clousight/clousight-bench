@@ -28,7 +28,7 @@ def _rec(**overrides) -> ResultRecord:
         run=RunInfo(run_id="run-x", started_at=utc_now(), finished_at=utc_now()),
         identity=Identity(
             domain="agent-runtime",
-            task_id="stub.ok",
+            task_id="suite:stub.ok",
             task_revision="2",
             scorer_revision="2",
             adapter="local-sim",
@@ -255,7 +255,7 @@ def test_fourth_level_minimum_is_always_canonical(tmp_path):
     record = _rec(
         identity=Identity(
             domain=Hostile(),
-            task_id="stub.ok",
+            task_id="suite:stub.ok",
             task_revision="2",
             scorer_revision="2",
             adapter="local-sim",

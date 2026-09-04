@@ -85,7 +85,7 @@ def test_orchestrator_run_leaves_no_residual_and_no_leak_finding(tmp_path, monke
     # fixture; the retired T-code dimensions no longer ship in this domain.)
     from clousight_bench.core.orchestrator import execute
 
-    spec = RunSpec("agent-runtime", "stub.ok", "local-sim", target={})
+    spec = RunSpec("agent-runtime", "suite:stub.ok", "local-sim", target={})
     rec = execute(spec, results_dir=tmp_path, preflight=False)
     assert rec.status in ("completed", "unsupported")
     assert ResourceLedger(tmp_path).residual() == []
