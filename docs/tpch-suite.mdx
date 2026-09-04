@@ -103,10 +103,33 @@ All carry `official=True` — a *provenance* flag ("emitted by the suite's
 recognized evaluator"), not an audit claim; drift is carried by
 `reproducibility_class`.
 
+## Price/performance (price/QphH)
+
+Supply your system price through the pricing feed and the `pricing` enricher
+emits the official-style composite (unaudited — the price is your own input,
+e.g. a 3-year TCO or a monthly subscription):
+
+```json
+// my-feed.json — point CLOUSIGHT_PRICING_DATA at it
+{
+  "currency": "USD",
+  "prices": [],
+  "system_prices": [
+    {"perf_metric": "tpc-h.qphh_at_size", "price": 120000.0,
+     "basis": "3yr-tco", "provider": "aliyun", "source": "operator quote"}
+  ]
+}
+```
+
+A record whose `tpc-h.qphh_at_size` matches (and provider/region filters, when
+given) gains `extensions.pricing.price_performance[]` with
+`price_per_unit_perf = price / QphH`. The bundled seed ships **no** system
+prices — a price/perf number never comes from invented data, and it can never
+change the verdict (enrichers are additive by contract).
+
 ## Out of scope (today)
 
-`price/QphH` (the formula seam exists; a system price input is not yet wired),
-real-SUT `config-connect` engines (duckdb-local only), and extending the official
+Real-SUT `config-connect` engines (duckdb-local only), and extending the official
 Appendix A permutation table beyond streams 0–2 (use `query_order: generated` to
 scale in the meantime). Very large scale factors are bounded by single-node DuckDB
 memory/disk. Durability crash-recovery is not tested on embedded DuckDB.

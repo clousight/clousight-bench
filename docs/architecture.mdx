@@ -315,7 +315,7 @@ and any new benchmark alike:
   editable installs use the same files.
 
 Phase 1B ships ResultRecord schema `0.4` (see "Result contract" above); plugin
-API `1.0` stays until its range-negotiation replacement in Phase 1D.
+The plugin API is `2.0` (the 1.x dual-rail surface was removed; the registry refuses 1.x-range plugins).
 
 This repository is public and Apache-2.0 licensed; it contains the whole open
 core, **including the reproducibility mechanisms** — the live Aliyun AgentRun
@@ -415,7 +415,7 @@ Convention for the `unit` column: when `ResultStore` writes Parquet, it reads th
 
 **Extension point**: the `clousight_bench.enrichers` entry-point group hosts `ResultEnricher` subclasses — `name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`. `orchestrator.execute(spec, results_dir=None, enrich=True)` invokes them in sequence after the `record` is constructed and before `_persist`, ordered by the list returned from `registry.load_enrichers()` (sorted by `name` for deterministic execution order). The core ships no enricher implementations (such as cost estimation) — commercial plugins are injected via entry point; `csbench run --no-enrich` skips the entire chain.
 
-**Plugin compatibility contract**: `clousight_bench.PLUGIN_API_VERSION = "1.0"` (SemVer). MAJOR is bumped only when schema fields, entry-point group names, or `ResultEnricher`/`ResultStore` signatures change incompatibly. **Package version and plugin API version are two independent dimensions**: `clousight_bench.__version__` (currently `0.2.0`) increments with every release; `PLUGIN_API_VERSION` moves only when the plugin-facing surface has a breaking change — the two do not evolve in lockstep. Phase 1A commercial plugin `pyproject.toml` pins against the current package version as `clousight-bench>=0.2,<0.3` (the `>=1.0,<2.0` form seen in early design documents was a target-state sketch written against `PLUGIN_API_VERSION` major versions and was not updated when the 0.2 developer preview shipped; corrected here).
+**Plugin compatibility contract**: `clousight_bench.PLUGIN_API_VERSION = "2.0"` (SemVer). MAJOR is bumped only when schema fields, entry-point group names, or `ResultEnricher`/`ResultStore` signatures change incompatibly. **Package version and plugin API version are two independent dimensions**: `clousight_bench.__version__` (currently `0.2.0`) increments with every release; `PLUGIN_API_VERSION` moves only when the plugin-facing surface has a breaking change — the two do not evolve in lockstep. Phase 1A commercial plugin `pyproject.toml` pins against the current package version as `clousight-bench>=0.2,<0.3` (the `>=1.0,<2.0` form seen in early design documents was a target-state sketch written against `PLUGIN_API_VERSION` major versions and was not updated when the 0.2 developer preview shipped; corrected here).
 
 **Pro's three extension boundaries** (injected by `clousight-bench-pro` via entry point; the open core carries no implementations):
 

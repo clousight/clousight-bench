@@ -91,9 +91,31 @@ pass/fail 门，**不**参与 `QphH@Size` 复合分。
 所有测量都带 `official=True` —— 这是一个*溯源*标记（"由套件公认的 evaluator 产出"），并非审计声明；
 是否会漂移由 `reproducibility_class` 承载。
 
+## 性价比（price/QphH）
+
+通过定价 feed 提供你的系统报价,`pricing` enricher 即产出官方风格的性价比复合数
+(unaudited——报价是你自己的输入,例如 3 年 TCO 或包月价):
+
+```json
+// my-feed.json — 用 CLOUSIGHT_PRICING_DATA 指向它
+{
+  "currency": "USD",
+  "prices": [],
+  "system_prices": [
+    {"perf_metric": "tpc-h.qphh_at_size", "price": 120000.0,
+     "basis": "3yr-tco", "provider": "aliyun", "source": "operator quote"}
+  ]
+}
+```
+
+记录中的 `tpc-h.qphh_at_size` 匹配(以及可选的 provider/region 过滤)后,记录获得
+`extensions.pricing.price_performance[]`,其中 `price_per_unit_perf = price / QphH`。
+内置种子 feed **不含**任何系统报价——性价比数字绝不来自发明的数据,且永远改变不了
+判定(enricher 契约上只做叠加)。
+
 ## 暂不在范围内
 
-`price/QphH`（公式接缝已留；系统报价输入尚未接入）、真实 SUT 的 `config-connect` 引擎（目前仅
+真实 SUT 的 `config-connect` 引擎（目前仅
 duckdb-local）、以及把官方 Appendix A 排列表扩展到 streams 0–2 以外（在此之前用
 `query_order: generated` 放大）。很大的 scale factor 受单机 DuckDB 内存/磁盘限制。嵌入式
 DuckDB 不测 Durability 崩溃恢复。

@@ -156,7 +156,7 @@ CLI (csbench)
 - 当前可运行的参考适配器为 `local-sim`。Aliyun AgentRun（及 AWS AgentCore）的 `RuntimeProvider` 已在源码树内注册。`aliyun-agentrun` 适配器为 `experimental`：在 `mode: mock` 下可端到端运行，其 live 路径已完成一次真实云 campaign（`cn-hangzhou`，2026-08-15——25 个 `completed` + 2 个诚实的 `unsupported`）。该适配器尚未晋升为 `wired`（该状态保留给经过稳定、多次验证的 live 路径）；AWS AgentCore 及其他云仍为 `skeleton`。
 - 内置负载位于 `clousight_bench.resources.workloads`，通过 `core.resources.reference_workload_path()` 解析，因此 wheel 安装和可编辑安装使用相同的文件。
 
-Phase 1B 发布了 ResultRecord schema `0.4`（见上文"结果契约"）；插件 API `1.0` 保持不变，直到 Phase 1D 中的版本范围协商机制替代它。
+Phase 1B 发布了 ResultRecord schema `0.4`（见上文"结果契约"）；插件 API 现为 `2.0`（1.x 双轨面已删除;注册表拒绝声明 1.x 范围的插件）。
 
 本仓库为公开仓库，采用 Apache-2.0 许可；包含完整的开放核心，**包括可复现机制**——Aliyun AgentRun `RuntimeProvider`、ECI 探针 carrier、`ResourceReaper`、Terraform 以及种子 `pricing` enricher。护城河在于*数据与服务*，而非私藏代码。独立的私有仓库 `clousight-bench-pro` 仅包含：
 
@@ -247,7 +247,7 @@ run_id | domain | task_id | platform | config_hash | series | t | value | unit
 
 **扩展点**：`clousight_bench.enrichers` 入口点组托管 `ResultEnricher` 子类——`name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`。`orchestrator.execute(spec, results_dir=None, enrich=True)` 在记录构建完成后、`_persist` 之前依次调用它们，顺序由 `registry.load_enrichers()`（按 `name` 排序以确保确定性执行顺序）返回的列表决定。核心不提供任何 enricher 实现（如成本估算）——商业插件通过入口点注入；`csbench run --no-enrich` 跳过整个链路。
 
-**插件兼容性契约**：`clousight_bench.PLUGIN_API_VERSION = "1.0"`（SemVer）。只有当 schema 字段、入口点组名称或 `ResultEnricher`/`ResultStore` 签名发生不兼容变更时，MAJOR 才会递增。**包版本与插件 API 版本是两个独立维度**：`clousight_bench.__version__`（当前为 `0.2.0`）随每次发布递增；`PLUGIN_API_VERSION` 仅在插件面向接口有破坏性变更时移动——两者不同步演进。Phase 1A 商业插件的 `pyproject.toml` 针对当前包版本固定为 `clousight-bench>=0.2,<0.3`（早期设计文档中出现的 `>=1.0,<2.0` 形式是针对 `PLUGIN_API_VERSION` 大版本的目标状态草稿，在 0.2 开发者预览发布时未更新；此处已更正）。
+**插件兼容性契约**：`clousight_bench.PLUGIN_API_VERSION = "2.0"`（SemVer）。只有当 schema 字段、入口点组名称或 `ResultEnricher`/`ResultStore` 签名发生不兼容变更时，MAJOR 才会递增。**包版本与插件 API 版本是两个独立维度**：`clousight_bench.__version__`（当前为 `0.2.0`）随每次发布递增；`PLUGIN_API_VERSION` 仅在插件面向接口有破坏性变更时移动——两者不同步演进。Phase 1A 商业插件的 `pyproject.toml` 针对当前包版本固定为 `clousight-bench>=0.2,<0.3`（早期设计文档中出现的 `>=1.0,<2.0` 形式是针对 `PLUGIN_API_VERSION` 大版本的目标状态草稿，在 0.2 开发者预览发布时未更新；此处已更正）。
 
 **Pro 的三个扩展边界**（由 `clousight-bench-pro` 通过入口点注入；开放核心不提供实现）：
 

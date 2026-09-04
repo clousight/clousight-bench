@@ -187,3 +187,105 @@ def test_provider_service_discount_beats_provider(monkeypatch, tmp_path):
     rec = _record(adapter="aliyun-agentrun", region="cn-hangzhou", measurements=_usage(invocations=8))
     out = PricingEnricher().enrich(rec).extensions["pricing"]
     assert out["breakdown"][0]["discount_pct"] == 40
+
+
+# --- price/performance (system price ÷ headline perf metric) -----------------
+
+
+def _feed_with_system_prices(tmp_path, entries, prices=None):
+    import json
+
+    feed = {"currency": "USD", "prices": prices or [], "system_prices": entries}
+    p = tmp_path / "feed.json"
+    p.write_text(json.dumps(feed), encoding="utf-8")
+    return p
+
+
+def _perf(key, value, unit):
+    return {key: {"value": value, "unit": unit, "reproducibility_class": "environmental"}}
+
+
+def test_price_per_performance_from_system_price(tmp_path, monkeypatch):
+    feed = _feed_with_system_prices(
+        tmp_path,
+        [
+            {
+                "perf_metric": "tpc-h.qphh_at_size",
+                "price": 120000.0,
+                "basis": "3yr-tco",
+                "provider": "aliyun",
+                "source": "operator quote 2026-09",
+            }
+        ],
+    )
+    monkeypatch.setenv("CLOUSIGHT_PRICING_DATA", str(feed))
+    rec = _record("aliyun-adb", "cn-hangzhou", _perf("tpc-h.qphh_at_size", 24000.0, "QphH"))
+    out = PricingEnricher().enrich(rec)
+    pp = out.extensions["pricing"]["price_performance"]
+    assert len(pp) == 1
+    assert pp[0]["perf_metric"] == "tpc-h.qphh_at_size"
+    assert pp[0]["price_per_unit_perf"] == round(120000.0 / 24000.0, 9)
+    assert pp[0]["basis"] == "3yr-tco"
+    assert "unaudited" in pp[0]["note"]
+    # cost block absent (no usage measurements) but extension exists
+    assert "cost_usd" not in out.extensions["pricing"]
+
+
+def test_system_price_provider_mismatch_is_ignored(tmp_path, monkeypatch):
+    feed = _feed_with_system_prices(
+        tmp_path,
+        [{"perf_metric": "tpc-h.qphh_at_size", "price": 1.0, "basis": "hourly", "provider": "aws"}],
+    )
+    monkeypatch.setenv("CLOUSIGHT_PRICING_DATA", str(feed))
+    rec = _record("aliyun-adb", "cn-hangzhou", _perf("tpc-h.qphh_at_size", 100.0, "QphH"))
+    out = PricingEnricher().enrich(rec)
+    assert "pricing" not in out.extensions  # nothing matched -> record untouched
+
+
+def test_absent_perf_metric_never_invents_a_number(tmp_path, monkeypatch):
+    feed = _feed_with_system_prices(
+        tmp_path,
+        [{"perf_metric": "ycsb.throughput_ops", "price": 500.0, "basis": "monthly"}],
+    )
+    monkeypatch.setenv("CLOUSIGHT_PRICING_DATA", str(feed))
+    rec = _record("aliyun-adb", "", _perf("tpc-h.qphh_at_size", 100.0, "QphH"))
+    out = PricingEnricher().enrich(rec)
+    assert "pricing" not in out.extensions
+
+
+def test_usage_and_system_price_coexist(tmp_path, monkeypatch):
+    feed = _feed_with_system_prices(
+        tmp_path,
+        [{"perf_metric": "ycsb.throughput_ops", "price": 500.0, "basis": "monthly"}],
+        prices=[
+            {
+                "provider": "aws",
+                "service": "key-value",
+                "unit": "vcpu_hours",
+                "price": 0.1,
+                "region": "us-east-1",
+                "source": "list",
+            }
+        ],
+    )
+    monkeypatch.setenv("CLOUSIGHT_PRICING_DATA", str(feed))
+    measurements = {**_usage(vcpu_hours=10), **_perf("ycsb.throughput_ops", 25000.0, "ops_per_sec")}
+    rec = _record("aws", "us-east-1", measurements)
+    rec.identity.domain = "key-value"
+    out = PricingEnricher().enrich(rec)
+    pricing = out.extensions["pricing"]
+    assert pricing["cost_usd"] == round(10 * 0.1, 9)
+    assert pricing["price_performance"][0]["price_per_unit_perf"] == round(500.0 / 25000.0, 9)
+
+
+def test_verdict_and_measurements_never_touched_by_price_perf(tmp_path, monkeypatch):
+    feed = _feed_with_system_prices(
+        tmp_path, [{"perf_metric": "tpc-h.qphh_at_size", "price": 10.0, "basis": "hourly"}]
+    )
+    monkeypatch.setenv("CLOUSIGHT_PRICING_DATA", str(feed))
+    rec = _record("aliyun-adb", "", _perf("tpc-h.qphh_at_size", 5.0, "QphH"))
+    before_status = rec.status
+    before_measurements = dict(rec.measurements)
+    out = PricingEnricher().enrich(rec)
+    assert out.status == before_status
+    assert out.measurements == before_measurements

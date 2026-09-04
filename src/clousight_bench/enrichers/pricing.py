@@ -14,6 +14,18 @@ verdict. Usage it cannot price is listed under ``uncovered`` and excluded from
 The mechanism is open; the data is pluggable. Point ``CLOUSIGHT_PRICING_DATA``
 at a JSON file with the same schema to price against a broader / fresher feed --
 the seam a managed pricing-data subscription plugs into without forking this.
+
+Price/performance (the cloud-product selection number): a feed may carry
+``system_prices`` entries -- ``{perf_metric, price, basis, provider?, region?,
+source?}`` -- an operator-supplied system price (e.g. a 3-year TCO or a monthly
+subscription) mapped to a headline performance measurement key. For each entry
+whose ``perf_metric`` is present in the record (and whose provider/region match,
+when given), the enricher emits ``price_per_unit_perf = price / value`` under
+``extensions["pricing"]["price_performance"]``. The bundled seed ships NO system
+prices (a price/perf composite must never come from invented numbers) and every
+emitted entry is annotated unaudited -- these are official-style formulas
+(price/QphH, price/tpmC) computed from the operator's own price input, not
+audited results.
 """
 
 from __future__ import annotations
@@ -83,6 +95,9 @@ class PricingEnricher(ResultEnricher):
     def __init__(self) -> None:
         feed = _load_feed()
         self._prices: list[dict[str, Any]] = feed["prices"]
+        # Operator-supplied system prices for price/perf composites (see module
+        # docstring). The bundled seed ships none.
+        self._system_prices: list[dict[str, Any]] = list(feed.get("system_prices", []))
         # Currency is whatever the price feed declares (the bundled seed is USD
         # public list price); a CNY/EUR feed flows through without code changes.
         self._currency: str = str(feed.get("currency", "USD"))
@@ -119,18 +134,61 @@ class PricingEnricher(ResultEnricher):
         entry = record.measurements.get(name)
         return entry.get("value") if isinstance(entry, dict) else None
 
+    def _price_performance(self, record: ResultRecord, provider: str) -> list[dict[str, Any]]:
+        """Price/perf composites from operator-supplied system prices (unaudited).
+
+        An entry applies when its ``perf_metric`` is a numeric measurement on this
+        record and its optional provider/region filters match. Nothing is ever
+        invented: no matching entry, no output.
+        """
+        out: list[dict[str, Any]] = []
+        for entry in self._system_prices:
+            metric = str(entry.get("perf_metric", ""))
+            value = self._measurement_value(record, metric)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+                continue
+            if entry.get("provider") and entry["provider"] != provider:
+                continue
+            if entry.get("region") and entry["region"] != record.environment.region:
+                continue
+            price = entry.get("price")
+            if isinstance(price, bool) or not isinstance(price, (int, float)):
+                continue
+            out.append(
+                {
+                    "perf_metric": metric,
+                    "perf_value": value,
+                    "system_price": float(price),
+                    "basis": str(entry.get("basis", "")),
+                    "price_per_unit_perf": round(float(price) / float(value), 9),
+                    "currency": self._currency,
+                    "price_source": str(entry.get("source", "")),
+                    "note": "official-style price/performance formula; unaudited; "
+                    "system price supplied by the operator's price feed",
+                }
+            )
+        return out
+
     def enrich(self, record: ResultRecord) -> ResultRecord:
         # Idempotent / transition guard: if a pricing plugin already priced this
         # record, leave it untouched.
         if "pricing" in record.extensions:
             return record
-        # Only touch records that actually report usage -- never annotate an
-        # unrelated result (e.g. a wordcount smoke).
-        present = [u for u in USAGE_METRIC_KEYS if self._measurement_value(record, u) is not None]
-        if not present:
-            return record
 
         provider = record.identity.adapter.split("-")[0]
+        price_performance = self._price_performance(record, provider)
+
+        # Usage-based cost: only for records that actually report usage -- never
+        # annotate an unrelated result (e.g. a wordcount smoke).
+        present = [u for u in USAGE_METRIC_KEYS if self._measurement_value(record, u) is not None]
+        if not present:
+            if price_performance:
+                record.extensions["pricing"] = {
+                    "currency": self._currency,
+                    "price_performance": price_performance,
+                }
+            return record
+
         service = str(self._measurement_value(record, "service") or record.identity.domain)
         region = record.environment.region
         pct = self._resolve_discount(provider, service)
@@ -169,7 +227,7 @@ class PricingEnricher(ResultEnricher):
             )
         list_cost = round(list_total, 9)
         net_cost = round(net_total, 9)
-        record.extensions["pricing"] = {
+        pricing: dict[str, Any] = {
             "cost_usd": net_cost,
             "list_cost_usd": list_cost,
             "discount_usd": round(list_cost - net_cost, 9),
@@ -177,4 +235,7 @@ class PricingEnricher(ResultEnricher):
             "breakdown": breakdown,
             "uncovered": uncovered,
         }
+        if price_performance:
+            pricing["price_performance"] = price_performance
+        record.extensions["pricing"] = pricing
         return record
