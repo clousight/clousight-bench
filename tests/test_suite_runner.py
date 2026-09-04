@@ -79,9 +79,8 @@ def test_provenance_scaffold_comes_from_the_suite():
     non-agent-suite mis-tagging bug (previously always "mock-agent@slice1") is
     fixed."""
     assert SuiteRunner(_Suite(), _Eval(), mock=True, params={}).provenance().scaffold == ""
-    assert (
-        SuiteRunner(_Suite(), _Eval(), mock=False, params={"agent_kind": "oracle"}).provenance().scaffold == ""
-    )
+    runner = SuiteRunner(_Suite(), _Eval(), mock=False, params={"agent_kind": "oracle"})
+    assert runner.provenance().scaffold == ""
 
 
 def test_provenance_scaffold_flows_a_suite_override():
@@ -150,26 +149,6 @@ def test_suite_task_execute_uses_constructor_params_for_resolve(tmp_path):
     st.execute(adapter=None, params={"agent_kind": "empty"})
     # resolve() is called with constructor params only — call-time params do NOT win
     assert received == [{"agent_kind": "gold", "keep": "me"}]
-
-
-def test_base_task_provenance_empty():
-    """A plain non-suite Task's provenance() returns the empty default."""
-    from clousight_bench.core.observation import ObservationBundle, TaskResult
-    from clousight_bench.core.plugin import Task
-
-    class _StubTask(Task):
-        task_id = "stub"
-
-        def config(self, params):
-            return {}
-
-        def execute(self, adapter, params):
-            return ObservationBundle(observations={}, artifacts=[])
-
-        def score(self, observations):
-            return TaskResult(measurements={})
-
-    assert _StubTask().provenance().is_empty()
 
 
 def test_suite_provenance_has_real_digest():

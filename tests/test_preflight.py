@@ -1,34 +1,21 @@
 """Preflight gate: prerequisites are checked before provisioning, not mid-run."""
 
 from clousight_bench.core import preflight as pf
-from clousight_bench.core.observation import Measurement, ObservationBundle, TaskResult
 from clousight_bench.core.orchestrator import execute
-from clousight_bench.core.plugin import Task
 from clousight_bench.core.schema import RunSpec
-from clousight_bench.domains.agent_runtime import AgentRuntimeDomain
 from clousight_bench.domains.agent_runtime.adapters.cn_clouds import (
     AliyunAgentRunAdapter,
 )
+from tests.conftest import make_stub_suite, register_stub_suites
+
+_StubSuite = make_stub_suite("stub.preflight", required_permissions=("session:create", "tool:invoke"))
 
 
-class _StubTask(Task):
-    """Minimal concrete Task for preflight machinery tests (no T-code dependency)."""
+class _StubTask:
+    """Task-shaped permissions view for the check_permissions() unit tests."""
 
-    task_id = "STUB.1"
-    title = "stub task for preflight tests"
-    task_revision = "1"
-    scorer_revision = "1"
-    requires_mock_server = False
+    task_id = "suite:stub.preflight"
     required_permissions = ("session:create", "tool:invoke")
-
-    def config(self, params):
-        return {"params": dict(params)}
-
-    def execute(self, adapter, params):
-        return ObservationBundle(observations={"ok": True})
-
-    def score(self, bundle):
-        return TaskResult(measurements={"ok": Measurement(True, "", reproducibility_class="deterministic")})
 
 
 def _clear_aws(monkeypatch, tmp_path):
@@ -97,24 +84,25 @@ def test_real_adapter_preflight_fails_without_prereqs(monkeypatch, tmp_path):
 
 
 # --- orchestrator gate: abort BEFORE setup/execute --------------------------
-# These tests use monkeypatching to inject _StubTask into the domain so that
-# the orchestrator can resolve "STUB.1" and exercise the preflight gate.
+# These tests register the stub SUITE so the orchestrator can resolve
+# "suite:stub.preflight" and exercise the preflight gate on the single rail.
 
 
 def _inject_stub(monkeypatch):
-    """Register _StubTask in AgentRuntimeDomain.tasks() for the duration of the test."""
-    monkeypatch.setattr(
-        AgentRuntimeDomain,
-        "tasks",
-        lambda self: {_StubTask.task_id: _StubTask},
-    )
+    """Register the preflight stub suite for the duration of the test."""
+    register_stub_suites(monkeypatch, _StubSuite)
 
 
 def test_run_aborts_at_preflight_not_midrun(monkeypatch, tmp_path):
     monkeypatch.setattr(AliyunAgentRunAdapter, "status", "wired")
     _clear_aws(monkeypatch, tmp_path)
     _inject_stub(monkeypatch)
-    spec = RunSpec("agent-runtime", _StubTask.task_id, "aliyun-agentrun", target={"region": "cn-hangzhou"})
+    spec = RunSpec(
+        "agent-runtime",
+        "suite:stub.preflight",
+        "aliyun-agentrun",
+        target={"region": "cn-hangzhou", "mode": "real"},
+    )
     rec = execute(spec, results_dir=tmp_path)
     assert rec.status == "invalid"
     assert rec.run.stages["PREFLIGHT"] == "failed"
@@ -141,29 +129,13 @@ def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
     (c) TEARDOWN == "ok"        (teardown still ran)
     """
 
-    class _FailingStub(Task):
-        """Stub that drives adapter.create_session() to trigger _NotWiredError."""
-
-        task_id = "STUB.FAIL"
-        title = "failing stub for skip-preflight test"
-        task_revision = "1"
-        scorer_revision = "1"
-        requires_mock_server = False
-        required_permissions = ("session:create",)
-
-        def config(self, params):
-            return {"params": dict(params)}
-
-        def execute(self, adapter, params):
-            # This calls NotWiredCloudTransport.create_session(), which raises
-            # _NotWiredError — the real late failure.
-            adapter.create_session()
-            return ObservationBundle(observations={"ok": True})
-
-        def score(self, bundle):
-            return TaskResult(
-                measurements={"ok": Measurement(True, "", reproducibility_class="deterministic")}
-            )
+    # This suite's real run() path calls adapter.create_session() —
+    # NotWiredCloudTransport raises _NotWiredError, the real late failure.
+    _FailingSuite = make_stub_suite(
+        "stub.fail",
+        run_hook=lambda target, env, driver: target.handle.create_session(),
+        required_permissions=("session:create",),
+    )
 
     monkeypatch.setattr(AliyunAgentRunAdapter, "status", "wired")
     _clear_aws(monkeypatch, tmp_path)
@@ -173,12 +145,13 @@ def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
     import clousight_bench.core.registry as _reg
 
     monkeypatch.setattr(_reg, "get_runtime_provider", lambda _provider: None)
-    monkeypatch.setattr(
-        AgentRuntimeDomain,
-        "tasks",
-        lambda self: {_FailingStub.task_id: _FailingStub},
+    register_stub_suites(monkeypatch, _FailingSuite)
+    spec = RunSpec(
+        "agent-runtime",
+        "suite:stub.fail",
+        "aliyun-agentrun",
+        target={"region": "cn-hangzhou", "mode": "real"},
     )
-    spec = RunSpec("agent-runtime", _FailingStub.task_id, "aliyun-agentrun", target={"region": "cn-hangzhou"})
     # allow_live: this is a real-cloud run; acknowledge the cost gate so the test
     # reaches the mid-run failure it is about (not the live-gate block).
     rec = execute(spec, results_dir=tmp_path, preflight=False, allow_live=True)
@@ -191,7 +164,7 @@ def test_skip_preflight_reaches_the_real_failure(monkeypatch, tmp_path):
 
 def test_local_sim_run_still_works_with_preflight(monkeypatch, tmp_path):
     _inject_stub(monkeypatch)
-    rec = execute(RunSpec("agent-runtime", _StubTask.task_id, "local-sim"), results_dir=tmp_path)
+    rec = execute(RunSpec("agent-runtime", "suite:stub.preflight", "local-sim"), results_dir=tmp_path)
     assert rec.status == "completed"
     assert rec.run.stages["PREFLIGHT"] == "ok"
 

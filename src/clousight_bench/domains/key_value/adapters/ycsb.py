@@ -24,7 +24,7 @@ import os
 import shutil
 from typing import Any
 
-from clousight_bench.core.plugin import ProviderAdapter, Task
+from clousight_bench.core.plugin import ProviderAdapter
 
 
 def _ycsb_binary() -> str | None:
@@ -51,7 +51,7 @@ class _YcsbAdapterBase(ProviderAdapter):
     def _is_mock(self) -> bool:
         return str(self.target.get("mode", "")).lower() == "mock" or bool(self.target.get("mock"))
 
-    def preflight(self, task: Task | None = None) -> Any:
+    def preflight(self, task: Any | None = None) -> Any:
         from clousight_bench.core import preflight as pf
 
         report = pf.PreflightReport()

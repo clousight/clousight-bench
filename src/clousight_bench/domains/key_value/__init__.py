@@ -14,18 +14,13 @@ KV backends attach later on the same seam.
 
 from __future__ import annotations
 
-from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter
 from clousight_bench.domains.key_value.adapters.ycsb import YcsbEndpointAdapter, YcsbLocalAdapter
 
 
 class KeyValueDomain(DomainPack):
     domain = "key-value"
     description = "Key-value / online-serving datastores: read/update/scan throughput and tail latency."
-
-    def tasks(self) -> dict[str, type[Task]]:
-        # Suite-first: recognized benchmarks (YCSB) drive this domain via the
-        # benchmark_suite / evaluator contract. No dimensions ship here.
-        return {}
 
     def adapters(self) -> dict[str, type[ProviderAdapter]]:
         return {

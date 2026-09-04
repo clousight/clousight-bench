@@ -1,4 +1,4 @@
-"""Plugin contracts: DomainPack / ProviderAdapter / Task.
+"""Plugin contracts: DomainPack / ProviderAdapter (+ lifecycle hooks).
 
 The framework's abstraction cut: workloads differ wildly across cloud products,
 but the *pipeline* is identical --
@@ -10,13 +10,15 @@ So the core only orchestrates that lifecycle; everything product-specific lives
 in plugins:
 
 - DomainPack   : one per cloud product category (agent-runtime, database,
-                 compute, messaging...). Declares tasks + adapters.
+                 compute, messaging...). Declares the domain's adapters.
 - ProviderAdapter : one per (domain, cloud provider). Knows how to provision,
                  talk to, and tear down the system under test. May shell out
                  to Terraform, call an SDK, or hit HTTP endpoints.
-- Task         : one per benchmark dimension. Written against the domain's
-                 adapter interface only -- NEVER against a specific cloud.
-                 Owns its scoring.
+
+Benchmarks are NOT declared here: the one public way to add a benchmark is a
+``BenchmarkSuite`` + ``Evaluator`` (``clousight_bench.core.suite``), registered
+under the ``clousight_bench.benchmark_suites`` / ``.evaluators`` entry points
+and addressed as ``suite:<id>``.
 
 Third-party plugins register via the ``clousight_bench.domains`` entry point;
 in-tree domains are registered the same way (see pyproject.toml), so external
@@ -30,8 +32,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from clousight_bench.core.observation import ObservationBundle, TaskResult
-from clousight_bench.core.record import Provenance
 from clousight_bench.core.redaction import redact
 from clousight_bench.core.schema import ResultRecord
 
@@ -148,7 +148,7 @@ class ProviderAdapter(ABC):
 
         return resolve_credentials(self.target, platform=self.name)
 
-    def preflight(self, task: Task | None = None) -> Any:
+    def preflight(self, task: Any | None = None) -> Any:
         """Check prerequisites BEFORE provisioning; return a PreflightReport.
 
         The orchestrator runs this first and aborts on any CRITICAL failure, so
@@ -183,65 +183,13 @@ class ProvisionedCloudAdapter(ProviderAdapter):
         return True
 
 
-class Task(ABC):
-    """One benchmark dimension, split into observation and scoring.
-
-    ``execute`` may talk to the cloud; it returns only raw, replayable evidence.
-    ``score`` is a pure function of that evidence: it must not read credentials,
-    create resources or mutate the bundle it is given, which is exactly what
-    makes a stored observation re-scorable after a scorer fix.
-    """
-
-    task_id: str = "abstract"
-    title: str = ""
-    # Bumped whenever the observation procedure or the scoring rules change, so
-    # a published number stays attributable to the code that produced it.
-    task_revision: str = "0"
-    scorer_revision: str = "0"
-    # Abstract capability tokens this benchmark exercises (cloud-independent).
-    # The adapter maps these to each cloud's concrete minimal permissions and
-    # verifies them at preflight. Empty = no special permissions declared.
-    required_permissions: tuple[str, ...] = ()
-    # Taxonomy tags describing what capability dimension(s) this task exercises.
-    # Cloud-independent; used for structured listing and LLM-consumable output.
-    capability_tags: tuple[str, ...] = ()
-
-    @abstractmethod
-    def config(self, params: dict[str, Any]) -> dict[str, Any]:
-        """The controlled inputs that determine the result -> benchmark fingerprint."""
-
-    @abstractmethod
-    def execute(self, adapter: ProviderAdapter, params: dict[str, Any]) -> ObservationBundle:
-        """Drive the system under test and return raw observations only."""
-
-    @abstractmethod
-    def score(self, observations: ObservationBundle) -> TaskResult:
-        """Turn observations into measurements and findings. Pure function."""
-
-    def environment_facts(self, adapter: ProviderAdapter, params: dict[str, Any]) -> dict[str, Any]:
-        """Non-sensitive environment facts this benchmark depends on.
-
-        Folded into the environment fingerprint. Never return a credential,
-        hostname, username or raw environment variable.
-        """
-        return {}
-
-    def workload_identity(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Workload and asset identity folded into the benchmark fingerprint.
-
-        Tasks that drive a WorkloadEngine override this; the default declares no
-        workload. Keys are exactly ``workload``, ``workload_version`` and
-        ``assets``.
-        """
-        return {"workload": "", "workload_version": "", "assets": []}
-
-    def provenance(self) -> Provenance:
-        """The credibility chain for this run; non-suite tasks return the empty default."""
-        return Provenance()
-
-
 class DomainPack(ABC):
-    """A cloud product category: its tasks, its adapters, its vocabulary."""
+    """A cloud product category: its adapters and its vocabulary.
+
+    Benchmarks are not declared on the domain — they are ``BenchmarkSuite``
+    plugins on the suite registry; a RunSpec pairs a domain/platform (the SUT
+    connection) with a ``suite:<id>`` benchmark.
+    """
 
     domain: str = "abstract"
     description: str = ""
@@ -249,10 +197,6 @@ class DomainPack(ABC):
     # refuses to load a plugin whose range does not contain the core's
     # PLUGIN_API_VERSION. Default = compatible with the current major.
     requires_plugin_api: str = ">=1.0,<2.0"
-
-    @abstractmethod
-    def tasks(self) -> dict[str, type[Task]]:
-        """task_id -> Task class."""
 
     @abstractmethod
     def adapters(self) -> dict[str, type[ProviderAdapter]]:

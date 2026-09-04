@@ -18,7 +18,8 @@ def test_domain_loads_via_registry() -> None:
 
 
 def test_domain_is_suite_first_no_tasks() -> None:
-    assert TransactionalDbDomain().tasks() == {}
+    # Single rail: domains no longer declare tasks at all.
+    assert not hasattr(TransactionalDbDomain(), "tasks")
 
 
 def test_domain_declares_both_platforms() -> None:

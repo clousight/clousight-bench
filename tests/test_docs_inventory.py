@@ -1,4 +1,4 @@
-"""Guard the generated task/adapter inventory block in docs/architecture.md.
+"""Guard the generated benchmark/adapter inventory block in docs/architecture.md.
 
 The block between the ``generated:task-inventory`` markers is rendered from the
 domain registry (via ``scripts/gen_docs.py``). If a task is added, renamed, or an
@@ -53,11 +53,10 @@ def test_render_is_idempotent():
     assert gen_docs.render_inventory(payload) == gen_docs.render_inventory(payload)
 
 
-def test_doc_task_count_matches_registry():
-    """A human-readable belt-and-suspenders guard on the agent-runtime count."""
+def test_doc_suite_count_matches_registry():
+    """A human-readable belt-and-suspenders guard on the benchmark count."""
     payload = inventory()
-    agent_runtime = next(d for d in payload["domains"] if d["domain"] == "agent-runtime")
-    n = len(agent_runtime["tasks"])
+    n = len(payload["suites"])
     for doc_path in ARCHITECTURE_DOCS:
         doc = doc_path.read_text(encoding="utf-8")
-        assert f"`agent-runtime` — {n} tasks" in doc
+        assert f"Benchmarks — {n} suites" in doc

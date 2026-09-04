@@ -68,16 +68,8 @@ def _cmd_list(args: argparse.Namespace) -> int:
         if pack.description:
             print(f"  {pack.description}")
         if not args.verbose:
-            task_ids = sorted(pack.tasks())
-            tasks_line = ", ".join(task_ids) if task_ids else "(none — runs arrive as suite:<id> jobs)"
-            print(f"  tasks     : {tasks_line}")
             print(f"  platforms : {', '.join(sorted(pack.adapters()))}")
             continue
-        print("  tasks:")
-        for task_id, task_cls in sorted(pack.tasks().items()):
-            tags = ", ".join(task_cls.capability_tags) or "—"
-            print(f"    {task_id:<8} {task_cls.title}")
-            print(f"             tags: {tags}")
         print("  platforms:")
         for platform, adapter_cls in sorted(pack.adapters().items()):
             provider = adapter_cls.provider or "local"
@@ -213,12 +205,9 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
                     required_permissions=tuple(getattr(suite, "required_permissions", ()) or ()),
                 )
             else:
-                task_classes = pack.tasks()
-                if args.task not in task_classes:
-                    raise UnknownTaskError(
-                        f"task {args.task!r} not in domain {args.domain!r}: {sorted(task_classes)}"
-                    )
-                task = task_classes[args.task]()
+                raise UnknownTaskError(
+                    f"unknown benchmark {args.task!r}: benchmarks are addressed as 'suite:<id>'"
+                )
         report = adapter.preflight(task)
         print(report.format())
         return 0 if report.ok else 1

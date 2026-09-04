@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from clousight_bench.core.plugin import ProviderAdapter, Task
+from clousight_bench.core.plugin import ProviderAdapter
 
 
 class _LlmAdapterBase(ProviderAdapter):
@@ -78,7 +78,7 @@ class LlmEndpointAdapter(_LlmAdapterBase):
         "limit": 100,
     }
 
-    def preflight(self, task: Task | None = None) -> Any:
+    def preflight(self, task: Any | None = None) -> Any:
         from clousight_bench.core import preflight as pf
 
         report = pf.PreflightReport()

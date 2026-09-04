@@ -34,6 +34,8 @@ def test_orchestrator_skips_enrichers_when_disabled(monkeypatch, tmp_path):
         return []
 
     monkeypatch.setattr(fin, "load_enrichers", _boom)
-    rec = orch.execute(RunSpec("agent-runtime", "suite:stub.ok", "local-sim"), results_dir=tmp_path, enrich=False)
+    rec = orch.execute(
+        RunSpec("agent-runtime", "suite:stub.ok", "local-sim"), results_dir=tmp_path, enrich=False
+    )
     assert called["n"] == 0
     assert rec.run.stages["ENRICH"] == "skipped"

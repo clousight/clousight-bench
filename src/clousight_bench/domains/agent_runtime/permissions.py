@@ -3,14 +3,14 @@
 The minimal permissions a run needs are a (benchmark x cloud) matrix. We split
 that cleanly:
 
-- A **Task** declares WHICH abstract capabilities it exercises (these tokens),
+- A **benchmark suite** declares WHICH abstract capabilities it exercises (these tokens),
   independent of any cloud -- e.g. tracing needs to read traces, tool activation needs to
   register tools.
 - An **Adapter** (per cloud) maps each token to that cloud's concrete minimal
   IAM/RAM actions (`PERMISSION_MAP`) and verifies them.
 
 So the required concrete permissions for a given run = the adapter's mapping of
-the task's tokens. Add a dimension -> declare its tokens on the Task; add a
+the benchmark's tokens. Add a dimension -> declare its tokens on the suite; add a
 cloud -> declare its token->action map on the Adapter. Neither touches the other.
 """
 

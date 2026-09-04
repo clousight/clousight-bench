@@ -1,4 +1,4 @@
-from clousight_bench.core.conformance import _check_task, run_conformance
+from clousight_bench.core.conformance import run_conformance
 
 
 def test_builtin_agent_runtime_conforms():
@@ -17,22 +17,3 @@ def test_platform_check_rejects_unknown():
     results = run_conformance("agent-runtime", platform="nope")
     plat = [r for r in results if r.name.startswith("platform:")][0]
     assert plat.ok is False
-
-
-def test_missing_revision_flagged():
-    class _NoRev:
-        task_id = "T0"
-        title = "x"
-        task_revision = ""
-        scorer_revision = ""
-
-        def config(self, p):
-            return {}
-
-        def execute(self, a, p): ...
-
-        def score(self, o): ...
-
-    results = _check_task("T0", _NoRev)
-    rev = [r for r in results if r.name.endswith(":revisions")][0]
-    assert rev.ok is False

@@ -12,7 +12,8 @@ from clousight_bench.core.observation import (
     TaskExecutionError,
     TaskResult,
 )
-from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter
+from clousight_bench.core.record import Provenance
 from clousight_bench.core.schema import RunSpec
 
 CALLS: list[str] = []
@@ -36,16 +37,26 @@ class _Adapter(ProviderAdapter):
             raise OSError("teardown could not reach the control plane")
 
 
-class _Task(Task):
-    task_id = "TX"
+class _Task:
+    """Runner-shaped stub (the SuiteRunner duck type) driving the stage machine."""
+
+    task_id = "suite:TX"
     title = "fake"
     task_revision = "1"
     scorer_revision = "1"
+    required_permissions: tuple = ()
+    capability_tags: tuple = ()
     execute_raises = False
     score_raises = False
 
     def config(self, params):
         return {"task_id": self.task_id}
+
+    def workload_identity(self, params):
+        return {"workload": "", "workload_version": "", "assets": []}
+
+    def provenance(self):
+        return Provenance()
 
     def environment_facts(self, adapter, params):
         return {"fake": True}
@@ -77,9 +88,6 @@ class _Task(Task):
 class _Domain(DomainPack):
     domain = "fake-domain"
 
-    def tasks(self):
-        return {"TX": _Task}
-
     def adapters(self):
         return {"fake": _Adapter}
 
@@ -92,11 +100,12 @@ def _reset(monkeypatch):
     _Task.execute_raises = False
     _Task.score_raises = False
     monkeypatch.setattr(orch, "get_domain", lambda name: _Domain())
+    monkeypatch.setattr(orch, "_resolve_benchmark", lambda spec, results_dir: _Task())
     monkeypatch.setattr(fin, "load_enrichers", list)
 
 
 def _run(tmp_path, **kwargs):
-    return orch.execute(RunSpec("fake-domain", "TX", "fake"), results_dir=tmp_path, **kwargs)
+    return orch.execute(RunSpec("fake-domain", "suite:TX", "fake"), results_dir=tmp_path, **kwargs)
 
 
 def test_happy_path_produces_a_completed_0_3_record(tmp_path):

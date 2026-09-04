@@ -5,28 +5,20 @@ from collections.abc import Mapping
 import pytest
 
 from clousight_bench.core.errors import UserInputError
-from clousight_bench.core.observation import Measurement, ObservationBundle, TaskResult
-from clousight_bench.core.plugin import Task
 from clousight_bench.core.schema import RunSpec
 from clousight_bench.core.validation import InvalidRunSpecError, validate_run_spec
 
 
-class _StubTask(Task):
-    """Minimal concrete Task used as the test vehicle (no T-code dependency)."""
+class _StubTask:
+    """Minimal runner-shaped stub — validate_run_spec only reads config()."""
 
-    task_id = "STUB.1"
-    title = "stub task for machinery tests"
+    task_id = "suite:stub.ok"
+    title = "stub for machinery tests"
     task_revision = "1"
     scorer_revision = "1"
 
     def config(self, params):
         return {"params": dict(params)}
-
-    def execute(self, adapter, params):
-        return ObservationBundle(observations={"ok": True})
-
-    def score(self, bundle):
-        return TaskResult(measurements={"ok": Measurement(True, "", reproducibility_class="deterministic")})
 
 
 def test_a_well_formed_spec_validates():

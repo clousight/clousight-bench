@@ -14,18 +14,13 @@ end-to-end without any cloud account.
 
 from __future__ import annotations
 
-from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter
 from clousight_bench.domains.data_warehouse.adapters.duckdb_local import DuckDbLocalAdapter
 
 
 class DataWarehouseDomain(DomainPack):
     domain = "data-warehouse"
     description = "OLAP SQL analytics engines: star-schema query execution, planning, throughput."
-
-    def tasks(self) -> dict[str, type[Task]]:
-        # Suite-first: recognized benchmarks (TPC-DS ...) drive this domain via
-        # the benchmark_suite / evaluator contract. No dimensions ship here.
-        return {}
 
     def adapters(self) -> dict[str, type[ProviderAdapter]]:
         return {DuckDbLocalAdapter.name: DuckDbLocalAdapter}

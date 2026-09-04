@@ -46,7 +46,6 @@ from clousight_bench.core.plugin import (
     ResourceReaper,
     ResultEnricher,
     RuntimeProviderPlugin,
-    Task,
 )
 from clousight_bench.core.record import Provenance
 from clousight_bench.core.registry import (
@@ -118,7 +117,6 @@ __all__ = [
     "utc_now",
     # domain / adapter contracts
     "DomainPack",
-    "Task",
     "ProviderAdapter",
     "ProvisionedCloudAdapter",
     "ResultEnricher",

@@ -112,7 +112,8 @@ def test_series_externalized_to_parquet_and_queryable(tmp_path):
     )
     parquet = tmp_path / "agent-runtime" / "local-sim" / "run-x" / "series.parquet"
     assert parquet.exists()
-    record_json = json.loads((tmp_path / "agent-runtime" / "local-sim" / "suite:stub.ok-run-x.json").read_text())
+    record_path = tmp_path / "agent-runtime" / "local-sim" / "suite:stub.ok-run-x.json"
+    record_json = json.loads(record_path.read_text())
     assert record_json["series"]["$parquet"] == ("agent-runtime/local-sim/run-x/series.parquet")
     assert record_json["series"]["rows"] == 2
     assert record_json["series"]["sha256"].startswith("sha256:")
@@ -138,7 +139,8 @@ def test_series_inline_when_store_unavailable(tmp_path, monkeypatch):
 
     monkeypatch.setattr(store_mod, "STORE_AVAILABLE", False)
     store_mod.ResultStore(tmp_path).persist(_rec(series={"latency_ms": [[1, 10.0]]}))
-    record_json = json.loads((tmp_path / "agent-runtime" / "local-sim" / "suite:stub.ok-run-x.json").read_text())
+    record_path = tmp_path / "agent-runtime" / "local-sim" / "suite:stub.ok-run-x.json"
+    record_json = json.loads(record_path.read_text())
     assert record_json["series"] == {"latency_ms": [[1, 10.0]]}
 
 

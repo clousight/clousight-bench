@@ -12,7 +12,6 @@ from typing import Any
 
 from clousight_bench.core.canonical import CanonicalJSONError, canonical_json
 from clousight_bench.core.errors import UserInputError
-from clousight_bench.core.plugin import Task
 from clousight_bench.core.redaction import redact
 from clousight_bench.core.schema import RunSpec
 
@@ -35,7 +34,7 @@ def _require_encodable(label: str, value: Mapping[str, Any]) -> None:
         raise InvalidRunSpecError(f"{label} is not canonically encodable: {exc}") from exc
 
 
-def validate_run_spec(spec: RunSpec, task: Task) -> dict[str, Any]:
+def validate_run_spec(spec: RunSpec, task: Any) -> dict[str, Any]:
     """Validate a resolved run request without touching external resources.
 
     Returns the task's own validated config so the caller can fingerprint the

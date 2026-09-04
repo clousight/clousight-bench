@@ -125,7 +125,7 @@ class SuiteRunner:
         return self._dataset_handle
 
     # ------------------------------------------------------------------
-    # Task contract
+    # Runner lifecycle (the orchestrator's calling contract)
     # ------------------------------------------------------------------
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:

@@ -36,12 +36,13 @@ def test_list_shows_registered_suites_first(capsys):
 
 
 @pytest.mark.real_registry
-def test_list_empty_domain_explains_instead_of_blank(capsys):
-    """A zero-task domain must say why, not print an empty task list."""
+def test_list_shows_platforms_and_no_task_lines(capsys):
+    """Single rail: list shows each domain's platforms; task lines are gone."""
     rc = main(["list"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert "(none — runs arrive as suite:<id> jobs)" in out
+    assert "platforms :" in out
+    assert "  tasks" not in out
 
 
 def test_run_unknown_task_returns_usage_error_without_traceback(capsys):
