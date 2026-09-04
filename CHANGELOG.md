@@ -23,6 +23,13 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
   `core.analytics` → `ops.analytics` (CLI commands unchanged);
   `iter_verified_records` moved to `core.store`. ops imports core, never the reverse.
 
+### Changed
+
+- **Positioning**: README + docs index (EN/zh) restate the project as **an eval tool
+  for cloud computing** — five product categories, three legs (recognized-suite
+  verdicts / cloud dimensions / provenance). Stale `bigdata-emr` mention removed from
+  the wordcount workload manifest (the dead domain itself was never registered).
+
 ### Added
 
 - **TPC-H official mode (`QphH@Size`)**: the `tpc-h` suite gains `params.mode:
