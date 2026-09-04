@@ -17,7 +17,7 @@ cloud dimensions; we do NOT subjectively judge output quality.
 
 from __future__ import annotations
 
-from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter
 from clousight_bench.domains.llm.adapters.openai_compatible import (
     LlmEndpointAdapter,
     LlmMockAdapter,
@@ -27,11 +27,6 @@ from clousight_bench.domains.llm.adapters.openai_compatible import (
 class LlmDomain(DomainPack):
     domain = "llm"
     description = "Managed LLM endpoints: recognized-benchmark accuracy + serving latency/cost."
-
-    def tasks(self) -> dict[str, type[Task]]:
-        # Suite-first: recognized LLM benchmarks (MMLU …) drive this domain via
-        # the benchmark_suite / evaluator contract. No dimensions ship here.
-        return {}
 
     def adapters(self) -> dict[str, type[ProviderAdapter]]:
         return {

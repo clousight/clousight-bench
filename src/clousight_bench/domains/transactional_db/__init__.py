@@ -14,7 +14,7 @@ database). Cloud-managed RDBMS backends attach later on the same seam.
 
 from __future__ import annotations
 
-from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter
 from clousight_bench.domains.transactional_db.adapters.benchbase import (
     BenchbaseLocalAdapter,
     JdbcEndpointAdapter,
@@ -24,11 +24,6 @@ from clousight_bench.domains.transactional_db.adapters.benchbase import (
 class TransactionalDbDomain(DomainPack):
     domain = "transactional-db"
     description = "Transactional (OLTP) databases: high-concurrency transaction throughput and tail latency."
-
-    def tasks(self) -> dict[str, type[Task]]:
-        # Suite-first: recognized benchmarks (TPC-C) drive this domain via the
-        # benchmark_suite / evaluator contract. No dimensions ship here.
-        return {}
 
     def adapters(self) -> dict[str, type[ProviderAdapter]]:
         return {

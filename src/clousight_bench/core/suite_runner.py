@@ -1,9 +1,10 @@
-"""SuiteTask: wraps a BenchmarkSuite + Evaluator into the Task plugin shape.
+"""SuiteRunner: drives a BenchmarkSuite + Evaluator through the stage machine.
 
-A SuiteTask is the thin glue between the benchmark-suite contract and
-the orchestrator's stage machine.  It delegates the three Task lifecycle methods
-to the suite/evaluator pair and exposes a ``provenance()`` method so the
-orchestrator can thread the credibility chain into the benchmark fingerprint and
+The internal runner behind every benchmark run — NOT a plugin contract. Plugin
+authors implement :class:`BenchmarkSuite` / :class:`Evaluator` (and optionally
+``Metric``); the orchestrator wraps the pair in a SuiteRunner, which owns
+observation packing (``execute``), pure scoring (``score``), and the
+``provenance()`` credibility chain threaded into the benchmark fingerprint and
 the persisted ResultRecord.
 """
 
@@ -17,7 +18,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clousight_bench.core.observation import ObservationBundle, TaskResult
-from clousight_bench.core.plugin import Task
 from clousight_bench.core.record import Provenance
 from clousight_bench.core.suite import (
     DriverContext,
@@ -32,8 +32,8 @@ if TYPE_CHECKING:
     from clousight_bench.core.suite import BenchmarkSuite, DatasetHandle, Evaluator
 
 
-class SuiteTask(Task):
-    """Task adapter that wraps a ``BenchmarkSuite`` and an ``Evaluator``.
+class SuiteRunner:
+    """Internal runner that wraps a ``BenchmarkSuite`` and an ``Evaluator``.
 
     ``mock=True`` (the default): ``execute`` calls ``suite.mock_artifacts``
     instead of the real prepare/run chain.  This lets tests exercise
@@ -61,6 +61,12 @@ class SuiteTask(Task):
     # stays "0" until an evaluator versions its scoring logic.
     task_revision: str = "0"
     scorer_revision: str = "0"
+    title: str = ""
+    # Abstract capability tokens / taxonomy tags; __init__ forwards the suite's
+    # declarations (empty when a suite declares none). Preflight maps
+    # required_permissions to each cloud's concrete minimal permissions.
+    required_permissions: tuple[str, ...] = ()
+    capability_tags: tuple[str, ...] = ()
 
     def __init__(
         self,
@@ -81,6 +87,8 @@ class SuiteTask(Task):
         self._artifacts_root: Path | None = artifacts_root
         # Lazy cached DatasetHandle — populated on first call to _dataset().
         self._dataset_handle: DatasetHandle | None = None
+        self.required_permissions = tuple(getattr(suite, "required_permissions", ()) or ())
+        self.capability_tags = tuple(getattr(suite, "capability_tags", ()) or ())
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -103,7 +111,7 @@ class SuiteTask(Task):
         """Return the resolved DatasetHandle, computing it at most once.
 
         Uses constructor params only (not call-time params) so the digest is
-        stable across the lifetime of this SuiteTask.  The bridge passes
+        stable across the lifetime of this SuiteRunner.  The bridge passes
         spec.params into the constructor, so in the real path constructor and
         call-time params are the same dict; fingerprint stability requires the
         digest not to change if the caller later supplies extra call-time params.
@@ -117,7 +125,7 @@ class SuiteTask(Task):
         return self._dataset_handle
 
     # ------------------------------------------------------------------
-    # Task contract
+    # Runner lifecycle (the orchestrator's calling contract)
     # ------------------------------------------------------------------
 
     def config(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -230,6 +238,19 @@ class SuiteTask(Task):
             self._evaluator, raw, suite_id=self._suite.suite_id, params=self._params
         )
         return TaskResult(measurements=measurements, items=items)
+
+    def environment_facts(
+        self,
+        adapter: ProviderAdapter | None,  # noqa: ARG002
+        params: dict[str, Any],  # noqa: ARG002
+    ) -> dict[str, Any]:
+        """Non-sensitive environment facts folded into the environment fingerprint.
+
+        Suites carry environment identity in their artifacts (e.g. engine
+        versions), so the runner declares none. Never a credential, hostname,
+        username or raw environment variable.
+        """
+        return {}
 
     # ------------------------------------------------------------------
     # Provenance

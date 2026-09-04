@@ -12,7 +12,7 @@ def test_list_verbose_shows_task_and_adapter_status(capsys):
     out = capsys.readouterr().out
 
     assert rc == 0
-    assert "stub.ok" in out
+    assert "suite:stub.ok" in out
     # Suite-first pivot: stub.ok is now the stub task; title check removed.
     assert "local-sim" in out and "reference" in out
     assert "aliyun-agentrun" in out and "experimental" in out
@@ -36,12 +36,13 @@ def test_list_shows_registered_suites_first(capsys):
 
 
 @pytest.mark.real_registry
-def test_list_empty_domain_explains_instead_of_blank(capsys):
-    """A zero-task domain must say why, not print an empty task list."""
+def test_list_shows_platforms_and_no_task_lines(capsys):
+    """Single rail: list shows each domain's platforms; task lines are gone."""
     rc = main(["list"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert "(none — runs arrive as suite:<id> jobs)" in out
+    assert "platforms :" in out
+    assert "  tasks" not in out
 
 
 def test_run_unknown_task_returns_usage_error_without_traceback(capsys):
@@ -63,7 +64,7 @@ def test_run_skeleton_returns_usage_error(capsys):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "huawei-agentarts",
             "--skip-preflight",
@@ -82,7 +83,7 @@ def test_run_missing_config_returns_usage_error(capsys):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--config",
@@ -106,7 +107,7 @@ def test_run_rejects_non_mapping_config_roots(tmp_path, capsys, content):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--config",
@@ -173,7 +174,7 @@ def test_doctor_skeleton_warns_but_still_runs_preflight(capsys):
             "--platform",
             "huawei-agentarts",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
         ]
     )
     captured = capsys.readouterr()
@@ -238,7 +239,7 @@ def test_run_rejects_a_directory_config_with_usage_error(tmp_path, capsys):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--config",
@@ -293,7 +294,7 @@ def test_run_benchmark_and_task_together_is_usage_error(capsys):
             "--benchmark",
             "swe-bench",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
         ]

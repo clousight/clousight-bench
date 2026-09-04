@@ -22,7 +22,7 @@ from clousight_bench.core.schema import RunSpec
 
 _SPEC = RunSpec(
     "agent-runtime",
-    "stub.ok",
+    "suite:stub.ok",
     "local-sim",
     target={"recovery": {"mode": "auto-retry"}},
 )
@@ -48,7 +48,7 @@ def _persisted(tmp_path, record):
 
 
 def _record_path(tmp_path, record):
-    return tmp_path / "agent-runtime" / "local-sim" / f"stub.ok-{record.run.run_id}.json"
+    return tmp_path / "agent-runtime" / "local-sim" / f"suite:stub.ok-{record.run.run_id}.json"
 
 
 def _receipts(tmp_path):

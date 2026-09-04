@@ -66,7 +66,7 @@ from clousight_bench.core.observation import (
     collect,
     validate_observation_bundle,
 )
-from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter
 from clousight_bench.core.publish import (
     ResultPublisher,
 )
@@ -92,7 +92,7 @@ from clousight_bench.core.stage_support import log_traceback as _log_traceback
 from clousight_bench.core.stage_support import scrubbed as _scrubbed
 from clousight_bench.core.stage_support import stage_error as _stage_error
 from clousight_bench.core.store import ResultStore
-from clousight_bench.core.suite_task import SuiteTask
+from clousight_bench.core.suite_runner import SuiteRunner
 from clousight_bench.core.tracing import build_run_trace, export_trace, new_trace_id
 from clousight_bench.core.validation import validate_run_spec
 
@@ -531,8 +531,8 @@ def _is_benchmark_task_id(task_id: str) -> bool:
     return task_id.startswith(_BENCHMARK_KIND_PREFIX)
 
 
-def _resolve_benchmark(spec: RunSpec, results_dir: Path | None) -> Task:
-    """Resolve a ``suite:<id>`` task_id to a runnable SuiteTask via the
+def _resolve_benchmark(spec: RunSpec, results_dir: Path | None) -> SuiteRunner:
+    """Resolve a ``suite:<id>`` task_id to a runnable SuiteRunner via the
     benchmark-suite + evaluator registries."""
     from clousight_bench.core.registry import load_benchmark_suites, load_evaluators
 
@@ -556,40 +556,29 @@ def _resolve_benchmark(spec: RunSpec, results_dir: Path | None) -> Task:
     evaluator = sorted(candidates, key=lambda e: (not e.official, e.evaluator_id))[0]
     mock = str(spec.target.get("mode", "mock")) == "mock"
     artifacts_root = (Path(results_dir) / "artifacts") if results_dir is not None else None
-    return SuiteTask(suite, evaluator, mock=mock, params=dict(spec.params), artifacts_root=artifacts_root)
-
-
-def _resolve_native_task(pack: DomainPack, spec: RunSpec) -> Task:
-    """Resolve a bare task_id against the domain's internal native tasks.
-
-    Native tasks are an internal execution contract (no domain ships them since
-    the suite-first pivot); the public way to add a benchmark is a BenchmarkSuite.
-    """
-    task_classes = pack.tasks()
-    if spec.task_id not in task_classes:
-        raise UnknownTaskError(f"task {spec.task_id!r} not in domain {spec.domain!r}: {sorted(task_classes)}")
-    return task_classes[spec.task_id]()
+    return SuiteRunner(suite, evaluator, mock=mock, params=dict(spec.params), artifacts_root=artifacts_root)
 
 
 def _resolve(
     spec: RunSpec,
     results_dir: Path | None = None,
-) -> tuple[DomainPack, Task, type[ProviderAdapter]]:
-    """Resolve a RunSpec to (DomainPack, Task, adapter_cls).
+) -> tuple[DomainPack, SuiteRunner, type[ProviderAdapter]]:
+    """Resolve a RunSpec to (DomainPack, SuiteRunner, adapter_cls).
 
-    ``results_dir`` is forwarded to SuiteTask as ``artifacts_root=results_dir/artifacts``
+    ``results_dir`` is forwarded to SuiteRunner as ``artifacts_root=results_dir/artifacts``
     so that all suite artifacts are staged under the run's results directory and persisted
     records contain only relative paths (no absolute temp paths).
     """
     pack = get_domain(spec.domain)
 
-    # A benchmark is the public unit: a ``suite:<id>``-kinded task_id resolves
+    # A benchmark is the public unit: task_ids are ``suite:<id>``, resolved
     # against the benchmark-suite registry (the one documented way to add a
-    # benchmark). A bare id resolves against the domain's internal native tasks.
-    if _is_benchmark_task_id(spec.task_id):
-        task: Task = _resolve_benchmark(spec, results_dir)
-    else:
-        task = _resolve_native_task(pack, spec)
+    # benchmark). Bare ids have no rail any more — fail with the suite form.
+    if not _is_benchmark_task_id(spec.task_id):
+        raise UnknownTaskError(
+            f"unknown benchmark {spec.task_id!r}: benchmarks run as 'suite:<id>' — see csbench list"
+        )
+    task = _resolve_benchmark(spec, results_dir)
 
     # --- Shared adapter lookup + instance-level runnability gate ---
     adapter_classes = pack.adapters()
@@ -619,7 +608,7 @@ def _resolve(
 def _prepare(
     spec: RunSpec,
     pack: DomainPack,
-    task: Task,
+    task: SuiteRunner,
     adapter_cls: type[ProviderAdapter],
     config: dict[str, Any],
     results_dir: Path,
@@ -719,7 +708,7 @@ def _prepare(
 def _complete_environment(
     prepared: _Prepared,
     spec: RunSpec,
-    task: Task,
+    task: SuiteRunner,
     results_dir: Path,
     run_id: str,
     debug: bool,
@@ -745,7 +734,7 @@ def _complete_environment(
 
 def _preflight(
     adapter: ProviderAdapter,
-    task: Task,
+    task: SuiteRunner,
     run_id: str,
     results_dir: Path,
     debug: bool,

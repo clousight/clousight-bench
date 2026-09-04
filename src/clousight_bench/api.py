@@ -5,10 +5,17 @@ Import the plugin contracts and data model from here (or from the top-level
 layout is internal and may move; this facade is what the plugin-API version
 (``clousight_bench.PLUGIN_API_VERSION``) governs.
 
-Add a benchmark: implement a :class:`BenchmarkSuite` + :class:`Evaluator`
-(optionally :class:`Metric` / a judge :class:`JudgeProvider`), register them under
-the ``clousight_bench.benchmark_suites`` / ``.evaluators`` (/ ``.metrics`` /
-``.judges``) entry-point groups, and run with ``csbench run --benchmark <id>``.
+Three layers, in the order most users need them:
+
+1. **Eval** (add/score a benchmark): :class:`BenchmarkSuite` + :class:`Evaluator`
+   (optionally :class:`Metric`; a :class:`JudgeProvider` is an implementation
+   detail a Metric may use). Register under ``clousight_bench.benchmark_suites``
+   / ``.evaluators`` (/ ``.metrics`` / ``.judges``) and run with
+   ``csbench run --benchmark <id>``.
+2. **Cloud lifecycle** (connect a SUT): :class:`DomainPack` +
+   :class:`ProviderAdapter` (+ provider/reaper/enricher hooks).
+3. **Campaign ops** (optional): ``clousight_bench.ops`` — run-plans and
+   cross-record analytics over the single-run core.
 
     from clousight_bench.api import BenchmarkSuite, Evaluator, Measurement, ItemResult
 """
@@ -46,7 +53,6 @@ from clousight_bench.core.plugin import (
     ResourceReaper,
     ResultEnricher,
     RuntimeProviderPlugin,
-    Task,
 )
 from clousight_bench.core.record import Provenance
 from clousight_bench.core.registry import (
@@ -101,7 +107,8 @@ __all__ = [
     "JudgeError",
     "judge_emit",
     "CachingJudge",
-    # data model
+    # data model (ObservationBundle/TaskResult are the record's evidence
+    # containers — produced by the internal runner, not implemented by plugins)
     "Measurement",
     "Finding",
     "ItemResult",
@@ -116,9 +123,8 @@ __all__ = [
     "Provenance",
     "new_run_id",
     "utc_now",
-    # domain / adapter contracts
+    # cloud-lifecycle contracts (layer 2)
     "DomainPack",
-    "Task",
     "ProviderAdapter",
     "ProvisionedCloudAdapter",
     "ResultEnricher",

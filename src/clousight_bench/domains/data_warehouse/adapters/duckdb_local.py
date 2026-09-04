@@ -18,7 +18,9 @@ cleanly without the ``[tpcds]`` extra installed.
 
 from __future__ import annotations
 
-from clousight_bench.core.plugin import ProviderAdapter, Task
+from typing import Any
+
+from clousight_bench.core.plugin import ProviderAdapter
 
 
 class DuckDbLocalAdapter(ProviderAdapter):
@@ -38,7 +40,7 @@ class DuckDbLocalAdapter(ProviderAdapter):
     def teardown(self) -> None:
         """Nothing to release. No-op."""
 
-    def preflight(self, task: Task | None = None) -> object:
+    def preflight(self, task: Any | None = None) -> object:
         """Check the local engine is usable BEFORE a run.
 
         No cloud credentials are involved, so we do NOT call the default

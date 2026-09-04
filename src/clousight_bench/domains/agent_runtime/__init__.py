@@ -14,7 +14,7 @@ intact for the SWE-bench pilot.
 
 from __future__ import annotations
 
-from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+from clousight_bench.core.plugin import DomainPack, ProviderAdapter
 from clousight_bench.domains.agent_runtime.adapters.aws_clouds import AwsAgentCoreAdapter
 from clousight_bench.domains.agent_runtime.adapters.cn_clouds import (
     AliyunAgentRunAdapter,
@@ -27,12 +27,6 @@ from clousight_bench.domains.agent_runtime.adapters.local_sim import LocalSimAda
 class AgentRuntimeDomain(DomainPack):
     domain = "agent-runtime"
     description = "Managed agent runtime platforms: sessions, tool calling, recovery, observability."
-
-    def tasks(self) -> dict[str, type[Task]]:
-        # Suite-first pivot: the 27 self-designed T-code dimensions were retired.
-        # Suite-driven jobs (Sub-project B) will populate this via the
-        # benchmark_suite / evaluator contract. No dimensions ship here today.
-        return {}
 
     def adapters(self) -> dict[str, type[ProviderAdapter]]:
         return {

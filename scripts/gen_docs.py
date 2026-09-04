@@ -64,18 +64,20 @@ def _plural(n: int, noun: str) -> str:
 def render_inventory(payload: dict) -> str:
     """Render the inventory payload to the markdown that lives between markers.
 
-    Deterministic: domains come sorted from :func:`inventory`, tasks are
-    natural-sorted here, adapters keep the payload's sorted order.
+    Deterministic: suites and domains come sorted from :func:`inventory`,
+    adapters keep the payload's sorted order.
     """
     lines: list[str] = [_DO_NOT_EDIT, ""]
+    suites = payload.get("suites", [])
+    lines.append(f"### Benchmarks — {_plural(len(suites), 'suite')}")
+    lines.append("")
+    lines.append("| Benchmark | Version |")
+    lines.append("|---|---|")
+    for su in suites:
+        lines.append(f"| `suite:{su['suite_id']}` | {su['suite_version']} |")
+    lines.append("")
     for domain in payload["domains"]:
-        tasks = sorted(domain["tasks"], key=lambda t: _task_sort_key(t["task_id"]))
-        lines.append(f"### `{domain['domain']}` — {_plural(len(tasks), 'task')}")
-        lines.append("")
-        lines.append("| Task | Title | Evidence |")
-        lines.append("|---|---|---|")
-        for t in tasks:
-            lines.append(f"| {t['task_id']} | {t['title']} | {t['evidence_layer']} |")
+        lines.append(f"### `{domain['domain']}`")
         lines.append("")
         platforms = domain["platforms"]
         if platforms:

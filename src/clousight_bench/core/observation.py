@@ -1,6 +1,6 @@
-"""The two halves of a Task: raw observations and the scored result.
+"""The two halves of a benchmark run: raw observations and the scored result.
 
-``ObservationBundle`` is what ``Task.execute`` produces: raw, replayable
+``ObservationBundle`` is what the runner's ``execute`` produces: raw, replayable
 evidence with no conclusion in it. ``TaskResult`` is what ``Task.score``
 derives from a bundle, and only ``score`` is allowed to draw conclusions. The
 split is what makes a historical observation re-scorable when a scorer is
@@ -24,7 +24,7 @@ ITEM_SCORE_STATUSES: tuple[str, ...] = ("ok", "fail", "skip", "error")
 
 
 class ObservationError(ValueError):
-    """An observation bundle or scored result violates the Task contract."""
+    """An observation bundle or scored result violates the run contract."""
 
 
 @dataclass
@@ -187,7 +187,7 @@ class ObservationBundle:
 
 @dataclass
 class TaskResult:
-    """What ``Task.score`` derives from an ObservationBundle."""
+    """What the runner's ``score`` derives from an ObservationBundle."""
 
     measurements: dict[str, Measurement] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from clousight_bench.core.analytics import Analytics
+from clousight_bench.ops.analytics import Analytics
 
 
 def test_export_csv(tmp_path, write_record):

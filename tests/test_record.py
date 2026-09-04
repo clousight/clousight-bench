@@ -25,7 +25,7 @@ def _record(**overrides):
         ),
         identity=Identity(
             domain="agent-runtime",
-            task_id="stub.ok",
+            task_id="suite:stub.ok",
             task_revision="2",
             scorer_revision="2",
             adapter="local-sim",

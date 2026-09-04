@@ -13,7 +13,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from clousight_bench.core.fingerprints import record_digest
+from clousight_bench.core.store import iter_verified_records
 
 _COLUMNS: dict[str, list[str]] = {
     "records": [
@@ -66,31 +66,6 @@ _COLUMNS: dict[str, list[str]] = {
         "unit",
     ],
 }
-
-
-def iter_verified_records(results_dir: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
-    """Yield (path, payload) for each result JSON whose record_digest verifies.
-
-    Skips run_plan aggregates (results/aggregates/**), non-dict payloads,
-    unreadable files, and any record whose recomputed digest != stored digest.
-    """
-    root = Path(results_dir)
-    agg = (root / "aggregates").resolve()
-    campaigns = (root / "campaigns").resolve()
-    for record_path in sorted(root.rglob("*.json")):
-        try:
-            resolved = record_path.resolve()
-            if agg in resolved.parents or campaigns in resolved.parents:
-                continue
-            payload = json.loads(record_path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict):
-                continue
-            expected = payload.get("fingerprints", {}).get("record_digest")
-            if not isinstance(expected, str) or record_digest(payload) != expected:
-                continue
-        except (OSError, TypeError, ValueError, json.JSONDecodeError):
-            continue
-        yield record_path, payload
 
 
 def _num_str(value: Any) -> tuple[float | None, str | None]:

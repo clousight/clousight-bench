@@ -50,7 +50,7 @@ def _cmd_rollup(args: argparse.Namespace) -> int:
 
 
 def _cmd_query(args: argparse.Namespace) -> int:
-    from clousight_bench.core.analytics import Analytics
+    from clousight_bench.ops.analytics import Analytics
 
     a = Analytics(Path(args.results))
     if args.table:
@@ -69,7 +69,7 @@ def _cmd_query(args: argparse.Namespace) -> int:
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
-    from clousight_bench.core.analytics import Analytics
+    from clousight_bench.ops.analytics import Analytics
 
     try:
         out = Analytics(Path(args.results)).export(args.table, Path(args.out), fmt=args.format)
@@ -107,7 +107,7 @@ def _print_rows(rows: list[dict], fmt: str) -> None:
 def _cmd_verify(args: argparse.Namespace) -> int:
 
     from clousight_bench.core.fingerprints import record_digest
-    from clousight_bench.core.runplan import AGGREGATES_DIRNAME
+    from clousight_bench.ops.runplan import AGGREGATES_DIRNAME
 
     results_dir = Path(args.results)
     ok = failed = skipped = 0

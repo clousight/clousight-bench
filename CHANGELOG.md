@@ -4,6 +4,25 @@ All notable changes to Clousight Bench are recorded here.
 
 ## [Unreleased]
 
+### Breaking (plugin API 2.0 — eval-core consolidation)
+
+Repositioned as a **cloud-product eval tool**: one benchmark rail, a slimmer
+core, and the campaign layer quarantined as an optional package. `PLUGIN_API_VERSION`
+is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message.
+
+- **`Task` and `SuiteTask` removed.** The `BenchmarkSuite` + `Evaluator` pair is
+  the only benchmark contract (it already was in practice — zero native Tasks
+  shipped since the suite-first pivot). The internal runner is `core/suite_runner.py::
+  SuiteRunner` (not exported, not a plugin contract). `ObservationBundle`/`TaskResult`
+  remain exported as the record's evidence containers; record **schema 0.4 unchanged**.
+- **`DomainPack.tasks()` removed** — a domain declares adapters + vocabulary only.
+  Bare (non-`suite:`) task_ids no longer resolve; `csbench list`/`doctor`/
+  `conformance` drop their native-task surfaces, and the `list --json` inventory
+  schema bumps to `list/2.0` (top-level `suites`, domains carry `platforms` only).
+- **Campaign layer moved to `clousight_bench.ops`**: `core.runplan` → `ops.runplan`,
+  `core.analytics` → `ops.analytics` (CLI commands unchanged);
+  `iter_verified_records` moved to `core.store`. ops imports core, never the reverse.
+
 ### Added
 
 - **TPC-H official mode (`QphH@Size`)**: the `tpc-h` suite gains `params.mode:

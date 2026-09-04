@@ -68,16 +68,8 @@ def _cmd_list(args: argparse.Namespace) -> int:
         if pack.description:
             print(f"  {pack.description}")
         if not args.verbose:
-            task_ids = sorted(pack.tasks())
-            tasks_line = ", ".join(task_ids) if task_ids else "(none — runs arrive as suite:<id> jobs)"
-            print(f"  tasks     : {tasks_line}")
             print(f"  platforms : {', '.join(sorted(pack.adapters()))}")
             continue
-        print("  tasks:")
-        for task_id, task_cls in sorted(pack.tasks().items()):
-            tags = ", ".join(task_cls.capability_tags) or "—"
-            print(f"    {task_id:<8} {task_cls.title}")
-            print(f"             tags: {tags}")
         print("  platforms:")
         for platform, adapter_cls in sorted(pack.adapters().items()):
             provider = adapter_cls.provider or "local"
@@ -194,12 +186,28 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         adapter = adapter_cls(target)
         task = None
         if args.task:
-            task_classes = pack.tasks()
-            if args.task not in task_classes:
-                raise UnknownTaskError(
-                    f"task {args.task!r} not in domain {args.domain!r}: {sorted(task_classes)}"
+            if args.task.startswith("suite:"):
+                # Benchmarks are the public unit: resolve the suite and hand
+                # preflight its declared permission tokens.
+                from types import SimpleNamespace
+
+                from clousight_bench.core.registry import load_benchmark_suites
+
+                suite_id = args.task.removeprefix("suite:")
+                suites = load_benchmark_suites()
+                if suite_id not in suites:
+                    raise UnknownTaskError(
+                        f"suite {suite_id!r} is not a registered benchmark suite: {sorted(suites)}"
+                    )
+                suite = suites[suite_id]
+                task = SimpleNamespace(
+                    task_id=args.task,
+                    required_permissions=tuple(getattr(suite, "required_permissions", ()) or ()),
                 )
-            task = task_classes[args.task]()
+            else:
+                raise UnknownTaskError(
+                    f"unknown benchmark {args.task!r}: benchmarks are addressed as 'suite:<id>'"
+                )
         report = adapter.preflight(task)
         print(report.format())
         return 0 if report.ok else 1

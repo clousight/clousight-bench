@@ -82,7 +82,7 @@ class BenchmarkSuite(ABC):
 
     suite_id: str = "abstract"
     suite_version: str = "0"
-    requires_plugin_api: str = ">=1.0,<2.0"
+    requires_plugin_api: str = ">=2.0,<3.0"
 
     @abstractmethod
     def resolve(self, cfg: dict[str, Any], assets: Any) -> DatasetHandle:
@@ -137,7 +137,7 @@ class Evaluator(ABC):
 
     evaluator_id: str = "abstract"
     official: bool = True
-    requires_plugin_api: str = ">=1.0,<2.0"
+    requires_plugin_api: str = ">=2.0,<3.0"
     # Composable add-on metrics applied over this evaluator's items() at
     # score time, emitted as ``<suite_id>.<metric_id>``. Empty = objective
     # evaluate() only. Bound metric ids must be registered under the
@@ -185,7 +185,7 @@ def evaluate_with_metrics(
     cleanly (mock / conformance / CI never call a judge). NOTE: a run that
     configures a judge does network I/O here and its judge-based measurements are
     not offline-re-scorable — by design (``reproducibility_class="judge-based"``).
-    Shared by SuiteTask.score and the suite conformance command so the namespace
+    Shared by SuiteRunner.score and the suite conformance command so the namespace
     guarantee covers metric outputs too. No items → no add-on metrics.
     """
     params = params or {}

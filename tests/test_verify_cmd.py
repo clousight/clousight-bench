@@ -17,7 +17,7 @@ def _write_record(path: Path, measurements: dict, tamper: bool = False) -> None:
         },
         "identity": {
             "domain": "agent-runtime",
-            "task_id": "stub.alt",
+            "task_id": "suite:stub.alt",
             "adapter": "local-sim",
             "task_revision": "1",
             "scorer_revision": "1",

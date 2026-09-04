@@ -25,8 +25,8 @@ the full field table.
 ## Plugin contracts
 
 The primary public unit is a **benchmark** — a `BenchmarkSuite` + `Evaluator`
-(see [Add a benchmark](/docs/adding-a-suite)). `Task` / `DomainPack.tasks()` is an
-internal execution contract; you do not implement a `Task` to add a benchmark.
+(see [Add a benchmark](/docs/adding-a-suite)). Since plugin API 2.0 the
+suite/evaluator pair is the only benchmark rail (the old `Task` contract is gone).
 
 | Contract | One per | Registered via |
 |---|---|---|

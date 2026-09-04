@@ -14,7 +14,7 @@ _HAS_ALARM = hasattr(signal, "SIGALRM")
 
 
 def _spec():
-    return RunSpec("agent-runtime", "stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
+    return RunSpec("agent-runtime", "suite:stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
 
 @pytest.mark.skipif(not _HAS_ALARM, reason="stage deadline needs SIGALRM")

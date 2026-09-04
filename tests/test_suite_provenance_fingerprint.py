@@ -1,4 +1,4 @@
-"""Tests for provenance threading: SuiteTask provenance flows into benchmark_fingerprint
+"""Tests for provenance threading: SuiteRunner provenance flows into benchmark_fingerprint
 and into the persisted ResultRecord.
 """
 
@@ -36,7 +36,7 @@ def test_populated_provenance_moves_the_benchmark_fingerprint():
 
 
 # ---------------------------------------------------------------------------
-# Orchestrator-level: a SuiteTask run persists provenance.suite_id in the record
+# Orchestrator-level: a SuiteRunner run persists provenance.suite_id in the record
 # and the benchmark fingerprint differs from a plain (empty-provenance) task.
 # ---------------------------------------------------------------------------
 
@@ -154,15 +154,25 @@ def test_orchestrator_provenance_crash_recorded(monkeypatch, tmp_path):
     """A task whose provenance() raises → _prepare records provenance_failed;
     run still produces a completed (or failed) record with the error present."""
     from clousight_bench.core.observation import Measurement, ObservationBundle, TaskResult
-    from clousight_bench.core.plugin import Task
 
-    class _CrashProvenanceTask(Task):
-        task_id = "crash-provenance"
+    class _CrashProvenanceRunner:
+        """Runner-shaped stub whose provenance() raises."""
+
+        task_id = "suite:crash-provenance"
+        title = ""
         task_revision = "0"
         scorer_revision = "0"
+        required_permissions: tuple = ()
+        capability_tags: tuple = ()
 
         def config(self, params):
             return {}
+
+        def environment_facts(self, adapter, params):
+            return {}
+
+        def workload_identity(self, params):
+            return {"workload": "", "workload_version": "", "assets": []}
 
         def provenance(self):
             raise RuntimeError("boom from provenance")
@@ -180,17 +190,15 @@ def test_orchestrator_provenance_crash_recorded(monkeypatch, tmp_path):
     class _CrashDomain(DomainPack):
         domain = "crash-provenance-domain"
 
-        def tasks(self):
-            return {"crash-provenance": _CrashProvenanceTask}
-
         def adapters(self):
             return {"fake": _Adapter}
 
     monkeypatch.setattr("clousight_bench.core.store.STORE_AVAILABLE", False)
     monkeypatch.setattr(orch, "get_domain", lambda name: _CrashDomain())
+    monkeypatch.setattr(orch, "_resolve_benchmark", lambda spec, results_dir: _CrashProvenanceRunner())
 
     rec = orch.execute(
-        RunSpec("crash-provenance-domain", "crash-provenance", "fake"),
+        RunSpec("crash-provenance-domain", "suite:crash-provenance", "fake"),
         results_dir=tmp_path,
         enrich=False,
     )

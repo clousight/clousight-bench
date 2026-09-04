@@ -13,7 +13,7 @@ from clousight_bench.core.schema import RunSpec
 
 
 def _spec():
-    return RunSpec("agent-runtime", "stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
+    return RunSpec("agent-runtime", "suite:stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
 
 def test_interrupt_runs_teardown_and_persists_interrupted_record(tmp_path, monkeypatch):

@@ -52,7 +52,7 @@ def test_budget_would_exceed():
 def test_second_live_run_is_blocked_when_budget_would_be_crossed(tmp_path, monkeypatch):
     monkeypatch.setattr(AliyunAgentRunAdapter, "execution_mode", lambda self: "live")
     target = {"mode": "mock", "cost_budget": 1.5, "estimated_cost_usd": 1.0}
-    spec = RunSpec("agent-runtime", "stub.ok", "aliyun-agentrun", target=target)
+    spec = RunSpec("agent-runtime", "suite:stub.ok", "aliyun-agentrun", target=target)
 
     rec1 = execute(spec, results_dir=tmp_path, preflight=False, allow_live=True)
     assert rec1.status == "completed"  # spent 0 + est 1 < 1.5 -> runs

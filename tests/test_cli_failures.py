@@ -16,7 +16,7 @@ def _run(tmp_path, *extra):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--results",
@@ -75,7 +75,7 @@ def test_stdout_matches_the_persisted_record_byte_for_byte_in_meaning(tmp_path, 
     printed = json.loads(capsys.readouterr().out)
 
     assert rc == 0
-    files = list((tmp_path / "agent-runtime" / "local-sim").glob("stub.ok-*.json"))
+    files = list((tmp_path / "agent-runtime" / "local-sim").glob("suite:stub.ok-*.json"))
     assert len(files) == 1
     on_disk = json.loads(files[0].read_text(encoding="utf-8"))
 
@@ -113,7 +113,8 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
         ObservationBundle,
         TaskResult,
     )
-    from clousight_bench.core.plugin import DomainPack, ProviderAdapter, Task
+    from clousight_bench.core.plugin import DomainPack, ProviderAdapter
+    from clousight_bench.core.record import Provenance
     from clousight_bench.core.store import STORE_AVAILABLE
 
     if not STORE_AVAILABLE:
@@ -123,11 +124,25 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
         name = "fake"
         status = "reference"
 
-    class _Task(Task):
-        task_id = "TS"
+    class _Task:
+        task_id = "suite:TS"
+        title = ""
+        task_revision = "0"
+        scorer_revision = "0"
+        required_permissions: tuple = ()
+        capability_tags: tuple = ()
 
         def config(self, params):
             return {}
+
+        def environment_facts(self, adapter, params):
+            return {}
+
+        def workload_identity(self, params):
+            return {"workload": "", "workload_version": "", "assets": []}
+
+        def provenance(self):
+            return Provenance()
 
         def execute(self, adapter, params):
             return ObservationBundle(series={"latency_ms": [[1, 10.0], [2, 12.5]]})
@@ -142,14 +157,13 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
     class _Domain(DomainPack):
         domain = "fake-domain"
 
-        def tasks(self):
-            return {"TS": _Task}
-
         def adapters(self):
             return {"fake": _Adapter}
 
     original = orch.get_domain
+    original_resolve = orch._resolve_benchmark
     orch.get_domain = lambda name: _Domain()
+    orch._resolve_benchmark = lambda spec, results_dir: _Task()
     try:
         rc = main(
             [
@@ -157,7 +171,7 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
                 "--domain",
                 "fake-domain",
                 "--task",
-                "TS",
+                "suite:TS",
                 "--platform",
                 "fake",
                 "--results",
@@ -167,6 +181,7 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
         )
     finally:
         orch.get_domain = original
+        orch._resolve_benchmark = original_resolve
 
     printed = json.loads(capsys.readouterr().out)
     assert rc == 0
@@ -175,7 +190,7 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
     assert record_digest(printed) == printed["fingerprints"]["record_digest"]
 
     on_disk = json.loads(
-        (tmp_path / "fake-domain" / "fake" / "TS-{}.json".format(printed["run"]["run_id"])).read_text(
+        (tmp_path / "fake-domain" / "fake" / "suite:TS-{}.json".format(printed["run"]["run_id"])).read_text(
             encoding="utf-8"
         )
     )

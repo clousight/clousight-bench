@@ -19,9 +19,6 @@ def _dom(domain_name):
     class _D(DomainPack):
         domain = domain_name
 
-        def tasks(self):
-            return {}
-
         def adapters(self):
             return {}
 
@@ -37,28 +34,18 @@ def test_duplicate_domain_name_rejected(monkeypatch):
     assert "dup" in str(ei.value) and "a" in str(ei.value) and "b" in str(ei.value)
 
 
-def test_intra_domain_task_id_conflict():
-    class _T1:
-        task_id = "T9.9"
+def test_intra_domain_adapter_name_conflict():
+    class _A1:
+        name = "same-name"
 
-        def config(self, p):
-            return {}
-
-        def execute(self, a, p): ...
-
-        def score(self, o): ...
-
-    class _T2(_T1):
+    class _A2(_A1):
         pass
 
     class _D(DomainPack):
         domain = "d"
 
-        def tasks(self):
-            return {"a": _T1, "b": _T2}  # both task_id T9.9
-
         def adapters(self):
-            return {}
+            return {"a": _A1, "b": _A2}  # both adapter name "same-name"
 
     with pytest.raises(DuplicatePluginError):
         check_domain_conflicts(_D())

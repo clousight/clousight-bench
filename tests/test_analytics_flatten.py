@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from clousight_bench.core.analytics import Analytics
 from clousight_bench.core.fingerprints import record_digest
+from clousight_bench.ops.analytics import Analytics
 
 
 def _write(root: Path, run_id="r1"):
@@ -16,7 +16,7 @@ def _write(root: Path, run_id="r1"):
         },
         "identity": {
             "domain": "agent-runtime",
-            "task_id": "stub.ok",
+            "task_id": "suite:stub.ok",
             "adapter": "local-sim",
             "task_revision": "2",
             "scorer_revision": "2",
@@ -50,7 +50,7 @@ def _write(root: Path, run_id="r1"):
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     p = root / "agent-runtime" / "local-sim"
     p.mkdir(parents=True, exist_ok=True)
-    (p / f"stub.ok-{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    (p / f"suite:stub.ok-{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_flatten_records(tmp_path):
@@ -82,7 +82,7 @@ def test_flatten_measurements_official(tmp_path):
     rows = {m["name"]: m for m in Analytics(tmp_path).flatten("measurements")}
     assert rows["cold_start_ms"]["official"] is True  # omitted -> default True
 
-    payload = json.loads((tmp_path / "agent-runtime" / "local-sim" / "stub.ok-r1.json").read_text())
+    payload = json.loads((tmp_path / "agent-runtime" / "local-sim" / "suite:stub.ok-r1.json").read_text())
     payload["run"]["run_id"] = "r2"
     payload["measurements"] = {
         "difficulty_weighted": {
@@ -93,7 +93,7 @@ def test_flatten_measurements_official(tmp_path):
         }
     }
     payload["fingerprints"]["record_digest"] = record_digest(payload)
-    out = tmp_path / "agent-runtime" / "local-sim" / "stub.ok-r2.json"
+    out = tmp_path / "agent-runtime" / "local-sim" / "suite:stub.ok-r2.json"
     out.write_text(json.dumps(payload), encoding="utf-8")
     rows = {m["name"]: m for m in Analytics(tmp_path).flatten("measurements")}
     assert rows["difficulty_weighted"]["official"] is False
@@ -143,7 +143,7 @@ def test_records_expose_execution(tmp_path):
         "run": {"run_id": "re", "stages": {}},
         "identity": {
             "domain": "agent-runtime",
-            "task_id": "stub.alt",
+            "task_id": "suite:stub.alt",
             "adapter": "aliyun-agentrun",
             "task_revision": "1",
             "scorer_revision": "1",

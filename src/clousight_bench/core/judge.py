@@ -67,7 +67,7 @@ class JudgeProvider(ABC):
     """
 
     name: str = "abstract"
-    requires_plugin_api: str = ">=1.0,<2.0"
+    requires_plugin_api: str = ">=2.0,<3.0"
 
     @abstractmethod
     def build(self, config: dict[str, Any]) -> JudgeModel:

@@ -260,7 +260,7 @@ class ResultRecord:
     """One benchmark result in schema 0.4.
 
     ``observations`` holds the raw evidence a re-score would replay. When that
-    evidence is too large to inline, a Task stores an artifact pointer instead
+    evidence is too large to inline, a run stores an artifact pointer instead
     — ``{"trace": {"$artifact": "trace.jsonl"}}`` — where the value names an
     entry in ``artifacts``. Either shape is valid; ``observations`` must never
     be dropped just because the payload is big.

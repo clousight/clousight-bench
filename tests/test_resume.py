@@ -1,13 +1,13 @@
 """Resuming an interrupted campaign reuses completed runs and only re-runs the
 missing/interrupted slots, so a long plan survives an interruption."""
 
-import clousight_bench.core.runplan as rp
-from clousight_bench.core.runplan import RunPlan, execute_plan
+import clousight_bench.ops.runplan as rp
 from clousight_bench.core.schema import RunSpec
+from clousight_bench.ops.runplan import RunPlan, execute_plan
 
 
 def _spec():
-    return RunSpec("agent-runtime", "stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
+    return RunSpec("agent-runtime", "suite:stub.ok", "local-sim", target={"recovery": {"mode": "auto-retry"}})
 
 
 def _count_executes(monkeypatch) -> dict[str, int]:
@@ -46,7 +46,7 @@ def test_resume_runs_only_missing_slots(tmp_path, monkeypatch):
 def test_resume_requires_a_plan_id(tmp_path):
     import pytest
 
-    from clousight_bench.core.runplan import RunPlanError
+    from clousight_bench.ops.runplan import RunPlanError
 
     with pytest.raises(RunPlanError, match="resume needs the plan_id"):
         execute_plan(RunPlan(_spec(), repeat=1), results_dir=tmp_path, resume=True)

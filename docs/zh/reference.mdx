@@ -19,10 +19,9 @@ description: 核心数据结果契约与插件扩展入口点（entry point）�
 |---|---|---|
 | `DomainPack` | 产品类别（领域） | `clousight_bench.domains` |
 | `ProviderAdapter` | （领域，云平台）适配器 | 在对应领域包内注册 |
-| `Task` | 测评维度（任务） | 在对应领域包内注册 |
 | `WorkloadEngine` | 负载引擎 | `manifest.yaml` + 可执行文件 |
 
-`Task` 需实现 `config()`（受控输入）、`execute()`（仅采集原始观测值）、`score()`（对采集包做纯函数评分），并携带 `task_revision` / `scorer_revision`。
+自插件 API 2.0 起,新增基准只有一条轨道:实现 `BenchmarkSuite` + `Evaluator` 并注册对应入口点(旧的内部 `Task` 契约已删除)。
 
 ## 入口点（Entry Points）
 

@@ -51,7 +51,7 @@ def _check_api_version(ep: object, obj: object) -> None:
     """Reject a plugin whose declared plugin-API range excludes this core."""
     from clousight_bench import PLUGIN_API_VERSION
 
-    rng = getattr(obj, "requires_plugin_api", ">=1.0,<2.0")
+    rng = getattr(obj, "requires_plugin_api", ">=2.0,<3.0")
     if not range_contains(rng, PLUGIN_API_VERSION):
         dist = getattr(getattr(ep, "dist", None), "name", None)
         where = f" from {dist}" if dist else ""
@@ -64,16 +64,7 @@ def _check_api_version(ep: object, obj: object) -> None:
 
 
 def check_domain_conflicts(pack: DomainPack) -> None:
-    """Reject a domain whose task_ids or adapter names collide."""
-    task_ids: dict[str, str] = {}
-    for key, task_cls in pack.tasks().items():
-        tid = getattr(task_cls, "task_id", key)
-        if tid in task_ids:
-            raise DuplicatePluginError(
-                f"domain {pack.domain!r}: task_id {tid!r} is claimed by both "
-                f"{task_ids[tid]} and {task_cls.__name__}"
-            )
-        task_ids[tid] = task_cls.__name__
+    """Reject a domain whose adapter names collide."""
     names: dict[str, str] = {}
     for key, ad_cls in pack.adapters().items():
         nm = getattr(ad_cls, "name", key)

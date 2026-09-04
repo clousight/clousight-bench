@@ -4,7 +4,7 @@ run is byte-for-byte unchanged."""
 import json
 
 from clousight_bench.cli import main
-from clousight_bench.core.runplan import AGGREGATES_DIRNAME
+from clousight_bench.ops.runplan import AGGREGATES_DIRNAME
 
 
 def _run(argv):
@@ -18,7 +18,7 @@ def test_a_plain_run_still_prints_one_record(tmp_path, capsys):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--results",
@@ -38,7 +38,7 @@ def test_repeat_prints_an_aggregate_and_persists_it(tmp_path, capsys):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--results",
@@ -66,7 +66,7 @@ def test_a_bad_repeat_is_a_user_input_error(tmp_path, capsys):
             "--domain",
             "agent-runtime",
             "--task",
-            "stub.ok",
+            "suite:stub.ok",
             "--platform",
             "local-sim",
             "--results",

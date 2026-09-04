@@ -1,6 +1,6 @@
 import pytest
 
-from clousight_bench.core.analytics import Analytics
+from clousight_bench.ops.analytics import Analytics
 
 pytest.importorskip("duckdb")
 

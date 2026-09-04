@@ -1,77 +1,137 @@
 import importlib.util
 import json
+import tempfile
 from pathlib import Path
 
 import pytest
 
+from clousight_bench.core.canonical import sha256_bytes
 from clousight_bench.core.fingerprints import record_digest
-from clousight_bench.core.observation import Measurement, ObservationBundle, TaskResult
-from clousight_bench.core.plugin import Task
+from clousight_bench.core.observation import Measurement
+from clousight_bench.core.suite import (
+    BenchmarkSuite,
+    DatasetHandle,
+    EnvHandle,
+    Evaluator,
+    RawArtifacts,
+)
 
 
-class _StubTask(Task):
-    """Minimal concrete Task used to drive orchestrator-level machinery tests.
+def stub_artifacts() -> RawArtifacts:
+    """A fresh one-file artifact dir (the runner stages then removes it)."""
+    d = Path(tempfile.mkdtemp(prefix="csbench-stub-"))
+    body = json.dumps({"ok": True}).encode()
+    (d / "result.json").write_bytes(body)
+    return RawArtifacts(
+        dir=d,
+        manifest={"result": {"path": "result.json", "sha256": sha256_bytes(body), "rows": None}},
+    )
 
-    Tests that exercise generic orchestrator behaviour (lifecycle, tracing,
-    runplan, timeout, …) register this stub as "stub.ok" (and "stub.alt").
-    The stub produces a single "ok" measurement, which is sufficient for
-    infra assertions.
+
+def make_stub_suite(suite_id: str = "stub.ok", *, run_hook=None, **attrs) -> type[BenchmarkSuite]:
+    """Build a stub BenchmarkSuite class driving orchestrator machinery tests.
+
+    ``run_hook(target, env, driver)`` runs on the REAL ``run()`` path before the
+    artifacts are produced (the mock path never calls it) — the seam for tests
+    that need a mid-run failure or an adapter interaction. Extra ``attrs`` land
+    as class attributes (e.g. ``required_permissions``).
     """
 
-    task_id = "stub.ok"
-    title = "stub task (suite-first pivot)"
-    task_revision = "0"
-    scorer_revision = "0"
-    requires_mock_server = False
+    class _Stub(BenchmarkSuite):
+        suite_version = "0"
 
-    def config(self, params):
-        return {"params": dict(params)}
+        def resolve(self, cfg, assets):  # noqa: ARG002
+            return DatasetHandle(version="0", digest="sha256:stub", payload={})
 
-    def execute(self, adapter, params):
-        return ObservationBundle(observations={"ok": True})
+        def prepare(self, target, dataset, driver):  # noqa: ARG002
+            return EnvHandle({})
 
-    def score(self, bundle):
-        return TaskResult(measurements={"ok": Measurement(True, "", reproducibility_class="deterministic")})
+        def run(self, target, env, driver):
+            if run_hook is not None:
+                run_hook(target, env, driver)
+            return stub_artifacts()
+
+        def teardown(self, env):  # noqa: ARG002
+            return None
+
+        def mock_artifacts(self, cfg):  # noqa: ARG002
+            return stub_artifacts()
+
+    _Stub.suite_id = suite_id
+    for key, value in attrs.items():
+        setattr(_Stub, key, value)
+    _Stub.__name__ = f"_StubSuite_{suite_id.replace('.', '_')}"
+    return _Stub
 
 
-class _StubTask11(_StubTask):
-    """A second stub id for tests that need two distinct tasks."""
+class StubEvaluator(Evaluator):
+    """Scores any ``stub.*`` suite's artifacts into one deterministic "ok"."""
 
-    task_id = "stub.alt"
+    evaluator_id = "stub-evaluator"
+    official = True
+
+    def supports(self, suite_id, product):  # noqa: ARG002
+        return suite_id.startswith("stub.")
+
+    def evaluate(self, raw):  # noqa: ARG002
+        return {"ok": Measurement(True, "", reproducibility_class="deterministic")}
 
 
-_STUB_TASKS_SKIP = frozenset(
+_StubSuiteOk = make_stub_suite("stub.ok")
+_StubSuiteAlt = make_stub_suite("stub.alt")
+
+
+def register_stub_suites(monkeypatch, *suite_classes, evaluators=()):
+    """Append stub suites (+ optional extra evaluators) to the real registries.
+
+    The single benchmark rail resolves ``suite:<id>`` through
+    ``registry.load_benchmark_suites`` / ``load_evaluators``; tests that need a
+    bespoke stub (failing run, custom permissions) build one with
+    ``make_stub_suite`` and register it here.
+    """
+    from clousight_bench.core import registry as _reg
+
+    real_suites = _reg.load_benchmark_suites
+    real_evaluators = _reg.load_evaluators
+
+    def _suites():
+        out = real_suites()
+        for cls in suite_classes:
+            out[cls.suite_id] = cls()
+        return out
+
+    def _evaluators():
+        return [*real_evaluators(), StubEvaluator(), *[e() for e in evaluators]]
+
+    monkeypatch.setattr(_reg, "load_benchmark_suites", _suites)
+    monkeypatch.setattr(_reg, "load_evaluators", _evaluators)
+
+
+_STUB_SUITES_SKIP = frozenset(
     [
         # These tests check the PRODUCTION registry (docs and CLI surface) and must
-        # see the real (zero-task) domain, not the stub. The autouse skips them.
+        # see the real suite registry, not the stubs. The autouse skips them.
         "test_docs_inventory",
     ]
 )
 
 
 @pytest.fixture(autouse=True)
-def _inject_stub_tasks(request, monkeypatch):
-    """Register _StubTask as "stub.ok" and "stub.alt" in AgentRuntimeDomain for each test.
+def _inject_stub_suites(request, monkeypatch):
+    """Register the "stub.ok" / "stub.alt" suites (addressed as suite:<id>) for each test.
 
-    Suite-first pivot retired the 27 T-code dimensions; tests that exercise
-    generic orchestrator behaviour (runplan, tracing, timeout, interrupt, …)
-    register these stubs so their RunSpec("agent-runtime", "stub.ok", …) strings
-    stay unchanged. Tests that verify the production registry (docs inventory)
-    are exempted so they see the real zero-task domain.
+    Tests that exercise generic orchestrator behaviour (runplan, tracing,
+    timeout, interrupt, …) address them as ``suite:stub.ok`` / ``suite:stub.alt``
+    on the single benchmark rail. Tests that verify the production registry
+    (docs inventory, ``real_registry`` marker) are exempted.
     """
     module = request.module.__name__.split(".")[-1]
-    if module in _STUB_TASKS_SKIP:
-        return  # don't patch — let the test see the real (empty) domain
+    if module in _STUB_SUITES_SKIP:
+        return  # don't patch — let the test see the real registry
     if request.node.get_closest_marker("real_registry") is not None:
-        return  # per-test opt-out: the test asserts on the real (zero-task) domain
+        return  # per-test opt-out: the test asserts on the real registry
 
-    from clousight_bench.domains.agent_runtime import AgentRuntimeDomain
-
-    monkeypatch.setattr(
-        AgentRuntimeDomain,
-        "tasks",
-        lambda self: {_StubTask.task_id: _StubTask, _StubTask11.task_id: _StubTask11},
-    )
+    register_stub_suites(monkeypatch, _StubSuiteOk, _StubSuiteAlt)
 
 
 # Skip optional-dependency tests when their extra isn't installed. The in-region
@@ -105,7 +165,7 @@ def _write_analytics_record(root: Path, run_id: str = "r1") -> None:
         },
         "identity": {
             "domain": "agent-runtime",
-            "task_id": "stub.ok",
+            "task_id": "suite:stub.ok",
             "adapter": "local-sim",
             "task_revision": "2",
             "scorer_revision": "2",
@@ -139,7 +199,7 @@ def _write_analytics_record(root: Path, run_id: str = "r1") -> None:
     payload["fingerprints"]["record_digest"] = record_digest(payload)
     p = root / "agent-runtime" / "local-sim"
     p.mkdir(parents=True, exist_ok=True)
-    (p / f"stub.ok-{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
+    (p / f"suite:stub.ok-{run_id}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
 @pytest.fixture

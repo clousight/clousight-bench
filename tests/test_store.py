@@ -22,7 +22,7 @@ def _rec(series=None, measurements=None, facts=None) -> ResultRecord:
         run=RunInfo(run_id="run-x", started_at=utc_now(), finished_at=utc_now()),
         identity=Identity(
             domain="agent-runtime",
-            task_id="stub.ok",
+            task_id="suite:stub.ok",
             task_revision="2",
             scorer_revision="2",
             adapter="local-sim",
@@ -42,7 +42,7 @@ def _rec(series=None, measurements=None, facts=None) -> ResultRecord:
 
 def test_persist_keeps_the_domain_adapter_task_run_layout(tmp_path):
     path = ResultStore(tmp_path).persist(_rec())
-    expected = (tmp_path / "agent-runtime" / "local-sim" / "stub.ok-run-x.json").resolve()
+    expected = (tmp_path / "agent-runtime" / "local-sim" / "suite:stub.ok-run-x.json").resolve()
     assert path == expected
     data = json.loads(expected.read_text(encoding="utf-8"))
     assert data["schema_version"] == "0.4"
@@ -61,7 +61,7 @@ def test_persist_stamps_a_record_digest(tmp_path):
 def test_persist_leaves_no_temp_file(tmp_path):
     ResultStore(tmp_path).persist(_rec())
     names = sorted(p.name for p in (tmp_path / "agent-runtime" / "local-sim").iterdir())
-    assert names == ["stub.ok-run-x.json"]
+    assert names == ["suite:stub.ok-run-x.json"]
 
 
 def test_persist_refuses_to_write_an_operator_identity(tmp_path, monkeypatch):
@@ -112,7 +112,8 @@ def test_series_externalized_to_parquet_and_queryable(tmp_path):
     )
     parquet = tmp_path / "agent-runtime" / "local-sim" / "run-x" / "series.parquet"
     assert parquet.exists()
-    record_json = json.loads((tmp_path / "agent-runtime" / "local-sim" / "stub.ok-run-x.json").read_text())
+    record_path = tmp_path / "agent-runtime" / "local-sim" / "suite:stub.ok-run-x.json"
+    record_json = json.loads(record_path.read_text())
     assert record_json["series"]["$parquet"] == ("agent-runtime/local-sim/run-x/series.parquet")
     assert record_json["series"]["rows"] == 2
     assert record_json["series"]["sha256"].startswith("sha256:")
@@ -138,7 +139,8 @@ def test_series_inline_when_store_unavailable(tmp_path, monkeypatch):
 
     monkeypatch.setattr(store_mod, "STORE_AVAILABLE", False)
     store_mod.ResultStore(tmp_path).persist(_rec(series={"latency_ms": [[1, 10.0]]}))
-    record_json = json.loads((tmp_path / "agent-runtime" / "local-sim" / "stub.ok-run-x.json").read_text())
+    record_path = tmp_path / "agent-runtime" / "local-sim" / "suite:stub.ok-run-x.json"
+    record_json = json.loads(record_path.read_text())
     assert record_json["series"] == {"latency_ms": [[1, 10.0]]}
 
 

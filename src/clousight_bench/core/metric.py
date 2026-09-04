@@ -45,7 +45,7 @@ class Metric(ABC):
     # ItemResult field names this metric reads (e.g. ("output",)); items missing
     # any of them are scored ``skip`` rather than crashing the metric.
     required_inputs: tuple[str, ...] = ()
-    requires_plugin_api: str = ">=1.0,<2.0"
+    requires_plugin_api: str = ">=2.0,<3.0"
 
     @abstractmethod
     def score_item(self, item: ItemResult, ctx: MetricContext) -> ItemScore | None:

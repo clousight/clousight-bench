@@ -1,7 +1,7 @@
 """Tests for the suite:<id> bridge in _resolve.
 
 Task 1 of pre-slice2-hardening: a RunSpec with task_id="suite:<suite_id>"
-resolves to a SuiteTask instance via the shared adapter gate, without touching
+resolves to a SuiteRunner instance via the shared adapter gate, without touching
 pack.tasks() at all.
 """
 
@@ -15,7 +15,7 @@ import pytest
 import clousight_bench.core.orchestrator as orch
 from clousight_bench.core.errors import UnknownTaskError
 from clousight_bench.core.schema import RunSpec
-from clousight_bench.core.suite_task import SuiteTask
+from clousight_bench.core.suite_runner import SuiteRunner
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -33,15 +33,15 @@ def _spec(task_id: str = "suite:swe-bench", **kwargs) -> RunSpec:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: basic bridge — resolves to SuiteTask
+# Test 1: basic bridge — resolves to SuiteRunner
 # ---------------------------------------------------------------------------
 
 
 def test_bridge_resolves_suite_task():
-    """_resolve returns (pack, SuiteTask, adapter_cls) for suite:<id> specs."""
+    """_resolve returns (pack, SuiteRunner, adapter_cls) for suite:<id> specs."""
     spec = _spec()
     pack, task, adapter_cls = orch._resolve(spec)
-    assert isinstance(task, SuiteTask), f"expected SuiteTask, got {type(task)}"
+    assert isinstance(task, SuiteRunner), f"expected SuiteRunner, got {type(task)}"
     assert task.task_id == "suite:swe-bench"
     assert task.mock is True
     assert task._params == {}  # white-box: the bridge must store spec.params verbatim
@@ -70,7 +70,7 @@ def test_bridge_explicit_evaluator_valid():
     """params={"evaluator": "official-swe-evaluator"} resolves successfully."""
     spec = _spec(params={"evaluator": "official-swe-evaluator"})
     _, task, _ = orch._resolve(spec)
-    assert isinstance(task, SuiteTask)
+    assert isinstance(task, SuiteRunner)
     assert task.task_id == "suite:swe-bench"
     # The wanted-evaluator filter must actually SELECT it, not merely tolerate the key.
     assert task._evaluator.evaluator_id == "official-swe-evaluator"
@@ -122,7 +122,7 @@ def test_bridge_nonmock_flag():
     )
     # Only the constructed task is checked — a real non-mock execute is slice-2 work.
     _, task, _ = orch._resolve(spec)
-    assert isinstance(task, SuiteTask)
+    assert isinstance(task, SuiteRunner)
     assert task.mock is False
 
 
@@ -132,10 +132,10 @@ def test_bridge_nonmock_flag():
 
 
 def test_bridge_resolve_accepts_results_dir(tmp_path):
-    """_resolve(spec, results_dir) passes artifacts_root into the SuiteTask."""
+    """_resolve(spec, results_dir) passes artifacts_root into the SuiteRunner."""
     spec = _spec()
     pack, task, adapter_cls = orch._resolve(spec, tmp_path)
-    assert isinstance(task, SuiteTask)
+    assert isinstance(task, SuiteRunner)
     # The artifacts_root inside the task must be results_dir/artifacts
     assert task._artifacts_root == tmp_path / "artifacts"
 

@@ -18,10 +18,7 @@ class _FakeEP:
 
 class _GoodDomain(DomainPack):
     domain = "good"
-    requires_plugin_api = ">=1.0,<2.0"
-
-    def tasks(self):
-        return {}
+    requires_plugin_api = ">=2.0,<3.0"
 
     def adapters(self):
         return {}
@@ -29,10 +26,7 @@ class _GoodDomain(DomainPack):
 
 class _FutureDomain(DomainPack):
     domain = "future"
-    requires_plugin_api = ">=2.0,<3.0"
-
-    def tasks(self):
-        return {}
+    requires_plugin_api = ">=3.0,<4.0"
 
     def adapters(self):
         return {}
@@ -42,7 +36,7 @@ def test_incompatible_domain_rejected(monkeypatch):
     monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("future", _FutureDomain)])
     with pytest.raises(IncompatiblePluginError) as ei:
         registry.load_domains()
-    assert "future" in str(ei.value) and "1.0" in str(ei.value)
+    assert "future" in str(ei.value) and "2.0" in str(ei.value)
 
 
 def test_compatible_domain_loads(monkeypatch):
@@ -66,12 +60,12 @@ class _SuiteBase(BenchmarkSuite):
 
 class _GoodSuite(_SuiteBase):
     suite_id = "good-suite"
-    requires_plugin_api = ">=1.0,<2.0"
+    requires_plugin_api = ">=2.0,<3.0"
 
 
 class _FutureSuite(_SuiteBase):
     suite_id = "future-suite"
-    requires_plugin_api = ">=2.0,<3.0"
+    requires_plugin_api = ">=3.0,<4.0"
 
 
 class _EvaluatorBase(Evaluator):
@@ -84,19 +78,19 @@ class _EvaluatorBase(Evaluator):
 
 class _GoodEvaluator(_EvaluatorBase):
     evaluator_id = "good-eval"
-    requires_plugin_api = ">=1.0,<2.0"
+    requires_plugin_api = ">=2.0,<3.0"
 
 
 class _FutureEvaluator(_EvaluatorBase):
     evaluator_id = "future-eval"
-    requires_plugin_api = ">=2.0,<3.0"
+    requires_plugin_api = ">=3.0,<4.0"
 
 
 def test_incompatible_suite_rejected(monkeypatch):
     monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("future", _FutureSuite)])
     with pytest.raises(IncompatiblePluginError) as ei:
         registry.load_benchmark_suites()
-    assert "future" in str(ei.value) and "1.0" in str(ei.value)
+    assert "future" in str(ei.value) and "2.0" in str(ei.value)
 
 
 def test_compatible_suite_loads(monkeypatch):
@@ -108,10 +102,30 @@ def test_incompatible_evaluator_rejected(monkeypatch):
     monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("future", _FutureEvaluator)])
     with pytest.raises(IncompatiblePluginError) as ei:
         registry.load_evaluators()
-    assert "future" in str(ei.value) and "1.0" in str(ei.value)
+    assert "future" in str(ei.value) and "2.0" in str(ei.value)
 
 
+@pytest.mark.real_registry
 def test_compatible_evaluator_loads(monkeypatch):
     monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("good", _GoodEvaluator)])
     evaluators = registry.load_evaluators()
     assert [e.evaluator_id for e in evaluators] == ["good-eval"]
+
+
+class _V1Domain(DomainPack):
+    """A plugin built against the retired 1.x API (the pre-single-rail core)."""
+
+    domain = "v1-era"
+    requires_plugin_api = ">=1.0,<2.0"
+
+    def adapters(self):
+        return {}
+
+
+@pytest.mark.real_registry
+def test_v1_plugin_is_refused_by_the_2_0_gate(monkeypatch):
+    """Clean break: a 1.x-range plugin must be refused, not silently loaded."""
+    monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("v1-era", _V1Domain)])
+    with pytest.raises(IncompatiblePluginError) as ei:
+        registry.load_domains()
+    assert "v1-era" in str(ei.value) and "2.0" in str(ei.value)

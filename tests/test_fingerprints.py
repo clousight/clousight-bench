@@ -20,7 +20,7 @@ from clousight_bench.core.redaction import REDACTED
 
 def _benchmark(**overrides):
     kwargs = dict(
-        task_id="stub.ok",
+        task_id="suite:stub.ok",
         task_revision="2",
         scorer_revision="2",
         workload="wordcount-py",
@@ -48,7 +48,7 @@ def _record() -> ResultRecord:
         ),
         identity=Identity(
             domain="agent-runtime",
-            task_id="stub.ok",
+            task_id="suite:stub.ok",
             task_revision="2",
             scorer_revision="2",
             adapter="local-sim",
@@ -229,7 +229,7 @@ def test_empty_provenance_leaves_digest_unchanged():
     from clousight_bench.core.fingerprints import benchmark_fingerprint as bf
 
     base_kwargs = dict(
-        task_id="stub.ok",
+        task_id="suite:stub.ok",
         task_revision="2",
         scorer_revision="2",
         workload="wordcount-py",
@@ -249,7 +249,7 @@ def test_real_provenance_changes_digest():
     from clousight_bench.core.fingerprints import benchmark_fingerprint as bf
 
     base_kwargs = dict(
-        task_id="stub.ok",
+        task_id="suite:stub.ok",
         task_revision="2",
         scorer_revision="2",
         workload="wordcount-py",
@@ -267,7 +267,7 @@ def test_real_provenance_is_deterministic():
     from clousight_bench.core.fingerprints import benchmark_fingerprint as bf
 
     base_kwargs = dict(
-        task_id="stub.ok",
+        task_id="suite:stub.ok",
         task_revision="2",
         scorer_revision="2",
         workload="wordcount-py",
@@ -284,7 +284,7 @@ def test_unmodified_flag_changes_digest():
     from clousight_bench.core.fingerprints import benchmark_fingerprint as bf
 
     base_kwargs = dict(
-        task_id="stub.ok",
+        task_id="suite:stub.ok",
         task_revision="2",
         scorer_revision="2",
         workload="wordcount-py",
