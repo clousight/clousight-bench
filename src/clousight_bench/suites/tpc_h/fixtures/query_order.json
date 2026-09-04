@@ -1,0 +1,6 @@
+{
+  "_note": "Official TPC-H query sequencing permutations (spec Appendix A). Stream 0 is the Power stream; streams 1+ are Throughput streams. Streams 0-2 cover the SF1 minimum of S=2; extend from Appendix A for larger S.",
+  "0": [14, 2, 9, 20, 6, 17, 18, 8, 21, 13, 3, 22, 16, 4, 11, 15, 1, 10, 19, 5, 7, 12],
+  "1": [21, 3, 18, 5, 11, 7, 6, 20, 17, 12, 16, 15, 13, 10, 2, 8, 14, 19, 9, 22, 1, 4],
+  "2": [6, 17, 14, 16, 19, 10, 9, 2, 15, 8, 5, 22, 12, 7, 13, 18, 1, 4, 20, 3, 11, 21]
+}

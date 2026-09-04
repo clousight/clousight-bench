@@ -1,0 +1,83 @@
+---
+title: TPC-H suite (data-warehouse)
+description: Run TPC-H through the benchmark-suite contract on the duckdb-local reference platform — reference mode and the official QphH@Size pipeline.
+---
+
+TPC-H runs on the `data-warehouse` domain's `duckdb-local` reference platform (a
+provider-less, single-node engine, the sibling of the `tpc-ds` suite). It has two
+modes selected by `params.mode`:
+
+- **`reference`** (default) — run the 22 queries once (single stream), digest each
+  result, emit `queries.json` + `summary.json`. Cheap CI/offline path, scored by
+  `official-tpch-evaluator`.
+- **`official`** — the full official pipeline (Load → Power incl. RF1/RF2 →
+  multi-stream Throughput → ACID), emitting `official.json` scored by
+  `official-tpch-qphh-evaluator` into the official **`QphH@Size`** composite.
+
+<Note>
+Official-mode numbers reproduce the official TPC-H formulas but are **unaudited**:
+no TPC membership, no audit, no priced full-disclosure report. The RF1/RF2 refresh
+set is clousight-generated. Every score says so in its `notes`.
+</Note>
+
+## Run reference mode (no cloud account)
+
+```bash
+# offline mock path — no DuckDB needed, exercises the whole stage machine:
+printf 'target:\n  mode: mock\n' > mock.yaml
+csbench run --domain data-warehouse --benchmark tpc-h \
+  --platform duckdb-local --config mock.yaml
+
+# real DuckDB SF1 run (needs the [tpch] extra: pip install clousight-bench[tpch]):
+printf 'target:\n  mode: runtime\nparams:\n  scale_factor: 1\n  query_ids: [1, 6, 14]\n' > real.yaml
+csbench run --domain data-warehouse --benchmark tpc-h \
+  --platform duckdb-local --config real.yaml
+```
+
+## Run official mode (QphH@Size)
+
+Official mode requires selecting its evaluator (both evaluators support `tpc-h`;
+the reference one is chosen by default):
+
+```bash
+# offline mock official pipeline:
+printf 'target:\n  mode: mock\nparams:\n  mode: official\n  evaluator: official-tpch-qphh-evaluator\n' > off-mock.yaml
+csbench run --domain data-warehouse --benchmark tpc-h \
+  --platform duckdb-local --config off-mock.yaml
+
+# real DuckDB official run (needs the [tpch] extra):
+printf 'target:\n  mode: runtime\nparams:\n  mode: official\n  scale_factor: 1\n  streams: 2\n  evaluator: official-tpch-qphh-evaluator\n' > off-real.yaml
+csbench run --domain data-warehouse --benchmark tpc-h \
+  --platform duckdb-local --config off-real.yaml
+```
+
+`params.streams` defaults to the official minimum for the scale factor (SF1 → 2).
+The query stream permutations come from the official Appendix A table
+(`suites/tpc_h/fixtures/query_order.json`); extend it for `streams > 2`.
+
+## What official mode measures
+
+The `official-tpch-qphh-evaluator` emits these `tpc-h.*` measurements:
+
+| Measurement | Meaning | reproducibility_class |
+| --- | --- | --- |
+| `tpc-h.qphh_at_size` | **QphH@Size** = `sqrt(Power@Size · Throughput@Size)` | `environmental` |
+| `tpc-h.power_at_size` | `Power@Size` = `(3600 / geomean(24 intervals)) · SF` | `environmental` |
+| `tpc-h.throughput_at_size` | `Throughput@Size` = `(S · 22 / Ts) · 3600 · SF` | `environmental` |
+| `tpc-h.load_time_s` | data-load wall-clock | `environmental` |
+| `tpc-h.queries_passed` | ratio vs the pinned SF1 reference (Power stream; SF1 only) | `deterministic` |
+| `tpc-h.acid_atomicity` / `_consistency` / `_isolation` | `1.0` pass / `0.0` fail | `deterministic` |
+
+ACID Durability is reported as `n/a` (no crash/recovery harness on embedded
+DuckDB) and therefore omitted from the measurement set. ACID is an independent
+pass/fail gate — it is **not** part of the `QphH@Size` composite.
+
+All carry `official=True` — a *provenance* flag ("emitted by the suite's
+recognized evaluator"), not an audit claim; drift is carried by
+`reproducibility_class`.
+
+## Out of scope (today)
+
+`price/QphH` (the formula seam exists; a system price input is not yet wired),
+real-SUT `config-connect` engines (duckdb-local only), and SF ≥ 100 scaling
+validation. Durability crash-recovery is not tested on embedded DuckDB.
