@@ -229,7 +229,7 @@ def execute(
     errors: list[StageError] = []
 
     # RESOLVE -- raises UserInputError; no record is written.
-    pack, task, adapter_cls = _resolve(spec, results_dir)
+    pack, task, adapter_cls = _resolve(spec, results_dir, trace_id)
     stages["RESOLVE"] = "ok"
 
     # VALIDATE -- raises UserInputError; no record is written. The validated
@@ -531,7 +531,7 @@ def _is_benchmark_task_id(task_id: str) -> bool:
     return task_id.startswith(_BENCHMARK_KIND_PREFIX)
 
 
-def _resolve_benchmark(spec: RunSpec, results_dir: Path | None) -> SuiteRunner:
+def _resolve_benchmark(spec: RunSpec, results_dir: Path | None, trace_id: str = "") -> SuiteRunner:
     """Resolve a ``suite:<id>`` task_id to a runnable SuiteRunner via the
     benchmark-suite + evaluator registries."""
     from clousight_bench.core.registry import load_benchmark_suites, load_evaluators
@@ -556,12 +556,20 @@ def _resolve_benchmark(spec: RunSpec, results_dir: Path | None) -> SuiteRunner:
     evaluator = sorted(candidates, key=lambda e: (not e.official, e.evaluator_id))[0]
     mock = str(spec.target.get("mode", "mock")) == "mock"
     artifacts_root = (Path(results_dir) / "artifacts") if results_dir is not None else None
-    return SuiteRunner(suite, evaluator, mock=mock, params=dict(spec.params), artifacts_root=artifacts_root)
+    return SuiteRunner(
+        suite,
+        evaluator,
+        mock=mock,
+        params=dict(spec.params),
+        artifacts_root=artifacts_root,
+        trace_id=trace_id,
+    )
 
 
 def _resolve(
     spec: RunSpec,
     results_dir: Path | None = None,
+    trace_id: str = "",
 ) -> tuple[DomainPack, SuiteRunner, type[ProviderAdapter]]:
     """Resolve a RunSpec to (DomainPack, SuiteRunner, adapter_cls).
 
@@ -578,7 +586,7 @@ def _resolve(
         raise UnknownTaskError(
             f"unknown benchmark {spec.task_id!r}: benchmarks run as 'suite:<id>' — see csbench list"
         )
-    task = _resolve_benchmark(spec, results_dir)
+    task = _resolve_benchmark(spec, results_dir, trace_id)
 
     # --- Shared adapter lookup + instance-level runnability gate ---
     adapter_classes = pack.adapters()

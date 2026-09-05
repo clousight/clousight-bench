@@ -89,7 +89,7 @@ class _Domain(DomainPack):
 def _reset(monkeypatch):
     CALLS.clear()
     monkeypatch.setattr(orch, "get_domain", lambda name: _Domain())
-    monkeypatch.setattr(orch, "_resolve_benchmark", lambda spec, results_dir: _Task())
+    monkeypatch.setattr(orch, "_resolve_benchmark", lambda spec, results_dir, trace_id="": _Task())
     monkeypatch.setattr(fin, "load_enrichers", list)
 
 

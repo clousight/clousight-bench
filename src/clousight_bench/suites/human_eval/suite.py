@@ -124,7 +124,7 @@ class HumanEvalSuite(BenchmarkSuite):
         )
 
     # ---------------------------------------------------------------------- run
-    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:  # noqa: ARG002
+    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:
         """Endpoint mode → query the LLM then execute the completions.
 
         Mock mode does not reach here (the orchestrator calls ``mock_artifacts``
@@ -147,9 +147,12 @@ class HumanEvalSuite(BenchmarkSuite):
             )
 
         completions: list[str] = []
+        spans: list[dict[str, Any]] = []
         prompt_tokens = completion_tokens = truncated = 0
         for prob in p["problems"]:
             content, usage, finish_reason = chat_once(
+                trace_id=getattr(driver, "trace_id", "") or "",
+                span_sink=spans,
                 endpoint=p["endpoint"],
                 model=p["model"],
                 api_key=p["api_key"],
@@ -168,6 +171,7 @@ class HumanEvalSuite(BenchmarkSuite):
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             extra_summary={"truncated": truncated},
+            spans=spans,
         )
 
     def _execute_run(
@@ -179,6 +183,7 @@ class HumanEvalSuite(BenchmarkSuite):
         prompt_tokens: int,
         completion_tokens: int,
         extra_summary: dict[str, Any] | None = None,
+        spans: list[dict[str, Any]] | None = None,
     ) -> RawArtifacts:
         """Execute each ``(problem, completion)`` in the sandbox and write artifacts."""
         results: list[dict[str, Any]] = []
@@ -199,7 +204,7 @@ class HumanEvalSuite(BenchmarkSuite):
             **(extra_summary or {}),
         }
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-humaneval-art-"))
-        return write_artifacts(tmp_dir, results, summary, rows_key="results")
+        return write_artifacts(tmp_dir, results, summary, rows_key="results", spans=spans)
 
     # ----------------------------------------------------------------- teardown
     def teardown(self, env: EnvHandle) -> None:  # noqa: ARG002, B027

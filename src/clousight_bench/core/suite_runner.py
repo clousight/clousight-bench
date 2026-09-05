@@ -76,6 +76,7 @@ class SuiteRunner:
         mock: bool = True,
         params: dict[str, Any] | None = None,
         artifacts_root: Path | None = None,
+        trace_id: str = "",
     ) -> None:
         self._suite = suite
         self._evaluator = evaluator
@@ -87,6 +88,7 @@ class SuiteRunner:
         self._artifacts_root: Path | None = artifacts_root
         # Lazy cached DatasetHandle — populated on first call to _dataset().
         self._dataset_handle: DatasetHandle | None = None
+        self.trace_id = trace_id
         self.required_permissions = tuple(getattr(suite, "required_permissions", ()) or ())
         self.capability_tags = tuple(getattr(suite, "capability_tags", ()) or ())
 
@@ -169,7 +171,7 @@ class SuiteRunner:
                 endpoint=str(adapter_target.get("endpoint", "") or ""),
                 credentials_ref=str(adapter_target.get("credentials_ref", "") or ""),
             )
-            driver = DriverContext(placement="local")
+            driver = DriverContext(placement="local", trace_id=self.trace_id)
             # Use the cached dataset handle from constructor params.  The bridge
             # passes spec.params into the constructor, so in the real path the
             # two dicts are identical.  Fingerprint stability requires the dataset

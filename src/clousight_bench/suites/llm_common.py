@@ -77,7 +77,12 @@ def rows_to_items(
 
 
 def write_artifacts(
-    tmp_dir: Path, rows: list[dict[str, Any]], summary: dict[str, Any], *, rows_key: str
+    tmp_dir: Path,
+    rows: list[dict[str, Any]],
+    summary: dict[str, Any],
+    *,
+    rows_key: str,
+    spans: list[dict[str, Any]] | None = None,
 ) -> RawArtifacts:
     """Write ``<rows_key>.json`` + ``summary.json`` and build the manifest.
 
@@ -97,6 +102,14 @@ def write_artifacts(
         },
         "summary": {"path": "summary.json", "sha256": sha256_bytes(s_path.read_bytes()), "rows": None},
     }
+    if spans:
+        t_path = tmp_dir / "trajectory.jsonl"
+        t_path.write_text("".join(json.dumps(s) + "\n" for s in spans), encoding="utf-8")
+        manifest["trajectory"] = {
+            "path": "trajectory.jsonl",
+            "sha256": sha256_bytes(t_path.read_bytes()),
+            "rows": len(spans),
+        }
     return RawArtifacts(dir=tmp_dir, manifest=manifest)
 
 
@@ -221,39 +234,97 @@ def resolve_endpoint(target: Any, *, suite_id: str) -> tuple[str, str, str]:
 
 
 def chat_once(
-    *, endpoint: str, model: str, api_key: str, prompt: str, max_tokens: int, timeout: float = 120.0
+    *,
+    endpoint: str,
+    model: str,
+    api_key: str,
+    prompt: str,
+    max_tokens: int,
+    timeout: float = 120.0,
+    trace_id: str = "",
+    span_sink: list[dict[str, Any]] | None = None,
 ) -> tuple[str, dict[str, Any], str]:
     """One OpenAI-compatible ``/chat/completions`` call at ``temperature=0``.
 
     Returns ``(content, usage, finish_reason)``. Lazily imports ``requests`` so
     the offline paths never need it.
+
+    When ``trace_id`` (32-hex) is given the request carries a W3C ``traceparent``
+    header — an OTel-instrumented endpoint continues the run's trace inside the
+    operator's own APM — and, when ``span_sink`` is also given, a schema-v3
+    ``gen_ai.*`` span for the call is appended to it (status ERROR on failure).
     """
     import requests  # noqa: PLC0415 - lazy; only the real path needs it
 
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    span_id = ""
+    start_ns = 0
+    if trace_id:
+        from time import time_ns  # noqa: PLC0415
+
+        from clousight_bench.core.tracing import new_span_id  # noqa: PLC0415
+
+        span_id = new_span_id()
+        headers["traceparent"] = f"00-{trace_id}-{span_id}-01"
+        start_ns = time_ns()
     body: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0,
         "max_tokens": max_tokens,
     }
+
     # allow_redirects=False: a validated endpoint that 302s to a metadata/other
     # host must not carry the Bearer key there (redirect / DNS-rebind SSRF guard).
-    resp = requests.post(
-        f"{endpoint}/chat/completions",
-        json=body,
-        headers=headers,
-        timeout=timeout,
-        allow_redirects=False,
-    )
-    resp.raise_for_status()
+    def _record_span(status: str, usage: dict[str, Any], finish_reason: str) -> None:
+        if not (trace_id and span_sink is not None):
+            return
+        from time import time_ns  # noqa: PLC0415
+
+        attributes: dict[str, Any] = {
+            "gen_ai.operation.name": "chat",
+            "gen_ai.request.model": model,
+        }
+        if usage.get("prompt_tokens") is not None:
+            attributes["gen_ai.usage.input_tokens"] = int(usage.get("prompt_tokens") or 0)
+        if usage.get("completion_tokens") is not None:
+            attributes["gen_ai.usage.output_tokens"] = int(usage.get("completion_tokens") or 0)
+        if finish_reason:
+            attributes["gen_ai.response.finish_reasons"] = [finish_reason]
+        span_sink.append(
+            {
+                "trace_id": trace_id,
+                "span_id": span_id,
+                "parent_span_id": "",
+                "name": "chat /chat/completions",
+                "start_unix_nano": start_ns,
+                "end_unix_nano": time_ns(),
+                "status": status,
+                "attributes": attributes,
+            }
+        )
+
+    try:
+        resp = requests.post(
+            f"{endpoint}/chat/completions",
+            json=body,
+            headers=headers,
+            timeout=timeout,
+            allow_redirects=False,
+        )
+        resp.raise_for_status()
+    except Exception:
+        _record_span("ERROR", {}, "")
+        raise
     data = resp.json()
     choice = (data.get("choices") or [{}])[0]
     content = choice.get("message", {}).get("content", "")
     usage = data.get("usage", {}) or {}
-    return content, usage, str(choice.get("finish_reason") or "")
+    finish = str(choice.get("finish_reason") or "")
+    _record_span("OK", usage, finish)
+    return content, usage, finish
 
 
 class EndpointJudge(JudgeModel):

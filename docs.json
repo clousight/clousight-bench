@@ -69,6 +69,7 @@
             "pages": [
               "docs/pytest-ci",
               "docs/viewer",
+              "docs/tracing",
               "docs/querying",
               "docs/probe-carrier"
             ]
@@ -127,6 +128,7 @@
             "pages": [
               "docs/zh/pytest-ci",
               "docs/zh/viewer",
+              "docs/zh/tracing",
               "docs/zh/querying",
               "docs/zh/probe-carrier"
             ]

@@ -18,6 +18,16 @@ times, OTel status names, semconv attributes (`gen_ai.*` for LLM/tool activity,
 protocol) remain accepted and the viewer renders both. New extra `[otlp]` +
 `CLOUSIGHT_OTLP_ENDPOINT` ship run traces to any OTLP collector.
 
+- **TPC-H official mode emits its trace**: the measured Load/Power/Throughput
+  intervals reconstruct into a v3 span tree (per-query `db.*` spans, concurrent
+  stream lanes, refresh pairs) written as the run's `trajectory.jsonl` — the
+  viewer waterfall now covers data suites, sharing the run's trace id (threaded
+  via `DriverContext.trace_id`).
+- **LLM endpoint suites propagate + record**: every `/chat/completions` call
+  carries a W3C `traceparent` header (an OTel-instrumented SUT continues the
+  run's trace in the operator's own APM) and lands a `gen_ai.*` span in the
+  suite trajectory (MMLU/GSM8K/HumanEval). Docs: `tracing` (EN+zh).
+
 ### Breaking (plugin API 2.0 — eval-core consolidation)
 
 Repositioned as a **cloud-product eval tool**: one benchmark rail, a slimmer
