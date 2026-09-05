@@ -19,7 +19,7 @@ RESULT_SCHEMA_VERSION = SCHEMA_VERSION
 # needs via ``requires_plugin_api``; the registry enforces it at load
 # (core.registry). MAJOR bumps only on a breaking change to the public plugin
 # surface (the contracts re-exported from clousight_bench.api).
-PLUGIN_API_VERSION = "2.0"
+PLUGIN_API_VERSION = "3.0"
 
 __version__ = RUNNER_VERSION
 

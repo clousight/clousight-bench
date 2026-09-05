@@ -177,7 +177,7 @@ def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
             logger.warning("viewer: run %s: skipping bad span line %d: %s", run_id, lineno, exc)
             continue
         if isinstance(span, dict):
-            spans.append(span)
+            spans.append(_render_span(span))
         else:
             logger.warning(
                 "viewer: run %s trajectory line %d is valid JSON but not an object; skipping",
@@ -188,3 +188,44 @@ def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
     t_starts = [s["t_start"] for s in spans if isinstance(s.get("t_start"), (int, float))]
     t0 = float(min(t_starts)) if t_starts else 0.0
     return {"spans": spans, "t0": t0}
+
+
+def _v3_kind(attributes: dict[str, Any]) -> str:
+    """Derive the render kind from a v3 span's semconv discriminator attributes."""
+    op = attributes.get("gen_ai.operation.name")
+    if op == "execute_tool":
+        return "tool_call"
+    if op is not None or any(k.startswith("gen_ai.") for k in attributes):
+        return "llm_call"
+    if any(k.startswith("db.") for k in attributes):
+        return "query"
+    phase = attributes.get("csbench.phase")
+    if isinstance(phase, str) and phase:
+        return "phase"
+    return "span"
+
+
+def _render_span(span: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a trajectory span to the waterfall's render shape.
+
+    Legacy v2 spans already carry it (``kind``/``t_start`` seconds/``attrs``);
+    v3 (OTel-native) spans are projected: ns -> seconds, semconv attributes ->
+    ``kind``, ``attributes`` -> ``attrs``, OTel status names -> lowercase.
+    """
+    if "attributes" not in span and "start_unix_nano" not in span:
+        return span  # legacy v2 — already the render shape
+    raw_attributes = span.get("attributes")
+    attributes: dict[str, Any] = raw_attributes if isinstance(raw_attributes, dict) else {}
+    start_ns = span.get("start_unix_nano")
+    end_ns = span.get("end_unix_nano")
+    return {
+        "span_id": span.get("span_id", ""),
+        "trace_id": span.get("trace_id", ""),
+        "parent_id": span.get("parent_span_id") or None,
+        "name": span.get("name", ""),
+        "kind": _v3_kind(attributes),
+        "t_start": (start_ns / 1e9) if isinstance(start_ns, (int, float)) else 0.0,
+        "t_end": (end_ns / 1e9) if isinstance(end_ns, (int, float)) else 0.0,
+        "status": "error" if span.get("status") == "ERROR" else "ok",
+        "attrs": dict(attributes),
+    }

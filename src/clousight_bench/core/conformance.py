@@ -40,7 +40,7 @@ def run_conformance(domain: str, platform: str | None = None) -> list[CheckResul
     pack = get_domain(domain)
     results.append(CheckResult("load", True, f"domain {domain!r} loaded"))
 
-    rng = getattr(pack, "requires_plugin_api", ">=2.0,<3.0")
+    rng = getattr(pack, "requires_plugin_api", ">=3.0,<4.0")
     try:
         ok = range_contains(rng, PLUGIN_API_VERSION)
         detail = f"requires {rng!r}, core provides {PLUGIN_API_VERSION!r}"

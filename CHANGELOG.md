@@ -4,6 +4,20 @@ All notable changes to Clousight Bench are recorded here.
 
 ## [Unreleased]
 
+### Breaking (plugin API 3.0 — OTel-native tracing)
+
+Tracing is rebuilt on the **OpenTelemetry SDK** (`opentelemetry-api`/`-sdk` become
+core dependencies, pinned `>=1.30,<2`): a per-run `TracerProvider` with a `csbench`
+`Resource` emits the root/stage spans; the `clousight_bench.span_exporters` entry
+point now registers **SDK `SpanExporter`s** (the whole OTel exporter ecosystem plugs
+in directly; the bundled local JSONL exporter is constructed per-run by core).
+`PLUGIN_API_VERSION` 2.0 → 3.0; plugins declaring a 2.x (or 1.x) range are refused.
+SUT trajectory spans gain **schema v3 (OTel-native)**: W3C hex ids, nanosecond
+times, OTel status names, semconv attributes (`gen_ai.*` for LLM/tool activity,
+`db.*` for queries, `csbench.*` for phases); legacy v2 spans (deployed agent-bundle
+protocol) remain accepted and the viewer renders both. New extra `[otlp]` +
+`CLOUSIGHT_OTLP_ENDPOINT` ship run traces to any OTLP collector.
+
 ### Breaking (plugin API 2.0 — eval-core consolidation)
 
 Repositioned as a **cloud-product eval tool**: one benchmark rail, a slimmer

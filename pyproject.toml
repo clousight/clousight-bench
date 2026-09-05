@@ -25,6 +25,10 @@ classifiers = [
 ]
 dependencies = [
     "pyyaml>=6.0",
+    # OTel-native tracing backbone (traces only). The OTLP push exporter lives
+    # in the [otlp] extra so protobuf stays optional.
+    "opentelemetry-api>=1.30,<2",
+    "opentelemetry-sdk>=1.30,<2",
 ]
 
 [project.urls]
@@ -46,6 +50,9 @@ dev = [
 # and CLI never import the probe subpackage, so a bare install stays minimal;
 # these are only needed to run/host a probe.
 probe = ["requests>=2.28", "oss2>=2.18"]
+# OTLP/HTTP push exporter: set CLOUSIGHT_OTLP_ENDPOINT to ship run traces to a
+# collector (Jaeger/Tempo/ARMS/X-Ray ...).
+otlp = ["opentelemetry-exporter-otlp-proto-http>=1.30,<2"]
 # Benchmark agent bundle: LangChain + OpenInference + OTel. These are vendored
 # into the deployable agent zip by the artifact builder; installed here only to
 # build/run the agent in-process. Core/CLI never import the agent bundle.
@@ -144,9 +151,6 @@ openai-compatible = "clousight_bench.judges.openai_compatible:OpenAiCompatibleJu
 
 [project.entry-points."clousight_bench.enrichers"]
 pricing = "clousight_bench.enrichers.pricing:PricingEnricher"
-
-[project.entry-points."clousight_bench.span_exporters"]
-local = "clousight_bench.core.tracing:LocalFileSpanExporter"
 
 [project.entry-points."clousight_bench.runtime_providers"]
 aliyun = "clousight_bench.domains.agent_runtime.aliyun:AliyunRuntimeProvider"

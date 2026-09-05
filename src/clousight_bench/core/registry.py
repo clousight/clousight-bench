@@ -22,10 +22,11 @@ from clousight_bench.core.plugin import (
 from clousight_bench.core.versioning import range_contains
 
 if TYPE_CHECKING:
+    from opentelemetry.sdk.trace.export import SpanExporter
+
     from clousight_bench.core.judge import JudgeModel, JudgeProvider
     from clousight_bench.core.metric import Metric
     from clousight_bench.core.suite import BenchmarkSuite, Evaluator
-    from clousight_bench.core.tracing import SpanExporter
 
 ENTRY_POINT_GROUP = "clousight_bench.domains"
 ENRICHER_ENTRY_POINT_GROUP = "clousight_bench.enrichers"
@@ -51,7 +52,7 @@ def _check_api_version(ep: object, obj: object) -> None:
     """Reject a plugin whose declared plugin-API range excludes this core."""
     from clousight_bench import PLUGIN_API_VERSION
 
-    rng = getattr(obj, "requires_plugin_api", ">=2.0,<3.0")
+    rng = getattr(obj, "requires_plugin_api", ">=3.0,<4.0")
     if not range_contains(rng, PLUGIN_API_VERSION):
         dist = getattr(getattr(ep, "dist", None), "name", None)
         where = f" from {dist}" if dist else ""
@@ -189,27 +190,26 @@ def get_resource_reaper(provider: str | None) -> ResourceReaper | None:
 def load_span_exporters() -> list[SpanExporter]:
     """Instantiate every installed execution-trace span exporter, ordered by name.
 
-    Open-core ships the local file exporter (spans land as JSONL under
-    ``<results>/traces/``); a commercial pack can register a remote OTLP exporter
-    through the same entry point without any core change."""
-    from clousight_bench.core.tracing import SpanExporter
+    The contract is the OpenTelemetry SDK's ``SpanExporter`` — any ecosystem
+    exporter (OTLP, vendor backends) registers directly. The bundled local file
+    exporter is constructed per-run by core (it needs the run's results dir) and
+    does not ride this entry point."""
 
-    exporters: list[SpanExporter] = []
+    from opentelemetry.sdk.trace.export import SpanExporter as _SdkSpanExporter
+
+    exporters: list[tuple[str, SpanExporter]] = []
     seen: dict[str, str] = {}
     for ep in entry_points(group=SPAN_EXPORTER_ENTRY_POINT_GROUP):
         cls = ep.load()
         inst = cls()
-        if not isinstance(inst, SpanExporter):
-            raise RegistryError(f"entry point {ep.name!r} is not a SpanExporter")
+        if not isinstance(inst, _SdkSpanExporter):
+            raise RegistryError(f"entry point {ep.name!r} is not an OTel SDK SpanExporter")
         _check_api_version(ep, inst)
-        if inst.name in seen:
-            raise DuplicatePluginError(
-                f"span exporter name {inst.name!r} is provided by two plugins: "
-                f"{seen[inst.name]!r} and {ep.name!r}"
-            )
-        seen[inst.name] = ep.name
-        exporters.append(inst)
-    return sorted(exporters, key=lambda e: e.name)
+        if ep.name in seen:
+            raise DuplicatePluginError(f"span exporter {ep.name!r} is provided twice")
+        seen[ep.name] = ep.name
+        exporters.append((ep.name, inst))
+    return [inst for _name, inst in sorted(exporters, key=lambda pair: pair[0])]
 
 
 def load_asset_resolvers() -> list[PrivateAssetResolver]:

@@ -11,7 +11,7 @@ def test_runspec_to_dict():
 def test_plugin_api_version_exposed():
     import clousight_bench
 
-    assert clousight_bench.PLUGIN_API_VERSION == "2.0"
+    assert clousight_bench.PLUGIN_API_VERSION == "3.0"
 
 
 def test_package_and_schema_versions():
