@@ -92,6 +92,10 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
 
 ### Added
 
+- **TPC-C tpmC-style estimate**: `tpc-c.tpmc_estimate` = goodput × 60 × the
+  configured NewOrder mix weight (45%), honestly labeled — BenchBase reports
+  aggregate throughput only, so this is an estimate from the configured mix,
+  never a measured NewOrder rate; audited tpmC remains unclaimed.
 - **Doctor connectivity + tooling probes**: adapter preflight (shared by
   `csbench doctor` and the run's PREFLIGHT gate) now proves the configured
   endpoint is reachable — TCP for JDBC endpoints, a Redis-protocol `PING` for

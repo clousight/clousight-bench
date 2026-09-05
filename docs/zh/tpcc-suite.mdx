@@ -41,11 +41,12 @@ csbench run --domain transactional-db --benchmark tpc-c --platform jdbc-endpoint
 | --- | --- |
 | `tpc-c.throughput_req_per_sec` | 总吞吐(请求/秒) |
 | `tpc-c.goodput_req_per_sec` | 有效吞吐(无错请求/秒) |
+| `tpc-c.tpmc_estimate` | tpmC 式估算:goodput × 60 × 配置的 NewOrder 权重(45%)——**非**实测 NewOrder 速率,unaudited |
 | `tpc-c.p99_latency_us` | 99 分位延迟 |
 | `tpc-c.median_latency_us` | 中位延迟 |
 | `tpc-c.avg_latency_us` | 平均延迟 |
 
-summary 中缺失的键会被省略。三者都带 `official=True`——溯源标志(由套件官方评估器
+summary 中缺失的键会被省略。所有测量都带 `official=True`——溯源标志(由套件官方评估器
 产出),非审计声明。审计级 **tpmC**(new-order 事务/分钟)**不声称**,它需要完整 TPC-C
 审计。
 
