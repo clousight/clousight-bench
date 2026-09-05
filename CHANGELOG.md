@@ -2,7 +2,14 @@
 
 All notable changes to Clousight Bench are recorded here.
 
-## [Unreleased]
+## [0.6.0] — 2026-09-05
+
+**Breaking, read first:** `PLUGIN_API_VERSION` goes 1.0 → 2.0 → **3.0** in this
+release — a plugin declaring a 1.x or 2.x range is refused with an upgrade
+message. `Task` / `SuiteTask` / `DomainPack.tasks()` are gone (a benchmark is a
+`BenchmarkSuite` + `Evaluator`, run as `suite:<id>`), and tracing is rebuilt on
+the OpenTelemetry SDK. The record schema stays **0.4** — records written by 0.5.0
+still load. Both breaking sections are detailed below.
 
 ### Changed (lifecycle: four phases over eleven stages)
 
@@ -136,6 +143,8 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
   fails loudly beyond) or `generated` (a deterministic, reproducible clousight ordering that
   scales to any `S`, e.g. SF ≥ 10). The chosen `ordering_source` is recorded in
   `official.json` and folded into the run's dataset digest.
+
+## [0.5.0] — 2026-08-30
 
 An eval-core refactor (per-item scoring, composable metrics, LLM-as-judge) plus
 more coding benchmarks. **Record schema 0.3 → 0.4** (additive). The one public

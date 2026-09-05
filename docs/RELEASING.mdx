@@ -22,9 +22,16 @@ via a tag-triggered GitHub Actions workflow
 ## Cutting a release
 
 1. Update `CHANGELOG.md`: move the `Unreleased` section under the new version
-   with today's date.
-2. Bump `version` in `pyproject.toml` (single source of truth; the release
-   workflow verifies the tag matches it).
+   with today's date. **Never rename a released section back to `Unreleased`** —
+   once a version is tagged its section is history; new work goes in a fresh
+   `## [Unreleased]` heading *above* it. (This happened once, in #80: the shipped
+   `## [0.5.0]` heading was reopened as `## [Unreleased]`, so `CHANGELOG.md`
+   claimed 0.4.0 was the latest release while v0.5.0 was published.)
+2. Bump `version` in `pyproject.toml` — and keep the four other copies in sync:
+   `src/clousight_bench/__init__.py` (`RUNNER_VERSION`, enforced by the
+   wheel-smoke CI job), `CITATION.cff` (`version` + `date-released`), the README's
+   "N.N.N Developer Preview" line, and the assertions in `tests/test_schema.py`.
+   The release workflow verifies the tag matches `pyproject.toml`.
 3. Land those on `main` through a pull request.
 4. Tag and push:
 

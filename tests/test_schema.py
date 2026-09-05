@@ -17,8 +17,8 @@ def test_plugin_api_version_exposed():
 def test_package_and_schema_versions():
     import clousight_bench
 
-    assert clousight_bench.__version__ == "0.5.0"
-    assert clousight_bench.RUNNER_VERSION == "0.5.0"
+    assert clousight_bench.__version__ == "0.6.0"
+    assert clousight_bench.RUNNER_VERSION == "0.6.0"
     assert clousight_bench.RESULT_SCHEMA_VERSION == "0.4"  # bumped for per-item substrate (R1)
 
 

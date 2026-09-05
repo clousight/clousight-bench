@@ -20,7 +20,7 @@ endpoints (MMLU/GSM8K/HumanEval). Every published number stands on three legs:
 3. **A verifiable provenance chain** — which suite, which pinned dataset revision,
    which evaluator, which scaffold — folded into a content fingerprint you can diff.
 
-> **0.5.0 Developer Preview.** The whole pipeline runs locally with no cloud account
+> **0.6.0 Developer Preview.** The whole pipeline runs locally with no cloud account
 > (`mode: mock`), and every data/LLM suite also runs against a real local engine or a
 > live endpoint you already operate (config-connect). On the provisioning side, the
 > Aliyun AgentRun adapter is `experimental` and live-validated (`cn-hangzhou`

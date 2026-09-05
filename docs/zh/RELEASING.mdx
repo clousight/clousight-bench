@@ -21,8 +21,8 @@ Clousight Bench 通过标签触发的 GitHub Actions 工作流
 
 ## 执行发布
 
-1. 更新 `CHANGELOG.md`：将 `Unreleased` 部分移至新版本下，并附上今日日期。
-2. 在 `pyproject.toml` 中更新 `version`（单一来源；发布工作流会验证标签与其一致）。
+1. 更新 `CHANGELOG.md`：将 `Unreleased` 部分移至新版本下，并附上今日日期。**绝不要把已发布的小节改回 `Unreleased`**——版本一旦打了标签，它的小节就是历史；新的改动写进它**上方**新建的 `## [Unreleased]`。（这件事发生过一次，见 #80：已发布的 `## [0.5.0]` 标题被改回 `## [Unreleased]`，于是 v0.5.0 明明已发布，`CHANGELOG.md` 却显示最新版本是 0.4.0。）
+2. 在 `pyproject.toml` 中更新 `version`，并同步另外四处副本：`src/clousight_bench/__init__.py` 的 `RUNNER_VERSION`（由 wheel-smoke CI 任务强制校验）、`CITATION.cff` 的 `version` 与 `date-released`、README 中的 "N.N.N Developer Preview" 一行，以及 `tests/test_schema.py` 里的断言。发布工作流会验证标签与 `pyproject.toml` 一致。
 3. 通过 Pull Request 将上述改动合并到 `main`。
 4. 打标签并推送：
 

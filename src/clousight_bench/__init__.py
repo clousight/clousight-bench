@@ -5,7 +5,7 @@ contracts and data model from ``clousight_bench`` (or ``clousight_bench.api``),
 never from ``clousight_bench.core.*`` (internal). See :mod:`clousight_bench.api`.
 """
 
-RUNNER_VERSION = "0.5.0"  # keep in sync with pyproject [project].version (CI wheel-smoke enforces)
+RUNNER_VERSION = "0.6.0"  # keep in sync with pyproject [project].version (CI wheel-smoke enforces)
 
 # The result contract readers negotiate on. Re-exported, never re-declared: the
 # record module owns the number it stamps and validates, so the package can never
