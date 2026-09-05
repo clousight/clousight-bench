@@ -37,6 +37,40 @@ function KvRow({ label, value, copy, mono = true }: { label: string; value?: str
   );
 }
 
+/**
+ * The lifecycle's four phases, in order. Eleven stages are hard to read at a
+ * glance; the phases are how the architecture doc explains them — prepare
+ * (nothing billed yet) → connect (the only cloud window) → measure (observations
+ * only) → conclude (pure scoring, cloud already gone).
+ */
+const STAGE_PHASES: string[][] = [
+  ["RESOLVE", "VALIDATE", "PREFLIGHT"],
+  ["SETUP", "TEARDOWN"],
+  ["EXECUTE", "COLLECT"],
+  ["SCORE", "ENRICH", "PERSIST", "PUBLISH"],
+];
+
+/**
+ * Bucket the record's stage names into the phases, dropping empty phases and
+ * sweeping anything unknown (a newer core than this viewer) into the last
+ * label, so a stage is never silently hidden.
+ */
+export function groupStagesByPhase(
+  stageNames: string[],
+  labels: string[],
+): { label: string; stages: string[] }[] {
+  const known = new Set(STAGE_PHASES.flat());
+  const groups = STAGE_PHASES.map((phase, index) => ({
+    label: labels[index] ?? "",
+    stages: phase.filter((name) => stageNames.includes(name)),
+  }));
+  groups.push({
+    label: labels[STAGE_PHASES.length] ?? "",
+    stages: stageNames.filter((name) => !known.has(name)),
+  });
+  return groups.filter((group) => group.stages.length > 0);
+}
+
 function stageTone(status: string): string {
   if (status === "ok" || status === "completed") return "border-success/40 text-success";
   if (status === "error" || status === "failed") return "border-destructive/40 text-destructive";
@@ -144,23 +178,38 @@ export function RecordDetail({ runId }: { runId: string }) {
         {stageNames.length === 0 ? (
           <EmptyView />
         ) : (
-          <div className="flex flex-wrap gap-2">
-            {stageNames.map((name) => {
-              const status = String(stages[name] ?? "");
-              const seconds = timings[name];
-              return (
-                <div
-                  key={name}
-                  className={cn("min-w-24 rounded-md border px-2.5 py-1.5", stageTone(status))}
-                >
-                  <div className="font-mono text-[11px] font-medium text-foreground">{name}</div>
-                  <div className="text-xs">{status}</div>
-                  <div className="font-mono text-[11px] text-muted-foreground">
-                    {typeof seconds === "number" ? fmtDur(seconds) : "—"}
-                  </div>
+          <div className="flex flex-col gap-3">
+            {groupStagesByPhase(stageNames, [
+              t('detail.phase.prepare'),
+              t('detail.phase.connect'),
+              t('detail.phase.measure'),
+              t('detail.phase.conclude'),
+              t('detail.phase.other'),
+            ]).map((phase) => (
+              <div key={phase.label} className="flex flex-col gap-1.5">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {phase.label}
                 </div>
-              );
-            })}
+                <div className="flex flex-wrap gap-2">
+                  {phase.stages.map((name) => {
+                    const status = String(stages[name] ?? "");
+                    const seconds = timings[name];
+                    return (
+                      <div
+                        key={name}
+                        className={cn("min-w-24 rounded-md border px-2.5 py-1.5", stageTone(status))}
+                      >
+                        <div className="font-mono text-[11px] font-medium text-foreground">{name}</div>
+                        <div className="text-xs">{status}</div>
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          {typeof seconds === "number" ? fmtDur(seconds) : "—"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </SectionCard>

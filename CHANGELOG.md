@@ -4,6 +4,35 @@ All notable changes to Clousight Bench are recorded here.
 
 ## [Unreleased]
 
+### Changed (lifecycle: four phases over eleven stages)
+
+The stage machine is unchanged; how it is explained and surfaced is not. The
+eleven stages are now presented as **four phases** — PREPARE (`RESOLVE`/
+`VALIDATE`/`PREFLIGHT`, nothing billed yet) → CONNECT (`SETUP`…`TEARDOWN`, the
+only cloud window) → MEASURE (`EXECUTE`/`COLLECT`, observations only) → CONCLUDE
+(`SCORE`/`ENRICH`/`PERSIST`/`PUBLISH`, pure and offline). The MEASURE|CONCLUDE
+boundary is the "a cloud can never move the verdict" guarantee, enforced by
+`task.score()`'s signature. Docs (EN+zh), the orchestrator docstring and the
+viewer's stage card all group by phase; unknown stage names fall into an "other"
+group rather than disappearing.
+
+- **`run.stages` no longer carries `RESOLVE`.** A RESOLVE failure raises before
+  any record exists, so `RESOLVE: ok` was a constant in every record. The map now
+  holds only the stages this record's outcome depended on. `PUBLISH: skipped`
+  **stays** — that one is a durable denial that a publisher touched the sealed
+  record, not noise. `RESOLVE` remains a valid name so older records still load.
+- **A blocked or failed run explains itself on stderr.** `csbench run` still
+  prints the record as JSON on stdout (scripts are unaffected) and now adds a
+  short human summary to stderr for any status other than `completed`: the failed
+  stage with its error code and message, plus any critical/error finding's
+  `summary` and `details.remediation` — the line the live gate and the cost budget
+  write when they refuse to provision.
+- **Doc drift fixed**: `status` also has `interrupted` (persisted on Ctrl-C, then
+  the `KeyboardInterrupt` is re-raised, so it is never returned); `ENRICH` runs
+  *before* `PERSIST`, not after (`core/finalize.py` said otherwise); stage spans
+  cover the *timed* stages (`PREFLIGHT`…`SCORE`), not `RESOLVE`…`PERSIST`;
+  `COLLECT` validates and seals the bundle — it fetches nothing from the cloud.
+
 ### Breaking (plugin API 3.0 — OTel-native tracing)
 
 Tracing is rebuilt on the **OpenTelemetry SDK** (`opentelemetry-api`/`-sdk` become

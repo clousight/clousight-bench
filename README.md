@@ -58,8 +58,10 @@ EOF
 .venv/bin/csbench serve
 ```
 
-The mock run exercises the real code path — RESOLVE → PREFLIGHT → SETUP → EXECUTE →
-SCORE → PERSIST — over the suite's bundled fixture artifacts, and persists a schema-0.4
+The mock run exercises the real code path — the four lifecycle phases *prepare →
+connect → measure → conclude* (eleven stages; see
+[Architecture](docs/architecture.mdx)) — over the suite's bundled fixture
+artifacts, and persists a schema-0.4
 record with `swe-bench.resolved` and a full provenance block. `csbench serve` renders
 it at `http://127.0.0.1:8787` (React UI, bilingual, dark/light, strict CSP, read-only).
 
@@ -90,7 +92,8 @@ Each measurement carries `value`, `unit`, a `reproducibility_class`
 official measurements are the upstream suite's own verdict under the suite's
 namespace (`swe-bench.resolved`); custom evaluators are structurally confined to
 their own namespace (`csbench conformance --suite` enforces it). A run ends in
-exactly one `status`: `completed`, `failed`, `invalid` or `unsupported` — there is
+exactly one `status`: `completed`, `failed`, `invalid` or `unsupported` (plus
+`interrupted`, which only a Ctrl-C writes) — there is
 no boolean `ok`, because "the platform does not support this" and "the run crashed"
 are different results. We publish **per-dimension results, never a single blended
 score**.

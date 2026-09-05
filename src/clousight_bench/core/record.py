@@ -19,6 +19,15 @@ from typing import Any
 SCHEMA_VERSION = "0.4"
 
 STATUSES: tuple[str, ...] = ("completed", "failed", "invalid", "unsupported", "interrupted")
+# Every stage name a record may carry. The four PHASES a reader thinks in --
+# PREPARE (RESOLVE/VALIDATE/PREFLIGHT) -> CONNECT (SETUP..TEARDOWN) ->
+# MEASURE (EXECUTE/COLLECT) -> CONCLUDE (SCORE/ENRICH/PERSIST/PUBLISH) -- are a
+# presentation of this same list; see docs/architecture.mdx.
+#
+# ``RunInfo.stages`` records the stages whose outcome THIS record depended on,
+# which is why a live record never carries a RESOLVE key: a RESOLVE failure
+# raises before any record exists, so "RESOLVE: ok" would be a constant. The
+# name stays here so records written before that change still validate.
 STAGES: tuple[str, ...] = (
     "RESOLVE",
     "VALIDATE",
