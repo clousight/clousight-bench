@@ -93,7 +93,7 @@ from clousight_bench.core.stage_support import scrubbed as _scrubbed
 from clousight_bench.core.stage_support import stage_error as _stage_error
 from clousight_bench.core.store import ResultStore
 from clousight_bench.core.suite_runner import SuiteRunner
-from clousight_bench.core.tracing import build_run_trace, export_trace, new_trace_id
+from clousight_bench.core.tracing import emit_run_trace, new_trace_id
 from clousight_bench.core.validation import validate_run_spec
 
 logger = logging.getLogger(__name__)
@@ -924,7 +924,6 @@ def _emit_trace(
     if trace_id is None or root_start_ns is None:
         return
     try:
-        spans = build_run_trace(record, trace_id, root_start_ns, time.time_ns())
-        export_trace(results_dir, spans)
+        emit_run_trace(record, results_dir, trace_id, root_start_ns, time.time_ns())
     except Exception as exc:  # noqa: BLE001 - a trace must never fail a run
         logger.warning("run %s: trace export failed: %s", record.run.run_id, exc)

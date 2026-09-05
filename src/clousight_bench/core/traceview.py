@@ -61,10 +61,10 @@ def trace_summaries(results_dir: Path) -> list[dict[str, Any]]:
         summaries.append(
             {
                 "trace_id": root.get("trace_id", ""),
-                "run_id": attrs.get("run_id", ""),
-                "task_id": attrs.get("task_id", ""),
-                "adapter": attrs.get("adapter", ""),
-                "status": attrs.get("status", ""),
+                "run_id": attrs.get("csbench.run_id", ""),
+                "task_id": attrs.get("csbench.task_id", ""),
+                "adapter": attrs.get("csbench.adapter", ""),
+                "status": attrs.get("csbench.status", ""),
                 "duration_ms": root.get("duration_ms", 0.0),
                 "spans": len(spans),
             }
@@ -77,7 +77,7 @@ def find_trace(results_dir: Path, key: str) -> list[dict[str, Any]] | None:
     for path, spans in iter_traces(results_dir):
         root = _root(spans) or {}
         trace_id = root.get("trace_id", "")
-        run_id = root.get("attributes", {}).get("run_id", "")
+        run_id = root.get("attributes", {}).get("csbench.run_id", "")
         if key in (trace_id, run_id, path.stem):
             return spans
     return None

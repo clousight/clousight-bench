@@ -158,13 +158,15 @@ def test_mock_trajectory_fixture_is_valid() -> None:
         validate_span(span)
 
 
-def test_mock_trajectory_has_llm_call_and_tool_call() -> None:
-    """The canned trajectory includes at least one llm_call and one tool_call."""
+def test_mock_trajectory_is_v3_with_llm_and_tool_semantics() -> None:
+    """The canned trajectory is v3 (OTel-native) with chat + execute_tool spans."""
     lines = [ln for ln in _TRAJECTORY_FIXTURE.read_text().splitlines() if ln.strip()]
     spans = [json.loads(line) for line in lines]
-    kinds = {span["kind"] for span in spans}
-    assert "llm_call" in kinds
-    assert "tool_call" in kinds
+    for span in spans:
+        validate_span(span)  # v3-valid
+    ops = {span["attributes"].get("gen_ai.operation.name") for span in spans}
+    assert "chat" in ops
+    assert "execute_tool" in ops
 
 
 # ---------------------------------------------------------------------------
@@ -282,3 +284,70 @@ def test_validate_span_rejects_non_serializable_attrs() -> None:
     span = dict(_GOOD_LLM_CALL, attrs={"x": object()})
     with pytest.raises(ValueError, match="attrs"):
         validate_span(span)
+
+
+# --- schema v3 (OTel-native) ---------------------------------------------------
+
+
+def _v3(**over):
+    base = {
+        "trace_id": "a" * 32,
+        "span_id": "b" * 16,
+        "parent_span_id": "",
+        "name": "tpch.q1",
+        "start_unix_nano": 1_000,
+        "end_unix_nano": 2_000,
+        "status": "OK",
+        "attributes": {"db.system.name": "duckdb", "db.operation.name": "PRAGMA tpch(1)"},
+    }
+    base.update(over)
+    return base
+
+
+def test_v3_span_validates():
+    validate_span(_v3())
+
+
+def test_v3_requires_w3c_hex_ids():
+    with pytest.raises(ValueError, match="32-hex"):
+        validate_span(_v3(trace_id="short"))
+    with pytest.raises(ValueError, match="16-hex"):
+        validate_span(_v3(span_id="zz"))
+    with pytest.raises(ValueError, match="hex"):
+        validate_span(_v3(trace_id="g" * 32))
+
+
+def test_v3_requires_a_semconv_discriminator():
+    with pytest.raises(ValueError, match="discriminator"):
+        validate_span(_v3(attributes={"foo": "bar"}))
+    validate_span(_v3(attributes={"gen_ai.operation.name": "chat"}))
+    validate_span(_v3(attributes={"csbench.phase": "power"}))
+
+
+def test_v3_times_are_int_nanos_and_ordered():
+    with pytest.raises(ValueError, match="int"):
+        validate_span(_v3(start_unix_nano=1.5))
+    with pytest.raises(ValueError, match=">="):
+        validate_span(_v3(end_unix_nano=10))
+
+
+def test_v3_status_vocabulary_is_otel():
+    with pytest.raises(ValueError, match="status"):
+        validate_span(_v3(status="ok"))
+    validate_span(_v3(status="UNSET"))
+
+
+def test_legacy_v2_still_accepted():
+    validate_span(
+        {
+            "span_id": "s1",
+            "trace_id": "t1",
+            "parent_id": None,
+            "name": "n",
+            "kind": "llm_call",
+            "t_start": 1.0,
+            "t_end": 2.0,
+            "status": "ok",
+            "attrs": {},
+        }
+    )

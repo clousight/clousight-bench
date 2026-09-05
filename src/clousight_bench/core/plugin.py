@@ -196,7 +196,7 @@ class DomainPack(ABC):
     # Plugin-API version range this plugin was built against. The registry
     # refuses to load a plugin whose range does not contain the core's
     # PLUGIN_API_VERSION. Default = compatible with the current major.
-    requires_plugin_api: str = ">=2.0,<3.0"
+    requires_plugin_api: str = ">=3.0,<4.0"
 
     @abstractmethod
     def adapters(self) -> dict[str, type[ProviderAdapter]]:
@@ -214,7 +214,7 @@ class ResultEnricher(ABC):
     """
 
     name: str = "abstract"
-    requires_plugin_api: str = ">=2.0,<3.0"
+    requires_plugin_api: str = ">=3.0,<4.0"
 
     @abstractmethod
     def enrich(self, record: ResultRecord) -> ResultRecord:
@@ -231,7 +231,7 @@ class PrivateAssetResolver(ABC):
     """
 
     name: str = "abstract"
-    requires_plugin_api: str = ">=2.0,<3.0"
+    requires_plugin_api: str = ">=3.0,<4.0"
 
     @abstractmethod
     def resolve(self, spec: Any, cache_dir: Any | None = None) -> Any:
@@ -294,7 +294,7 @@ class RuntimeProviderPlugin(ABC):
     """
 
     provider: str = "abstract"
-    requires_plugin_api: str = ">=2.0,<3.0"
+    requires_plugin_api: str = ">=3.0,<4.0"
 
     @abstractmethod
     def build_transport(self, adapter: Any) -> Any:
@@ -361,7 +361,7 @@ class ResourceReaper(ABC):
     """
 
     provider: str = "abstract"
-    requires_plugin_api: str = ">=2.0,<3.0"
+    requires_plugin_api: str = ">=3.0,<4.0"
 
     @abstractmethod
     def sweep(self, *, dry_run: bool, older_than_s: float | None = None) -> list[dict[str, Any]]:
