@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from clousight_bench.core.registry import load_evaluators
 from clousight_bench.core.suite import RawArtifacts
 from clousight_bench.suites.tpc_c.evaluator import OfficialTpccEvaluator
@@ -20,9 +22,13 @@ _SUMMARY = {
 }
 
 
-def _artifacts(tmp_path: Path, summary: dict) -> RawArtifacts:
+def _artifacts(tmp_path: Path, summary: dict, meta: dict | None = None) -> RawArtifacts:
     (tmp_path / "summary.json").write_text(json.dumps(summary))
-    return RawArtifacts(dir=tmp_path, manifest={"summary": {"path": "summary.json", "rows": None}})
+    manifest = {"summary": {"path": "summary.json", "rows": None}}
+    if meta is not None:
+        (tmp_path / "meta.json").write_text(json.dumps(meta))
+        manifest["meta"] = {"path": "meta.json", "rows": None}
+    return RawArtifacts(dir=tmp_path, manifest=manifest)
 
 
 def test_registered_via_entry_point() -> None:
@@ -71,3 +77,45 @@ def test_evaluate_over_the_committed_mock_fixture() -> None:
     out = OfficialTpccEvaluator().evaluate(TpccSuite().mock_artifacts({}))
     assert out["tpc-c.throughput_req_per_sec"].value > 0
     assert "tpc-c.p99_latency_us" in out
+
+
+def test_tpmc_estimate_from_goodput_and_configured_mix(tmp_path):
+    summary = {
+        "Throughput (requests/second)": 753.85,
+        "Goodput (requests/second)": 741.02,
+    }
+    out = OfficialTpccEvaluator().evaluate(_artifacts(tmp_path, summary, meta={"neworder_weight_pct": 45}))
+    m = out["tpc-c.tpmc_estimate"]
+    assert m.value == pytest.approx(741.02 * 60 * 0.45)
+    assert m.unit == "tpm"
+    assert m.reproducibility_class == "environmental"
+    assert "unaudited" in m.notes and "not a measured NewOrder rate" in m.notes
+
+
+def test_tpmc_estimate_defaults_weight_when_meta_absent(tmp_path):
+    summary = {"Goodput (requests/second)": 100.0}
+    out = OfficialTpccEvaluator().evaluate(_artifacts(tmp_path, summary))
+    assert out["tpc-c.tpmc_estimate"].value == pytest.approx(100.0 * 60 * 0.45)
+
+
+def test_tpmc_estimate_omitted_without_goodput(tmp_path):
+    out = OfficialTpccEvaluator().evaluate(_artifacts(tmp_path, {"Throughput (requests/second)": 10.0}))
+    assert "tpc-c.tpmc_estimate" not in out
+
+
+@pytest.mark.parametrize(
+    "meta_text",
+    ["not json", "[1, 2]", '{"neworder_weight_pct": "abc"}', '{"neworder_weight_pct": "inf"}'],
+)
+def test_tpmc_estimate_survives_malformed_meta(tmp_path, meta_text):
+    (tmp_path / "summary.json").write_text(json.dumps({"Goodput (requests/second)": 100.0}))
+    (tmp_path / "meta.json").write_text(meta_text)
+    raw = RawArtifacts(
+        dir=tmp_path,
+        manifest={
+            "summary": {"path": "summary.json", "rows": None},
+            "meta": {"path": "meta.json", "rows": None},
+        },
+    )
+    out = OfficialTpccEvaluator().evaluate(raw)
+    assert out["tpc-c.tpmc_estimate"].value == pytest.approx(100.0 * 60 * 0.45)

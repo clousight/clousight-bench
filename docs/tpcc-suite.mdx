@@ -46,6 +46,7 @@ throughput/latency benchmark — there is no answer-correctness dimension):
 | --- | --- |
 | `tpc-c.throughput_req_per_sec` | overall throughput (requests/sec) |
 | `tpc-c.goodput_req_per_sec` | goodput (non-errored requests/sec) |
+| `tpc-c.tpmc_estimate` | tpmC-style estimate: goodput × 60 × configured NewOrder weight (45%) — **not** a measured NewOrder rate, unaudited |
 | `tpc-c.p99_latency_us` | 99th-percentile latency |
 | `tpc-c.median_latency_us` | median latency |
 | `tpc-c.avg_latency_us` | average latency |

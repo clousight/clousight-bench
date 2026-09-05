@@ -5,7 +5,11 @@ Parses BenchBase's ``summary.json`` into namespaced ``tpc-c.*``
 Registered as ``official-tpcc-evaluator``.
 
 TPC-C via BenchBase is a performance benchmark, so every measurement is
-``environmental`` and there is NO answer-correctness dimension. As the suite's
+``environmental`` and there is NO answer-correctness dimension. The
+``tpc-c.tpmc_estimate`` composite is a tpmC-STYLE estimate — goodput × 60 ×
+the configured NewOrder mix weight — because BenchBase's summary reports only
+aggregate throughput, never a measured NewOrder rate; the notes say so and the
+audited tpmC is still not claimed. As the suite's
 official evaluator all measurements carry ``official=True`` (a provenance flag
 per the conformance contract — not an audit claim; the audited tpmC is not
 emitted). ``supports`` returns True only for the ``"tpc-c"`` suite.
@@ -14,6 +18,7 @@ emitted). ``supports`` returns True only for the ``"tpc-c"`` suite.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from clousight_bench.core.observation import Measurement
@@ -71,6 +76,30 @@ class OfficialTpccEvaluator(Evaluator):
                     out[key] = Measurement(
                         value=m.value, unit=unit, reproducibility_class="environmental", official=True
                     )
+
+        goodput = out.get("tpc-c.goodput_req_per_sec")
+        if goodput is not None:
+            from clousight_bench.suites.tpc_c.suite import _NEWORDER_WEIGHT_PCT  # noqa: PLC0415
+
+            weight_pct = float(_NEWORDER_WEIGHT_PCT)  # the suite's configured NewOrder weight
+            try:
+                meta = json.loads(raw.path("meta").read_text())
+                candidate = float(meta.get("neworder_weight_pct", weight_pct))
+                if math.isfinite(candidate) and 0 < candidate <= 100:
+                    weight_pct = candidate
+            except Exception:  # noqa: BLE001 - absent/broken meta keeps the suite default
+                pass
+            out["tpc-c.tpmc_estimate"] = Measurement(
+                value=goodput.value * 60.0 * (weight_pct / 100.0),
+                unit="tpm",
+                reproducibility_class="environmental",
+                official=True,
+                notes=(
+                    f"tpmC-style estimate: goodput x 60 x configured NewOrder weight "
+                    f"({weight_pct:g}%); unaudited — BenchBase reports aggregate throughput "
+                    "only, this is not a measured NewOrder rate"
+                ),
+            )
 
         dist = summary.get("Latency Distribution")
         if isinstance(dist, dict):

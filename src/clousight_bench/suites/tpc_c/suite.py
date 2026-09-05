@@ -40,6 +40,11 @@ _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 # Pins the BenchBase distribution the bundled mock fixture reflects.
 _SUITE_VERSION = "benchbase-2023"
 
+# The configured TPC-C transaction mix (NewOrder,Payment,OrderStatus,Delivery,
+# StockLevel). NewOrder's share feeds the evaluator's tpmC-style estimate.
+_NEWORDER_WEIGHT_PCT = 45
+_TXN_WEIGHTS = f"{_NEWORDER_WEIGHT_PCT},43,4,4,4"
+
 
 def _write_artifacts(tmp_dir: Path, summary_json: str, meta: dict[str, Any]) -> RawArtifacts:
     """Write summary.json (BenchBase output) + meta.json into *tmp_dir*."""
@@ -165,6 +170,7 @@ class TpccSuite(BenchmarkSuite):
             "scalefactor": p["scalefactor"],
             "terminals": p["terminals"],
             "time": p["time"],
+            "neworder_weight_pct": _NEWORDER_WEIGHT_PCT,
             "benchbase_version": self.suite_version,
         }
         art_dir = Path(tempfile.mkdtemp(prefix="csbench-tpcc-art-"))
@@ -203,6 +209,6 @@ def _render_config(p: dict[str, Any], work: Path) -> str:
         f"  <url>{url}</url>\n  <username>{user}</username>\n  <password>{pw}</password>\n"
         f"  <scalefactor>{p['scalefactor']}</scalefactor>\n  <terminals>{p['terminals']}</terminals>\n"
         "  <works>\n"
-        f"    <work><time>{p['time']}</time><rate>unlimited</rate><weights>45,43,4,4,4</weights></work>\n"
+        f"    <work><time>{p['time']}</time><rate>unlimited</rate><weights>{_TXN_WEIGHTS}</weights></work>\n"
         "  </works>\n</parameters>\n"
     )

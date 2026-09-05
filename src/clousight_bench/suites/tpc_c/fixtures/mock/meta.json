@@ -1,1 +1,1 @@
-{"dbtype": "sqlite", "scalefactor": 1, "terminals": 1, "time": 60, "benchbase_version": "benchbase-2023"}
+{"dbtype": "sqlite", "scalefactor": 1, "terminals": 1, "time": 60, "benchbase_version": "benchbase-2023", "neworder_weight_pct": 45}
