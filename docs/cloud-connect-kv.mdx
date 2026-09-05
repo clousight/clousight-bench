@@ -87,7 +87,29 @@ mechanism):
 `extensions.pricing.price_performance[]` — `$ per (ops/sec)`, unaudited, from
 your own price input. It can never change the verdict.
 
-## 5. Honest caveats
+## 5. Reliability under disruption (R5)
+
+The harness owns the driver-side network path, so it can disrupt it honestly —
+no server-side fault injection against a managed service:
+
+```yaml
+params:
+  reliability: {action: reset, at_s: 5}     # or {action: stall, at_s: 5, stall_ms: 1000}
+```
+
+The measured run phase routes through a local TCP relay toward your endpoint;
+at `at_s` the harness cuts every active connection (`reset`) or holds
+forwarding (`stall`). Disruption requires the **redis binding and a target
+endpoint** — with any other binding the run fails loudly rather than run a
+clean benchmark under a disruption-labeled dataset. What lands in the record is
+evidence, never invention: `ycsb.error_rate` / `ycsb.ops_failed` come from
+YCSB's own `Return=` counts, `ycsb.completed_under_disruption` appears only
+when the disruption actually fired, and the trajectory carries a `disruption`
+span at the measured firing time (for `stall`, the gate-enforced window,
+clamped to run end). A different disruption plan is a different benchmark
+(folded into the dataset digest).
+
+## 6. Honest caveats
 
 - YCSB's Redis binding is single-node oriented; cluster-mode services need the
   cluster client flag upstream — validate before comparing across services.

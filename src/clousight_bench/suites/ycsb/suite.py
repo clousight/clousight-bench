@@ -80,6 +80,32 @@ def _write_artifacts(
     return RawArtifacts(dir=tmp_dir, manifest=manifest)
 
 
+def _validated_reliability(raw: Any) -> dict[str, Any] | None:
+    """Validate ``params.reliability`` — a driver-side disruption plan.
+
+    Shape: ``{action: reset|stall, at_s: float, stall_ms?: float}``. A different
+    disruption is a different benchmark, so the validated plan folds into the
+    dataset digest. ``None``/absent → no disruption (the default clean run).
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("params.reliability must be a mapping {action, at_s, stall_ms?}")
+    action = str(raw.get("action", ""))
+    if action not in ("reset", "stall"):
+        raise ValueError(f"reliability.action must be reset|stall, got {action!r}")
+    at_s = float(raw.get("at_s", 5.0))
+    if at_s < 0:
+        raise ValueError(f"reliability.at_s must be >= 0, got {at_s}")
+    plan: dict[str, Any] = {"action": action, "at_s": at_s}
+    if action == "stall":
+        stall_ms = float(raw.get("stall_ms", 1000.0))
+        if stall_ms <= 0:
+            raise ValueError(f"reliability.stall_ms must be > 0, got {stall_ms}")
+        plan["stall_ms"] = stall_ms
+    return plan
+
+
 def _ycsb_binary() -> str | None:
     import os  # noqa: PLC0415
 
@@ -132,22 +158,29 @@ class YcsbSuite(BenchmarkSuite):
             raise ValueError(f"unknown YCSB workload {workload!r}; choose from {_CORE_WORKLOADS}")
         recordcount = int(cfg.get("recordcount", 10000))
         operationcount = int(cfg.get("operationcount", 10000))
-        canonical = json.dumps(
-            {
-                "workload": workload,
-                "recordcount": recordcount,
-                "operationcount": operationcount,
-                "version": self.suite_version,
-            },
-            sort_keys=True,
-        )
+        reliability = _validated_reliability(cfg.get("reliability"))
+        canonical_fields: dict[str, Any] = {
+            "workload": workload,
+            "recordcount": recordcount,
+            "operationcount": operationcount,
+            "version": self.suite_version,
+        }
+        if reliability is not None:
+            # folded only when present — the clean-run digest stays stable;
+            # a disruption plan makes it a different benchmark
+            canonical_fields["reliability"] = reliability
+        canonical = json.dumps(canonical_fields, sort_keys=True)
+        version = f"{self.suite_version}/{workload}"
+        if reliability:
+            version += f"/disrupt-{reliability['action']}"
         return DatasetHandle(
-            version=f"{self.suite_version}/{workload}",
+            version=version,
             digest=_sha256_bytes(canonical.encode()),
             payload={
                 "workload": workload,
                 "recordcount": recordcount,
                 "operationcount": operationcount,
+                "reliability": reliability,
             },
         )
 
@@ -172,6 +205,8 @@ class YcsbSuite(BenchmarkSuite):
                 "workload": dataset.payload["workload"],
                 "recordcount": dataset.payload["recordcount"],
                 "operationcount": dataset.payload["operationcount"],
+                "reliability": dataset.payload.get("reliability"),
+                "endpoint": str(target.endpoint or ""),
             }
         )
 
@@ -197,10 +232,86 @@ class YcsbSuite(BenchmarkSuite):
         load_start_ns = time_ns()
         subprocess.run([binary, "load", binding, *common], check=True, capture_output=True, text=True)
         load_end_ns = time_ns()
+
+        # Driver-side disruption (R5): route the MEASURED phase through the
+        # harness's TCP proxy toward the real endpoint and fire the configured
+        # disruption mid-run. The load phase stays clean — the disruption targets
+        # the measured window only. A different plan is a different benchmark
+        # (folded into the dataset digest at resolve()).
+        reliability = p.get("reliability")
+        proxy = None
+        timer = None
+        run_props = list(common)
+        disruption_meta: dict[str, Any] | None = None
+        if reliability:
+            if not p.get("endpoint") or binding != "redis":
+                # NEVER run a clean benchmark under a disruption-labeled dataset:
+                # the digest already says disrupt-<action>, so silently skipping
+                # the proxy would record a claim that never happened.
+                raise RuntimeError(
+                    "params.reliability requires the redis binding and a target endpoint; "
+                    f"got binding={binding!r}, endpoint={p.get('endpoint')!r} — "
+                    "refusing to run a clean benchmark under a disruption-labeled dataset"
+                )
+            from clousight_bench.core.disruption import (  # noqa: PLC0415
+                DisruptionProxy,
+                schedule_disruption,
+            )
+
+            host, _, port = str(p["endpoint"]).partition(":")
+            proxy = DisruptionProxy(host, int(port or 6379))
+            proxy_endpoint = proxy.start()
+            phost, _, pport = proxy_endpoint.partition(":")
+            # drop the real-endpoint redis.host/redis.port -p pairs, keep everything else
+            cleaned: list[str] = []
+            skip_next = False
+            for i, arg in enumerate(common):
+                if skip_next:
+                    skip_next = False
+                    continue
+                if (
+                    arg == "-p"
+                    and i + 1 < len(common)
+                    and (
+                        str(common[i + 1]).startswith("redis.host=")
+                        or str(common[i + 1]).startswith("redis.port=")
+                    )
+                ):
+                    skip_next = True
+                    continue
+                cleaned.append(arg)
+            run_props = [*cleaned, "-p", f"redis.host={phost}", "-p", f"redis.port={pport}"]
+            timer = schedule_disruption(
+                proxy,
+                action=reliability["action"],
+                at_s=float(reliability["at_s"]),
+                stall_ms=float(reliability.get("stall_ms", 0.0)),
+            )
+
         run_start_ns = time_ns()
-        run_proc = subprocess.run(
-            [binary, "run", binding, *common], check=True, capture_output=True, text=True
-        )
+        try:
+            run_proc = subprocess.run(
+                [binary, "run", binding, *run_props], check=True, capture_output=True, text=True
+            )
+        finally:
+            if proxy is not None:
+                # quiesce the timer BEFORE snapshotting: cancel if unfired,
+                # join if mid-fire, so the stats read is not torn
+                if timer is not None:
+                    timer.cancel()
+                    timer.join(timeout=5.0)
+                stats = proxy.snapshot()
+                disruption_meta = {
+                    "plan": reliability,
+                    "fired": bool(stats.disrupted_at_unix_nano),
+                    "connections_total": stats.connections_total,
+                    "connections_reset": stats.connections_reset,
+                    "stall_windows": stats.stall_windows,
+                    "stall_ms_total": stats.stall_ms_total,
+                    "disrupted_at_unix_nano": list(stats.disrupted_at_unix_nano),
+                    "stall_windows_unix_nano": [list(w) for w in stats.stall_windows_unix_nano],
+                }
+                proxy.stop()
         run_end_ns = time_ns()
         summary = {
             "workload": p["workload"],
@@ -209,6 +320,8 @@ class YcsbSuite(BenchmarkSuite):
             "operationcount": p["operationcount"],
             "ycsb_version": self.suite_version,
         }
+        if disruption_meta is not None:
+            summary["disruption"] = disruption_meta
         from clousight_bench.core.tracing import new_trace_id  # noqa: PLC0415
         from clousight_bench.suites._tpc_official.trace import phase_span  # noqa: PLC0415
 
@@ -230,6 +343,32 @@ class YcsbSuite(BenchmarkSuite):
                 attributes={**base_attrs, "csbench.phase": "run"},
             ),
         ]
+        if disruption_meta is not None and disruption_meta["fired"]:
+            action = disruption_meta["plan"]["action"]
+            disruption_attrs = {
+                **base_attrs,
+                "csbench.phase": "disruption",
+                "csbench.disruption_action": action,
+            }
+            if action == "stall":
+                # the gate-enforced window, clamped to run end (the effective
+                # window cannot outlive the measured run)
+                windows = [
+                    (int(start), min(int(end), run_end_ns))
+                    for start, end in disruption_meta["stall_windows_unix_nano"]
+                ]
+            else:
+                windows = [(int(at), int(at)) for at in disruption_meta["disrupted_at_unix_nano"]]
+            for start_ns, end_ns in windows:
+                spans.append(
+                    phase_span(
+                        trace_id=trace_id,
+                        name=f"ycsb.disruption.{action}",
+                        start_unix_nano=start_ns,
+                        end_unix_nano=end_ns,
+                        attributes=disruption_attrs,
+                    )
+                )
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-ycsb-art-"))
         return _write_artifacts(tmp_dir, run_proc.stdout, summary, spans)
 

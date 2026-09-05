@@ -119,3 +119,24 @@ def test_tpmc_estimate_survives_malformed_meta(tmp_path, meta_text):
     )
     out = OfficialTpccEvaluator().evaluate(raw)
     assert out["tpc-c.tpmc_estimate"].value == pytest.approx(100.0 * 60 * 0.45)
+
+
+def test_goodput_ratio_reliability_dimension(tmp_path):
+    summary = {
+        "Throughput (requests/second)": 800.0,
+        "Goodput (requests/second)": 720.0,
+    }
+    out = OfficialTpccEvaluator().evaluate(_artifacts(tmp_path, summary))
+    m = out["tpc-c.goodput_ratio"]
+    assert m.value == pytest.approx(0.9)
+    assert m.unit == "ratio"
+    assert "tool-reported" in m.notes
+
+
+def test_goodput_ratio_omitted_without_both_rates(tmp_path):
+    out = OfficialTpccEvaluator().evaluate(_artifacts(tmp_path, {"Goodput (requests/second)": 10.0}))
+    assert "tpc-c.goodput_ratio" not in out
+    out2 = OfficialTpccEvaluator().evaluate(
+        _artifacts(tmp_path, {"Throughput (requests/second)": 0.0, "Goodput (requests/second)": 0.0})
+    )
+    assert "tpc-c.goodput_ratio" not in out2  # zero throughput -> no ratio claim

@@ -42,6 +42,7 @@ csbench run --domain transactional-db --benchmark tpc-c --platform jdbc-endpoint
 | `tpc-c.throughput_req_per_sec` | 总吞吐(请求/秒) |
 | `tpc-c.goodput_req_per_sec` | 有效吞吐(无错请求/秒) |
 | `tpc-c.tpmc_estimate` | tpmC 式估算:goodput × 60 × 配置的 NewOrder 权重(45%)——**非**实测 NewOrder 速率,unaudited |
+| `tpc-c.goodput_ratio` | 工具报告的 Goodput / Throughput——提交请求中成功完成的份额 |
 | `tpc-c.p99_latency_us` | 99 分位延迟 |
 | `tpc-c.median_latency_us` | 中位延迟 |
 | `tpc-c.avg_latency_us` | 平均延迟 |
