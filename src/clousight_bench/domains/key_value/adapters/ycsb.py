@@ -71,6 +71,16 @@ class _YcsbAdapterBase(ProviderAdapter):
             )
         else:
             report.add(pf.Check("ycsb", ok=True, severity=pf.CRITICAL, detail="launcher found"))
+            report.add(pf.java_version_check("ycsb:java", min_major=11, hint="YCSB needs Java >= 11 on PATH"))
+        endpoint = str(self.target.get("endpoint") or "")
+        if endpoint:
+            binding = str(self.target.get("binding") or self.ycsb_binding)
+            if binding == "redis":
+                # Protocol-level probe: PING -> +PONG / -NOAUTH both prove a live
+                # RESP service (no password is ever sent by the probe).
+                report.add(pf.resp_ping_check("ycsb:endpoint", endpoint))
+            else:
+                report.add(pf.tcp_reachable_check("ycsb:endpoint", endpoint))
         return report
 
 

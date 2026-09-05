@@ -164,3 +164,144 @@ def mock_reachable_check(url: str) -> Check:
             detail=f"{url} unreachable from here ({type(exc).__name__})",
             remediation="confirm it is publicly reachable by the cloud runtime",
         )
+
+
+# --- connectivity + upstream-tool probes (doctor / adapter preflight) ----------
+
+
+def _split_endpoint(endpoint: str) -> tuple[str, int] | None:
+    """``host:port`` → (host, port); None when unparseable."""
+    host, _, port = str(endpoint).rpartition(":")
+    if not host or not port.isdigit():
+        return None
+    return host, int(port)
+
+
+def tcp_reachable_check(name: str, endpoint: str, *, timeout_s: float = 2.0) -> Check:
+    """CRITICAL connectivity probe: can we open a TCP connection to ``host:port``?
+
+    Sends no application data — safe against any service. This is the doctor's
+    answer to "is the endpoint I configured actually reachable from here?"
+    instead of a mid-run stack trace.
+    """
+    import socket  # noqa: PLC0415
+
+    parsed = _split_endpoint(endpoint)
+    if parsed is None:
+        return Check(
+            name,
+            ok=False,
+            severity=CRITICAL,
+            detail=f"endpoint {endpoint!r} is not host:port",
+            remediation="set target.endpoint to <host>:<port>",
+        )
+    host, port = parsed
+    try:
+        with socket.create_connection((host, port), timeout=timeout_s):
+            pass
+    except OSError as exc:
+        return Check(
+            name,
+            ok=False,
+            severity=CRITICAL,
+            detail=f"cannot reach {host}:{port}: {exc}",
+            remediation="check the address, VPC/allowlist and that the service is running "
+            "(run the driver in-region for cloud services)",
+        )
+    return Check(name, ok=True, severity=CRITICAL, detail=f"{host}:{port} reachable")
+
+
+def resp_ping_check(name: str, endpoint: str, *, timeout_s: float = 2.0) -> Check:
+    """CRITICAL Redis-protocol probe: ``PING`` → ``+PONG`` (or ``-NOAUTH``).
+
+    ``-NOAUTH``/``-ERR AUTH`` still proves a live RESP service behind the
+    endpoint (credentials are checked by the tool at run time — the probe never
+    sends a password).
+    """
+    import socket  # noqa: PLC0415
+
+    parsed = _split_endpoint(endpoint)
+    if parsed is None:
+        return Check(
+            name,
+            ok=False,
+            severity=CRITICAL,
+            detail=f"endpoint {endpoint!r} is not host:port",
+            remediation="set target.endpoint to <host>:<port>",
+        )
+    host, port = parsed
+    try:
+        with socket.create_connection((host, port), timeout=timeout_s) as sock:
+            sock.settimeout(timeout_s)
+            sock.sendall(b"PING\r\n")
+            reply = sock.recv(64)
+    except OSError as exc:
+        return Check(
+            name,
+            ok=False,
+            severity=CRITICAL,
+            detail=f"cannot reach {host}:{port}: {exc}",
+            remediation="check the address, VPC/allowlist and that the service is running",
+        )
+    if reply.startswith(b"+PONG"):
+        return Check(name, ok=True, severity=CRITICAL, detail=f"{host}:{port} answered PONG")
+    if reply.startswith(b"-NOAUTH") or reply.startswith(b"-ERR"):
+        return Check(
+            name,
+            ok=True,
+            severity=CRITICAL,
+            detail=f"{host}:{port} is a live RESP service (auth required)",
+        )
+    return Check(
+        name,
+        ok=False,
+        severity=CRITICAL,
+        detail=f"{host}:{port} reachable but not speaking RESP (got {reply[:16]!r})",
+        remediation="point target.endpoint at a Redis-compatible service",
+    )
+
+
+def java_version_check(name: str, *, min_major: int, hint: str, timeout_s: float = 5.0) -> Check:
+    """CRITICAL probe: a ``java`` on PATH with major version >= ``min_major``.
+
+    The Java benchmark tools (BenchBase, YCSB) fail mid-run on an old JRE; this
+    surfaces it at doctor/preflight time with the tool's requirement.
+    """
+    import re  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+    import subprocess  # noqa: PLC0415
+
+    if shutil.which("java") is None:
+        return Check(name, ok=False, severity=CRITICAL, detail="no `java` on PATH", remediation=hint)
+    try:
+        proc = subprocess.run(
+            ["java", "-version"], capture_output=True, text=True, timeout=timeout_s, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return Check(
+            name, ok=False, severity=CRITICAL, detail=f"java -version failed: {exc}", remediation=hint
+        )
+    banner = (proc.stderr or "") + (proc.stdout or "")
+    m = re.search(r'version "(\d+)(?:\.(\d+))?', banner)
+    if not m:
+        return Check(
+            name,
+            ok=False,
+            severity=WARNING,
+            detail=f"cannot parse java version from {banner.splitlines()[0]!r}"
+            if banner
+            else "empty java -version output",
+            remediation=hint,
+        )
+    major = int(m.group(1))
+    if major == 1 and m.group(2):  # legacy "1.8.0" scheme -> major 8
+        major = int(m.group(2))
+    if major < min_major:
+        return Check(
+            name,
+            ok=False,
+            severity=CRITICAL,
+            detail=f"java {major} found; this tool needs Java >= {min_major}",
+            remediation=hint,
+        )
+    return Check(name, ok=True, severity=CRITICAL, detail=f"java {major} (>= {min_major})")

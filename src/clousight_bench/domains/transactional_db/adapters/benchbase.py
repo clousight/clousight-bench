@@ -78,6 +78,16 @@ class _BenchbaseAdapterBase(ProviderAdapter):
             )
         else:
             report.add(pf.Check("benchbase", ok=True, severity=pf.CRITICAL, detail="launcher found"))
+            report.add(
+                pf.java_version_check(
+                    "benchbase:java", min_major=17, hint="BenchBase needs Java >= 17 on PATH"
+                )
+            )
+        endpoint = str(self.target.get("endpoint") or "")
+        if endpoint:
+            # Config-connect: prove the database endpoint is reachable from HERE
+            # before the run provisions anything or loads warehouses.
+            report.add(pf.tcp_reachable_check("benchbase:endpoint", endpoint))
         return report
 
 
