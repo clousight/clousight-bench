@@ -223,6 +223,11 @@ def main(argv: list[str] | None = None) -> int:
         help="order by start (default) or total duration",
     )
     tl.add_argument("--status", help="only traces with this run status")
+    ti = trace_sub.add_parser(
+        "import", help="convert external OTel spans (OTLP JSON or flat JSONL) into a v3 trajectory"
+    )
+    ti.add_argument("file", help="OTLP/JSON export or span-per-line JSONL")
+    ti.add_argument("--out", help="output path (default: <file>.v3.jsonl)")
     ts = trace_sub.add_parser("show", help="render one run's trace as a stage tree")
     ts.add_argument("id", help="a run_id or trace_id")
     ts.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))

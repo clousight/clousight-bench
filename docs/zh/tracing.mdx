@@ -47,7 +47,8 @@ LLM-endpoint 调用携带 W3C `traceparent` 头。若被测服务自身有 OTel 
 
 ## 诚实边界
 
-- BenchBase(TPC-C)和 YCSB 是 Java 子进程:只有外层阶段 span,无内部 span。
+- BenchBase（TPC-C）和 YCSB 是 Java 子进程:每次工具调用一个**实测**阶段 span
+  (TPC-C:`create+load+execute`;YCSB:`load` 与 `run`),无内部 span。
 - TPC 官方 span 由实测区间**重建**(并发模型已知:阶段串行、流内查询背靠背)——
   计时忠实,但不是活体插桩。
 - 已部署的 agent-bundle 协议仍产 legacy v2 span;viewer 双读,新 span 源一律 v3

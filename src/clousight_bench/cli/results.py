@@ -25,6 +25,19 @@ def _cmd_trace(args: argparse.Namespace) -> int:
         trace_summaries,
     )
 
+    if args.trace_cmd == "import":
+        from clousight_bench.core.otel_ingest import ingest_file  # noqa: PLC0415
+
+        try:
+            imported = ingest_file(Path(args.file))
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print(f"error: cannot import {args.file!r}: {exc}", file=sys.stderr)
+            return 2
+        out_path = Path(args.out) if args.out else Path(args.file).with_suffix(".v3.jsonl")
+        out_path.write_text("".join(json.dumps(s) + "\n" for s in imported), encoding="utf-8")
+        print(f"imported {len(imported)} spans -> {out_path}")
+        return 0
+
     results = Path(args.results)
     if args.trace_cmd == "list":
         summaries = trace_summaries(results)

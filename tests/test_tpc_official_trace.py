@@ -82,3 +82,19 @@ def test_span_ids_are_deterministic():
     a = _spans()
     b = _spans()
     assert [s["span_id"] for s in a] == [s["span_id"] for s in b]
+
+
+def test_phase_span_is_v3_valid_and_deterministic():
+    from clousight_bench.suites._tpc_official.trace import phase_span
+
+    kw = dict(
+        trace_id="a" * 32,
+        name="ycsb.load",
+        start_unix_nano=1_000,
+        end_unix_nano=2_000,
+        attributes={"csbench.suite_id": "ycsb", "csbench.phase": "load", "db.system.name": "redis"},
+    )
+    a, b = phase_span(**kw), phase_span(**kw)
+    validate_span(a)
+    assert a["span_id"] == b["span_id"]  # deterministic
+    assert a["status"] == "OK"

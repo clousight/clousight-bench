@@ -953,3 +953,9 @@ def _emit_trace(
         emit_run_trace(record, results_dir, trace_id, root_start_ns, time.time_ns())
     except Exception as exc:  # noqa: BLE001 - a trace must never fail a run
         logger.warning("run %s: trace export failed: %s", record.run.run_id, exc)
+    try:
+        from clousight_bench.core.otel_export import export_record_signals  # noqa: PLC0415
+
+        export_record_signals(record, trace_id)
+    except Exception as exc:  # noqa: BLE001 - telemetry never fails a run
+        logger.warning("run %s: OTel metrics/logs export failed: %s", record.run.run_id, exc)

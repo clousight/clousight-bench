@@ -322,3 +322,31 @@ def build_official_ds_spans(
     spans.extend([tt1_span, *tt1_children, dm1_span])
     spans.extend([tt2_span, *tt2_children, dm2_span])
     return spans
+
+
+def phase_span(
+    *,
+    trace_id: str,
+    name: str,
+    start_unix_nano: int,
+    end_unix_nano: int,
+    attributes: dict[str, Any],
+    parent_span_id: str = "",
+) -> dict[str, Any]:
+    """One measured (not reconstructed) v3 phase span with a deterministic id.
+
+    Used by the subprocess-wrapping suites (BenchBase, YCSB): the Java tool's
+    internals are invisible, so each tool invocation gets exactly one span with
+    real wall-clock bounds.
+    """
+    span_id = hashlib.sha256(f"{trace_id}:{name}:{start_unix_nano}".encode()).hexdigest()[:16]
+    return {
+        "trace_id": trace_id,
+        "span_id": span_id,
+        "parent_span_id": parent_span_id,
+        "name": name,
+        "start_unix_nano": int(start_unix_nano),
+        "end_unix_nano": max(int(end_unix_nano), int(start_unix_nano)),
+        "status": "OK",
+        "attributes": attributes,
+    }

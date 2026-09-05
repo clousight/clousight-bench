@@ -12,19 +12,23 @@ the orchestrator's ProviderAdapter (``Target.handle``) and per instance:
    transport lacking the seam raises ``RuntimeError`` instead of silently
    faking a cloud run),
 3. decodes the response with :func:`decode_swe_result` and maps the agent's
-   OpenInference-style spans onto the sut-span v2 schema.
+   OpenInference-style spans onto the sut-span **v3 (OTel-native)** schema.
 
-Span mapping rules (see ``core/sut_span.py`` for the v2 schema):
+Span mapping rules (see ``core/sut_span.py`` for the v3 schema):
 
-- ``kind``: OpenInference kind ``LLM`` -> ``"llm_call"``; everything else
-  (``CHAIN`` / ``TOOL`` / unknown) -> ``"tool_call"``.
-- ``trace_id``: the span's own trace id, else the transport's last observed
-  trace id (public ``last_trace_id``, set from live response headers), else
-  ``f"trace-{instance_id}"``.
-- ``t_start`` / ``t_end``: agent spans carry no timestamps, so all spans of one
-  invoke share the invoke's wall-clock bounds (acceptable by design).
-- ``attrs``: passed through with any single string value truncated to 8 KiB so
-  the 64 KiB total attrs cap cannot be blown by one oversized value.
+- OpenInference kind ``LLM`` -> ``gen_ai.operation.name="chat"``; everything
+  else (``CHAIN`` / ``TOOL`` / unknown) -> ``"execute_tool"`` +
+  ``gen_ai.tool.name`` from the span name.
+- ids: the agent's raw ids are kept when already W3C-hex-shaped, otherwise a
+  deterministic hex id is derived (sha256 of the raw id) — the same raw id
+  always maps to the same hex id, preserving the parent/child forest.
+- trace id: the span's own, else the transport's last observed trace id
+  (public ``last_trace_id``), else derived from the instance id.
+- times: agent spans carry no timestamps, so all spans of one invoke share the
+  invoke's wall-clock bounds, as integer nanoseconds (acceptable by design).
+- attributes: passed through with any single string value truncated to 8 KiB so
+  the 64 KiB total cap cannot be blown by one oversized value; an agent error
+  lands in ``error.message``.
 
 Every mapped span MUST pass ``validate_span`` — a failure raises ``ValueError``
 immediately (loud, never a silently-dropped span).
@@ -32,6 +36,7 @@ immediately (loud, never a silently-dropped span).
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 import uuid
@@ -43,6 +48,25 @@ from clousight_bench.domains.agent_runtime.protocol import decode_swe_result, en
 
 #: Per-attribute string value cap: 8 KiB (the total attrs cap is 64 KiB).
 _MAX_ATTR_VALUE_BYTES = 8192
+
+
+def _hex_id(raw: str, length: int) -> str:
+    """The raw id itself when already W3C-hex-shaped, else a deterministic
+    sha256-derived hex id (same raw id -> same hex id, so the forest survives).
+
+    No domain separator: a derived id could in principle collide with another
+    span's genuine hex id — accepted (agent ids are not adversarial), noted for
+    honesty. Hex-shaped ids are case-folded; non-hex raw ids hash case-sensitively.
+    """
+    candidate = raw.lower()
+    if len(candidate) == length:
+        try:
+            int(candidate, 16)
+        except ValueError:
+            pass
+        else:
+            return candidate
+    return hashlib.sha256(raw.encode()).hexdigest()[:length]
 
 
 def _truncate_attr(value: Any) -> Any:
@@ -186,19 +210,36 @@ class SweSutClient:
         attributes = raw.get("attributes")
         attributes = dict(attributes) if isinstance(attributes, dict) else {}
         oi_kind = str(attributes.get("openinference.span.kind") or raw.get("kind") or "")
-        trace_id = str(raw.get("trace_id") or "") or fallback_trace_id or f"trace-{instance_id}"
+        raw_trace = str(raw.get("trace_id") or "") or fallback_trace_id or f"trace-{instance_id}"
+        raw_span_id = str(raw.get("span_id") or "") or uuid.uuid4().hex[:16]
+        raw_parent = str(raw.get("parent_span_id") or raw.get("parent_id") or "")
+        name = str(raw.get("name") or "span")
+
+        v3_attrs: dict[str, Any] = {k: _truncate_attr(v) for k, v in attributes.items()}
+        if oi_kind.upper() == "LLM":
+            v3_attrs.setdefault("gen_ai.operation.name", "chat")
+        else:
+            v3_attrs.setdefault("gen_ai.operation.name", "execute_tool")
+            v3_attrs.setdefault("gen_ai.tool.name", name.rsplit(".", 1)[-1])
+        raw_status = str(raw.get("status") or "ok").lower()
+        if raw_status not in ("ok", "error", "unset"):
+            raise ValueError(
+                f"agent span {name!r} has out-of-vocab status {raw.get('status')!r} "
+                "(expected ok|error|unset) — refusing to guess"
+            )
+        status = {"ok": "OK", "error": "ERROR", "unset": "UNSET"}[raw_status]
+        if status == "ERROR" and raw.get("error"):
+            v3_attrs["error.message"] = _truncate_attr(str(raw["error"]))
+
         span: dict[str, Any] = {
-            "span_id": str(raw.get("span_id") or "") or uuid.uuid4().hex[:16],
-            "trace_id": trace_id,
-            "parent_id": str(raw.get("parent_span_id") or raw.get("parent_id") or "") or None,
-            "name": str(raw.get("name") or "span"),
-            "kind": "llm_call" if oi_kind.upper() == "LLM" else "tool_call",
-            "t_start": t_start,
-            "t_end": t_end,
-            "status": str(raw.get("status") or "ok"),
-            "attrs": {k: _truncate_attr(v) for k, v in attributes.items()},
+            "span_id": _hex_id(raw_span_id, 16),
+            "trace_id": _hex_id(raw_trace, 32),
+            "parent_span_id": _hex_id(raw_parent, 16) if raw_parent else "",
+            "name": name,
+            "start_unix_nano": int(t_start * 1_000_000_000),
+            "end_unix_nano": int(t_end * 1_000_000_000),
+            "status": status,
+            "attributes": v3_attrs,
         }
-        if span["status"] == "error" and raw.get("error"):
-            span["error"] = str(raw["error"])
         validate_span(span)  # raises ValueError — a bad span must never be silent
         return span
