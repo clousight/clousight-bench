@@ -9,8 +9,8 @@ authors:
 url: https://clousight.com
 repository-code: https://github.com/clousight/clousight-bench
 license: Apache-2.0
-version: 0.5.0
-date-released: "2026-08-30"
+version: 0.6.0
+date-released: "2026-09-05"
 keywords:
   - benchmark
   - cloud

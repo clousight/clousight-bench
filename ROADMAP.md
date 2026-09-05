@@ -6,12 +6,15 @@ depends on access to real cloud accounts.
 
 Status legend: ✅ done · 🚧 in progress · 📋 planned · 💤 deferred
 
-## Shipped (0.3.0 Developer Preview)
+## Shipped (through 0.6.0 Developer Preview)
 
-- ✅ Lifecycle orchestrator: `provision → setup → execute → collect → teardown → score → report`
-- ✅ Unified `RunSpec` / `ResultRecord` schema with provenance-folded fingerprints, `reproducibility_class` + `official` per measurement (schema 0.3)
-- ✅ Entry-point plugin registry: `clousight_bench.domains` / `.enrichers` /
-  `.asset_resolvers` / `.runtime_providers` / `.resource_reapers` / `.span_exporters`
+- ✅ Lifecycle orchestrator: eleven stages in four phases — PREPARE (resolve/validate/preflight)
+  → CONNECT (setup…teardown) → MEASURE (execute/collect) → CONCLUDE (score/enrich/persist/publish);
+  the cloud cannot reach the verdict, enforced by `task.score()`'s signature
+- ✅ Unified `RunSpec` / `ResultRecord` schema with provenance-folded fingerprints, `reproducibility_class` + `official` per measurement (schema 0.4, incl. the per-item substrate + confidence intervals)
+- ✅ Entry-point plugin registry (plugin API 3.0): `clousight_bench.benchmark_suites` /
+  `.evaluators` / `.metrics` / `.judges` / `.domains` / `.enrichers` / `.asset_resolvers` /
+  `.runtime_providers` / `.resource_reapers` / `.span_exporters`
 - ✅ Cross-language workload protocol (`manifest.yaml` + executable + JSONL on stdout)
 - ✅ Three-tier asset resolution (bundled / remote-with-checksum / private-via-resolver)
 - ✅ Credential preflight reusing each cloud's default chain; `csbench init` / `csbench doctor`
@@ -110,6 +113,33 @@ visualization is deferred to the Sub-project C web viewer.
 - 💤 `bigdata-emr` domain (J1.1 smoke + `aws-emr` skeleton) — retired; the cross-language workload protocol is kept
 - 💤 HTML/ECharts report renderer (`csbench report`) — retired; Sub-project C web viewer handles visualization
 
+## Shipped since 0.5.0 (2026-09)
+
+- ✅ **Official-formula TPC composites, unaudited**: `tpc-h` `QphH@Size` and
+  `tpc-ds` `QphDS@SF` via one engine-agnostic phase machine
+  (`suites/_tpc_official`: Load → Power incl. RF1/RF2 → multi-stream Throughput →
+  ACID), selected with `params.mode: official`. The numbers reproduce the official
+  formulas but carry **no TPC audit** (no membership, no audited FDR; the refresh
+  set is clousight-generated) and say so on every score.
+- ✅ **Eval-core consolidation**: one benchmark rail (`BenchmarkSuite` +
+  `Evaluator`), `Task` / `SuiteTask` / `DomainPack.tasks()` removed, campaign
+  layer quarantined in `clousight_bench.ops` (ops imports core, never the reverse).
+- ✅ **OTel-native tracing (plugin API 3.0)**: the OpenTelemetry SDK is a core
+  dependency, `span_exporters` are SDK `SpanExporter`s, SUT spans move to schema
+  v3 (`gen_ai.*` / `db.*` / `csbench.*` semconv, v2 still accepted), LLM suites
+  propagate W3C `traceparent`, and the TPC official phases reconstruct into the
+  viewer's waterfall. New `[otlp]` extra ships run traces to any collector.
+- ✅ **Price/performance as a cloud dimension**: the pricing feed takes
+  operator-supplied `system_prices` and the enricher emits
+  `price_per_unit_perf` (e.g. price/QphH). Prices are never invented, always
+  annotated unaudited, and an enricher can never change a verdict.
+- ✅ **Cloud connect runbooks**: evaluating a managed KV service (`ycsb-endpoint`)
+  and a managed RDBMS (`jdbc-endpoint`) over the config-connect seam, with
+  committed example profiles under `examples/cloud-connect/`.
+- ✅ **Lifecycle legibility**: eleven stages presented as four phases,
+  `run.stages` drops the constant `RESOLVE`, and a non-`completed` run prints the
+  failed stage / blocking finding + remediation to stderr (stdout stays JSON).
+
 ## Later
 
 - ✅ **Plugin contract hardening (Phase 1D, stability slice)**: plugin API
@@ -131,8 +161,7 @@ visualization is deferred to the Sub-project C web viewer.
   `benchmark_suite` / `evaluator` contract generalized beyond agent suites to
   OLAP/data, and TPC-H proved a second suite drops onto the same domain/platform
   cheaply. Both offline (mock + real DuckDB SF1), correctness vs a pinned SF1
-  reference, honest per-query latency (audited QphDS/QphH composite deliberately
-  not claimed). See [docs/tpcds-suite.mdx](docs/tpcds-suite.mdx).
+  reference, honest per-query latency. See [docs/tpcds-suite.mdx](docs/tpcds-suite.mdx).
 - ✅ **Key-value domain + SUT-connection abstraction (2026-08)**: **YCSB** on a
   `key-value` domain — the SUT-connection abstraction generalized so a suite runs
   against a local reference (`ycsb-local`, binding=basic) or an already-running
