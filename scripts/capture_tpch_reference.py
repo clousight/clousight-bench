@@ -36,7 +36,7 @@ from pathlib import Path
 
 import duckdb
 
-from clousight_bench.suites.tpc_h.suite import _ALL_QUERY_IDS, run_query_set
+from clousight_bench.suites.tpc_h.suite import _ALL_QUERY_IDS, result_digest
 
 _FIXTURES = Path(__file__).resolve().parent.parent / "src/clousight_bench/suites/tpc_h/fixtures"
 _MOCK_QUERY_IDS = [1, 6, 14]
@@ -56,13 +56,20 @@ def _norm_cell(value: object) -> str:
 
 
 def _norm_rows(rows: list[tuple]) -> list[str]:
-    out = []
-    for row in rows:
-        cells = [_norm_cell(c) for c in row]
-        if all(c == "\\N" for c in cells):
-            continue  # an all-NULL aggregate row == an empty official answer
-        out.append("\x1f".join(cells))
-    return sorted(out)
+    return sorted("\x1f".join(_norm_cell(c) for c in row) for row in rows)
+
+
+def _rows_equal(answer_rows: list[tuple], live_rows: list[tuple]) -> bool:
+    a, b = _norm_rows(answer_rows), _norm_rows(live_rows)
+    if a == b:
+        return True
+
+    # Tightly-scoped special case (q17 at SF0.01): an aggregate over zero rows is
+    # ONE all-NULL live row, which the official answer file prints as nothing.
+    def _all_null(norm: list[str]) -> bool:
+        return len(norm) == 1 and set(norm[0].split("\x1f")) == {"\\N"}
+
+    return (a == [] and _all_null(b)) or (b == [] and _all_null(a))
 
 
 def _parse_answer(text: str) -> list[tuple]:
@@ -79,7 +86,7 @@ def verify_against_official(
     ).fetchone()
     if not row or row[0] is None:
         return None
-    return _norm_rows(_parse_answer(row[0])) == _norm_rows(live_rows)
+    return _rows_equal(_parse_answer(row[0]), live_rows)
 
 
 def capture_sf(sf: float) -> tuple[dict, dict, str]:
@@ -90,25 +97,26 @@ def capture_sf(sf: float) -> tuple[dict, dict, str]:
     ext = con.execute(
         "SELECT extension_version FROM duckdb_extensions() WHERE extension_name='tpch'"
     ).fetchone()
-    rows = run_query_set(con, list(_ALL_QUERY_IDS))
     reference: dict[str, dict] = {}
+    rows_out: list[dict] = []
     unverified: list[int] = []
-    for r in rows:
-        nr = r["query_nr"]
+    for nr in _ALL_QUERY_IDS:
         live = con.execute(f"PRAGMA tpch({nr})").fetchall()
+        digest = result_digest(live)  # the SAME rows feed digest and verification
         verdict = verify_against_official(con, sf, nr, live)
         if verdict is False:
             unverified.append(nr)
         reference[str(nr)] = {
-            "result_digest": r["result_digest"],
-            "row_count": r["row_count"],
+            "result_digest": digest,
+            "row_count": len(live),
             "verified_official": bool(verdict),
         }
+        rows_out.append({"query_nr": nr, "latency_ms": 1.0, "row_count": len(live), "result_digest": digest})
     con.close()
     if unverified:
         print(f"FAIL sf={sf:g}: queries not matching the official answer: {unverified}")
         sys.exit(1)
-    return reference, {r["query_nr"]: r for r in rows}, ext[0] if ext else "unknown"
+    return reference, {r["query_nr"]: r for r in rows_out}, ext[0] if ext else "unknown"
 
 
 def main() -> None:

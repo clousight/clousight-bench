@@ -92,13 +92,24 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
 
 ### Added
 
+- **Trace completion pack (D)**: (a) SWE-bench agent spans now map onto schema
+  v3 (OpenInference wire → `gen_ai.*` attributes, deterministic hex ids — the
+  same raw id always maps to the same hex id so the span forest survives);
+  (b) TPC-C and YCSB emit **measured** phase spans around their Java tool
+  invocations (real wall-clock, not reconstruction); (c) `csbench trace import`
+  converts external OTel spans (OTLP/JSON or flat JSONL) into a validated v3
+  trajectory; (d) with `CLOUSIGHT_OTLP_ENDPOINT`, a finished run also ships its
+  numeric measurements as OTel **gauges** and its errors/findings as OTel
+  **logs** — one-shot, trace-correlated, fail-safe.
 - **TPC-H correctness pack**: (a) the pinned references for SF 1/0.1/0.01 are now
   **verified cell-by-cell against DuckDB's official `tpch_answers()`** at capture
   time (all 22 queries; the capture script fails loud on any mismatch) and
   `queries_passed` notes say "verified against the official answer set";
   (b) correctness is **SF-keyed** — any SF with a captured
   `reference/sf<sf>_digests.json` scores, others make no claim
-  (`capture_tpch_reference.py --sf`); (c) `params.query_order_file` lets the
+  (`capture_tpch_reference.py --sf`); (fingerprint note: non-SF1 reference-mode runs now fold the SF-matched
+  reference — or `sha256:none` — instead of the SF1 file, so their dataset
+  digests change once); (c) `params.query_order_file` lets the
   operator supply the full official Appendix A permutation table (sha folded
   into the dataset digest) — we bundle streams 0–2 and never fabricate the rest.
 - **Honesty fix — TPC-H official mode drops its correctness claim**: the Power

@@ -98,9 +98,7 @@ def test_correctness_at_sf01_via_the_multi_sf_reference(tmp_path: Path) -> None:
             / "src/clousight_bench/suites/tpc_h/fixtures/reference/sf0.1_digests.json"
         ).read_text()
     )
-    queries = [
-        {"query_nr": 1, "latency_ms": 5.0, "row_count": 4, "result_digest": ref["1"]["result_digest"]}
-    ]
+    queries = [{"query_nr": 1, "latency_ms": 5.0, "row_count": 4, "result_digest": ref["1"]["result_digest"]}]
     out = OfficialTpchEvaluator().evaluate(_artifacts(tmp_path, queries, {"scale_factor": 0.1}))
     assert out["tpc-h.queries_passed"].value == 1.0
     assert "verified against the official answer set" in out["tpc-h.queries_passed"].notes

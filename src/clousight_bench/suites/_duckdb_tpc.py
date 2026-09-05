@@ -241,7 +241,7 @@ class DuckDbTpcEvaluator(Evaluator):
     Subclasses set ``evaluator_id`` + ``suite_id`` (== the ``<suite_id>.``
     namespace + ``supports()``) + ``fixtures_dir``. Every measurement is
     ``official=True`` (conformance contract); honesty rides ``reproducibility_class``
-    (``queries_passed`` deterministic, a pinned-reference SF1-only check; latencies
+    (``queries_passed`` deterministic, against the SF-matched pinned reference; latencies
     environmental) and NOT emitting an audited QphDS/QphH composite.
     """
 
@@ -311,7 +311,7 @@ class DuckDbTpcEvaluator(Evaluator):
                     sample_count=len(positive),
                 )
 
-        # --- correctness (SF1 only, deterministic) ----------
+        # --- correctness (SF-keyed pinned reference, deterministic) ----------
         try:
             summary: dict[str, Any] = json.loads(raw.path("summary").read_text())
             scale_factor = float(summary.get("scale_factor", 0))
@@ -324,6 +324,7 @@ class DuckDbTpcEvaluator(Evaluator):
 
         passed = 0
         counted = 0
+        all_verified = True
         for q in queries:
             try:
                 nr = str(int(q["query_nr"]))
@@ -334,15 +335,11 @@ class DuckDbTpcEvaluator(Evaluator):
             if ref is None:
                 continue
             counted += 1
+            all_verified = all_verified and bool(ref.get("verified_official"))
             if digest == ref.get("result_digest"):
                 passed += 1
 
         if counted > 0:
-            all_verified = all(
-                bool(reference.get(str(int(q.get("query_nr", -1))), {}).get("verified_official"))
-                for q in queries
-                if str(q.get("query_nr")) in reference
-            )
             if all_verified:
                 note = (
                     f"reference verified against the official answer set at capture time "

@@ -188,6 +188,4 @@ def test_query_order_file_requires_official_ordering(tmp_path) -> None:
 
 def test_missing_query_order_file_fails_loud() -> None:
     with pytest.raises(ValueError, match="not readable"):
-        TpchSuite().resolve(
-            {"mode": "official", "query_order_file": "/nonexistent/appendix.json"}, None
-        )
+        TpchSuite().resolve({"mode": "official", "query_order_file": "/nonexistent/appendix.json"}, None)
