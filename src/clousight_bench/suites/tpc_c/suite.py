@@ -46,8 +46,13 @@ _NEWORDER_WEIGHT_PCT = 45
 _TXN_WEIGHTS = f"{_NEWORDER_WEIGHT_PCT},43,4,4,4"
 
 
-def _write_artifacts(tmp_dir: Path, summary_json: str, meta: dict[str, Any]) -> RawArtifacts:
-    """Write summary.json (BenchBase output) + meta.json into *tmp_dir*."""
+def _write_artifacts(
+    tmp_dir: Path,
+    summary_json: str,
+    meta: dict[str, Any],
+    spans: list[dict[str, Any]] | None = None,
+) -> RawArtifacts:
+    """Write summary.json (BenchBase output) + meta.json (+ trajectory) into *tmp_dir*."""
     s_path = tmp_dir / "summary.json"
     m_path = tmp_dir / "meta.json"
     s_path.write_text(summary_json, encoding="utf-8")
@@ -56,6 +61,14 @@ def _write_artifacts(tmp_dir: Path, summary_json: str, meta: dict[str, Any]) -> 
         "summary": {"path": "summary.json", "sha256": _sha256_bytes(s_path.read_bytes()), "rows": None},
         "meta": {"path": "meta.json", "sha256": _sha256_bytes(m_path.read_bytes()), "rows": None},
     }
+    if spans:
+        t_path = tmp_dir / "trajectory.jsonl"
+        t_path.write_text("".join(json.dumps(s) + "\n" for s in spans), encoding="utf-8")
+        manifest["trajectory"] = {
+            "path": "trajectory.jsonl",
+            "sha256": _sha256_bytes(t_path.read_bytes()),
+            "rows": len(spans),
+        }
     return RawArtifacts(dir=tmp_dir, manifest=manifest)
 
 
@@ -132,7 +145,7 @@ class TpccSuite(BenchmarkSuite):
         )
 
     # ---------------------------------------------------------------------- run
-    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:  # noqa: ARG002
+    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:
         """Run BenchBase create+load+execute; capture the produced summary.json."""
         if target.mock or env.payload.get("mock"):
             return self.mock_artifacts(dict(env.payload))
@@ -160,7 +173,11 @@ class TpccSuite(BenchmarkSuite):
             "-d",
             str(results_dir),
         ]
+        from time import time_ns  # noqa: PLC0415
+
+        bench_start_ns = time_ns()
         subprocess.run(cmd, check=True, capture_output=True, text=True)
+        bench_end_ns = time_ns()
         summaries = sorted(results_dir.glob("*.summary.json"))
         if not summaries:
             raise RuntimeError(f"BenchBase produced no *.summary.json under {results_dir}")
@@ -173,9 +190,26 @@ class TpccSuite(BenchmarkSuite):
             "neworder_weight_pct": _NEWORDER_WEIGHT_PCT,
             "benchbase_version": self.suite_version,
         }
+        from clousight_bench.core.tracing import new_trace_id  # noqa: PLC0415
+        from clousight_bench.suites._tpc_official.trace import phase_span  # noqa: PLC0415
+
+        trace_id = getattr(driver, "trace_id", "") or new_trace_id()
+        spans = [
+            phase_span(
+                trace_id=trace_id,
+                name="tpc-c.benchbase",
+                start_unix_nano=bench_start_ns,
+                end_unix_nano=bench_end_ns,
+                attributes={
+                    "csbench.suite_id": "tpc-c",
+                    "csbench.phase": "create+load+execute",
+                    "db.system.name": p["dbtype"],
+                },
+            )
+        ]
         art_dir = Path(tempfile.mkdtemp(prefix="csbench-tpcc-art-"))
         shutil.rmtree(work, ignore_errors=True)
-        return _write_artifacts(art_dir, summary_json, meta)
+        return _write_artifacts(art_dir, summary_json, meta, spans)
 
     # ----------------------------------------------------------------- teardown
     def teardown(self, env: EnvHandle) -> None:  # noqa: ARG002, B027

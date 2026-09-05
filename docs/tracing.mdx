@@ -19,7 +19,7 @@ fingerprints exclude them, and a broken exporter can never fail a run.
 | Harness (every run) | root `csbench.run` + one span per **timed** lifecycle stage (PREFLIGHT … SCORE), exact `stage_timings` | `csbench.*` |
 | TPC-H official mode | Load → Power (RF1, Q1…Q22, RF2) → Throughput (concurrent streams, per-query spans, refresh pairs) → reconstructed from the measured intervals | `csbench.phase`/`csbench.stream_id` + `db.*` |
 | LLM endpoint suites (MMLU/GSM8K/HumanEval) | one span per `/chat/completions` call: model, token usage, finish reason | `gen_ai.*` (GenAI semconv) |
-| SWE-bench agents | LLM/tool spans from the SUT agent (schema v3; legacy v2 still accepted) | `gen_ai.*` |
+| SWE-bench agents | LLM/tool spans mapped from the agent's OpenInference wire onto schema v3 (deterministic hex ids; legacy v2 records still render) | `gen_ai.*` |
 
 All spans share the run's W3C `trace_id` (preset at orchestrator start), so the
 whole evaluation reads as one tree.
@@ -44,6 +44,26 @@ Third-party exporters register under the `clousight_bench.span_exporters` entry
 point — the contract is the OTel SDK's `SpanExporter`, so any ecosystem exporter
 plugs in unmodified.
 
+## Metrics & logs signals
+
+With the same `CLOUSIGHT_OTLP_ENDPOINT` (+ `[otlp]`), a finished run also ships:
+
+- **metrics** — one gauge per numeric measurement (`csbench.<key>`, attributes:
+  unit, reproducibility_class, official, the run's trace id);
+- **logs** — one record per run error and finding, severity-mapped,
+  trace-correlated.
+
+Both are one-shot snapshots at finalize and fail-safe (telemetry never fails a
+run). The endpoint value may be the collector base or a full `/v1/traces` URL —
+per-signal paths are derived.
+
+## Importing external OTel spans
+
+A SUT (or any tool) instrumented with standard OTel can hand its spans to the
+waterfall: `csbench trace import <file>` accepts OTLP/JSON (`resourceSpans`) or
+flat span-per-line JSONL and produces a validated v3 trajectory. Spans without a
+semconv discriminator get an honest `csbench.ingested` marker.
+
 ## Context propagation (traceparent)
 
 LLM-endpoint calls carry a W3C `traceparent` header. If the service you evaluate
@@ -54,8 +74,9 @@ the record stores under `extensions.core.trace_id`.
 
 ## Honest boundaries
 
-- BenchBase (TPC-C) and YCSB run as Java subprocesses: they get an enclosing
-  phase span, not internal spans.
+- BenchBase (TPC-C) and YCSB run as Java subprocesses: each tool invocation
+  gets one **measured** phase span (TPC-C: `create+load+execute`; YCSB: `load`
+  and `run`), never internal spans.
 - TPC official spans are **reconstructed** from the measured intervals (the
   concurrency model is known: sequential phases, back-to-back queries per
   stream) — faithful timing, not live instrumentation.

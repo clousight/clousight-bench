@@ -50,7 +50,12 @@ _CORE_WORKLOADS: tuple[str, ...] = (
 )
 
 
-def _write_artifacts(tmp_dir: Path, ycsb_output: str, summary: dict[str, Any]) -> RawArtifacts:
+def _write_artifacts(
+    tmp_dir: Path,
+    ycsb_output: str,
+    summary: dict[str, Any],
+    spans: list[dict[str, Any]] | None = None,
+) -> RawArtifacts:
     """Write ycsb_output.txt + summary.json into *tmp_dir* and build the manifest."""
     o_path = tmp_dir / "ycsb_output.txt"
     s_path = tmp_dir / "summary.json"
@@ -64,6 +69,14 @@ def _write_artifacts(tmp_dir: Path, ycsb_output: str, summary: dict[str, Any]) -
         },
         "summary": {"path": "summary.json", "sha256": _sha256_bytes(s_path.read_bytes()), "rows": None},
     }
+    if spans:
+        t_path = tmp_dir / "trajectory.jsonl"
+        t_path.write_text("".join(json.dumps(s) + "\n" for s in spans), encoding="utf-8")
+        manifest["trajectory"] = {
+            "path": "trajectory.jsonl",
+            "sha256": _sha256_bytes(t_path.read_bytes()),
+            "rows": len(spans),
+        }
     return RawArtifacts(dir=tmp_dir, manifest=manifest)
 
 
@@ -163,7 +176,7 @@ class YcsbSuite(BenchmarkSuite):
         )
 
     # ---------------------------------------------------------------------- run
-    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:  # noqa: ARG002
+    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:
         """Run YCSB load + run phases; capture the run-phase output."""
         if target.mock or env.payload.get("mock"):
             return self.mock_artifacts(dict(env.payload))
@@ -179,10 +192,16 @@ class YcsbSuite(BenchmarkSuite):
             *p["props"],
         ]
         # Load phase (populate the store), then the measured run phase.
+        from time import time_ns  # noqa: PLC0415
+
+        load_start_ns = time_ns()
         subprocess.run([binary, "load", binding, *common], check=True, capture_output=True, text=True)
+        load_end_ns = time_ns()
+        run_start_ns = time_ns()
         run_proc = subprocess.run(
             [binary, "run", binding, *common], check=True, capture_output=True, text=True
         )
+        run_end_ns = time_ns()
         summary = {
             "workload": p["workload"],
             "binding": binding,
@@ -190,8 +209,29 @@ class YcsbSuite(BenchmarkSuite):
             "operationcount": p["operationcount"],
             "ycsb_version": self.suite_version,
         }
+        from clousight_bench.core.tracing import new_trace_id  # noqa: PLC0415
+        from clousight_bench.suites._tpc_official.trace import phase_span  # noqa: PLC0415
+
+        trace_id = getattr(driver, "trace_id", "") or new_trace_id()
+        base_attrs = {"csbench.suite_id": "ycsb", "db.system.name": binding}
+        spans = [
+            phase_span(
+                trace_id=trace_id,
+                name="ycsb.load",
+                start_unix_nano=load_start_ns,
+                end_unix_nano=load_end_ns,
+                attributes={**base_attrs, "csbench.phase": "load"},
+            ),
+            phase_span(
+                trace_id=trace_id,
+                name="ycsb.run",
+                start_unix_nano=run_start_ns,
+                end_unix_nano=run_end_ns,
+                attributes={**base_attrs, "csbench.phase": "run"},
+            ),
+        ]
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-ycsb-art-"))
-        return _write_artifacts(tmp_dir, run_proc.stdout, summary)
+        return _write_artifacts(tmp_dir, run_proc.stdout, summary, spans)
 
     # ----------------------------------------------------------------- teardown
     def teardown(self, env: EnvHandle) -> None:  # noqa: ARG002, B027

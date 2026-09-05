@@ -7,6 +7,7 @@ path runs the bundled agent in-process (oracle mode needs no network).
 
 from __future__ import annotations
 
+import hashlib
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -122,7 +123,7 @@ def test_llm_span_maps_to_llm_call_and_usage_event() -> None:
     client, _ = _client({"model_patch": GOLD, "usage": usage, "_spans": [_llm_span()]})
     out = client.solve(INSTANCE, "llm")
     (span,) = out["spans"]
-    assert span["kind"] == "llm_call"
+    assert span["attributes"]["gen_ai.operation.name"] == "chat"
     assert out["usage_events"] == [
         {
             "kind": "llm_tokens",
@@ -136,7 +137,7 @@ def test_llm_span_maps_to_llm_call_and_usage_event() -> None:
 def test_chain_span_maps_to_tool_call() -> None:
     client, _ = _client({"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": [_oracle_span()]})
     (span,) = client.solve(INSTANCE, "oracle")["spans"]
-    assert span["kind"] == "tool_call"
+    assert span["attributes"]["gen_ai.operation.name"] == "execute_tool"
 
 
 def test_every_mapped_span_passes_validate_span() -> None:
@@ -153,7 +154,7 @@ def test_span_timestamps_are_invoke_wall_clock_bounds() -> None:
     before = time.time()
     (span,) = client.solve(INSTANCE, "oracle")["spans"]
     after = time.time()
-    assert before <= span["t_start"] <= span["t_end"] <= after
+    assert int(before * 1e9) <= span["start_unix_nano"] <= span["end_unix_nano"] <= int(after * 1e9)
 
 
 def test_trace_id_from_span_wins() -> None:
@@ -162,7 +163,7 @@ def test_trace_id_from_span_wins() -> None:
         last_trace_id="live-trace",
     )
     (span,) = client.solve(INSTANCE, "oracle")["spans"]
-    assert span["trace_id"] == "a" * 48
+    assert span["trace_id"] == hashlib.sha256(("a" * 48).encode()).hexdigest()[:32]
 
 
 def test_trace_id_falls_back_to_transport_last_trace() -> None:
@@ -171,7 +172,7 @@ def test_trace_id_falls_back_to_transport_last_trace() -> None:
         last_trace_id="live-trace",
     )
     (span,) = client.solve(INSTANCE, "oracle")["spans"]
-    assert span["trace_id"] == "live-trace"
+    assert span["trace_id"] == hashlib.sha256(b"live-trace").hexdigest()[:32]
 
 
 def test_trace_id_falls_back_to_instance_id() -> None:
@@ -179,15 +180,15 @@ def test_trace_id_falls_back_to_instance_id() -> None:
         {"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": [_oracle_span(trace_id="")]}
     )
     (span,) = client.solve(INSTANCE, "oracle")["spans"]
-    assert span["trace_id"] == f"trace-{INSTANCE['instance_id']}"
+    assert span["trace_id"] == hashlib.sha256(f"trace-{INSTANCE['instance_id']}".encode()).hexdigest()[:32]
 
 
 def test_error_span_maps_status_and_error() -> None:
     err_span = _llm_span(status="error", error="DASHSCOPE_API_KEY not set")
     client, _ = _client({"model_patch": "", "usage": dict(ZERO_USAGE), "_spans": [err_span]})
     (span,) = client.solve(INSTANCE, "llm")["spans"]
-    assert span["status"] == "error"
-    assert span["error"] == "DASHSCOPE_API_KEY not set"
+    assert span["status"] == "ERROR"
+    assert span["attributes"]["error.message"] == "DASHSCOPE_API_KEY not set"
     validate_span(span)
 
 
@@ -196,15 +197,15 @@ def test_missing_status_defaults_to_ok() -> None:
     del span_in["status"]
     client, _ = _client({"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": [span_in]})
     (span,) = client.solve(INSTANCE, "oracle")["spans"]
-    assert span["status"] == "ok"
+    assert span["status"] == "OK"
 
 
 def test_parent_span_id_maps_to_parent_id() -> None:
     spans = [_oracle_span(), _llm_span(span_id="c" * 16, parent_span_id="b" * 16)]
     client, _ = _client({"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": spans})
     root, child = client.solve(INSTANCE, "oracle")["spans"]
-    assert root["parent_id"] is None
-    assert child["parent_id"] == "b" * 16
+    assert root["parent_span_id"] == ""
+    assert child["parent_span_id"] == "b" * 16
 
 
 def test_attr_string_values_truncated_to_8kb() -> None:
@@ -212,17 +213,22 @@ def test_attr_string_values_truncated_to_8kb() -> None:
     span_in = _oracle_span(attributes={"openinference.span.kind": "CHAIN", "blob": big})
     client, _ = _client({"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": [span_in]})
     (span,) = client.solve(INSTANCE, "oracle")["spans"]
-    assert len(span["attrs"]["blob"].encode("utf-8")) <= 8192
-    assert span["attrs"]["blob"] == "x" * 8192
+    assert len(span["attributes"]["blob"].encode("utf-8")) <= 8192
+    assert span["attributes"]["blob"] == "x" * 8192
     validate_span(span)
 
 
 def test_invalid_span_raises_loudly() -> None:
-    """A span that cannot be made valid must raise, never be silently dropped."""
+    """A span that cannot be made valid must raise, never be silently dropped.
+
+    v3 mapping normalizes ids/status/kind, so the remaining hard limit is the
+    total-attributes byte cap: many near-8KiB values still blow the 64KiB cap.
+    """
+    bomb = {f"blob{i}": "x" * 8000 for i in range(10)}  # ~80KiB after truncation
     client, _ = _client(
-        {"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": [_oracle_span(status="weird")]}
+        {"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": [_oracle_span(attributes=bomb)]}
     )
-    with pytest.raises(ValueError, match="status"):
+    with pytest.raises(ValueError, match="MAX_ATTRS_BYTES"):
         client.solve(INSTANCE, "oracle")
 
 
@@ -354,6 +360,27 @@ def test_mock_runtime_transport_end_to_end_oracle() -> None:
     assert out["model_patch"] == GOLD
     (span,) = out["spans"]
     validate_span(span)
-    assert span["kind"] == "tool_call"  # oracle emits a CHAIN span
-    assert span["status"] == "ok"
+    assert span["attributes"]["gen_ai.operation.name"] == "execute_tool"  # oracle emits a CHAIN span
+    assert span["status"] == "OK"
     assert out["usage_events"] == []
+
+
+def test_out_of_vocab_status_raises_loudly() -> None:
+    """Status normalization must never coerce an unknown status to OK."""
+    client, _ = _client(
+        {"model_patch": GOLD, "usage": dict(ZERO_USAGE), "_spans": [_oracle_span(status="weird")]}
+    )
+    with pytest.raises(ValueError, match="out-of-vocab status"):
+        client.solve(INSTANCE, "oracle")
+
+
+def test_uppercase_error_status_maps_to_error() -> None:
+    client, _ = _client(
+        {
+            "model_patch": GOLD,
+            "usage": dict(ZERO_USAGE),
+            "_spans": [_oracle_span(status="ERROR", error="x")],
+        }
+    )
+    out = client.solve(INSTANCE, "oracle")
+    assert out["spans"][0]["status"] == "ERROR"
