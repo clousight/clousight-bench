@@ -114,3 +114,19 @@ def test_evaluate_over_the_committed_mock_fixture() -> None:
     out = OfficialTpcdsEvaluator().evaluate(raw)
     assert out["tpc-ds.queries_passed"].value == 1.0
     assert out["tpc-ds.total_runtime_ms"].value > 0
+
+
+def test_correctness_note_is_pinned_reference_not_verified(tmp_path):
+    """TPC-DS has no official answer set in duckdb — its note must NEVER claim
+    verification against official answers (guards the all_verified logic)."""
+    ref = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "src/clousight_bench/suites/tpc_ds/fixtures/reference/sf1_digests.json"
+        ).read_text()
+    )
+    queries = [{"query_nr": 1, "latency_ms": 5.0, "row_count": 1, "result_digest": ref["1"]["result_digest"]}]
+    out = OfficialTpcdsEvaluator().evaluate(_artifacts(tmp_path, queries, {"scale_factor": 1.0}))
+    notes = out["tpc-ds.queries_passed"].notes
+    assert "pinned-reference reproducibility" in notes
+    assert "verified against the official answer set" not in notes

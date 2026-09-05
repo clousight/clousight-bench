@@ -21,10 +21,11 @@ The real ``run()`` path needs the optional ``[tpch]`` extra (``duckdb``); it is
 imported lazily so this module loads without it. ``mock_artifacts()`` / ``resolve()``
 work with no extra — the recommended CI/offline path.
 
-Correctness is a *pinned reference* — the normalized digest of each SF1 query
-result (``fixtures/reference/sf1_digests.json``, produced by
-``scripts/capture_tpch_reference.py``), a deterministic reproducibility/
-regression check (SF1-only), NOT an audited TPC result.
+Correctness is a *pinned reference* — the normalized digest of each query
+result at a captured scale factor (``fixtures/reference/sf<sf>_digests.json``,
+produced by ``scripts/capture_tpch_reference.py``, which verifies every entry
+against DuckDB's official ``tpch_answers()``), a deterministic check keyed by
+SF, NOT an audited TPC result.
 """
 
 from __future__ import annotations
@@ -69,7 +70,7 @@ _QUERY_ORDER_FILE = _FIXTURES_DIR / "query_order.json"
 # attributable to. Bump (and re-capture the reference) on any of those changing.
 _SUITE_VERSION = "duckdb-1.5.4/tpch/sf1-ref-v1"
 # Bumped whenever the official phase machine / refresh set / order table changes.
-_OFFICIAL_VERSION = "official-v1"
+_OFFICIAL_VERSION = "official-v2"
 
 _ALL_QUERY_IDS: tuple[int, ...] = tuple(range(1, 23))  # TPC-H has 22 queries
 
@@ -122,6 +123,8 @@ class TpchSuite(DuckDbTpcSuite):
     # ------------------------------------------------------------------ resolve
     def resolve(self, cfg: dict[str, Any], assets: Any) -> DatasetHandle:
         if cfg.get("mode", "reference") != "official":
+            if cfg.get("query_order_file"):
+                raise ValueError("query_order_file only applies to mode: official")
             return super().resolve(cfg, assets)
 
         sf = float(cfg.get("scale_factor", 1.0))
@@ -130,19 +133,26 @@ class TpchSuite(DuckDbTpcSuite):
         query_order = str(cfg.get("query_order", "official"))
         if query_order not in _QUERY_ORDER_SOURCES:
             raise ValueError(f"query_order must be one of {_QUERY_ORDER_SOURCES}, got {query_order!r}")
-        # The ordering provenance folded into the digest: the Appendix A file's sha
-        # for official, the generator version for generated.
+        # Operators can supply the full official Appendix A table themselves
+        # (we bundle only streams 0-2 and never fabricate the rest): the file's
+        # sha folds into the digest so a different table is a different benchmark.
+        order_file = str(cfg.get("query_order_file", "") or "")
+        if order_file and query_order != "official":
+            raise ValueError("query_order_file only applies to query_order: official")
+        # The ordering provenance folded into the digest: the permutation file's
+        # sha for official, the generator version for generated.
         if query_order == "official":
+            table_path = Path(order_file) if order_file else _QUERY_ORDER_FILE
             try:
-                order_prov = sha256_bytes(_QUERY_ORDER_FILE.read_bytes())
-            except OSError:
+                order_prov = sha256_bytes(table_path.read_bytes())
+            except OSError as exc:
+                if order_file:
+                    raise ValueError(f"query_order_file {order_file!r} is not readable: {exc}") from exc
                 order_prov = "sha256:none"
         else:
             order_prov = GENERATOR_VERSION
-        try:
-            ref_sha = sha256_bytes(self._reference_file.read_bytes())
-        except OSError:
-            ref_sha = "sha256:none"
+        # No reference sha here: the official evaluator makes no correctness
+        # claim (Power runs post-RF1), so the reference cannot affect the result.
         canonical = json.dumps(
             {
                 "mode": "official",
@@ -151,7 +161,6 @@ class TpchSuite(DuckDbTpcSuite):
                 "query_ids": sorted(query_ids),
                 "query_order": query_order,
                 "order": order_prov,
-                "ref": ref_sha,
                 "version": f"{self.suite_version}/{_OFFICIAL_VERSION}",
             },
             sort_keys=True,
@@ -165,6 +174,7 @@ class TpchSuite(DuckDbTpcSuite):
                 "streams": streams,
                 "query_ids": query_ids,
                 "query_order": query_order,
+                "query_order_file": order_file,
             },
         )
 
@@ -197,6 +207,7 @@ class TpchSuite(DuckDbTpcSuite):
                 "streams": int(dataset.payload["streams"]),
                 "query_ids": list(dataset.payload["query_ids"]),
                 "query_order": dataset.payload.get("query_order", "official"),
+                "query_order_file": dataset.payload.get("query_order_file", ""),
                 "load_time_s": load_time_s,
             }
         )
@@ -218,9 +229,11 @@ class TpchSuite(DuckDbTpcSuite):
             power_order, throughput_orders = generate_orders(query_ids, num_streams=streams)
             ordering_source = f"clousight-generated/{GENERATOR_VERSION}"
         else:
-            table = json.loads(_QUERY_ORDER_FILE.read_text())
+            order_file = str(env.payload.get("query_order_file", "") or "")
+            table_path = Path(order_file) if order_file else _QUERY_ORDER_FILE
+            table = json.loads(table_path.read_text())
             power_order, throughput_orders = resolve_orders(table, num_streams=streams)
-            ordering_source = "official-appendix-a"
+            ordering_source = "official-appendix-a/operator-supplied" if order_file else "official-appendix-a"
 
         from time import time_ns  # noqa: PLC0415
 

@@ -75,18 +75,16 @@ def test_composite_metrics(tmp_path: Path) -> None:
     assert "unaudited" in q.notes
 
 
-def test_correctness_from_power_stream_at_sf1(tmp_path: Path) -> None:
-    out = OfficialTpchQphhEvaluator().evaluate(_official(tmp_path, _doc_sf1()))
-    assert out["tpc-h.queries_passed"].value == 1.0
-    assert out["tpc-h.queries_passed"].reproducibility_class == "deterministic"
-
-
-def test_correctness_omitted_when_not_sf1(tmp_path: Path) -> None:
-    doc = _doc_sf1()
-    doc["scale_factor"] = 10.0
-    out = OfficialTpchQphhEvaluator().evaluate(_official(tmp_path, doc))
-    assert "tpc-h.queries_passed" not in out
-    assert "tpc-h.qphh_at_size" in out  # perf still computed off SF10
+def test_no_correctness_claim_in_official_mode(tmp_path: Path) -> None:
+    """Power queries run AFTER RF1 refreshed the data — comparing them against
+    pristine references would mislabel correct behavior as failure, so the
+    official evaluator deliberately makes no correctness claim at ANY SF."""
+    for sf in (1.0, 10.0):
+        doc = _doc_sf1()
+        doc["scale_factor"] = sf
+        out = OfficialTpchQphhEvaluator().evaluate(_official(tmp_path, doc))
+        assert "tpc-h.queries_passed" not in out
+        assert "tpc-h.qphh_at_size" in out  # perf composites unaffected
 
 
 def test_acid_pass_fail_and_durability_omitted(tmp_path: Path) -> None:

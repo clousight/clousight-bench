@@ -141,17 +141,22 @@ class DuckDbTpcSuite(BenchmarkSuite):
     def _reference_file(self) -> Path:
         return self.fixtures_dir / "reference" / "sf1_digests.json"
 
+    def _reference_file_for(self, sf: float) -> Path:
+        """The pinned reference for *sf* (``sf{sf:g}_digests.json``)."""
+        return self.fixtures_dir / "reference" / f"sf{sf:g}_digests.json"
+
     # ------------------------------------------------------------------ resolve
     def resolve(self, cfg: dict[str, Any], assets: Any) -> DatasetHandle:  # noqa: ARG002
         """Pick scale factor + query set (offline, no data gen).
 
-        Digest folds sf + sorted query_ids + the reference fixture's own sha, so
-        it changes whenever the workload OR the correctness reference changes.
+        Digest folds sf + sorted query_ids + the sf-matched reference fixture's
+        own sha, so it changes whenever the workload OR the correctness
+        reference changes.
         """
         sf = float(cfg.get("scale_factor", 1.0))
         query_ids = [int(q) for q in cfg.get("query_ids", self.all_query_ids)]
         try:
-            ref_sha = sha256_bytes(self._reference_file.read_bytes())
+            ref_sha = sha256_bytes(self._reference_file_for(sf).read_bytes())
         except OSError:
             ref_sha = "sha256:none"
         canonical = json.dumps(
@@ -236,7 +241,7 @@ class DuckDbTpcEvaluator(Evaluator):
     Subclasses set ``evaluator_id`` + ``suite_id`` (== the ``<suite_id>.``
     namespace + ``supports()``) + ``fixtures_dir``. Every measurement is
     ``official=True`` (conformance contract); honesty rides ``reproducibility_class``
-    (``queries_passed`` deterministic, a pinned-reference SF1-only check; latencies
+    (``queries_passed`` deterministic, against the SF-matched pinned reference; latencies
     environmental) and NOT emitting an audited QphDS/QphH composite.
     """
 
@@ -249,9 +254,9 @@ class DuckDbTpcEvaluator(Evaluator):
     def supports(self, suite_id: str, product: str) -> bool:  # noqa: ARG002
         return suite_id == self.suite_id
 
-    def _load_reference(self) -> dict[str, dict[str, Any]]:
+    def _load_reference(self, sf: float = 1.0) -> dict[str, dict[str, Any]]:
         try:
-            return json.loads((self.fixtures_dir / "reference" / "sf1_digests.json").read_text())
+            return json.loads((self.fixtures_dir / "reference" / f"sf{sf:g}_digests.json").read_text())
         except Exception:  # noqa: BLE001 - a missing/broken reference just omits correctness
             return {}
 
@@ -306,22 +311,20 @@ class DuckDbTpcEvaluator(Evaluator):
                     sample_count=len(positive),
                 )
 
-        # --- correctness (SF1 only, deterministic) ----------
+        # --- correctness (SF-keyed pinned reference, deterministic) ----------
         try:
             summary: dict[str, Any] = json.loads(raw.path("summary").read_text())
             scale_factor = float(summary.get("scale_factor", 0))
         except Exception:  # noqa: BLE001 - can't confirm SF1 → skip correctness
             return out
 
-        if scale_factor != 1.0:
-            return out  # reference is SF1-only; do not assert correctness elsewhere
-
-        reference = self._load_reference()
+        reference = self._load_reference(scale_factor)
         if not reference:
-            return out
+            return out  # no pinned reference captured for this SF — no correctness claim
 
         passed = 0
         counted = 0
+        all_verified = True
         for q in queries:
             try:
                 nr = str(int(q["query_nr"]))
@@ -332,20 +335,28 @@ class DuckDbTpcEvaluator(Evaluator):
             if ref is None:
                 continue
             counted += 1
+            all_verified = all_verified and bool(ref.get("verified_official"))
             if digest == ref.get("result_digest"):
                 passed += 1
 
         if counted > 0:
+            if all_verified:
+                note = (
+                    f"reference verified against the official answer set at capture time "
+                    f"(duckdb {self.extension}_answers(), SF{scale_factor:g}); not an audited TPC result"
+                )
+            else:
+                note = (
+                    f"pinned-reference reproducibility vs duckdb {self.extension} "
+                    f"SF{scale_factor:g}; not an audited TPC answer"
+                )
             out[f"{ns}.queries_passed"] = Measurement(
                 value=passed / counted,
                 unit="ratio",
                 reproducibility_class="deterministic",
                 official=True,
                 sample_count=counted,
-                notes=(
-                    f"pinned-reference reproducibility vs duckdb {self.extension} SF1; "
-                    "not an audited TPC answer"
-                ),
+                notes=note,
             )
 
         return out

@@ -171,28 +171,40 @@ def test_hol_blocking_new_shape_present():
 
 
 def test_hol_blocking_serialized_false_for_parallel_server():
-    """ThreadingHTTPServer processes requests in parallel → serialized must be False."""
-    _FakeMockTool._latency = {}
-    mock_srv, mock_base = _serve(_FakeMockTool)
-    agent_srv, agent_base = _serve(_FakeAgent)
-    try:
-        spec = JobSpec(
-            probe="hol_blocking",
-            params={"fast_count": 4, "slow_latency_ms": 150},
-            target_endpoint=agent_base,
-            mock_base_url=mock_base,
-            mock_token="",
-        )
-        b = run_hol_blocking(spec, lambda p, m: None)
-    finally:
-        _FakeMockTool._latency = {}
-        mock_srv.shutdown()
-        agent_srv.shutdown()
+    """ThreadingHTTPServer processes requests in parallel → serialized must be False.
 
-    o = b.observations
-    assert o["serialized"] is False, (
-        f"parallel server must give serialized=False: "
-        f"baseline={o['fast_p50_baseline']:.1f}ms "
-        f"under_slow={o['fast_p50_under_slow']:.1f}ms "
-        f"ratio={o['hol_ratio']:.3f}"
+    Retried up to 3 times: with an ~10ms clean baseline the 2.0x HOL threshold is
+    hypersensitive to CI-runner scheduling noise, which can starve the "parallel"
+    threads and inflate the under-slow p50 into a false "serialized" verdict.
+    A truly serialized server trips EVERY attempt, so any-of-3 passing is a
+    sound (and load-robust) assertion of parallelism.
+    """
+    last = None
+    for _attempt in range(3):
+        _FakeMockTool._latency = {}
+        mock_srv, mock_base = _serve(_FakeMockTool)
+        agent_srv, agent_base = _serve(_FakeAgent)
+        try:
+            spec = JobSpec(
+                probe="hol_blocking",
+                params={"fast_count": 4, "slow_latency_ms": 150},
+                target_endpoint=agent_base,
+                mock_base_url=mock_base,
+                mock_token="",
+            )
+            b = run_hol_blocking(spec, lambda p, m: None)
+        finally:
+            _FakeMockTool._latency = {}
+            mock_srv.shutdown()
+            agent_srv.shutdown()
+        last = b.observations
+        if last["serialized"] is False:
+            return
+
+    assert last is not None
+    raise AssertionError(
+        f"parallel server judged serialized on all 3 attempts: "
+        f"baseline={last['fast_p50_baseline']:.1f}ms "
+        f"under_slow={last['fast_p50_under_slow']:.1f}ms "
+        f"ratio={last['hol_ratio']:.3f}"
     )

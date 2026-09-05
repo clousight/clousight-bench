@@ -42,7 +42,8 @@ def test_official_mock_e2e_yields_qphh(tmp_path, monkeypatch) -> None:
     assert m["tpc-h.qphh_at_size"]["reproducibility_class"] == "environmental"
     assert m["tpc-h.power_at_size"]["value"] > 0
     assert m["tpc-h.throughput_at_size"]["value"] > 0
-    assert m["tpc-h.queries_passed"]["value"] == 1.0  # mock fixture is SF1
+    # official mode makes NO correctness claim (Power runs on refreshed data)
+    assert "tpc-h.queries_passed" not in m
     assert m["tpc-h.acid_atomicity"]["value"] == 1.0
 
 
@@ -64,7 +65,7 @@ def test_official_real_duckdb_small_sf(tmp_path, monkeypatch) -> None:
     assert m["tpc-h.power_at_size"]["value"] > 0
     assert m["tpc-h.throughput_at_size"]["value"] > 0
     assert m["tpc-h.load_time_s"]["value"] > 0
-    # SF != 1 -> correctness intentionally omitted
+    # official mode makes NO correctness claim at any SF (Power runs post-RF1)
     assert "tpc-h.queries_passed" not in m
     # ACID probes ran (best-effort) and produced pass/fail verdicts
     assert m["tpc-h.acid_atomicity"]["value"] in (0.0, 1.0)
@@ -154,3 +155,37 @@ def test_official_mock_ships_a_v3_trajectory() -> None:
     names = {s["name"] for s in spans}
     assert "tpc-h.official" in names and "tpc-h.power" in names
     assert any(n.startswith("tpc-h.stream") for n in names)
+
+
+def test_operator_supplied_query_order_file(tmp_path) -> None:
+    """B5: the full official Appendix A table can be supplied by the operator —
+    its sha folds into the dataset digest; we never fabricate streams 3+."""
+    table = {str(s): list(range(1, 23)) for s in range(0, 5)}  # covers S=4
+    path = tmp_path / "appendix_a.json"
+    path.write_text(json.dumps(table))
+    suite = TpchSuite()
+    ds = suite.resolve(
+        {"mode": "official", "scale_factor": 10, "streams": 4, "query_order_file": str(path)}, None
+    )
+    assert ds.payload["query_order_file"] == str(path)
+    # a different table is a different benchmark
+    table["4"] = list(reversed(table["4"]))
+    path.write_text(json.dumps(table))
+    ds2 = suite.resolve(
+        {"mode": "official", "scale_factor": 10, "streams": 4, "query_order_file": str(path)}, None
+    )
+    assert ds.digest != ds2.digest
+
+
+def test_query_order_file_requires_official_ordering(tmp_path) -> None:
+    path = tmp_path / "t.json"
+    path.write_text("{}")
+    with pytest.raises(ValueError, match="only applies"):
+        TpchSuite().resolve(
+            {"mode": "official", "query_order": "generated", "query_order_file": str(path)}, None
+        )
+
+
+def test_missing_query_order_file_fails_loud() -> None:
+    with pytest.raises(ValueError, match="not readable"):
+        TpchSuite().resolve({"mode": "official", "query_order_file": "/nonexistent/appendix.json"}, None)

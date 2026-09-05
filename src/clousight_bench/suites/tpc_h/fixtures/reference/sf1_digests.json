@@ -1,90 +1,112 @@
 {
   "1": {
     "result_digest": "sha256:2a5d396af5c0617304d2a0d07d7f29b4d7d7a08a66da203a0222a4b91192b75a",
-    "row_count": 4
+    "row_count": 4,
+    "verified_official": true
   },
   "10": {
     "result_digest": "sha256:4b5f7e3fe3d350826d607806a0c40687d0fb57a657e1498636f24051c1abda76",
-    "row_count": 20
+    "row_count": 20,
+    "verified_official": true
   },
   "11": {
     "result_digest": "sha256:58798f07ae93831154eefac24f4447bf12190be7bf49e34c15b793d818dace8c",
-    "row_count": 1048
+    "row_count": 1048,
+    "verified_official": true
   },
   "12": {
     "result_digest": "sha256:75086da9c168c4be432a8a665b23e4b5d15731d8957fb48a9ae3be58a1538788",
-    "row_count": 2
+    "row_count": 2,
+    "verified_official": true
   },
   "13": {
     "result_digest": "sha256:a3ad68331e5a51d9317de95ef4c37e7f4c97c1e04543a702c1adeac69b5007d7",
-    "row_count": 42
+    "row_count": 42,
+    "verified_official": true
   },
   "14": {
     "result_digest": "sha256:62c08863f229b89e10a62f090c7b9cfa8f291d2246bff90295c6f7c373e6232f",
-    "row_count": 1
+    "row_count": 1,
+    "verified_official": true
   },
   "15": {
     "result_digest": "sha256:10feaa7f3ae53e3b3602106aeac221939857442c66c8d5937a429b0c25332429",
-    "row_count": 1
+    "row_count": 1,
+    "verified_official": true
   },
   "16": {
     "result_digest": "sha256:cc1adb1eb834d5f06ceb4c95d3c8903d9697bac2473342c15a07f8195a4326f7",
-    "row_count": 18314
+    "row_count": 18314,
+    "verified_official": true
   },
   "17": {
     "result_digest": "sha256:cc5b6c4f598110fae0cd168626745c535fd1d49fc8c408a9d8954246042c066a",
-    "row_count": 1
+    "row_count": 1,
+    "verified_official": true
   },
   "18": {
     "result_digest": "sha256:30c1aff216ecc5746ea6c5774e3fd837830b0d94340065be38cc4035093cbfbb",
-    "row_count": 57
+    "row_count": 57,
+    "verified_official": true
   },
   "19": {
     "result_digest": "sha256:aeda62c83b4e49f9a85d1caef6389416f3a448b22a26f6ad2d71784e644d73ff",
-    "row_count": 1
+    "row_count": 1,
+    "verified_official": true
   },
   "2": {
     "result_digest": "sha256:2eb88272db2b79d55aaa3da50a81e752bf970dbed7c68421cd8e08ca3f993f4a",
-    "row_count": 100
+    "row_count": 100,
+    "verified_official": true
   },
   "20": {
     "result_digest": "sha256:a7167d960396f846baad0b248fc69a47dca2c8a0977d6c3a349f121493dee7a1",
-    "row_count": 186
+    "row_count": 186,
+    "verified_official": true
   },
   "21": {
     "result_digest": "sha256:e391422f33e0bb6ff6188b1600b6e85fd00ad8165de9d68ada9ccbf0096951da",
-    "row_count": 100
+    "row_count": 100,
+    "verified_official": true
   },
   "22": {
     "result_digest": "sha256:e2d72deae231dda578a4b4578cf4d42188b1459e84a83e53a1927c2d77923ca5",
-    "row_count": 7
+    "row_count": 7,
+    "verified_official": true
   },
   "3": {
     "result_digest": "sha256:cb46b8ed25432339dfc519a6e0447350e55a7a9e06ef5da0acd351a8a761c589",
-    "row_count": 10
+    "row_count": 10,
+    "verified_official": true
   },
   "4": {
     "result_digest": "sha256:f8034de723fad7cad743ddf1ebbbd1ab049aa41a6d43f8affd93e81960f667d4",
-    "row_count": 5
+    "row_count": 5,
+    "verified_official": true
   },
   "5": {
     "result_digest": "sha256:35e6d47c507a956beb90ddd502d0a71d507705fe10e7f0b578f7ff0e5cebcf87",
-    "row_count": 5
+    "row_count": 5,
+    "verified_official": true
   },
   "6": {
     "result_digest": "sha256:158b276d39c404d2159933991a6c09a8241aa800692ef713e7a84f318a54183b",
-    "row_count": 1
+    "row_count": 1,
+    "verified_official": true
   },
   "7": {
     "result_digest": "sha256:26892c132eaac4696e6e142804e8d2add6b615e4794be4dd4104e129ece6277f",
-    "row_count": 4
+    "row_count": 4,
+    "verified_official": true
   },
   "8": {
     "result_digest": "sha256:e5c3d188de3320b180b118c4e10f970fa2eefb5eebf8c60d847de6ab02ab1f6a",
-    "row_count": 2
+    "row_count": 2,
+    "verified_official": true
   },
   "9": {
     "result_digest": "sha256:ddea7db8350ef608a7aef14e4e48c31a0e9b443a3e69cc33bb5e6cf49d86d8ef",
-    "row_count": 175
+    "row_count": 175,
+    "verified_official": true
   }
 }
