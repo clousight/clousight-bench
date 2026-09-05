@@ -56,6 +56,18 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
 
 ### Added
 
+- **TPC-DS official mode (`QphDS@SF`)**: the `tpc-ds` suite gains `params.mode:
+  official` — the official sequence (Load → Power → Throughput 1 → Data
+  Maintenance 1 → Throughput 2 → Data Maintenance 2 → ACID gate) reusing the
+  engine-agnostic `_tpc_official` phase machine, plus the new
+  `official-tpcds-qphds-evaluator` computing the floored official composite
+  `QphDS@SF = ⌊SF·Q/⁴√(T_PT·T_TT·T_DM·T_LD)⌋` (+ component times, SF1
+  correctness, ACID atomicity/isolation). Honest substitutions, all folded into
+  unaudited provenance: clousight-generated data maintenance (insert+delete
+  round-trip on `store_sales`; DuckDB ships no LF_* functions), always-`generated`
+  deterministic query ordering (no bundled permutation table), consistency/
+  durability `n/a`. The run emits its OTel trace (waterfall covers both
+  throughput tests and DM windows).
 - **Price/performance composites (cloud dimension)**: the pricing feed gains
   `system_prices` — `{perf_metric, price, basis, provider?, region?, source}` —
   and the `pricing` enricher emits `extensions.pricing.price_performance[]`

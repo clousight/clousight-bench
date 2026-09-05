@@ -110,3 +110,88 @@ def run_acid(con: Any, open_conn: Callable[[], Any] | None = None) -> dict[str, 
         out["isolation"] = "fail"
     out["durability"] = "n/a"
     return out
+
+
+# --- generic probes (engine table/column injected) -----------------------------
+
+
+def _first_rowid(con: Any, table: str) -> int:
+    return int(con.execute(f"SELECT min(rowid) FROM {table}").fetchone()[0])
+
+
+def check_atomicity_generic(con: Any, *, table: str, value_column: str) -> bool:
+    """Atomicity on any table: a rolled-back update leaves the row unchanged; a
+    committed one applies (then is restored). Row addressed by DuckDB rowid."""
+    rid = _first_rowid(con, table)
+    read = f"SELECT {value_column} FROM {table} WHERE rowid = ?"  # noqa: S608 - identifiers are code-supplied
+    v0 = con.execute(read, [rid]).fetchone()[0]
+    con.execute("BEGIN TRANSACTION")
+    con.execute(f"UPDATE {table} SET {value_column} = {value_column} + 1 WHERE rowid = ?", [rid])  # noqa: S608
+    con.execute("ROLLBACK")
+    rolled_back_ok = con.execute(read, [rid]).fetchone()[0] == v0
+
+    con.execute("BEGIN TRANSACTION")
+    con.execute(f"UPDATE {table} SET {value_column} = {value_column} + 1 WHERE rowid = ?", [rid])  # noqa: S608
+    con.execute("COMMIT")
+    committed_ok = con.execute(read, [rid]).fetchone()[0] != v0
+    con.execute(f"UPDATE {table} SET {value_column} = ? WHERE rowid = ?", [v0, rid])  # noqa: S608
+    restored_ok = con.execute(read, [rid]).fetchone()[0] == v0
+    return rolled_back_ok and committed_ok and restored_ok
+
+
+def check_isolation_generic(
+    con: Any, open_conn: Callable[[], Any] | None, *, table: str, value_column: str
+) -> bool | None:
+    """Snapshot isolation on any table: an open reader keeps a stable view while a
+    second connection commits an update. ``None`` when no second connection."""
+    if open_conn is None:
+        return None
+    rid = _first_rowid(con, table)
+    read = f"SELECT {value_column} FROM {table} WHERE rowid = ?"  # noqa: S608
+    v0 = con.execute(read, [rid]).fetchone()[0]
+    con.execute("BEGIN TRANSACTION")
+    try:
+        r1 = con.execute(read, [rid]).fetchone()[0]
+        other = open_conn()
+        try:
+            other.execute(
+                f"UPDATE {table} SET {value_column} = {value_column} + 1000 WHERE rowid = ?",  # noqa: S608
+                [rid],
+            )
+        finally:
+            other.close()
+        r2 = con.execute(read, [rid]).fetchone()[0]
+    finally:
+        con.execute("ROLLBACK")
+    con.execute(f"UPDATE {table} SET {value_column} = ? WHERE rowid = ?", [v0, rid])  # noqa: S608
+    return r1 == r2
+
+
+def run_acid_generic(
+    con: Any,
+    open_conn: Callable[[], Any] | None = None,
+    *,
+    table: str,
+    value_column: str,
+) -> dict[str, str]:
+    """A/I probes on an injected table → verdict map; Consistency/Durability n/a.
+
+    The consistency condition is suite-specific (TPC-H wires its order/lineitem
+    invariant); a suite without one reports ``"n/a"`` honestly instead of
+    inventing a check.
+    """
+    out: dict[str, str] = {}
+    try:
+        out["atomicity"] = (
+            "pass" if check_atomicity_generic(con, table=table, value_column=value_column) else "fail"
+        )
+    except Exception:  # noqa: BLE001 - a broken probe is a fail, not a crash
+        out["atomicity"] = "fail"
+    out["consistency"] = "n/a"
+    try:
+        iso = check_isolation_generic(con, open_conn, table=table, value_column=value_column)
+        out["isolation"] = "n/a" if iso is None else ("pass" if iso else "fail")
+    except Exception:  # noqa: BLE001
+        out["isolation"] = "fail"
+    out["durability"] = "n/a"
+    return out

@@ -119,15 +119,17 @@ def generate_orders(query_ids: Sequence[int], *, num_streams: int) -> tuple[list
 def run_throughput(
     throughput_orders: list[list[int]],
     run_query: Callable[[int, int], QueryResult],
-    run_refresh_pair: Callable[[int], dict[str, Any]],
+    run_refresh_pair: Callable[[int], dict[str, Any]] | None,
     *,
     clock: Callable[[], float] = perf_counter,
 ) -> dict[str, Any]:
-    """Run ``S`` query streams + one refresh stream concurrently.
+    """Run ``S`` query streams (+ optionally one refresh stream) concurrently.
 
     ``run_query(stream_id, query_nr)`` returns a per-query result dict;
-    ``run_refresh_pair(pair)`` returns ``{"pair","rf1_s","rf2_s"}``. Stream ids are
-    1-based (matching the permutation table); the refresh stream runs ``S`` pairs.
+    ``run_refresh_pair(pair)`` returns ``{"pair","rf1_s","rf2_s"}`` — TPC-H runs it
+    as a concurrent refresh stream of ``S`` pairs; TPC-DS passes ``None`` (its data
+    maintenance runs AFTER each throughput test, not alongside). Stream ids are
+    1-based (matching the permutation table).
     Returns ``{"elapsed_s", "query_streams", "refresh_stream"}``.
     """
     num_streams = len(throughput_orders)
@@ -139,6 +141,7 @@ def run_throughput(
         }
 
     def _refresh_stream() -> list[dict[str, Any]]:
+        assert run_refresh_pair is not None  # guarded by the submit-site check
         return [run_refresh_pair(pair) for pair in range(1, num_streams + 1)]
 
     start = clock()
@@ -146,9 +149,9 @@ def run_throughput(
         query_futures = [
             pool.submit(_query_stream, sid, order) for sid, order in enumerate(throughput_orders, start=1)
         ]
-        refresh_future = pool.submit(_refresh_stream)
+        refresh_future = pool.submit(_refresh_stream) if run_refresh_pair is not None else None
         query_streams = [f.result() for f in query_futures]
-        refresh_stream = refresh_future.result()
+        refresh_stream = refresh_future.result() if refresh_future is not None else []
     elapsed_s = clock() - start
 
     return {

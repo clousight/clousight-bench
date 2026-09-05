@@ -132,3 +132,95 @@ def run_official(
     doc["acid"] = run_acid(con, open_conn)
     doc["engine"] = dict(engine_meta)
     return doc
+
+
+def run_power_queries(
+    con: Any,
+    *,
+    execute_query: ExecuteQuery,
+    digest: Digest,
+    power_order: list[int],
+    clock: Callable[[], float] = perf_counter,
+) -> dict[str, Any]:
+    """TPC-DS-shaped Power test: the ordered query set, no refresh functions."""
+    queries: list[dict[str, Any]] = []
+    for nr in power_order:
+        t = clock()
+        rows = execute_query(con, nr)
+        interval_s = clock() - t
+        queries.append(
+            {
+                "query_nr": int(nr),
+                "interval_s": interval_s,
+                "row_count": len(rows),
+                "result_digest": digest(rows),
+            }
+        )
+    return {"queries": queries}
+
+
+def run_official_ds(
+    *,
+    con: Any,
+    open_conn: Callable[[], Any],
+    execute_query: ExecuteQuery,
+    digest: Digest,
+    run_dm: Callable[[Any, int], None],
+    n_dm_rows: int,
+    scale_factor: float,
+    power_order: list[int],
+    throughput_orders: list[list[int]],
+    load_time_s: float,
+    ordering_source: str,
+    engine_meta: dict[str, Any],
+    acid: Callable[[Any, Callable[[], Any]], dict[str, str]],
+    clock: Callable[[], float] = perf_counter,
+) -> dict[str, Any]:
+    """The TPC-DS official sequence: Power → TT1 → DM1 → TT2 → DM2 (+ ACID gate).
+
+    Data maintenance runs BETWEEN throughput tests (spec sequence), each an
+    insert+delete round-trip on the fact table (clousight-generated set).
+    """
+    doc: dict[str, Any] = {
+        "scale_factor": float(scale_factor),
+        "streams": len(throughput_orders),
+        "ordering_source": ordering_source,
+        "load": {"load_time_s": float(load_time_s)},
+    }
+    doc["power"] = run_power_queries(
+        con, execute_query=execute_query, digest=digest, power_order=power_order, clock=clock
+    )
+
+    def _throughput_once() -> dict[str, Any]:
+        stream_conns = {sid: open_conn() for sid in range(1, len(throughput_orders) + 1)}
+        try:
+
+            def run_query(stream_id: int, query_nr: int) -> dict[str, Any]:
+                cur = stream_conns[stream_id]
+                t = clock()
+                rows = execute_query(cur, query_nr)
+                interval_s = clock() - t
+                return {
+                    "query_nr": int(query_nr),
+                    "interval_s": interval_s,
+                    "row_count": len(rows),
+                    "result_digest": digest(rows),
+                }
+
+            return run_throughput(throughput_orders, run_query, None, clock=clock)
+        finally:
+            for c in stream_conns.values():
+                c.close()
+
+    def _dm_once() -> dict[str, Any]:
+        t = clock()
+        run_dm(con, n_dm_rows)
+        return {"elapsed_s": clock() - t, "rows": int(n_dm_rows)}
+
+    doc["throughput1"] = _throughput_once()
+    doc["dm1"] = _dm_once()
+    doc["throughput2"] = _throughput_once()
+    doc["dm2"] = _dm_once()
+    doc["acid"] = acid(con, open_conn)
+    doc["engine"] = dict(engine_meta)
+    return doc
