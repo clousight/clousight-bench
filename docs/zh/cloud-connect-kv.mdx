@@ -46,6 +46,10 @@ params:
 
 ## 3. 先 preflight,再跑
 
+`csbench doctor` 现在做真实探测:Redis 协议 `PING` 探测(绝不发送密码;`-NOAUTH` 也证明服务存活)+ YCSB 启动器与 Java ≥ 11 检查。地址写错、白名单没开、工具缺失或版本过旧
+都会在这里带修复提示暴露——而不是变成运行中的堆栈。同样的检查也在 `csbench run` 的
+PREFLIGHT 阶段把关。
+
 ```bash
 export REDIS_PASSWORD=...
 csbench doctor --domain key-value --platform ycsb-endpoint --config aliyun-redis.yaml

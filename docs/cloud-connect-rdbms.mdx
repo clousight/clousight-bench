@@ -54,6 +54,10 @@ Credentials come from `BENCHBASE_DB_USER` / `BENCHBASE_DB_PASSWORD` env vars
 
 ## 3. Preflight, then run
 
+`csbench doctor` now probes for real: a TCP reachability probe of the JDBC endpoint plus BenchBase launcher + Java ≥ 17 checks. A wrong address, a closed
+allowlist or a missing/old tool surfaces here with a remediation hint — not as a
+mid-run stack trace. The same checks gate `csbench run` at its PREFLIGHT stage.
+
 ```bash
 export BENCHBASE_DB_USER=bench BENCHBASE_DB_PASSWORD=...
 csbench doctor --domain transactional-db --platform jdbc-endpoint --config aliyun-rds-postgres.yaml

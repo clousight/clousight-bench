@@ -48,6 +48,10 @@ params:
 
 ## 3. 先 preflight,再跑
 
+`csbench doctor` 现在做真实探测:JDBC 端点的 TCP 可达性探测 + BenchBase 启动器与 Java ≥ 17 检查。地址写错、白名单没开、工具缺失或版本过旧
+都会在这里带修复提示暴露——而不是变成运行中的堆栈。同样的检查也在 `csbench run` 的
+PREFLIGHT 阶段把关。
+
 ```bash
 export BENCHBASE_DB_USER=bench BENCHBASE_DB_PASSWORD=...
 csbench doctor --domain transactional-db --platform jdbc-endpoint --config aliyun-rds-postgres.yaml

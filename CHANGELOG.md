@@ -85,6 +85,14 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
 
 ### Added
 
+- **Doctor connectivity + tooling probes**: adapter preflight (shared by
+  `csbench doctor` and the run's PREFLIGHT gate) now proves the configured
+  endpoint is reachable — TCP for JDBC endpoints, a Redis-protocol `PING` for
+  `ycsb-endpoint` (no password ever sent; `-NOAUTH` counts as alive), an
+  SSRF-guarded reachability probe for `llm-endpoint` — and checks the upstream
+  tools' Java requirement (BenchBase ≥ 17, YCSB ≥ 11). Misconfiguration
+  surfaces as a CRITICAL check with a remediation hint instead of a mid-run
+  stack trace; mock runs skip the probes.
 - **TPC-DS official mode (`QphDS@SF`)**: the `tpc-ds` suite gains `params.mode:
   official` — the official sequence (Load → Power → Throughput 1 → Data
   Maintenance 1 → Throughput 2 → Data Maintenance 2 → ACID gate) reusing the

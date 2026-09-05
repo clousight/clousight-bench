@@ -78,6 +78,28 @@ class LlmEndpointAdapter(_LlmAdapterBase):
         "limit": 100,
     }
 
+    def _reachability_check(self) -> Any:
+        """SSRF-validated TCP reachability of the endpoint host — no key is sent."""
+        from urllib.parse import urlparse  # noqa: PLC0415
+
+        from clousight_bench.core import preflight as pf  # noqa: PLC0415
+        from clousight_bench.suites.llm_common import validate_endpoint  # noqa: PLC0415
+
+        endpoint = str(self.target.get("endpoint") or "")
+        try:
+            validate_endpoint(endpoint)
+        except Exception as exc:  # noqa: BLE001 - the guard's message is the detail
+            return pf.Check(
+                "llm-reachability",
+                ok=False,
+                severity=pf.CRITICAL,
+                detail=f"endpoint rejected by the SSRF guard: {exc}",
+                remediation="point target.endpoint at a public/allowlisted OpenAI-compatible base URL",
+            )
+        parsed = urlparse(endpoint)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        return pf.tcp_reachable_check("llm-reachability", f"{parsed.hostname}:{port}")
+
     def preflight(self, task: Any | None = None) -> Any:
         from clousight_bench.core import preflight as pf
 
@@ -99,6 +121,7 @@ class LlmEndpointAdapter(_LlmAdapterBase):
             )
         else:
             report.add(pf.Check("llm-endpoint", ok=True, severity=pf.CRITICAL, detail="endpoint configured"))
+            report.add(self._reachability_check())
         if not self.api_key():
             report.add(
                 pf.Check(
