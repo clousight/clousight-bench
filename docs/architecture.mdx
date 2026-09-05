@@ -9,12 +9,31 @@ but the pipeline is identical.
 
 ## Lifecycle (shared by every domain)
 
+Eleven stages, **four phases**. The phases are how to read the machine; the
+stages are the failure-attribution detail underneath them.
+
 ```
-RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
-        -> SCORE -> ENRICH -> PERSIST -> optional PUBLISH
+(1) PREPARE    RESOLVE -> VALIDATE -> PREFLIGHT
+               nothing touched, nothing billed — a bad request stops here
+(2) CONNECT    SETUP ............................ TEARDOWN (finally)
+               the only window that talks to the cloud, the only one that spends
+(3) MEASURE    EXECUTE -> COLLECT
+               produces observations, never a verdict
+    ───────── the cloud is gone after this line ─────────
+(4) CONCLUDE   SCORE -> ENRICH -> PERSIST -> optional PUBLISH
+               pure, offline, re-scorable; an enricher may add, never overrule
 ```
 
+The line between MEASURE and CONCLUDE is the whole trust story, and it is
+enforced by a signature rather than by convention: `task.score()` takes an
+`ObservationBundle` and nothing else, so no adapter and no target can reach the
+verdict. Everything a cloud can influence happens above that line.
+
+The stages, in order:
+
 - **RESOLVE** — look up the DomainPack, benchmark suite (`suite:<id>`) and Adapter for a `RunSpec`.
+  Not recorded in `run.stages`: a RESOLVE failure writes no record at all, so
+  "RESOLVE: ok" would be a constant in every record.
 - **VALIDATE** — parse and check the RunSpec, target, params and task config
   (`core/validation.py`). RESOLVE and VALIDATE failures are `UserInputError`s:
   CLI exit code 2, **no record written**.
@@ -37,7 +56,10 @@ RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
 - **EXECUTE** — `task.execute(adapter, params)`: drive the workload, return an
   `ObservationBundle` of raw observations only.
 - **COLLECT** — `core/observation.py::collect()`: prove the bundle is well
-  formed and canonically encodable.
+  formed and canonically encodable. It *collects nothing from the cloud* —
+  EXECUTE already returned the bundle; this is the seal before scoring, and it
+  is a stage of its own so "the suite crashed" and "the suite returned something
+  unencodable" are different, attributable failures.
 - **SCORE** — `task.score(bundle)`: a pure function producing measurements and
   findings. A scorer failure keeps the observations and records a SCORE error.
 - **ENRICH** — installed `ResultEnricher`s, each isolated: a failure becomes an
@@ -54,6 +76,13 @@ including when `setup()` failed half-way, and a teardown failure is recorded as
 its own stage error without overwriting the execute or collect error that
 caused it.
 
+**Two gates sit between PREPARE and CONNECT and are not stages of their own** —
+the live-run confirmation (`--allow-live`) and the cost budget
+(`--cost-budget`). Both refuse *before* anything is provisioned and both show up
+the same way: `SETUP: skipped`, status `invalid`, plus a `critical` finding whose
+`details.remediation` says exactly what to do. `csbench run` prints that line to
+stderr, so a blocked run explains itself without reading the JSON on stdout.
+
 ## Result contract (schema 0.4)
 
 Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
@@ -68,7 +97,10 @@ Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
   breakdowns). Empty for suites not yet migrated to per-item scoring. Capped by
   `CSBENCH_MAX_PERSISTED_ITEMS` (default 1000); truncation is recorded under
   `extensions.core.items_meta`, never silent.
-- `status` ∈ `completed` · `failed` · `invalid` · `unsupported`. There is no
+- `status` ∈ `completed` · `failed` · `invalid` · `unsupported` for any record
+  `execute()` hands back. A fifth value, `interrupted`, exists only for Ctrl-C:
+  teardown runs, the record is persisted, and the `KeyboardInterrupt` is then
+  re-raised — so you find that status on disk, never as a return value. There is no
   boolean `ok`, no top-level `metrics`, no top-level `evidence_layer` and no
   `config_hash`.
 - `environment.execution` ∈ `simulated` · `live` · `unknown` marks whether the

@@ -20,6 +20,7 @@ from clousight_bench.cli._common import (
     _load_thresholds,
     _parse_params,
     _resolve_task_id,
+    run_summary,
 )
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.schema import RunSpec
@@ -96,6 +97,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
         cost_budget=args.cost_budget,
     )
     print(record.to_json())
+    summary = run_summary(record)
+    if summary:
+        print(summary, file=sys.stderr)
     code = _exit_code(record)
     # Optional CI gate: fail the exit code if any measurement misses its threshold.
     if getattr(args, "assert_thresholds", None):

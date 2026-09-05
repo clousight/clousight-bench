@@ -16,7 +16,7 @@ fingerprints exclude them, and a broken exporter can never fail a run.
 
 | Source | Spans | Semconv vocabulary |
 |---|---|---|
-| Harness (every run) | root `csbench.run` + one span per lifecycle stage (RESOLVE … PERSIST), exact `stage_timings` | `csbench.*` |
+| Harness (every run) | root `csbench.run` + one span per **timed** lifecycle stage (PREFLIGHT … SCORE), exact `stage_timings` | `csbench.*` |
 | TPC-H official mode | Load → Power (RF1, Q1…Q22, RF2) → Throughput (concurrent streams, per-query spans, refresh pairs) → reconstructed from the measured intervals | `csbench.phase`/`csbench.stream_id` + `db.*` |
 | LLM endpoint suites (MMLU/GSM8K/HumanEval) | one span per `/chat/completions` call: model, token usage, finish reason | `gen_ai.*` (GenAI semconv) |
 | SWE-bench agents | LLM/tool spans from the SUT agent (schema v3; legacy v2 still accepted) | `gen_ai.*` |

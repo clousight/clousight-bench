@@ -1,9 +1,12 @@
 """Post-run finalize stages: ENRICH (third-party enrichers) and PUBLISH.
 
 Extracted from the orchestrator so that module stays focused on the stage
-machine. These run after PERSIST inside ``orchestrator._finish``; an enricher or
-publisher bug is recorded, never fatal, and PUBLISH is fully out-of-record (it
-writes only append-only receipts). Depends on ``core.stage_support`` for the
+machine. Both run inside ``orchestrator._finish``, which is the CONCLUDE phase's
+tail: ENRICH *before* PERSIST (an enricher writes into the record that is about
+to be sealed), PUBLISH *after* it (the sealed file is what gets a receipt). An
+enricher or publisher bug is recorded, never fatal, and PUBLISH is fully
+out-of-record (it writes only append-only receipts, and the record durably says
+``PUBLISH: skipped`` so its digest stays valid). Depends on ``core.stage_support`` for the
 shared StageError/log helpers — no import back into the orchestrator.
 """
 

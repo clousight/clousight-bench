@@ -18,7 +18,38 @@ from clousight_bench.core.errors import (
     UserInputError,
 )
 
+# "interrupted" is absent on purpose: that record is persisted and then the
+# KeyboardInterrupt is re-raised, so execute() never returns it to the CLI.
 _EXIT_BY_STATUS = {"completed": 0, "unsupported": 0, "failed": 1, "invalid": 1}
+
+_LOUD_SEVERITIES = ("critical", "error", "warning")
+
+
+def run_summary(record: Any) -> str:
+    """One human paragraph explaining a verdict that is not ``completed``.
+
+    stdout belongs to scripts (the full record as JSON); this goes to stderr so
+    an operator does not have to grep a screenful of JSON for the one line that
+    matters -- which stage broke, or which gate refused to let the run start.
+    Returns ``""`` for a completed run: silence is the success signal.
+    """
+    if record.status == "completed":
+        return ""
+    lines = [f"run {record.status}: {record.identity.task_id} on {record.identity.adapter}"]
+    for error in record.errors:
+        stage = error.get("stage", "?")
+        code = error.get("code", "?")
+        message = error.get("message", "")
+        lines.append(f"  {stage} {code}: {message}")
+    for finding in record.findings:
+        if finding.get("severity") not in _LOUD_SEVERITIES:
+            continue
+        code = finding.get("code", "?")
+        lines.append(f"  finding {code}: {finding.get('summary', '')}")
+        remediation = (finding.get("details") or {}).get("remediation")
+        if remediation:
+            lines.append(f"    -> {remediation}")
+    return "\n".join(lines)
 
 
 def _load_config(path: str | None) -> dict[str, Any]:

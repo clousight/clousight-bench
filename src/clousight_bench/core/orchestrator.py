@@ -1,7 +1,17 @@
 """Orchestrator: the auditable lifecycle every domain shares.
 
-    RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
-            -> SCORE -> ENRICH -> PERSIST -> optional PUBLISH
+Eleven stages, four phases. The phases are how to READ the machine; the stages
+are the failure-attribution detail underneath them:
+
+    (1) PREPARE   RESOLVE -> VALIDATE -> PREFLIGHT
+        nothing has been touched or billed yet; a bad request stops here
+    (2) CONNECT   SETUP ....................... TEARDOWN (finally)
+        the only window that talks to the cloud and the only one that can spend
+    (3) MEASURE   EXECUTE -> COLLECT
+        produces observations, never a verdict
+    ---- the cloud is gone after this line: SCORE cannot see an adapter ----
+    (4) CONCLUDE  SCORE -> ENRICH -> PERSIST -> optional PUBLISH
+        pure, offline, re-scorable; an enricher may add, never overrule
 
 TEARDOWN is deliberately not a step in that line. It is the mandatory
 ``finally`` boundary around SETUP -> COLLECT: once SETUP is entered, teardown
@@ -21,7 +31,13 @@ Three kinds of failure, three different answers:
 
 ``run.stages`` reads exactly like that: ``ok`` / ``failed`` means the stage ran,
 ``skipped`` means it was deliberately not run (a flag, or nothing to do), and an
-absent stage was never reached because an earlier one failed.
+absent stage was never reached because an earlier one failed -- except RESOLVE,
+which is never recorded at all (see :data:`clousight_bench.core.record.STAGES`).
+
+Two decisions are taken between PREPARE and CONNECT and are NOT stages of their
+own -- the live-run confirmation and the cost budget. Both show up as
+``SETUP: skipped`` plus a ``critical`` finding whose ``remediation`` says what to
+do; ``csbench run`` prints that line to stderr so it is not buried in the JSON.
 """
 
 from __future__ import annotations
@@ -228,9 +244,11 @@ def execute(
     timings: dict[str, float] = {}
     errors: list[StageError] = []
 
-    # RESOLVE -- raises UserInputError; no record is written.
+    # RESOLVE -- raises UserInputError; no record is written. Deliberately NOT
+    # recorded in ``stages``: a RESOLVE failure produces no record at all, so
+    # "RESOLVE: ok" would be a constant in every record (see STAGES in
+    # core/record.py -- stages hold what this record's outcome depended on).
     pack, task, adapter_cls = _resolve(spec, results_dir, trace_id)
-    stages["RESOLVE"] = "ok"
 
     # VALIDATE -- raises UserInputError; no record is written. The validated
     # task config is reused below, so config() is called exactly once per run.

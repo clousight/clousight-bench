@@ -227,3 +227,16 @@ def test_resolve_and_validate_errors_write_no_record(tmp_path):
     with pytest.raises(UnknownTaskError):
         orch.execute(RunSpec("fake-domain", "NOPE", "fake"), results_dir=tmp_path)
     assert list(tmp_path.rglob("*.json")) == []
+
+
+def test_stages_omit_resolve_but_keep_the_publish_denial(tmp_path):
+    """``run.stages`` records the stages whose outcome this record depends on.
+
+    A RESOLVE failure raises before any record exists, so ``RESOLVE: ok`` is a
+    constant in every persisted record — zero information. PUBLISH's ``skipped``
+    is the opposite: an explicit, durable denial that a publisher ever touched
+    this sealed record, so it stays.
+    """
+    record = _run(tmp_path)
+    assert "RESOLVE" not in record.run.stages
+    assert record.run.stages["PUBLISH"] == "skipped"

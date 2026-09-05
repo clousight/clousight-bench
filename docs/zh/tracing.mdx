@@ -15,7 +15,7 @@ Trace 是**证据,不是判定**:evaluator 不读它,基准指纹不含它,expor
 
 | 来源 | Span | 语义约定 |
 |---|---|---|
-| Harness(每次运行) | 根 `csbench.run` + 每生命周期阶段一个 span(RESOLVE … PERSIST),精确 `stage_timings` | `csbench.*` |
+| Harness(每次运行) | 根 `csbench.run` + 每个**计时**生命周期阶段一个 span(PREFLIGHT … SCORE),精确 `stage_timings` | `csbench.*` |
 | TPC-H 官方模式 | Load → Power(RF1、Q1…Q22、RF2)→ Throughput(并发流、逐查询 span、刷新对)——由实测区间重建 | `csbench.phase`/`csbench.stream_id` + `db.*` |
 | LLM endpoint 套件(MMLU/GSM8K/HumanEval) | 每次 `/chat/completions` 调用一个 span:模型、token 用量、finish reason | `gen_ai.*`(GenAI 语义约定) |
 | SWE-bench agent | SUT agent 的 LLM/工具 span(schema v3;legacy v2 仍接受) | `gen_ai.*` |

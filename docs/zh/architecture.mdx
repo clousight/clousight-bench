@@ -8,17 +8,33 @@ Clousight Bench 对云产品的**运行时工程能力**进行基准测试，而
 
 ## 生命周期（所有领域共用）
 
+11 个阶段，**4 个相位**。相位是读懂这台机器的方式，阶段是它下面的失败归因细节。
+
 ```
-RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
-        -> SCORE -> ENRICH -> PERSIST -> optional PUBLISH
+(1) 准备 PREPARE   RESOLVE -> VALIDATE -> PREFLIGHT
+                   还没碰云、没花钱——请求不合法就停在这里
+(2) 连接 CONNECT   SETUP ............................ TEARDOWN (finally)
+                   唯一与云对话、唯一会花钱的窗口
+(3) 测量 MEASURE   EXECUTE -> COLLECT
+                   只产生观测，不产生结论
+    ───────── 这条线之后，云已彻底离场 ─────────
+(4) 定论 CONCLUDE  SCORE -> ENRICH -> PERSIST -> optional PUBLISH
+                   纯函数、可离线重算；enricher 只能追加，不能推翻
 ```
 
+MEASURE 与 CONCLUDE 之间那条线就是整个信任故事，而且它由函数签名而非约定来保证：
+`task.score()` 只接受 `ObservationBundle`，adapter 和 target 在类型上就够不到判定。
+凡是云能影响的，都发生在这条线以上。
+
+各阶段依次为：
+
 - **RESOLVE** — 根据 `RunSpec` 查找 DomainPack、任务和适配器。
+  不写入 `run.stages`：RESOLVE 失败根本不会产生记录，所以"RESOLVE: ok"在每条记录里都是常量。
 - **VALIDATE** — 解析并校验 RunSpec、目标、参数和任务配置（`core/validation.py`）。RESOLVE 和 VALIDATE 失败均属 `UserInputError`：CLI 退出码为 2，**不写入任何记录**。
 - **PREFLIGHT** — `adapter.preflight(task)`：在制备之前检查凭证、SDK、连通性以及本次基准测试在该云上所需的最低权限。CRITICAL 级失败会生成一条 `invalid` 记录，且永远不会进入 SETUP。可通过 `--skip-preflight` 跳过；可使用 `csbench doctor` 单独运行。
 - **SETUP** — `adapter.setup()`：通过 Terraform 制备资源,或通过 SDK/HTTP 建立连接。`setup()` 与 `teardown()` 都是**可选的 no-op 钩子**——"创建 → 接入 → 销毁"三段可分离,**纯接入**运行(经 `target.endpoint` / `credentials_ref` 配置接入一个已运行的服务)只用"接入"这一段。一次运行是否制备是显式的适配器能力 `provisions_resources()`(默认:真实云的 live 运行;`*-endpoint` 配置接入适配器与模拟器为 `False`,或继承 `ProvisionedCloudAdapter` 恒为 `True`)。**制备云机器——live 确认门、成本预算/账本、资源回收(reaper)——仅在 `provisions_resources()` 为 `True` 时运行**;纯接入运行全部跳过。
 - **EXECUTE** — `task.execute(adapter, params)`：驱动负载，返回仅含原始证据的 `ObservationBundle`。
-- **COLLECT** — `core/observation.py::collect()`：验证 bundle 格式完整且可进行规范化编码。
+- **COLLECT** — `core/observation.py::collect()`：验证 bundle 格式完整且可进行规范化编码。它**不从云上收集任何东西**——bundle 是 EXECUTE 已经返回的；这里是打分前的封存。它自成一个阶段，是为了让"套件跑崩了"和"套件返回了编不出来的东西"成为两种可归因的失败。
 - **SCORE** — `task.score(bundle)`：纯函数，生成测量值和发现。评分器失败时保留观测值，并记录一条 SCORE 错误。
 - **ENRICH** — 已安装的各 `ResultEnricher` 相互隔离运行：失败仅记录为 ENRICH 阶段错误，不会改变 `status`。
 - **PERSIST** — `core/store.py`：写临时文件、刷盘、`fsync`、原子重命名；当结果目录不可写时，会将紧急转储写入系统临时目录（路径会被打印出来）。
@@ -26,12 +42,14 @@ RESOLVE -> VALIDATE -> PREFLIGHT -> SETUP -> EXECUTE -> COLLECT
 
 **TEARDOWN 不在上述流程步骤之列。** 它是围绕 SETUP → COLLECT 的强制性 `finally` 边界：一旦进入 SETUP，`adapter.teardown()` 必然执行，包括 `setup()` 中途失败的情况；teardown 失败会被记录为独立的阶段错误，不会覆盖导致失败的 execute 或 collect 错误。
 
+**PREPARE 与 CONNECT 之间还有两道闸门，它们不是独立阶段**——live 运行确认（`--allow-live`）与成本预算（`--cost-budget`）。两者都在**制备任何资源之前**拒绝，表现形式也相同：`SETUP: skipped`、状态 `invalid`，外加一条 `critical` 发现，其 `details.remediation` 写明该怎么做。`csbench run` 会把这一行打到 stderr，因此被拦下的运行不必去读 stdout 上的 JSON 就能自我解释。
+
 ## 结果契约（schema 0.4）
 
 顶层字段固定为：`schema_version`、`run`、`identity`、`environment`、`fingerprints`、`measurements`、`findings`、`observations`、`series`、`artifacts`、`items`、`extensions`、`errors`、`status`。
 
 - `items`（schema 0.4，可选）是**逐项基座**：一组 `ItemResult`（`item_id`、`group`、`input`/`output`/`reference`、逐项 `scores` 带 4 态 `status` ∈ `ok`·`fail`·`skip`·`error`、`usage`）。标量 `measurements` 是它们的聚合（`core/aggregate.py`——mean/ratio/geomean/百分位 + Wilson/正态置信区间 + 按 `group` 切片）。尚未迁移到逐项打分的套件为空。由 `CSBENCH_MAX_PERSISTED_ITEMS`(默认 1000)封顶;截断记录在 `extensions.core.items_meta`,绝不静默。
-- `status` ∈ `completed` · `failed` · `invalid` · `unsupported`。不存在布尔型 `ok`、顶层 `metrics`、顶层 `evidence_layer`，也没有 `config_hash`。
+- `status` ∈ `completed` · `failed` · `invalid` · `unsupported`——这是 `execute()` 会返回的全部取值。还有第五个值 `interrupted`，只属于 Ctrl-C：teardown 照常执行、记录照常落盘，随后 `KeyboardInterrupt` 被重新抛出，因此这个状态只会出现在磁盘上，不会作为返回值出现。不存在布尔型 `ok`、顶层 `metrics`、顶层 `evidence_layer`，也没有 `config_hash`。
 - `environment.execution` ∈ `simulated` · `live` · `unknown`，标记数据来自模拟运行时还是真实云端。该字段被折叠进环境指纹，因此模拟结果与真实结果永远不会混入同一分析池。
 - 每条测量值携带 `value`、`unit` 和 `official`，可选字段为 `reproducibility_class`、`aggregation`、`sample_count`、`notes` 和 `ci`。
 - **判定型指标**(`reproducibility_class="judge-based"`)通过判定基座(`core/judge.py`)落地:`JudgeModel`(配置接入的 `EndpointJudge`,带 SSRF 校验)被要求给出**分类**判定,再由固定算术映射为分数——刻意拒绝 G-Eval 不可复现的 top-logprob 加权。`judge_emit` 从任意判定模型取得结构化输出(原生 JSON-schema 模式,否则 prompt + 花括号切片/尾逗号修复)。`response-quality` 指标是参考实现:带可选自一致性的 rubric 判定;未配置判定模型时干净地 `skip`(因此 CI 从不调用真实判定模型),并在每条逐项分数中记录判定模型 id 与判定结果。通过"把指标 opt-in + 配置接入一个判定模型"来运行:`params: {extra_metrics: [response-quality], judge: {provider: openai-compatible, endpoint: ..., model: ..., credentials_ref: env:KEY, cache: .judge_cache.json}}`——配置了判定模型的运行会在打分阶段做网络 I/O,按设计不可离线重打分。config 里给 `cache` 路径会用内容寻址的 `CachingJudge` 包裹判定模型,重跑复用判定、不再重复付费 LLM 调用(只缓存判定打分,绝不缓存 environmental 数值)。
