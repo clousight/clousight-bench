@@ -9,9 +9,14 @@ formulas (:mod:`clousight_bench.suites._tpc_official.metrics`). Registered as
 Every score carries ``official=True`` as a *provenance flag* (this is the suite's
 official evaluator), NOT an audit claim: the composites note ``unaudited`` and that
 the refresh set is clousight-generated. Timing-derived scores are ``environmental``;
-correctness (SF1-only, vs the pinned reference) and ACID pass/fail are
-``deterministic``. Any missing/malformed section omits only the affected dimension —
-the evaluator never raises (matching the reference evaluator's fail-safe contract).
+ACID pass/fail is ``deterministic``. Any missing/malformed section omits only the
+affected dimension — the evaluator never raises.
+
+Deliberately NO answer-correctness dimension here: the official Power test runs
+its queries AFTER RF1 has refreshed the data, so results legitimately differ
+from the pristine-data references — comparing them would mislabel correct
+behavior as failure. Correctness (verified against DuckDB's official answers)
+rides the ``reference`` mode, whose queries run on pristine data.
 """
 
 from __future__ import annotations
@@ -38,12 +43,6 @@ class OfficialTpchQphhEvaluator(Evaluator):
     def supports(self, suite_id: str, product: str) -> bool:  # noqa: ARG002
         return suite_id == "tpc-h"
 
-    def _load_reference(self) -> dict[str, dict[str, Any]]:
-        try:
-            return json.loads((self.fixtures_dir / "reference" / "sf1_digests.json").read_text())
-        except Exception:  # noqa: BLE001 - missing/broken reference just omits correctness
-            return {}
-
     def evaluate(self, raw: RawArtifacts) -> dict[str, Measurement]:
         try:
             doc: dict[str, Any] = json.loads(raw.path("official").read_text())
@@ -56,9 +55,7 @@ class OfficialTpchQphhEvaluator(Evaluator):
         sf = _as_float(doc.get("scale_factor"))
 
         self._add_load(out, doc)
-        power_ok = self._add_power_and_composite(out, doc, sf)
-        if power_ok and sf == 1.0:
-            self._add_correctness(out, doc)
+        self._add_power_and_composite(out, doc, sf)
         self._add_acid(out, doc)
         return out
 
@@ -127,36 +124,6 @@ class OfficialTpchQphhEvaluator(Evaluator):
                         notes=_UNAUDITED,
                     )
         return True
-
-    # ---------------------------------------------------- correctness (SF1 only)
-    def _add_correctness(self, out: dict[str, Measurement], doc: dict[str, Any]) -> None:
-        reference = self._load_reference()
-        if not reference:
-            return
-        queries = doc["power"]["queries"]
-        passed = 0
-        counted = 0
-        for q in queries:
-            try:
-                nr = str(int(q["query_nr"]))
-                digest = q["result_digest"]
-            except (KeyError, TypeError, ValueError):
-                continue
-            ref = reference.get(nr)
-            if ref is None:
-                continue
-            counted += 1
-            if digest == ref.get("result_digest"):
-                passed += 1
-        if counted > 0:
-            out["tpc-h.queries_passed"] = Measurement(
-                value=passed / counted,
-                unit="ratio",
-                reproducibility_class="deterministic",
-                official=True,
-                sample_count=counted,
-                notes="pinned-reference reproducibility vs duckdb tpch SF1; not an audited TPC answer",
-            )
 
     # --------------------------------------------------------------- ACID gate
     def _add_acid(self, out: dict[str, Measurement], doc: dict[str, Any]) -> None:

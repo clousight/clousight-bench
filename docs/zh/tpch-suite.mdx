@@ -56,7 +56,7 @@ SF100 → 5、…）。三个复合分都随 `SF` 线性放大，`Throughput@Siz
 
 | `query_order` | 排列 | 适用 |
 | --- | --- | --- |
-| `official`（默认） | 官方 Appendix A 表（`suites/tpc_h/fixtures/query_order.json`）—— 与已发布结果可比 | 表覆盖到的流数（当前内置 streams 0–2,即 `S = 2`） |
+| `official`（默认） | 官方 Appendix A 表——与已发布结果可比。内置 streams 0–2,**绝不伪造其余流**;完整表可经 `params.query_order_file` 自备(其 sha 折入 dataset digest) | 你的表覆盖到的任意 `S` |
 | `generated` | 确定性、可复现的 clousight 生成排列（每流一个不同排列） | 任意 `S` —— SF ≥ 10 在 Appendix A 表扩展前需要它 |
 
 <Note>
@@ -82,14 +82,24 @@ csbench run --domain data-warehouse --benchmark tpc-h --platform duckdb-local --
 | `tpc-h.power_at_size` | `Power@Size` = `(3600 / geomean(24 个区间)) · SF` | `environmental` |
 | `tpc-h.throughput_at_size` | `Throughput@Size` = `(S · 22 / Ts) · 3600 · SF` | `environmental` |
 | `tpc-h.load_time_s` | 数据装载墙钟 | `environmental` |
-| `tpc-h.queries_passed` | 对钉定 SF1 参考的通过率（Power 流；仅 SF1） | `deterministic` |
 | `tpc-h.acid_atomicity` / `_consistency` / `_isolation` | `1.0` pass / `0.0` fail | `deterministic` |
+
+官方模式**不做正确性声明**:Power 测试的查询跑在 RF1 刷新数据**之后**,结果与
+pristine 数据参考天然不同——硬比会把正确行为误判为失败。正确性(对官方答案已验证)
+归 `reference` 模式。
 
 ACID Durability 报为 `n/a`（嵌入式 DuckDB 无崩溃/恢复夹具），故不进入测量集。ACID 是独立的
 pass/fail 门，**不**参与 `QphH@Size` 复合分。
 
 所有测量都带 `official=True` —— 这是一个*溯源*标记（"由套件公认的 evaluator 产出"），并非审计声明；
 是否会漂移由 `reproducibility_class` 承载。
+
+## 正确性:官方答案已验证
+
+**SF 1、0.1、0.01** 三份 pinned 参考在捕获时均与 DuckDB 官方 `tpch_answers()`
+答案集**逐单元验证**(22 条全过;数值按共享的 2 位小数舍入、行序无关)——这些
+SF 下的 `queries_passed` 会在 notes 中注明。其它 SF 在你捕获参考前不做正确性
+声明(`scripts/capture_tpch_reference.py --sf <sf>`);仍非经审计的 TPC 结果。
 
 ## 性价比（price/QphH）
 

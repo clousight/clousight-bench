@@ -1,19 +1,19 @@
 [
   {
     "query_nr": 1,
-    "latency_ms": 17.989040934480727,
+    "latency_ms": 27.4960829410702,
     "row_count": 4,
     "result_digest": "sha256:2a5d396af5c0617304d2a0d07d7f29b4d7d7a08a66da203a0222a4b91192b75a"
   },
   {
     "query_nr": 6,
-    "latency_ms": 1.791417016647756,
+    "latency_ms": 2.677583135664463,
     "row_count": 1,
     "result_digest": "sha256:158b276d39c404d2159933991a6c09a8241aa800692ef713e7a84f318a54183b"
   },
   {
     "query_nr": 14,
-    "latency_ms": 6.918250001035631,
+    "latency_ms": 5.949666956439614,
     "row_count": 1,
     "result_digest": "sha256:62c08863f229b89e10a62f090c7b9cfa8f291d2246bff90295c6f7c373e6232f"
   }

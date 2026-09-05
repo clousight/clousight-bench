@@ -92,6 +92,20 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
 
 ### Added
 
+- **TPC-H correctness pack**: (a) the pinned references for SF 1/0.1/0.01 are now
+  **verified cell-by-cell against DuckDB's official `tpch_answers()`** at capture
+  time (all 22 queries; the capture script fails loud on any mismatch) and
+  `queries_passed` notes say "verified against the official answer set";
+  (b) correctness is **SF-keyed** — any SF with a captured
+  `reference/sf<sf>_digests.json` scores, others make no claim
+  (`capture_tpch_reference.py --sf`); (c) `params.query_order_file` lets the
+  operator supply the full official Appendix A permutation table (sha folded
+  into the dataset digest) — we bundle streams 0–2 and never fabricate the rest.
+- **Honesty fix — TPC-H official mode drops its correctness claim**: the Power
+  test's queries run after RF1 refreshed the data, so comparing them against
+  pristine-data references mislabels correct behavior as failure (latent until
+  the multi-SF references exposed it on real runs). Correctness rides the
+  `reference` mode; the official composites are unaffected.
 - **TPC-C tpmC-style estimate**: `tpc-c.tpmc_estimate` = goodput × 60 × the
   configured NewOrder mix weight (45%), honestly labeled — BenchBase reports
   aggregate throughput only, so this is an estimate from the configured mix,

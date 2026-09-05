@@ -130,12 +130,21 @@ class TpchSuite(DuckDbTpcSuite):
         query_order = str(cfg.get("query_order", "official"))
         if query_order not in _QUERY_ORDER_SOURCES:
             raise ValueError(f"query_order must be one of {_QUERY_ORDER_SOURCES}, got {query_order!r}")
-        # The ordering provenance folded into the digest: the Appendix A file's sha
-        # for official, the generator version for generated.
+        # Operators can supply the full official Appendix A table themselves
+        # (we bundle only streams 0-2 and never fabricate the rest): the file's
+        # sha folds into the digest so a different table is a different benchmark.
+        order_file = str(cfg.get("query_order_file", "") or "")
+        if order_file and query_order != "official":
+            raise ValueError("query_order_file only applies to query_order: official")
+        # The ordering provenance folded into the digest: the permutation file's
+        # sha for official, the generator version for generated.
         if query_order == "official":
+            table_path = Path(order_file) if order_file else _QUERY_ORDER_FILE
             try:
-                order_prov = sha256_bytes(_QUERY_ORDER_FILE.read_bytes())
-            except OSError:
+                order_prov = sha256_bytes(table_path.read_bytes())
+            except OSError as exc:
+                if order_file:
+                    raise ValueError(f"query_order_file {order_file!r} is not readable: {exc}") from exc
                 order_prov = "sha256:none"
         else:
             order_prov = GENERATOR_VERSION
@@ -165,6 +174,7 @@ class TpchSuite(DuckDbTpcSuite):
                 "streams": streams,
                 "query_ids": query_ids,
                 "query_order": query_order,
+                "query_order_file": order_file,
             },
         )
 
@@ -197,6 +207,7 @@ class TpchSuite(DuckDbTpcSuite):
                 "streams": int(dataset.payload["streams"]),
                 "query_ids": list(dataset.payload["query_ids"]),
                 "query_order": dataset.payload.get("query_order", "official"),
+                "query_order_file": dataset.payload.get("query_order_file", ""),
                 "load_time_s": load_time_s,
             }
         )
@@ -218,9 +229,11 @@ class TpchSuite(DuckDbTpcSuite):
             power_order, throughput_orders = generate_orders(query_ids, num_streams=streams)
             ordering_source = f"clousight-generated/{GENERATOR_VERSION}"
         else:
-            table = json.loads(_QUERY_ORDER_FILE.read_text())
+            order_file = str(env.payload.get("query_order_file", "") or "")
+            table_path = Path(order_file) if order_file else _QUERY_ORDER_FILE
+            table = json.loads(table_path.read_text())
             power_order, throughput_orders = resolve_orders(table, num_streams=streams)
-            ordering_source = "official-appendix-a"
+            ordering_source = "official-appendix-a/operator-supplied" if order_file else "official-appendix-a"
 
         from time import time_ns  # noqa: PLC0415
 

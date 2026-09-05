@@ -88,3 +88,25 @@ def test_evaluate_over_the_committed_mock_fixture() -> None:
     out = OfficialTpchEvaluator().evaluate(raw)
     assert out["tpc-h.queries_passed"].value == 1.0
     assert out["tpc-h.total_runtime_ms"].value > 0
+
+
+def test_correctness_at_sf01_via_the_multi_sf_reference(tmp_path: Path) -> None:
+    """B6: correctness is SF-keyed — the shipped sf0.1 reference scores runs at SF 0.1."""
+    ref = json.loads(
+        (
+            Path(__file__).resolve().parent.parent
+            / "src/clousight_bench/suites/tpc_h/fixtures/reference/sf0.1_digests.json"
+        ).read_text()
+    )
+    queries = [
+        {"query_nr": 1, "latency_ms": 5.0, "row_count": 4, "result_digest": ref["1"]["result_digest"]}
+    ]
+    out = OfficialTpchEvaluator().evaluate(_artifacts(tmp_path, queries, {"scale_factor": 0.1}))
+    assert out["tpc-h.queries_passed"].value == 1.0
+    assert "verified against the official answer set" in out["tpc-h.queries_passed"].notes
+
+
+def test_verified_official_note_at_sf1(tmp_path: Path) -> None:
+    queries = [{"query_nr": 1, "latency_ms": 5.0, "row_count": 4, "result_digest": _ref_digest(1)}]
+    out = OfficialTpchEvaluator().evaluate(_artifacts(tmp_path, queries, {"scale_factor": 1.0}))
+    assert "verified against the official answer set" in out["tpc-h.queries_passed"].notes

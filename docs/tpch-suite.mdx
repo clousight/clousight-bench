@@ -63,7 +63,7 @@ The query-stream permutations come from `params.query_order`:
 
 | `query_order` | Ordering | Use when |
 | --- | --- | --- |
-| `official` (default) | the official Appendix A table (`suites/tpc_h/fixtures/query_order.json`) — comparable to published runs | streams covered by the table (ships streams 0–2, i.e. up to `S = 2`) |
+| `official` (default) | the official Appendix A table — comparable to published runs. We bundle streams 0–2 and **never fabricate the rest**; supply the full table yourself via `params.query_order_file` (its sha folds into the dataset digest) | any `S` your table covers |
 | `generated` | a deterministic, reproducible clousight-generated ordering (distinct permutation per stream) | any `S` — needed for SF ≥ 10 until the Appendix A table is extended |
 
 <Note>
@@ -92,8 +92,13 @@ The `official-tpch-qphh-evaluator` emits these `tpc-h.*` measurements:
 | `tpc-h.power_at_size` | `Power@Size` = `(3600 / geomean(24 intervals)) · SF` | `environmental` |
 | `tpc-h.throughput_at_size` | `Throughput@Size` = `(S · 22 / Ts) · 3600 · SF` | `environmental` |
 | `tpc-h.load_time_s` | data-load wall-clock | `environmental` |
-| `tpc-h.queries_passed` | ratio vs the pinned SF1 reference (Power stream; SF1 only) | `deterministic` |
 | `tpc-h.acid_atomicity` / `_consistency` / `_isolation` | `1.0` pass / `0.0` fail | `deterministic` |
+
+Official mode makes **no correctness claim**: the Power test's queries run
+AFTER RF1 has refreshed the data, so their results legitimately differ from the
+pristine-data references — comparing them would mislabel correct behavior as
+failure. Correctness (verified against the official answers) rides the
+`reference` mode.
 
 ACID Durability is reported as `n/a` (no crash/recovery harness on embedded
 DuckDB) and therefore omitted from the measurement set. ACID is an independent
@@ -102,6 +107,15 @@ pass/fail gate — it is **not** part of the `QphH@Size` composite.
 All carry `official=True` — a *provenance* flag ("emitted by the suite's
 recognized evaluator"), not an audit claim; drift is carried by
 `reproducibility_class`.
+
+## Correctness: verified official answers
+
+The pinned references for **SF 1, 0.1 and 0.01** were each **verified cell-by-cell
+against DuckDB's official `tpch_answers()` answer set at capture time** (all
+22 queries, numeric cells at the shared 2-dp rounding, order-insensitive rows) —
+`queries_passed` at those scale factors says so in its notes. Other scale
+factors carry no correctness claim until you capture a reference
+(`scripts/capture_tpch_reference.py --sf <sf>`); still not an audited TPC result.
 
 ## Price/performance (price/QphH)
 
