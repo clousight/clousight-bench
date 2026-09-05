@@ -117,16 +117,19 @@ class MmluSuite(BenchmarkSuite):
         )
 
     # ---------------------------------------------------------------------- run
-    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:  # noqa: ARG002
+    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:
         """Query the LLM endpoint per question; record answer + latency + tokens."""
         if target.mock or env.payload.get("mock"):
             return self.mock_artifacts(dict(env.payload))
         p = env.payload
+        spans: list[dict[str, Any]] = []
         answers: list[dict[str, Any]] = []
         prompt_tokens = completion_tokens = 0
         for q in p["questions"]:
             t = perf_counter()
             content, usage, _ = chat_once(
+                trace_id=getattr(driver, "trace_id", "") or "",
+                span_sink=spans,
                 endpoint=p["endpoint"],
                 model=p["model"],
                 api_key=p["api_key"],
@@ -155,7 +158,7 @@ class MmluSuite(BenchmarkSuite):
             "completion_tokens": completion_tokens,
         }
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-mmlu-art-"))
-        return write_artifacts(tmp_dir, answers, summary, rows_key="answers")
+        return write_artifacts(tmp_dir, answers, summary, rows_key="answers", spans=spans)
 
     # ----------------------------------------------------------------- teardown
     def teardown(self, env: EnvHandle) -> None:  # noqa: ARG002, B027

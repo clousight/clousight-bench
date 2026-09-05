@@ -1,0 +1,54 @@
+---
+title: 链路追踪（OpenTelemetry）
+description: 每次评测运行就是一条 OTel trace——harness 阶段 + 套件/SUT 活动——内置 waterfall 或任何 OTel 后端均可查看。
+---
+
+Clousight Bench 的追踪是 **OpenTelemetry 原生**的:经 OTel SDK 产生、用 OTel
+语义约定标注、可经 OTLP 导出。一次评测运行 = 一条 trace。
+
+<Note>
+Trace 是**证据,不是判定**:evaluator 不读它,基准指纹不含它,exporter 坏了也
+永远不会让运行失败。
+</Note>
+
+## 追踪覆盖
+
+| 来源 | Span | 语义约定 |
+|---|---|---|
+| Harness(每次运行) | 根 `csbench.run` + 每生命周期阶段一个 span(RESOLVE … PERSIST),精确 `stage_timings` | `csbench.*` |
+| TPC-H 官方模式 | Load → Power(RF1、Q1…Q22、RF2)→ Throughput(并发流、逐查询 span、刷新对)——由实测区间重建 | `csbench.phase`/`csbench.stream_id` + `db.*` |
+| LLM endpoint 套件(MMLU/GSM8K/HumanEval) | 每次 `/chat/completions` 调用一个 span:模型、token 用量、finish reason | `gen_ai.*`(GenAI 语义约定) |
+| SWE-bench agent | SUT agent 的 LLM/工具 span(schema v3;legacy v2 仍接受) | `gen_ai.*` |
+
+所有 span 共享该运行的 W3C `trace_id`(orchestrator 启动时预置),整次评测读作一棵树。
+
+## Trace 去哪
+
+1. **本地 JSONL**(始终):`<results>/traces/<trace_id>.jsonl` —— 扁平 OTel span
+   (hex id、纳秒时间、每行带 resource)。用 `csbench trace list` / `csbench trace show <run-id>` 查看。
+2. **套件轨迹 artifact**:运行 artifacts 里的 `trajectory.jsonl` —— `csbench serve`
+   渲染为 waterfall(TPC 逐查询泳道、LLM 逐调用 span)。
+3. **你的 collector**(可选):装 extra、指向 OTLP/HTTP ——
+
+```bash
+pip install "clousight-bench[otlp]"
+export CLOUSIGHT_OTLP_ENDPOINT="http://localhost:4318/v1/traces"
+csbench run …   # span 同时流向 Jaeger/Tempo/ARMS/X-Ray(经你的 collector)
+```
+
+第三方 exporter 注册在 `clousight_bench.span_exporters` 入口点——契约就是 OTel SDK
+的 `SpanExporter`,生态里任何 exporter 原样即插即用。
+
+## 上下文传播(traceparent)
+
+LLM-endpoint 调用携带 W3C `traceparent` 头。若被测服务自身有 OTel 装配(多数托管
+网关都有),**你的 APM 会看到这条 trace 延续进服务内部**——评测过程与 SUT 内部视图
+连成一条分布式链路,以记录中 `extensions.core.trace_id` 的同一 trace id 关联。
+
+## 诚实边界
+
+- BenchBase(TPC-C)和 YCSB 是 Java 子进程:只有外层阶段 span,无内部 span。
+- TPC 官方 span 由实测区间**重建**(并发模型已知:阶段串行、流内查询背靠背)——
+  计时忠实,但不是活体插桩。
+- 已部署的 agent-bundle 协议仍产 legacy v2 span;viewer 双读,新 span 源一律 v3
+  (OTel 原生)。

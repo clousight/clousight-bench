@@ -100,7 +100,7 @@ def _reset(monkeypatch):
     _Task.execute_raises = False
     _Task.score_raises = False
     monkeypatch.setattr(orch, "get_domain", lambda name: _Domain())
-    monkeypatch.setattr(orch, "_resolve_benchmark", lambda spec, results_dir: _Task())
+    monkeypatch.setattr(orch, "_resolve_benchmark", lambda spec, results_dir, trace_id="": _Task())
     monkeypatch.setattr(fin, "load_enrichers", list)
 
 

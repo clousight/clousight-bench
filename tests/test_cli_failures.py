@@ -163,7 +163,7 @@ def test_stdout_verifies_even_when_the_series_moved_to_parquet(tmp_path, capsys)
     original = orch.get_domain
     original_resolve = orch._resolve_benchmark
     orch.get_domain = lambda name: _Domain()
-    orch._resolve_benchmark = lambda spec, results_dir: _Task()
+    orch._resolve_benchmark = lambda spec, results_dir, trace_id="": _Task()
     try:
         rc = main(
             [

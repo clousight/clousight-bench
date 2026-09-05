@@ -1,0 +1,63 @@
+---
+title: Tracing (OpenTelemetry)
+description: Every evaluation run is one OTel trace — harness stages plus suite/SUT activity — viewable in the built-in waterfall or any OTel backend.
+---
+
+Clousight Bench traces are **OpenTelemetry-native**: produced through the OTel
+SDK, attributed with OTel semantic conventions, and exportable over OTLP. One
+evaluation run = one trace.
+
+<Note>
+Traces are **evidence, never verdicts**: evaluators do not read them, benchmark
+fingerprints exclude them, and a broken exporter can never fail a run.
+</Note>
+
+## What gets traced
+
+| Source | Spans | Semconv vocabulary |
+|---|---|---|
+| Harness (every run) | root `csbench.run` + one span per lifecycle stage (RESOLVE … PERSIST), exact `stage_timings` | `csbench.*` |
+| TPC-H official mode | Load → Power (RF1, Q1…Q22, RF2) → Throughput (concurrent streams, per-query spans, refresh pairs) → reconstructed from the measured intervals | `csbench.phase`/`csbench.stream_id` + `db.*` |
+| LLM endpoint suites (MMLU/GSM8K/HumanEval) | one span per `/chat/completions` call: model, token usage, finish reason | `gen_ai.*` (GenAI semconv) |
+| SWE-bench agents | LLM/tool spans from the SUT agent (schema v3; legacy v2 still accepted) | `gen_ai.*` |
+
+All spans share the run's W3C `trace_id` (preset at orchestrator start), so the
+whole evaluation reads as one tree.
+
+## Where traces go
+
+1. **Local JSONL** (always): `<results>/traces/<trace_id>.jsonl` — flat OTel
+   spans (hex ids, nanosecond times, resource per line). Inspect with
+   `csbench trace list` / `csbench trace show <run-id>`.
+2. **Suite trajectory artifact**: `trajectory.jsonl` in the run's artifacts —
+   rendered as a waterfall by `csbench serve` (per-query TPC lanes, per-call
+   LLM spans).
+3. **Your collector** (optional): install the extra and point at OTLP/HTTP —
+
+```bash
+pip install "clousight-bench[otlp]"
+export CLOUSIGHT_OTLP_ENDPOINT="http://localhost:4318/v1/traces"
+csbench run …   # spans also stream to Jaeger/Tempo/ARMS/X-Ray via your collector
+```
+
+Third-party exporters register under the `clousight_bench.span_exporters` entry
+point — the contract is the OTel SDK's `SpanExporter`, so any ecosystem exporter
+plugs in unmodified.
+
+## Context propagation (traceparent)
+
+LLM-endpoint calls carry a W3C `traceparent` header. If the service you evaluate
+is itself OTel-instrumented (most managed gateways are), **your APM shows the
+run's trace continuing inside your service** — the eval process and the SUT's
+internal view join into one distributed trace, correlated by the same trace id
+the record stores under `extensions.core.trace_id`.
+
+## Honest boundaries
+
+- BenchBase (TPC-C) and YCSB run as Java subprocesses: they get an enclosing
+  phase span, not internal spans.
+- TPC official spans are **reconstructed** from the measured intervals (the
+  concurrency model is known: sequential phases, back-to-back queries per
+  stream) — faithful timing, not live instrumentation.
+- The deployed agent-bundle protocol still emits legacy v2 spans; the viewer
+  renders both, new span sources must emit v3 (OTel-native).

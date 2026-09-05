@@ -55,6 +55,7 @@ from clousight_bench.suites._tpc_official.streams import (
     official_min_streams,
     resolve_orders,
 )
+from clousight_bench.suites._tpc_official.trace import build_official_spans
 
 _QUERY_ORDER_SOURCES = ("official", "generated")
 
@@ -79,13 +80,23 @@ def run_query_set(con: Any, query_ids: list[int]) -> list[dict[str, Any]]:
     return _run_query_set(con, query_ids, extension="tpch")
 
 
-def _write_official(tmp_dir: Path, doc: dict[str, Any]) -> RawArtifacts:
-    """Write official.json into *tmp_dir* and build the manifest."""
+def _write_official(
+    tmp_dir: Path, doc: dict[str, Any], spans: list[dict[str, Any]] | None = None
+) -> RawArtifacts:
+    """Write official.json (+ the reconstructed trajectory) and build the manifest."""
     o_path = tmp_dir / "official.json"
     o_path.write_text(json.dumps(doc), encoding="utf-8")
-    manifest = {
+    manifest: dict[str, dict[str, Any]] = {
         "official": {"path": "official.json", "sha256": sha256_bytes(o_path.read_bytes()), "rows": None}
     }
+    if spans:
+        t_path = tmp_dir / "trajectory.jsonl"
+        t_path.write_text("".join(json.dumps(s) + "\n" for s in spans), encoding="utf-8")
+        manifest["trajectory"] = {
+            "path": "trajectory.jsonl",
+            "sha256": sha256_bytes(t_path.read_bytes()),
+            "rows": len(spans),
+        }
     return RawArtifacts(dir=tmp_dir, manifest=manifest)
 
 
@@ -211,10 +222,13 @@ class TpchSuite(DuckDbTpcSuite):
             power_order, throughput_orders = resolve_orders(table, num_streams=streams)
             ordering_source = "official-appendix-a"
 
+        from time import time_ns  # noqa: PLC0415
+
         con = _connect_loaded(duckdb, db_path)
         ext_version = con.execute(
             "SELECT extension_version FROM duckdb_extensions() WHERE extension_name='tpch'"
         ).fetchone()
+        anchor_ns = time_ns()
         try:
             doc = phases.run_official(
                 con=con,
@@ -237,8 +251,14 @@ class TpchSuite(DuckDbTpcSuite):
         finally:
             con.close()
 
+        from clousight_bench.core.tracing import new_trace_id  # noqa: PLC0415
+
+        trace_id = getattr(driver, "trace_id", "") or new_trace_id()
+        spans = build_official_spans(
+            doc, trace_id=trace_id, anchor_ns=anchor_ns, suite_id=self.suite_id, engine="duckdb"
+        )
         art_dir = Path(tempfile.mkdtemp(prefix=f"csbench-{self.slug}-official-art-"))
-        return _write_official(art_dir, doc)
+        return _write_official(art_dir, doc, spans)
 
     # ------------------------------------------------------------ mock artifacts
     def mock_artifacts(self, cfg: dict[str, Any]) -> RawArtifacts:
@@ -251,4 +271,9 @@ class TpchSuite(DuckDbTpcSuite):
         """Copy the bundled official-mode mock fixture — no duckdb, no network."""
         art_dir = Path(tempfile.mkdtemp(prefix=f"csbench-{self.slug}-official-mock-"))
         doc = json.loads((_FIXTURES_DIR / "mock" / "official.json").read_text())
-        return _write_official(art_dir, doc)
+        spans = [
+            json.loads(line)
+            for line in (_FIXTURES_DIR / "mock" / "official_trajectory.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        return _write_official(art_dir, doc, spans)

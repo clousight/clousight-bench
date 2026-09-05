@@ -58,6 +58,9 @@ class Target:
 @dataclass
 class DriverContext:
     placement: str
+    # The run's W3C trace id (32 hex chars) — threaded from the orchestrator so a
+    # suite's trajectory spans share the run trace. Empty when not traced.
+    trace_id: str = ""
 
     def __post_init__(self) -> None:
         if self.placement not in PLACEMENTS:

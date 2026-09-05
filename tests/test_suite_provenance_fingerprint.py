@@ -195,7 +195,9 @@ def test_orchestrator_provenance_crash_recorded(monkeypatch, tmp_path):
 
     monkeypatch.setattr("clousight_bench.core.store.STORE_AVAILABLE", False)
     monkeypatch.setattr(orch, "get_domain", lambda name: _CrashDomain())
-    monkeypatch.setattr(orch, "_resolve_benchmark", lambda spec, results_dir: _CrashProvenanceRunner())
+    monkeypatch.setattr(
+        orch, "_resolve_benchmark", lambda spec, results_dir, trace_id="": _CrashProvenanceRunner()
+    )
 
     rec = orch.execute(
         RunSpec("crash-provenance-domain", "suite:crash-provenance", "fake"),

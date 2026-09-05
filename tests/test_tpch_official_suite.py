@@ -131,5 +131,26 @@ def test_official_real_duckdb_artifact_shape(tmp_path) -> None:
         assert doc["throughput"]["elapsed_s"] > 0
         assert doc["acid"]["durability"] == "n/a"
         assert doc["scale_factor"] == 0.01
+        # the official run reconstructs its trace: a v3 trajectory artifact
+        from clousight_bench.core.sut_span import validate_span
+
+        assert "trajectory" in raw.manifest
+        for line in raw.path("trajectory").read_text().splitlines():
+            if line.strip():
+                validate_span(json.loads(line))
     finally:
         suite.teardown(env)
+
+
+def test_official_mock_ships_a_v3_trajectory() -> None:
+    from clousight_bench.core.sut_span import validate_span
+
+    raw = TpchSuite().mock_official_artifacts()
+    assert "trajectory" in raw.manifest
+    lines = raw.path("trajectory").read_text().splitlines()
+    spans = [json.loads(line) for line in lines if line.strip()]
+    for span in spans:
+        validate_span(span)
+    names = {s["name"] for s in spans}
+    assert "tpc-h.official" in names and "tpc-h.power" in names
+    assert any(n.startswith("tpc-h.stream") for n in names)
