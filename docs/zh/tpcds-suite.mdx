@@ -72,3 +72,30 @@ csbench run --domain data-warehouse --benchmark tpc-h \
 `tpc-h.total_runtime_ms`。真实路径需 `[tpch]` extra。与 TPC-DS 不同，DuckDB 自带
 可用的 `tpch_answers()` SF1 答案；捕获脚本会informational地对照参考，完全对齐其
 文本格式以升级为"验证答案"正确性是后续工作。
+
+## 官方模式（QphDS@SF）
+
+`params.mode: official` 运行 TPC-DS 官方序列——Load → Power(99 查询单流)→
+Throughput Test 1 → Data Maintenance 1 → Throughput Test 2 → Data Maintenance 2 →
+ACID 门——由 `official-tpcds-qphds-evaluator` 计算官方复合分:
+
+```
+QphDS@SF = ⌊ SF · Q / ⁴√(T_PT · T_TT · T_DM · T_LD) ⌋
+```
+
+```bash
+printf 'target:\n  mode: runtime\nparams:\n  mode: official\n  scale_factor: 1\n  evaluator: official-tpcds-qphds-evaluator\n' > ds-official.yaml
+csbench run --domain data-warehouse --benchmark tpc-ds --platform duckdb-local --config ds-official.yaml
+```
+
+`params.streams` 默认取官方最小值(4)。运行同时产出 OTel 原生 trace
+(`trajectory.jsonl`)——viewer waterfall 展示 Power 查询、两轮吞吐测试的并发流泳道
+与 DM 窗口。
+
+<Note>
+**Unaudited,替代项如实声明**:DuckDB 的 `tpcds` 扩展没有 LF_* 维护函数,数据维护
+为 clousight 生成的 `store_sales` 插入+删除往返;未内置官方排列表,查询排序始终是
+确定性的 clousight `generated` 排序(记入 `ordering_source` 并折入 dataset digest);
+ACID 通用探针只测原子性/隔离性——一致性与持久性为 `n/a`。每个复合分的 `notes` 都带
+这些声明。
+</Note>

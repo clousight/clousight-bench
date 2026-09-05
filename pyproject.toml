@@ -140,6 +140,7 @@ official-tpcc-evaluator = "clousight_bench.suites.tpc_c.evaluator:OfficialTpccEv
 official-mmlu-evaluator = "clousight_bench.suites.mmlu.evaluator:OfficialMmluEvaluator"
 official-gsm8k-evaluator = "clousight_bench.suites.gsm8k.evaluator:OfficialGsm8kEvaluator"
 official-tpcds-evaluator = "clousight_bench.suites.tpc_ds.evaluator:OfficialTpcdsEvaluator"
+official-tpcds-qphds-evaluator = "clousight_bench.suites.tpc_ds.official_evaluator:OfficialTpcdsQphdsEvaluator"
 official-humaneval-evaluator = "clousight_bench.suites.human_eval.evaluator:OfficialHumanEvalEvaluator"
 
 [project.entry-points."clousight_bench.metrics"]

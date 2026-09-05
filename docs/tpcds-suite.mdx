@@ -82,3 +82,33 @@ Measurements are `tpc-h.queries_passed` / `tpc-h.geomean_latency_ms` /
 TPC-DS, DuckDB ships usable `tpch_answers()` SF1 answers; the capture script
 cross-checks the reference against them informationally, and reconciling their
 exact text format is a future upgrade to verified-answer correctness.
+
+## Official mode (QphDS@SF)
+
+`params.mode: official` runs the TPC-DS official sequence — Load → Power (99
+queries, single stream) → Throughput Test 1 → Data Maintenance 1 → Throughput
+Test 2 → Data Maintenance 2 → ACID gate — and the
+`official-tpcds-qphds-evaluator` computes the official composite:
+
+```
+QphDS@SF = ⌊ SF · Q / ⁴√(T_PT · T_TT · T_DM · T_LD) ⌋
+```
+
+```bash
+printf 'target:\n  mode: runtime\nparams:\n  mode: official\n  scale_factor: 1\n  evaluator: official-tpcds-qphds-evaluator\n' > ds-official.yaml
+csbench run --domain data-warehouse --benchmark tpc-ds --platform duckdb-local --config ds-official.yaml
+```
+
+`params.streams` defaults to the official minimum (4). The run also emits its
+OTel-native trace (`trajectory.jsonl`) — the viewer waterfall shows the power
+queries, the concurrent throughput lanes of both tests, and the DM windows.
+
+<Note>
+**Unaudited, with honestly-declared substitutions**: DuckDB's `tpcds` extension
+has no LF_* maintenance functions, so data maintenance is a clousight-generated
+insert+delete round-trip on `store_sales`; no official permutation table is
+bundled, so the query ordering is always the deterministic clousight `generated`
+one (recorded as `ordering_source` and folded into the dataset digest); ACID
+probes atomicity/isolation generically — consistency and durability are `n/a`.
+Every composite carries these caveats in its `notes`.
+</Note>

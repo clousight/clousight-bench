@@ -59,3 +59,35 @@ def throughput_at_size(
 def qphh_at_size(power: float, throughput: float) -> float:
     """QphH@Size — the geometric mean of Power@Size and Throughput@Size."""
     return math.sqrt(float(power) * float(throughput))
+
+
+def qphds_at_size(
+    *,
+    scale_factor: float,
+    num_streams: int,
+    num_queries: int,
+    t_power_s: float,
+    t_tt1_s: float,
+    t_tt2_s: float,
+    t_dm1_s: float,
+    t_dm2_s: float,
+    t_load_s: float,
+) -> float:
+    """QphDS@SF — the official TPC-DS composite (spec clause 7.6.3), floored.
+
+    ``QphDS@SF = floor( SF * Q / (T_PT * T_TT * T_DM * T_LD) ** 0.25 )`` with all
+    components in hours: ``Q = S * num_queries``, ``T_PT = T_Power * S``,
+    ``T_TT = TT1 + TT2``, ``T_DM = DM1 + DM2``, ``T_LD = 0.01 * S * T_Load``.
+    Every input is wall-clock seconds; each component must be strictly positive.
+    """
+    s = int(num_streams)
+    hours = 3600.0
+    t_pt = (float(t_power_s) / hours) * s
+    t_tt = (float(t_tt1_s) + float(t_tt2_s)) / hours
+    t_dm = (float(t_dm1_s) + float(t_dm2_s)) / hours
+    t_ld = 0.01 * s * (float(t_load_s) / hours)
+    for label, v in (("T_PT", t_pt), ("T_TT", t_tt), ("T_DM", t_dm), ("T_LD", t_ld)):
+        if v <= 0.0:
+            raise ValueError(f"QphDS component {label} must be strictly positive, got {v!r}")
+    q = s * int(num_queries)
+    return float(math.floor(float(scale_factor) * q / (t_pt * t_tt * t_dm * t_ld) ** 0.25))
