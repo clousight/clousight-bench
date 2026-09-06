@@ -25,7 +25,7 @@ import { fmtClock } from "@/lib/format";
 import { suiteLabel } from "@/lib/headline";
 import { useProgressStream } from "@/lib/progressStream";
 import { useNow } from "@/lib/ticker";
-import { liveHref, recordHref } from "@/router";
+import { boardHref, recordHref } from "@/router";
 
 /** The elapsed clock ticks once a second; anything faster is just churn. */
 const TICK_MS = 1000;
@@ -48,11 +48,14 @@ export function LiveRunView({ runId }: { runId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {/* Back to the board, not to the console: with a single run in flight
+            the console forwards straight back here, so "back" would loop. The
+            nav's Live entry still reaches the console when there are several. */}
         <a
-          href={liveHref}
+          href={boardHref}
           className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         >
-          ← {t("live.console")}
+          ← {t("board.title")}
         </a>
         <h1 className="flex items-baseline gap-2 text-lg font-semibold tracking-tight">
           {suiteLabel(state.suite_id)}
