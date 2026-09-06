@@ -90,6 +90,17 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
   verdicts / cloud dimensions / provenance). Stale `bigdata-emr` mention removed from
   the wordcount workload manifest (the dead domain itself was never registered).
 
+### Changed
+
+- **langchain 1.x migration** (`[agent]` extra): `lc_agent.py` rewritten from the
+  removed `AgentExecutor`/`create_tool_calling_agent` API to LangChain 1.x
+  `create_agent` (langgraph-based loop). The pinned 5xx retry contract
+  (max_retries=2, backoff 200ms, no retry on 4xx/599) is unchanged and covered
+  by the same drift-guard tests; OpenInference still yields CHAIN/LLM/TOOL spans
+  in one trace. Drops the vulnerable `langchain-core 0.3.x` line
+  (GHSA-qh6h-p6c9-ff54) and removes its `allow-ghsas` exception from
+  dependency review.
+
 ### Added
 
 - **Reliability dimension (R5)**: (a) reliability evidence extracted from what

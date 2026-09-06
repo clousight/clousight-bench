@@ -120,3 +120,30 @@ def test_agent_retries_then_succeeds(monkeypatch):
         }
     )
     assert calls["n"] == 2
+
+
+def test_openinference_spans_shape_on_langchain_1x(monkeypatch):
+    """The in-band _spans contract must survive the langgraph migration: OI
+    setup failures are swallowed (fail-safe), so only a test pins the shape."""
+    pytest.importorskip("openinference.instrumentation.langchain")
+    monkeypatch.setattr(lc_agent.time, "sleep", lambda s: None)
+
+    def fake_run(self, **kwargs):
+        return '{"_tool_http_status": 500, "error": "boom"}'
+
+    monkeypatch.setattr(lc_agent.MockServerTool, "_run", fake_run)
+    out = lc_agent.run(
+        {
+            "tool": {"target": "prices", "method": "GET"},
+            "mock_base_url": "http://x",
+            "mock_token": "",
+        }
+    )
+    spans = out.get("_spans", [])
+    assert spans, "OpenInference produced no spans — instrumentation silently broken"
+    for s in spans:
+        assert set(s) == {"trace_id", "span_id", "parent_span_id", "name", "kind", "attributes"}
+    assert {"CHAIN", "LLM", "TOOL"} <= {s["kind"] for s in spans}
+    assert len({s["trace_id"] for s in spans}) == 1
+    # persistent 5xx → the pinned budget: exactly 3 TOOL spans (1 + 2 retries)
+    assert sum(1 for s in spans if s["kind"] == "TOOL") == 3

@@ -35,9 +35,9 @@ _PROTOCOL_PKG = "clousight_bench.domains.agent_runtime"
 # Installed via `pip install --target vendor/` at build time.
 # Excluded from git (.gitignore) — regenerated on each build.
 _LC_DEPS = [
-    "langchain==0.3.*",  # AgentExecutor + create_tool_calling_agent
-    "langchain-core==0.3.*",  # BaseChatModel, BaseTool, LCEL
-    "openinference-instrumentation-langchain",
+    "langchain>=1,<2",  # create_agent (langgraph-based loop)
+    "langchain-core>=1.2.22,<2",  # BaseChatModel, BaseTool, LCEL
+    "openinference-instrumentation-langchain>=0.1.71",
     "opentelemetry-api",
     "opentelemetry-sdk",
     "opentelemetry-exporter-otlp-proto-http",
