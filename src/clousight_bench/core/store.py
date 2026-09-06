@@ -400,7 +400,7 @@ class ResultStore:
             con.read_parquet(paths).create_view("series")
             cur = con.execute(sql or "SELECT * FROM series")
             cols = [d[0] for d in cur.description]
-            return [dict(zip(cols, row)) for row in cur.fetchall()]
+            return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
         finally:
             con.close()
 
@@ -459,7 +459,7 @@ def _isolate_or_remove_sidecar(path: Path) -> None:
     except OSError as exc:
         # query_series only reads sidecars referenced by a digest-valid record,
         # so even a file that cannot be renamed remains invisible.
-        logger.error("could not quarantine orphan sidecar %s: %s", path, exc)
+        logger.warning("could not quarantine orphan sidecar %s: %s", path, exc)
 
 
 def _emergency_write_unique(name: str, text: str) -> Path:

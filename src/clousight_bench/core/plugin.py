@@ -38,7 +38,7 @@ from clousight_bench.core.schema import ResultRecord
 AdapterStatus = Literal["reference", "experimental", "wired", "skeleton"]
 
 
-class ProviderAdapter(ABC):
+class ProviderAdapter(ABC):  # noqa: B024 - every hook is optional; ABC means "subclass me"
     """Connects the framework to one system under test.
 
     Lifecycle: the orchestrator calls setup() once before the task and

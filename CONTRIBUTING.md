@@ -23,6 +23,9 @@ checks pass:
 |---|---|
 | `test (3.10)` … `test (3.13)` | `ruff check src tests`, `pytest -q`, and the no-cloud local smoke |
 | `wheel-smoke` | builds a wheel, installs it into a clean virtualenv, and runs `csbench` **outside** the checkout |
+| `analyze` | CodeQL static analysis (see [Static analysis](#static-analysis)) |
+| `viewer-dist` | rebuilds `web/` and asserts the committed viewer bundle is byte-identical |
+| `review` | dependency review — blocks a PR that introduces a high-severity advisory |
 
 No approving review is required, but the branch must be up to date with `main`
 before merging. Force pushes to `main` and deleting `main` are blocked for
@@ -87,6 +90,36 @@ same `ruff` (pinned in `[dev]`) and `mypy` that CI runs, so a green
 
 CI runs lint · test · local baseline smoke on Python 3.10 / 3.11 / 3.12 / 3.13,
 plus an installed-wheel smoke in an isolated Python 3.12 environment.
+
+## Static analysis
+
+Two tools, one job each, deliberately non-overlapping:
+
+- **ruff** (`[tool.ruff.lint]` in `pyproject.toml`) is the *fast* gate. Beyond
+  style it selects a security set — `S`/`B`/`G`/`LOG`/`SIM105`/`SIM115`/`ISC` —
+  so the defect classes CodeQL reports days later on `main` fail at
+  `git commit` instead. The `select` list carries a comment per rule, and a
+  second list records the rules we deliberately do *not* select and why; extend
+  either rather than sprinkling `# noqa`.
+- **CodeQL** (`.github/workflows/codeql.yml`) is the *deep* gate: taint
+  tracking ruff cannot do. Its scope lives in
+  `.github/codeql/codeql-config.yml`, which runs `security-and-quality` minus a
+  short, individually-justified list of style queries whose every hit here is
+  correct-by-design. **The open-alert count is expected to be zero.** If a new
+  alert is a genuine false positive, add it to that config with a reason in the
+  same PR — do not dismiss it in the GitHub UI, where the reasoning is invisible
+  to the next reader.
+
+### Never log an untrusted value directly
+
+Anything that crossed a network or user boundary — an HTTP path, a header, a
+filename, a run_id from a URL — goes through
+`clousight_bench.core.logsafe.sanitize_for_log` before it reaches a `logger.*`
+call. A bare newline in such a value forges a whole log entry (CWE-117); the
+helper escapes control characters and caps the length. This is the fix CodeQL's
+`py/log-injection` asks for, and the reason `G`/`LOG` are selected in ruff:
+keeping log arguments as `%s` arguments (never f-strings) is what lets the
+sanitizer sit in one place.
 
 ### Live tests
 

@@ -212,7 +212,7 @@ class Analytics:
                 con.execute(f"CREATE VIEW {view} AS SELECT * FROM _{view}")
             cur = con.execute(sql)
             cols = [d[0] for d in cur.description]
-            return [dict(zip(cols, row)) for row in cur.fetchall()]
+            return [dict(zip(cols, row, strict=True)) for row in cur.fetchall()]
         finally:
             con.close()
 

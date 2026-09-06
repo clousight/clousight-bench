@@ -70,7 +70,7 @@ def test_unknown_job_returns_404():
     try:
         try:
             _get(base, "/job/job-nope")
-            assert False, "expected HTTP 404"
+            raise AssertionError("expected HTTP 404")
         except urllib.error.HTTPError as e:
             assert e.code == 404
     finally:

@@ -65,6 +65,6 @@ def test_rollup_mixed_series_grouped_independently(tmp_path):
     out = rollup(run_dir, bucket_s=1)
     table = pq.read_table(out).to_pydict()
     assert set(table["series"]) == {"latency_ms", "cost_usd"}
-    pairs = list(zip(table["series"], table["bucket"]))
+    pairs = list(zip(table["series"], table["bucket"], strict=True))
     assert ("latency_ms", 0) in pairs
     assert ("cost_usd", 0) in pairs and ("cost_usd", 1) in pairs

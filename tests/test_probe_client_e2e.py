@@ -63,7 +63,7 @@ def test_client_raises_on_failed_job():
         spec = JobSpec(probe="boom", params={}, target_endpoint="http://127.0.0.1:9999")
         try:
             client.run_job(spec)
-            assert False, "expected ProbeJobFailed"
+            raise AssertionError("expected ProbeJobFailed")
         except ProbeJobFailed as e:
             assert "kaboom" in str(e)
     finally:
