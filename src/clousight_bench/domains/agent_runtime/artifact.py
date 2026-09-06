@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import importlib.resources as resources
 import io
+import logging
 import uuid
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _BUNDLE = "clousight_bench.domains.agent_runtime.agent_bundle"
 # Agent source files included at the zip root (flat, importable as siblings in FC)
@@ -113,7 +116,8 @@ def build_agent_zip_bytes(with_langchain: bool = True) -> bytes:
                 source = resources.files(_BUNDLE).joinpath(name).read_text(encoding="utf-8")
                 zf.writestr(name, source)
             except FileNotFoundError:
-                pass  # optional files (lc_agent.py may not exist in older builds)
+                # Optional file (lc_agent.py may not exist in older builds).
+                logger.debug("agent bundle: optional source %s not present; skipping", name)
 
         # Shared protocol contract, sourced from the open core (packed at root).
         proto = resources.files(_PROTOCOL_PKG).joinpath("protocol.py").read_text(encoding="utf-8")

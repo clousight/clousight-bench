@@ -212,6 +212,13 @@ select = [
 #   S310  - urlopen is SSRF-guarded in core/sandbox.py and the doctor probes.
 #   S608  - the TPC-H/DS suites build SQL from a pinned, in-repo query set.
 
+[tool.ruff.lint.flake8-bandit]
+# Default false makes S110/S112 fire only on a broad `except Exception`, which
+# is precisely backwards: the five py/empty-except alerts that survived the
+# 2026-09-06 triage all caught *typed* exceptions, so the fast gate could not
+# see the very cases CodeQL still reports. Flag every silent handler.
+check-typed-exception = true
+
 [tool.ruff.lint.per-file-ignores]
 # Tests legitimately use local (mid-file) imports for isolation and lambda
 # fakes/factories; those are noise there, not a code-quality signal.

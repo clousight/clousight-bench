@@ -60,7 +60,11 @@ def _start_agent(mock_base: str, token: str) -> tuple[ThreadingHTTPServer, str]:
             body = json.loads(raw)
             payload = json.loads(body["messages"][0]["content"])
             corr = payload.get("_correlation_id") or ""
-            m_base = payload.get("mock_base_url") or mock_base
+            # The closure, NOT payload["mock_base_url"] -- same reason as the
+            # fake agent in test_probe_fault_and_storm.py: a handler that fetches
+            # a URL taken from its own request body is a request-forgery gadget,
+            # and the spec below sends this exact value anyway.
+            m_base = mock_base
             m_token = payload.get("mock_token") or token
 
             # Simulate 3 attempts — the mock will 500 on the first, then succeed.
