@@ -455,7 +455,7 @@ def create_server(results_dir: Path, host: str = "127.0.0.1", port: int = 0) -> 
                 # request whose meaning depends on bytes we never looked at.
                 self._send_json(400, {"error": "cancel takes no request body"}, False)
                 return
-            if progress.progress_dir(results_dir, run_id) is None:
+            if not progress.valid_run_id(run_id):
                 # Not a plain token: rejected before it can name anything on disk.
                 logger.warning("viewer: cancel rejected for malformed run_id %s", sanitize_for_log(run_id))
                 self._send_json(404, {"error": "unknown run_id"}, False)

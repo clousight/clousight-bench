@@ -92,29 +92,53 @@ def progress_root(results_dir: Path) -> Path:
     return Path(results_dir) / PROGRESS_DIRNAME
 
 
-def progress_dir(results_dir: Path, run_id: str) -> Path | None:
-    """This run's progress directory, or None when ``run_id`` cannot name one.
+def valid_run_id(run_id: str) -> bool:
+    """Whether ``run_id`` is a token that could name a progress directory.
 
-    ``run_id`` reaches here straight off an HTTP path (the viewer's progress and
-    cancel routes), so this is the containment boundary for the whole plane.
+    A pure check that builds no path — the viewer uses it to tell a malformed
+    id apart from a well-formed one that names nothing.
 
-    The token pattern alone is not enough: ``".."`` matches ``[A-Za-z0-9._-]+``
-    perfectly well, and ``<results>/.progress/..`` is ``<results>`` — which
-    would have let a cancel request create ``<results>/cancel`` and a stream
-    read ``<results>/stream.jsonl``. So the relative segments are rejected by
-    name, and the result is then resolved and required to stay under the
-    progress root, belt and braces.
+    ``"."`` and ``".."`` are excluded explicitly: both match the token pattern
+    perfectly well, and ``<results>/.progress/..`` is ``<results>``.
     """
-    if not _RUN_ID_RE.match(run_id) or run_id in (".", ".."):
+    return bool(_RUN_ID_RE.match(run_id)) and run_id not in (".", "..")
+
+
+def progress_dir(results_dir: Path, run_id: str) -> Path | None:
+    """Where a run's progress directory goes. **Writer side only.**
+
+    ``run_id`` here is always one the orchestrator just minted with
+    ``new_run_id()``, never anything that crossed a network boundary. Readers
+    must use :func:`locate_progress_dir` instead, which does not join a caller's
+    string into a path at all.
+    """
+    if not valid_run_id(run_id):
+        return None
+    return progress_root(results_dir) / run_id
+
+
+def locate_progress_dir(results_dir: Path, run_id: str) -> Path | None:
+    """An **existing** progress directory, looked up by name. Reader side.
+
+    Every reader below is reachable from an HTTP path, so none of them joins the
+    caller's string into a filesystem path. The returned path comes out of
+    ``iterdir()`` instead: a name the filesystem handed us cannot traverse
+    anywhere by construction, which is the same reason ``load_record`` in the
+    viewer walks and matches rather than joining.
+    """
+    if not valid_run_id(run_id):
         return None
     root = progress_root(results_dir)
-    candidate = root / run_id
-    try:
-        if not candidate.resolve().is_relative_to(root.resolve()):
-            return None
-    except OSError:  # unresolvable path (broken symlink, permissions)
+    if not root.is_dir():
         return None
-    return candidate
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        if entry.name == run_id and entry.is_dir():
+            return entry
+    return None
 
 
 class ProgressReporter(Protocol):
@@ -576,7 +600,7 @@ def read_state(results_dir: Path, run_id: str) -> dict[str, Any] | None:
     Applies the same liveness check as :func:`list_active`: a snapshot still
     claiming to run while its process is gone is reported as ``abandoned``.
     """
-    directory = progress_dir(results_dir, run_id)
+    directory = locate_progress_dir(results_dir, run_id)
     if directory is None:
         return None
     state = _read_state_file(directory / STATE_FILE)
@@ -674,7 +698,7 @@ def _count_dirs(results_dir: Path) -> int:
 
 def read_events(results_dir: Path, run_id: str, *, since_seq: int = 0) -> list[dict[str, Any]]:
     """Stream events with ``seq > since_seq``. Tolerates a partially-written tail."""
-    directory = progress_dir(results_dir, run_id)
+    directory = locate_progress_dir(results_dir, run_id)
     if directory is None:
         return []
     try:
@@ -699,8 +723,8 @@ def read_events(results_dir: Path, run_id: str, *, since_seq: int = 0) -> list[d
 def request_cancel(results_dir: Path, run_id: str) -> bool:
     """Create the cancel marker for a running run. False when there is nothing
     to cancel (unknown run_id, no progress directory, already terminal)."""
-    directory = progress_dir(results_dir, run_id)
-    if directory is None or not directory.is_dir():
+    directory = locate_progress_dir(results_dir, run_id)
+    if directory is None:
         return False
     state = _read_state_file(directory / STATE_FILE)
     if state is None or state.get("status") in TERMINAL_STATUSES:

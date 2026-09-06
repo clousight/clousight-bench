@@ -25,23 +25,56 @@ def test_a_record_outside_the_results_dir_is_named_but_not_located(tmp_path: Pat
 
 
 def test_a_traversal_run_id_cannot_name_a_progress_directory(tmp_path: Path) -> None:
-    """``run_id`` arrives off an HTTP path, so progress_dir is the containment
-    boundary for the whole plane.
+    """``run_id`` arrives off an HTTP path on the progress and cancel routes.
 
     The token pattern alone is not enough: ".." matches ``[A-Za-z0-9._-]+``, and
     ``<results>/.progress/..`` is ``<results>`` — which would have let a cancel
     request create ``<results>/cancel`` and a stream read
     ``<results>/stream.jsonl``.
     """
-    from clousight_bench.core.progress import progress_dir, progress_root, request_cancel
+    from clousight_bench.core.progress import (
+        locate_progress_dir,
+        progress_dir,
+        progress_root,
+        request_cancel,
+        valid_run_id,
+    )
 
     for hostile in ("..", ".", "../..", "..%2F..", "a/b", "/etc/passwd", "", "a b"):
+        assert not valid_run_id(hostile), hostile
         assert progress_dir(tmp_path, hostile) is None, hostile
+        assert locate_progress_dir(tmp_path, hostile) is None, hostile
 
+    assert valid_run_id("run-20260907-000000-abcdef")
     ok = progress_dir(tmp_path, "run-20260907-000000-abcdef")
     assert ok is not None
     assert ok.parent == progress_root(tmp_path)
 
-    # And the one write the viewer can make refuses the same inputs.
+    # The one write the viewer can make refuses the same inputs, and refuses a
+    # well-formed id that names nothing.
     assert request_cancel(tmp_path, "..") is False
+    assert request_cancel(tmp_path, "run-does-not-exist") is False
     assert not (tmp_path / "cancel").exists()
+
+
+def test_a_reader_never_joins_the_callers_string_into_a_path(tmp_path: Path) -> None:
+    """The reader-side lookup returns a path the filesystem produced.
+
+    Joining a caller's string and then checking the result is a pattern that has
+    to be got exactly right every time; listing and matching cannot traverse at
+    all, which is why load_record in the viewer works the same way.
+    """
+    from clousight_bench.core.progress import locate_progress_dir, progress_root
+
+    root = progress_root(tmp_path)
+    (root / "run-real").mkdir(parents=True)
+    (root / "not-a-dir").parent.mkdir(parents=True, exist_ok=True)
+    (root / "not-a-dir").write_text("", encoding="utf-8")
+
+    found = locate_progress_dir(tmp_path, "run-real")
+    assert found is not None
+    assert found.name == "run-real"
+    assert found.parent == root
+    # A file by that name is not a progress directory.
+    assert locate_progress_dir(tmp_path, "not-a-dir") is None
+    assert locate_progress_dir(tmp_path, "run-absent") is None
