@@ -14,7 +14,13 @@ from pathlib import Path
 
 import pytest
 
-from clousight_bench.viewer.data import list_records, load_record, load_trajectory
+from clousight_bench.viewer.data import (
+    list_records,
+    load_board,
+    load_record,
+    load_suite,
+    load_trajectory,
+)
 
 SPAN_V2_KEYS = {"span_id", "trace_id", "parent_id", "name", "kind", "t_start", "t_end", "status"}
 
@@ -311,3 +317,126 @@ def test_count_records_matches_list_without_parsing(results_dir, monkeypatch):
 
     monkeypatch.setattr(viewer_data, "_read_record", boom)
     assert viewer_data.count_records(results_dir) == expected
+
+
+# ---------------------------------------------------------------------------
+# load_trajectory: the run-trace fallback (every run has a waterfall)
+# ---------------------------------------------------------------------------
+
+
+def _record_path(results_dir: Path, run_id: str) -> Path:
+    paths = [p for p in (results_dir / "agent-runtime" / "local-sim").glob("*.json") if run_id in p.name]
+    assert len(paths) == 1, paths
+    return paths[0]
+
+
+def test_load_trajectory_prefers_the_artifact_when_both_exist(results_dir: Path) -> None:
+    """The real run has BOTH a trajectory artifact and results/traces/<id>.jsonl."""
+    run_id = _the_run_id(results_dir)
+    record = json.loads(_record_path(results_dir, run_id).read_text())
+    trace_id = record["extensions"]["core"]["trace_id"]
+    assert (results_dir / "traces" / f"{trace_id}.jsonl").is_file()
+
+    traj = load_trajectory(results_dir, run_id)
+    assert traj is not None
+    assert traj["source"] == "artifact"
+    assert len(traj["spans"]) == 3  # the sidecar's spans, not the run trace's
+
+
+def test_load_trajectory_falls_back_to_the_run_trace(results_dir: Path) -> None:
+    """Drop the trajectory artifact: the run trace still yields a waterfall."""
+    run_id = _the_run_id(results_dir)
+    path = _record_path(results_dir, run_id)
+    record = json.loads(path.read_text())
+    record["artifacts"] = [a for a in record["artifacts"] if a.get("kind") != "trajectory"]
+    path.write_text(json.dumps(record))
+
+    traj = load_trajectory(results_dir, run_id)
+    assert traj is not None
+    assert traj["source"] == "run-trace"
+    assert traj["spans"], "the run trace must produce spans"
+    for span in traj["spans"]:
+        assert SPAN_V2_KEYS <= set(span), f"span missing v2 keys: {sorted(span)}"
+    # v3 spans are projected to seconds by _render_span, and t0 is their minimum
+    assert traj["t0"] == min(s["t_start"] for s in traj["spans"])
+    assert traj["t0"] > 0.0
+
+
+def test_load_trajectory_without_artifact_or_trace_id_is_none(results_dir: Path) -> None:
+    plain = {
+        "run": {"run_id": "run-notrace", "started_at": "2026-01-01T00:00:00Z"},
+        "identity": {"domain": "agent-runtime", "task_id": "t9", "adapter": "local-sim"},
+        "status": "completed",
+        "provenance": {},
+        "measurements": {},
+        "artifacts": [],
+        "extensions": {},
+    }
+    out = results_dir / "agent-runtime" / "local-sim" / "t9-run-notrace.json"
+    out.write_text(json.dumps(plain))
+    assert load_trajectory(results_dir, "run-notrace") is None
+
+
+def test_load_trajectory_run_trace_containment(results_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A trace_id shaped like a traversal must never read outside results_dir."""
+    outside = results_dir.parent / "outside"
+    outside.mkdir(exist_ok=True)
+    (outside / "leak.jsonl").write_text(json.dumps({"span_id": "x", "t_start": 1.0, "t_end": 2.0}) + "\n")
+    evil = {
+        "run": {"run_id": "run-tracevil", "started_at": "2026-01-01T00:00:00Z"},
+        "identity": {"domain": "agent-runtime", "task_id": "t8", "adapter": "local-sim"},
+        "status": "completed",
+        "provenance": {},
+        "measurements": {},
+        "artifacts": [],
+        "extensions": {"core": {"trace_id": "../../outside/leak"}},
+    }
+    out = results_dir / "agent-runtime" / "local-sim" / "t8-run-tracevil.json"
+    out.write_text(json.dumps(evil))
+    with caplog.at_level("WARNING"):
+        assert load_trajectory(results_dir, "run-tracevil") is None
+    # "/" is not a token character, so it never becomes a path at all
+    assert not any("escapes results_dir" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Derived views over the real run
+# ---------------------------------------------------------------------------
+
+
+def test_load_board_over_the_real_run(results_dir: Path) -> None:
+    board = load_board(results_dir)
+    assert [d["domain"] for d in board["domains"]] == ["agent-runtime"]
+    domain = board["domains"][0]
+    assert domain["runs"] == 1
+    suite = domain["suites"][0]
+    assert suite["suite_id"] == "swe-bench"
+    assert suite["task_id"] == "suite:swe-bench"
+    assert suite["platforms"] == 1
+    assert suite["latest"]["adapter"] == "local-sim"
+    assert suite["latest"]["status"] == "completed"
+    assert "swe-bench.resolved" in suite["latest"]["measurements"]
+
+
+def test_load_suite_over_the_real_run(results_dir: Path) -> None:
+    suite = load_suite(results_dir, "agent-runtime", "swe-bench")
+    assert suite is not None
+    assert suite["metric_keys"] == sorted(suite["metric_keys"])
+    assert "swe-bench.resolved" in suite["metric_keys"]
+    platform = suite["platforms"][0]
+    assert platform["adapter"] == "local-sim"
+    assert platform["runs"] == 1
+    assert platform["history"] == [
+        {
+            "run_id": platform["latest"]["run_id"],
+            "started_at": platform["latest"]["started_at"],
+            "status": platform["latest"]["status"],
+            "measurements": platform["latest"]["measurements"],
+        }
+    ]
+    assert platform["latest"]["suite_version"] != ""
+
+
+def test_load_suite_rejects_non_token_segments(results_dir: Path) -> None:
+    for domain, suite_id in (("../etc", "swe-bench"), ("agent-runtime", "../x"), ("", "swe-bench")):
+        assert load_suite(results_dir, domain, suite_id) is None
