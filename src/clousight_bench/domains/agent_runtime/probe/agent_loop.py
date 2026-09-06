@@ -18,6 +18,7 @@ Key design decisions
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import time as _time
@@ -154,12 +155,10 @@ def _run_job(
 
         # Relay progress to the channel only when a new snapshot is available
         # (best-effort; never crash the loop).
-        try:
+        with contextlib.suppress(Exception):
             if record.progress is not None and record.progress != last_progress_written:
                 channel.write_progress(job_id, record.progress, record.live_metrics)
                 last_progress_written = record.progress
-        except Exception:  # noqa: BLE001
-            pass
 
         if record.status in ("completed", "failed"):
             # Return a record stamped with the *channel* job_id, not the internal one.

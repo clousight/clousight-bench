@@ -7,6 +7,7 @@ injected seams so these are testable with no cloud.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 import tempfile
@@ -244,11 +245,10 @@ def teardown(
         with tempfile.TemporaryDirectory() as td:
             (Path(td) / LEDGER_FILE).write_bytes(raw)
             for rid in live_runtimes_from_ledger(ResourceLedger(td)):
-                try:
+                # Best-effort.
+                with contextlib.suppress(Exception):
                     delete_runtime(rid)
                     residual.append(rid)
-                except Exception:  # noqa: BLE001 — best-effort
-                    pass
     rc = terraform(
         [
             "destroy",

@@ -26,6 +26,7 @@ cb-dataservice and the SaaS web):
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import json
@@ -244,15 +245,14 @@ class ResultStore:
             validate_against_schema(payload, "result-record-0.4")
         except SchemaValidationError:
             name = f"INVALID-{record.identity.domain}-{record.identity.task_id}-{record.run.run_id}.json"
-            try:
+            # The dump is best-effort.
+            with contextlib.suppress(Exception):
                 dump_path = _emergency_write_unique(name, _dump(payload))
                 print(
                     f"clousight-bench: run {record.run.run_id} produced a record that "
                     f"fails the 0.4 schema; raw record dumped to {dump_path}",
                     file=sys.stderr,
                 )
-            except Exception:  # noqa: BLE001 - the dump is best-effort
-                pass
             raise
 
     def _persist_degraded(

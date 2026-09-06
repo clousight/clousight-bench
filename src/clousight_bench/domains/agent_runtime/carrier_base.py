@@ -12,6 +12,7 @@ everything else lives here once.
 
 from __future__ import annotations
 
+import contextlib
 import secrets
 import time
 from collections.abc import Callable
@@ -96,10 +97,9 @@ class BaseProbeCarrier:
         self.control_prefix = None
         if iid is None:
             return
-        try:
+        # Teardown must never raise out of finally.
+        with contextlib.suppress(Exception):
             self.sdk.delete_instance(iid)
-        except Exception:  # noqa: BLE001 — teardown must never raise out of finally
-            pass
 
     def _default_ready_check(self) -> Callable[[], bool]:
         """Object-store-heartbeat readiness: a BlobChannel over the cloud blob client.

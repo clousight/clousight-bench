@@ -7,6 +7,7 @@ exploitation surface: path traversal, SSRF, and runaway processes.
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import logging
 import os
@@ -119,9 +120,8 @@ def posix_rlimit_preexec(limits: ResourceLimits) -> Callable[[], None] | None:
         import resource as _r
 
         for const, value in plan:
-            try:
+            # Cannot raise our limit above a hard cap; skip that one.
+            with contextlib.suppress(ValueError, OSError):
                 _r.setrlimit(const, (value, value))
-            except (ValueError, OSError):
-                pass  # cannot raise our limit above a hard cap; skip
 
     return _apply

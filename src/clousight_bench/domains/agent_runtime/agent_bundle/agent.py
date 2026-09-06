@@ -83,7 +83,6 @@ class _Span:
 
     def to_otlp(self) -> dict:
         epoch_ns = int(time.time() * 1e9)
-        _elapsed = self.start_ns  # perf_counter_ns — need wall-clock base
         start_wall = epoch_ns - (time.perf_counter_ns() - self.start_ns)
         end_wall = epoch_ns - (time.perf_counter_ns() - (self.end_ns or time.perf_counter_ns()))
         return {

@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.logsafe import sanitize_for_log
+
 logger = logging.getLogger(__name__)
 
 #: Reserved top-level subtrees of results_dir that never contain record files.
@@ -154,9 +156,9 @@ def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
     candidate = (results_dir / "artifacts" / artifact["path"]).resolve()
     if not candidate.is_relative_to(root):
         logger.warning(
-            "viewer: run %s trajectory path %r escapes results_dir; refusing to read",
-            run_id,
-            artifact["path"],
+            "viewer: run %s trajectory path %s escapes results_dir; refusing to read",
+            sanitize_for_log(run_id),
+            sanitize_for_log(artifact["path"]),
         )
         return None
     if not candidate.is_file():
@@ -166,7 +168,12 @@ def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
     try:
         text = candidate.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        logger.warning("viewer: run %s: cannot read trajectory %s: %s", run_id, candidate, exc)
+        logger.warning(
+            "viewer: run %s: cannot read trajectory %s: %s",
+            sanitize_for_log(run_id),
+            candidate,
+            sanitize_for_log(exc),
+        )
         return None
     for lineno, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
@@ -174,14 +181,19 @@ def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
         try:
             span = json.loads(line)
         except json.JSONDecodeError as exc:
-            logger.warning("viewer: run %s: skipping bad span line %d: %s", run_id, lineno, exc)
+            logger.warning(
+                "viewer: run %s: skipping bad span line %d: %s",
+                sanitize_for_log(run_id),
+                lineno,
+                sanitize_for_log(exc),
+            )
             continue
         if isinstance(span, dict):
             spans.append(_render_span(span))
         else:
             logger.warning(
                 "viewer: run %s trajectory line %d is valid JSON but not an object; skipping",
-                run_id,
+                sanitize_for_log(run_id),
                 lineno,
             )
 

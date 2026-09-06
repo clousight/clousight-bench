@@ -18,6 +18,7 @@ reported, never masks the run's result.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -41,11 +42,10 @@ def reconcile_run_resources(
     reclaimed: list[str] = []
     for entry in residual:
         rid = entry.get("resource_id", "")
-        try:
+        # A failed destroy is a residual, reported below.
+        with contextlib.suppress(Exception):
             adapter.deprovision(rid)
             reclaimed.append(rid)
-        except Exception:  # noqa: BLE001 - a failed destroy is a residual, reported below
-            pass
 
     # Authoritative confirmation: the cloud's own tag query when a reaper exists.
     cloud_residual: list[dict[str, Any]] = []

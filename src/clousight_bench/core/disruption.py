@@ -19,6 +19,7 @@ protocol (Redis/RESP, JDBC, HTTP).
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import socket
 import threading
@@ -85,10 +86,8 @@ class DisruptionProxy:
         self._closing = True
         srv, self._server = self._server, None
         if srv is not None:
-            try:
+            with contextlib.suppress(OSError):
                 srv.close()
-            except OSError:
-                pass
         with self._lock:
             conns = list(self._conns)
             self._conns.clear()
@@ -137,10 +136,8 @@ class DisruptionProxy:
         try:
             upstream = socket.create_connection(self._upstream, timeout=10)
         except OSError:
-            try:
+            with contextlib.suppress(OSError):
                 client.close()
-            except OSError:
-                pass
             return
         pair = (client, upstream)
         with self._lock:
@@ -174,10 +171,8 @@ class DisruptionProxy:
 
 def _close_pair(pair: tuple[socket.socket, socket.socket]) -> None:
     for sock in pair:
-        try:
+        with contextlib.suppress(OSError):
             sock.close()
-        except OSError:
-            pass
 
 
 def schedule_disruption(

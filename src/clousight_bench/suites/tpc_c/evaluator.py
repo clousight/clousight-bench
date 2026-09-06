@@ -17,6 +17,7 @@ emitted). ``supports`` returns True only for the ``"tpc-c"`` suite.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 from typing import Any
@@ -96,13 +97,12 @@ class OfficialTpccEvaluator(Evaluator):
             from clousight_bench.suites.tpc_c.suite import _NEWORDER_WEIGHT_PCT  # noqa: PLC0415
 
             weight_pct = float(_NEWORDER_WEIGHT_PCT)  # the suite's configured NewOrder weight
-            try:
+            # Absent/broken meta keeps the suite default.
+            with contextlib.suppress(Exception):
                 meta = json.loads(raw.path("meta").read_text())
                 candidate = float(meta.get("neworder_weight_pct", weight_pct))
                 if math.isfinite(candidate) and 0 < candidate <= 100:
                     weight_pct = candidate
-            except Exception:  # noqa: BLE001 - absent/broken meta keeps the suite default
-                pass
             out["tpc-c.tpmc_estimate"] = Measurement(
                 value=goodput.value * 60.0 * (weight_pct / 100.0),
                 unit="tpm",

@@ -4,6 +4,7 @@ interrupted record, so resources are released and progress is not lost."""
 import glob
 import json
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -40,7 +41,7 @@ def test_interrupt_runs_teardown_and_persists_interrupted_record(tmp_path, monke
     assert torn["ran"] is True, "teardown must run on interrupt"
 
     files = glob.glob(str(tmp_path / "**" / "*.json"), recursive=True)
-    records = [json.loads(open(f, encoding="utf-8").read()) for f in files]
+    records = [json.loads(Path(f).read_text(encoding="utf-8")) for f in files]
     interrupted = [r for r in records if r.get("status") == "interrupted"]
     assert interrupted, "an interrupted record must be persisted"
     rec = interrupted[0]

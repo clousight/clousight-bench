@@ -17,6 +17,7 @@ test the platform's real OTel pipeline end-to-end.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import time
@@ -205,7 +206,7 @@ def setup_otel(arms_config: dict | None = None) -> bool:
     with _otel_lock:
         if _otel_ready:
             return True
-        try:
+        with contextlib.suppress(Exception):
             from openinference.instrumentation.langchain import LangChainInstrumentor
             from opentelemetry import trace
             from opentelemetry.sdk.trace import TracerProvider
@@ -225,14 +226,12 @@ def setup_otel(arms_config: dict | None = None) -> bool:
             trace.set_tracer_provider(provider)
             LangChainInstrumentor().instrument()
             _otel_ready = True
-        except Exception:
-            pass
     return _otel_ready
 
 
 def _try_add_arms_exporter(provider: Any, license_key: str, region: str) -> None:
     """Add async ARMS OTLP exporter. Best-effort — failures are silenced."""
-    try:
+    with contextlib.suppress(Exception):
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
@@ -250,8 +249,6 @@ def _try_add_arms_exporter(provider: Any, license_key: str, region: str) -> None
                 return
             except Exception:
                 continue
-    except Exception:
-        pass
 
 
 # ---------------------------------------------------------------------------
