@@ -102,6 +102,75 @@ csbench run --domain agent-runtime --benchmark echo --platform local-sim --confi
 且全部 `official=True`。这正是让一个数字可信的东西。
 </Note>
 
+## 上报进度
+
+一个要跑三十分钟的套件，在跑完之前不会写出任何可观察的东西。`driver.progress` 就是它说出“我正在干什么”的地方，于是 [`csbench serve`](/docs/zh/viewer) 能把这次运行实时展示出来。
+
+它默认是一个惰性的 reporter（`NULL_PROGRESS`），所以**什么都不做也是一个合法选择**：按 plugin API 3.0 写的套件（那时还没有这个字段）完全不受影响，单元测试也不需要接线。下面每个调用在没人观看时都只是一次函数调用然后返回。
+
+六个方法（`core/progress.py::ProgressReporter`）：
+
+```python
+progress.phase(label: str, total: int = 0, *, unit: str = "", reports_progress: bool = True) -> None
+progress.advance(n: int = 1, *, label: str = "") -> None
+progress.step(name: str, start_ms: float, end_ms: float, *, status: str = "ok", parent: str = "") -> None
+progress.sample(key: str, value: float) -> None
+progress.log(msg: str, *, level: str = "INFO") -> None
+progress.should_cancel() -> bool
+```
+
+`phase` 开启一段命名的工作（大小未知时 `total=0`）；`advance` 在其中推进；`step` 记录一段**已完成**的区间，以便画在实时瀑布图上；`sample` 发布一个飞行中的观测值，任何被计分的东西都不会由它推导；`log` 往日志面板里加一行（本包自己的日志记录会被自动镜像过去）。
+
+step 的时间戳是**每次运行一个原点**下的毫秒数。请使用 `clousight_bench.suites._progress.StepClock`，让 `prepare()` 里发出的 step 和 `run()` 里发出的 step 共享同一个时间框——并且用测量本身已经取好的时间标记去构造它们，绝不要另取一份会互相矛盾的计时。
+
+### 绝不在被测量的窗口内部上报
+
+一次进度写入就是一次文件追加：便宜，但不免费。**如果某个区域自己的墙钟会喂给某个测量值，就不要在它内部写任何东西。**
+
+逐条查询上报通常是安全的，因为指标是由紧贴每条查询测出的区间构成的，而上报落在两条查询之间的空隙里——那个空隙没有被任何东西测量。DuckDB 的 TPC 套件正是这么做的（`suites/_duckdb_tpc.py`）：
+
+```python
+def _reported(row: dict[str, Any], start: float, end: float) -> None:
+    """One finished query — drawn on the waterfall, sampled, counted.
+
+    Runs between two queries: the row's ``latency_ms`` was already taken,
+    and every measurement this path feeds (total runtime, geomean) sums
+    per-query intervals, so the gap this occupies is not measured.
+    """
+    name = f"{self.suite_id}.q{row['query_nr']}"
+    progress.step(name, clock.ms(start), clock.ms(end), parent=parent)
+    progress.sample(f"{self.suite_id}.latency_ms", float(row["latency_ms"]))
+    progress.advance()
+    raise_if_cancelled(progress, f"{self.suite_id} query set")
+
+progress.phase("Query set", total=len(query_ids), unit="query")
+```
+
+TPC 官方模式的 **Throughput 测试就是反例**：它的 `elapsed_s` **就是**那个指标（`Throughput@Size`，即 `T_TT` 项）。在那个窗口内写任何东西，都等于把 reporter 的 I/O 写进了这个数。所以这个 phase 一开始就声明自己没法逐步推进，窗口内只跑取消轮询，等窗口关闭之后，再用该 phase 已经测好的区间把每条流、每条查询的 step 回放出来（`suites/_tpc_official/phases.py`、`_progress.TpcProgress.replay_throughput`）：
+
+```python
+progress.phase("Throughput Test", total=total_queries, unit="query", reports_progress=False)
+tp_start = clock()
+doc["throughput"] = run_throughput(..., poll=lambda: progress.check_cancel("throughput test"))
+progress.replay_throughput(doc["throughput"], start=tp_start)
+```
+
+`reports_progress=False` 的意思是“我知道自己有多大，但我没法在里面逐步上报”。查看器于是画一条不确定进度条并说明原因，而不是画一条读起来像卡死的 0/396 进度条。
+
+### step 的命名要和已封存轨迹里的叫法一致
+
+实时瀑布图和已封存瀑布图必须用同一个名字称呼同一个东西，否则一次运行的两个视图看起来像两次运行。如果你的套件会写 `trajectory` artifact（或者像 `_tpc_official/trace.py` 那样从 artifact 重建 span），就把那些 span 名字原样用在 `step()` 上。`TpcProgress.name()` 存在的理由正是这个：它拼出 `<suite_id>.<leaf>`，让两边都从同一处派生名字。
+
+### 取消：要抛异常，绝不能 return
+
+任何可能跑上几分钟的循环里都应轮询 `should_cancel()`。它是一次带 250 毫秒缓存的 `stat`，所以逐条轮询完全没问题。
+
+一旦命中，就**抛异常**。`raise_if_cancelled(progress, where)` 抛出 `RunCancelled`——它是 `KeyboardInterrupt` 的子类，编排器早就正确处理它：teardown 照常执行，持久化一条 `interrupted` 记录，已开通的资源不会被遗弃。
+
+<Warning>
+取消时绝不要**提前 return**。一个被截断却正常返回的查询集，到了 evaluator 眼里就像一次跑完的运行，并且会被当作跑完的运行来计分。
+</Warning>
+
 ## 进阶(可选)
 
 - **逐项分数**——实现 `Evaluator.items(raw) -> list[ItemResult]` 发出逐例证据;标量

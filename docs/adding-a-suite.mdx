@@ -105,6 +105,111 @@ csbench run --domain agent-runtime --benchmark echo --platform local-sim --confi
 under `<suite_id>.`, all `official=True`. That's what makes a number trustworthy.
 </Note>
 
+## Reporting progress
+
+A suite that runs for thirty minutes writes nothing observable until it
+finishes. `driver.progress` is where it can say what it is doing, so
+[`csbench serve`](/docs/viewer) can show a live view of the run.
+
+It defaults to an inert reporter (`NULL_PROGRESS`), so **doing nothing is a
+valid choice**: a suite written against plugin API 3.0, which never saw this
+field, is unaffected, and a unit test needs no wiring. Every call below costs a
+function call and returns on a suite that is not being watched.
+
+Six methods (`core/progress.py::ProgressReporter`):
+
+```python
+progress.phase(label: str, total: int = 0, *, unit: str = "", reports_progress: bool = True) -> None
+progress.advance(n: int = 1, *, label: str = "") -> None
+progress.step(name: str, start_ms: float, end_ms: float, *, status: str = "ok", parent: str = "") -> None
+progress.sample(key: str, value: float) -> None
+progress.log(msg: str, *, level: str = "INFO") -> None
+progress.should_cancel() -> bool
+```
+
+`phase` starts a named unit of work (`total=0` when the size is unknown);
+`advance` ticks through it; `step` records a *finished* interval so it can be
+drawn on the live waterfall; `sample` publishes an in-flight observation that
+nothing scored is ever derived from; `log` adds one line to the log pane
+(this package's own log records are mirrored there automatically).
+
+Step timings are milliseconds from **one origin per run**. Use
+`clousight_bench.suites._progress.StepClock` so the steps emitted from
+`prepare()` and the ones emitted from `run()` share a frame — and build them
+from the marks a measurement already took, never from a second, disagreeing
+timing.
+
+### Never report from inside a measured window
+
+A progress write is a file append: cheap, but not free. **If a region's own
+wall clock feeds a measurement, write nothing inside it.**
+
+Per-query reporting is usually safe, because the metric is built from intervals
+measured tightly around each query and the report lands in the gap between two
+of them — which nothing measures. That is exactly how the DuckDB TPC suites do
+it (`suites/_duckdb_tpc.py`):
+
+```python
+def _reported(row: dict[str, Any], start: float, end: float) -> None:
+    """One finished query — drawn on the waterfall, sampled, counted.
+
+    Runs between two queries: the row's ``latency_ms`` was already taken,
+    and every measurement this path feeds (total runtime, geomean) sums
+    per-query intervals, so the gap this occupies is not measured.
+    """
+    name = f"{self.suite_id}.q{row['query_nr']}"
+    progress.step(name, clock.ms(start), clock.ms(end), parent=parent)
+    progress.sample(f"{self.suite_id}.latency_ms", float(row["latency_ms"]))
+    progress.advance()
+    raise_if_cancelled(progress, f"{self.suite_id} query set")
+
+progress.phase("Query set", total=len(query_ids), unit="query")
+```
+
+The TPC official-mode **Throughput test is the counter-example**: its
+`elapsed_s` *is* the metric (`Throughput@Size`, the `T_TT` term). Anything
+written inside that window would put the reporter's I/O into the number. So the
+phase declares up front that it cannot tick, only the cancel poll runs inside,
+and the per-stream, per-query steps are replayed from the intervals the phase
+already measured once the window has closed
+(`suites/_tpc_official/phases.py`, `_progress.TpcProgress.replay_throughput`):
+
+```python
+progress.phase("Throughput Test", total=total_queries, unit="query", reports_progress=False)
+tp_start = clock()
+doc["throughput"] = run_throughput(..., poll=lambda: progress.check_cancel("throughput test"))
+progress.replay_throughput(doc["throughput"], start=tp_start)
+```
+
+`reports_progress=False` means "I know my size but cannot tick through it". The
+viewer then draws an indeterminate bar and says why, instead of a 0/396 bar
+that reads as a hang.
+
+### Name steps the way the sealed trajectory names them
+
+The live waterfall and the sealed waterfall must call the same thing the same
+name, or two views of one run look like two runs. If your suite writes a
+`trajectory` artifact (or reconstructs spans from artifacts, as
+`_tpc_official/trace.py` does), use those span names verbatim for `step()`.
+`TpcProgress.name()` exists for exactly this: it builds `<suite_id>.<leaf>` so
+both sides derive the name from one place.
+
+### Cancelling: raise, never return
+
+Poll `should_cancel()` in any loop that can run for minutes. It is a `stat`
+cached for 250 ms, so a per-item poll is fine.
+
+When it fires, **raise**. `raise_if_cancelled(progress, where)` raises
+`RunCancelled`, a `KeyboardInterrupt` subclass, which the orchestrator already
+handles correctly: teardown runs, an `interrupted` record is persisted, nothing
+provisioned is orphaned.
+
+<Warning>
+Never *return early* on a cancel. A truncated query set that returned normally
+would reach the evaluator looking like a finished run, and would be scored as
+one.
+</Warning>
+
 ## Going further (optional)
 
 - **Per-item scores** — implement `Evaluator.items(raw) -> list[ItemResult]` to

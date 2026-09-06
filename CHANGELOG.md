@@ -2,6 +2,107 @@
 
 All notable changes to Clousight Bench are recorded here.
 
+## [Unreleased]
+
+### Added
+
+- **Watch a run while it happens.** A benchmark used to write nothing
+  observable until it finished — right for an audit artifact, useless for a
+  thirty-minute run. New progress plane at `results/.progress/<run_id>/`:
+  `state.json` (an atomically replaced snapshot), `stream.jsonl` (an
+  append-only event log, every event carrying a monotonic `seq`) and `cancel`
+  (a zero-byte marker). It is deliberately *outside* the sealed record: nothing
+  in it is covered by `record_digest`, nothing in it can move a verdict, and
+  deleting the directory loses nothing but a live view. Best-effort (an IO
+  failure disables the plane at debug level and the run carries on), bounded
+  (`CLOUSIGHT_PROGRESS_MAX_LINES`, default 20000 / `CLOUSIGHT_PROGRESS_MAX_BYTES`,
+  default 8 MiB — past which only `log` and `sample` events are dropped, never
+  `stage` or `step`), and reaped on run start and viewer start so a machine
+  that lost power never shows a phantom "running" row.
+- **New viewer pages: Live and Results.** `#/live` lists what is in flight and
+  forwards straight through when there is only one; `#/live/:run_id` shows one
+  run off a single SSE connection — stage, phase progress with an ETA that is
+  withheld until three units have completed, a live waterfall, browser-computed
+  numbers, and the log tail. Results is now a domain board (`#/`) → a suite
+  comparison (`#/suite/:domain/:suite_id`) → one run. `#/record/:id`,
+  `#/record/:id/trace` and `#/runs` (the old flat table) still resolve.
+- **Cancel a run from the browser.** `POST /api/progress/<run_id>/cancel` is the
+  only mutating route this server has ever had, and creates a zero-byte marker
+  and nothing else. The run raises `RunCancelled` — a `KeyboardInterrupt`
+  subclass — so a cancel takes the path a Ctrl-C already took: teardown runs, an
+  `interrupted` record with the stages completed so far is persisted, nothing
+  provisioned is orphaned. Guarded by the existing Host check plus a required
+  `X-Csbench-Progress: 1` header (unreachable from a cross-origin `<form>`), a
+  refusal of any request body, and run_id token validation before anything can
+  name a path.
+- **New read-only API routes**: `/api/board`, `/api/suite/<domain>/<suite_id>`,
+  `/api/progress`, `/api/progress/<run_id>` (`?since=<seq>`) and
+  `/api/progress/<run_id>/stream` (SSE, resumable by `seq`, capped at 8
+  concurrent streams and 6 hours each).
+- **A de-jargon layer** (`web/src/lib/glossary.ts`) with two rules: the human
+  label leads and the raw key stays visible under it in mono, and an
+  unrecognised metric never gets a direction we did not verify — so it is never
+  bolded as a "leader" in a comparison. Fingerprints, identity and environment —
+  which the old viewer simply never rendered — are now shown in full behind an
+  engineer-view toggle.
+- **Viewer unit tests** (`cd web && npm test`, vitest), run by CI's
+  `viewer-dist` job alongside the byte-identical dist check.
+
+### Changed
+
+- **Plugin API 3.0 -> 3.1, additive.** `DriverContext.progress` carries a
+  `ProgressReporter` (`phase` / `advance` / `step` / `sample` / `log` /
+  `should_cancel`) and defaults to an inert `NULL_PROGRESS`. **A suite written
+  against 3.0 is unaffected** — it never saw the field, every call is a no-op
+  when nothing is watching, and `requires_plugin_api = ">=3.0,<4.0"` still
+  resolves. Nothing was removed or re-signed.
+- **The bundled suites report progress and poll for cancellation** — TPC-H /
+  TPC-DS (reference and official modes), TPC-C, YCSB, SWE-bench, MMLU, GSM8K,
+  HumanEval. Reporting stays out of measured windows: the TPC Throughput test's
+  `elapsed_s` *is* `Throughput@Size`, so nothing is written inside that window
+  and its per-stream steps are replayed from the intervals it already measured
+  once the window closes. A phase that knows its size but cannot tick through it
+  declares `reports_progress=False`, and the viewer draws an indeterminate bar
+  with a reason instead of a 0% bar that reads as a hang.
+- **The record page leads with the conclusion.** Eleven lifecycle stages
+  collapse into one health line that expands on demand, instead of eleven cards
+  ending in `PUBLISH: skipped`. The board replaced the flat record list as the
+  landing page; "178 runs, newest first" answers no question anyone arrives
+  with.
+- **Cache policy is now explicit**: `no-store` for the document and every API
+  response, `public, max-age=31536000, immutable` for the content-hashed
+  `/assets/*`. Without the first half, upgrading `csbench` and reloading served
+  a cached `index.html` naming an asset hash the new wheel does not contain — a
+  white page with nothing in the console to explain it.
+
+### Fixed
+
+- **Most runs had a blank waterfall.** `/api/record/<id>/trajectory` only ever
+  read the `kind=trajectory` artifact, which only official/agent runs emit. It
+  now falls back to the run trace at `results/traces/<trace_id>.jsonl`, which
+  *every* run writes at finalize, and the payload says in a `source` field which
+  one it used. A declared-but-unreadable artifact is still a 404 rather than a
+  silent downgrade: the record claims that file, and rendering a different one
+  would be a lie about provenance.
+- **A run that died without writing a record used to claim to be running
+  forever.** A snapshot whose pid is gone is now reported as `abandoned`, and
+  its directory is collected.
+- **The waterfall's colours were not distinguishing anything.** The kind ->
+  colour map named `db_query` and `stage`; the backend derives `query` and
+  `phase`. A TPC-DS trace — 891 query spans inside 15 phase spans — painted
+  every bar the same fallback blue. This predated the rebuild; adding a legend
+  is what made it visible, because a legend with two identical swatches is
+  obviously wrong in a way a uniformly blue chart is not. One vocabulary now,
+  shared by the sealed trace and the live stream, asserted in both directions.
+- **The progress plane leaked the results directory's absolute path.** The
+  viewer publishes only its basename and says so in `/api/meta`; `record_path`
+  handed the full path back through a different door. It is relative to the
+  results root now.
+- **The board drew a nameless, valueless card** for schema-0.1-era records,
+  which carry no `identity` block and so summarise to empty strings. Those are
+  skipped from the board and stay listed under `#/runs`, where an unplaceable
+  record belongs.
+
 ## [0.6.0] — 2026-09-06
 
 ### Breaking (stage names: `COLLECT` -> `SEAL`, new `DESCRIBE`)

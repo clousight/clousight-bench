@@ -11,7 +11,8 @@
  * 1. **Two layers, never one.** The human label leads; the raw key stays
  *    visible underneath in mono. Nothing becomes unauditable, and an engineer
  *    can still match a field name at a glance. The UI enforces this by
- *    rendering `label` and `key` together — see components/MetricValue.
+ *    rendering `label` and `key` together — see `MetricValue` in
+ *    components/Glossed.tsx.
  *
  * 2. **Never invent.** An unknown key degrades to a prettified version of
  *    itself with no blurb and `betterIs: "none"`. We infer a format from the

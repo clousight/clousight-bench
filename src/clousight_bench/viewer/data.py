@@ -24,7 +24,7 @@ from clousight_bench.core.logsafe import sanitize_for_log
 logger = logging.getLogger(__name__)
 
 #: Reserved top-level subtrees of results_dir that never contain record files.
-_SKIP_DIRS = frozenset({"aggregates", "campaigns", "artifacts", "traces", "debug", "progress"})
+_SKIP_DIRS = frozenset({"aggregates", "campaigns", "artifacts", "traces", "debug"})
 
 #: run_ids are used to locate files on disk, so they must be plain tokens.
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")

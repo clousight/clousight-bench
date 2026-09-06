@@ -1,9 +1,11 @@
 ---
 title: 结果查看器
-description: 基于结果目录的本地只读 Web 查看器——记录列表、记录详情、轨迹对话记录与瀑布图。
+description: 基于结果目录的本地 Web 查看器——运行过程中实时观看，运行结束后从看板、套件对比、记录一路读到轨迹。
 ---
 
-`csbench serve` 在结果目录之上启动一个小型本地 Web 服务器，并提供一个内嵌的单页查看器。它是严格**只读**的：服务器只读取记录 JSON 文件和轨迹 artifact，绝不写入。
+`csbench serve` 在结果目录之上启动一个小型本地 Web 服务器，并提供一个内嵌的单页查看器。它做两件事：在一次运行**正在进行时**把它展示出来，以及帮你读懂已经跑完的那些运行。
+
+它读取的一切都来自结果目录下的文件。它唯一能写的东西，是给一次仍在进行的运行创建一个零字节的 `cancel` 标记——见下文“中止一次运行”。它做的任何事都无法改动一条已封存的记录。
 
 ## 用法
 
@@ -11,42 +13,168 @@ description: 基于结果目录的本地只读 Web 查看器——记录列表�
 csbench serve                          # 在 http://127.0.0.1:8787 上提供 ./results
 csbench serve --results out/results    # 指定其他结果目录
 csbench serve --port 0                 # 临时端口；打印的 URL 显示实际绑定的端口
-csbench serve --host 0.0.0.0           # 绑定非 localhost —— 查看器没有鉴权,切勿暴露到公网
+csbench serve --host 0.0.0.0           # 绑定非 localhost —— 查看器没有鉴权，切勿暴露到公网
 ```
 
 该命令会打印实际绑定的地址（配合 `--port 0` 很有用），并持续运行直到按 Ctrl-C。
 
-## 界面
+页头有两个顶层入口——**实时（Live）** 与 **结果（Results）**——外加**语言切换器**（EN | 中文；选择持久化到 `localStorage`，默认跟随浏览器语言）、**工程师视图**开关和**主题**开关（在手动切换前跟随 `prefers-color-scheme`，切换后持久化）。只有真的有运行在进行时，实时入口才会带一个计数徽标；不存在常驻的“0”。
 
-页头提供**语言切换器**（EN | 中文——所有 UI 字符串均为双语；选择持久化到 `localStorage`，默认跟随浏览器语言）和**主题切换按钮**（🌙/☀️——在手动切换前跟随系统 `prefers-color-scheme`，切换后持久化）。
+## 实时观看一次运行
 
-## 展示内容
+在一个终端里起一次运行，在另一个终端里 `csbench serve`。这次运行会自己出现——查看器每隔几秒轮询一次 `/api/progress`，只要有运行在飞行中，看板上方就会出现一条实时条。
 
-- **记录列表**（`#/`）——每次运行一行：运行 ID（链接到详情页）、任务、适配器、状态徽章、来自套件的运行会显示套件徽章、内联标量测量值标签，以及存在轨迹 artifact 时的 🧵 链接。客户端过滤框可按运行 ID / 任务 / 适配器 / 状态 / 套件筛选。
-- **记录详情**（`#/record/<run_id>`）——卡片式布局：测量值（数值、单位、官方 ✓/—、可复现性等级）、来源信息（套件 ID/版本、评测器、脚手架、带复制按钮的数据集摘要）、水平阶段条（按状态着色的步骤与耗时）、记录的错误（为空时隐藏），以及产物（类型、媒体类型、带复制按钮的 sha256）。
-- **轨迹页**（`#/record/<run_id>/trace`）——轨迹 span 之上的两个标签页；页头显示 span 数量和总时长：
-  - **对话记录**（默认）——span 按开始时间顺序渲染为对话式卡片：kind 图标（🧠 `llm_call` / 🔧 `tool_call`；对 v3 span，kind 由语义约定属性——`gen_ai.*` / `db.*` / `csbench.*`——推导，而非字面的 `kind` 字段）、父链面包屑，以及右对齐的时间尾注 `+<偏移> · <时长>`。错误 span 带红色边缘并显示错误信息。点击卡片可展开其属性 JSON（带复制按钮）。
-  - **瀑布图**——ECharts 自定义系列图表：每个 span 渲染为按时间定位的条形，坐标轴以毫秒（长轨迹为秒）计，按 kind 着色，错误条形使用警示色，标签按 span 深度缩进。悬停条形显示 `名称 · 类型 · 时长 · 状态`；点击条形展开与对话记录相同的属性面板，且切换标签页时选中状态保持不变。
+- **`#/live`**——同时在飞行中的全部运行。如果恰好只有一个，页面直接转到那次运行。
+- **`#/live/:run_id`**——单次运行，由一条到 `/api/progress/<run_id>/stream` 的 SSE 连接驱动。
+
+运行页由五块面板组成：
+
+- **页头**——测评项、平台、状态、运行期间每秒跳动一次的计时器，以及 **Stop run** 按钮。
+- **进度**——用人话写的当前阶段（和记录页共用同一套阶段词表），以及当前 phase 的 `12 / 99 query` 和进度条。剩余时间估算标注为 *est.*，并且**在至少完成 3 个单位之前一律不显示**（`web/src/lib/eta.ts`）：一个自信但错误的“还剩 3 秒”比诚实的空白代价更高。
+- **执行过程（实时）**——和已封存轨迹页完全相同的瀑布图渲染器，只是数据来自 `step` 事件而非 span。实时 step 用**名字**指向父节点（套件知道自己把外层 phase 叫什么，却不知道 tracer 之后会给它铸什么 span id），所以嵌套是按名字解析的。
+- **目前的数字**——**在浏览器里**用已完成的 step 算出来的：完成了多少 step、step 耗时的中位数与 p99、失败的 step 数、目前最慢的 step。
+- **日志**——这次运行的 `clousight_bench` 日志尾巴，可按级别过滤。自动滚动是“粘底”的：一旦你往上滚，它就不再把你拽回最新一行。
+
+### “初步”意味着它不是测量值
+
+*目前的数字*里的每块数字都带一个**初步**标记，面板本身也直说这些数从哪来。这是一条契约，不是谦虚：
+
+- **测量值**由 `Evaluator` 离线地、在运行结束之后、基于已封存的证据算出——它是落进记录、并被 `record_digest` 覆盖的那个东西；
+- 实时数字是浏览器对“目前收到的事件”做的一个滞后算术，而这条流是被明确允许丢事件的。
+
+任何被计分的东西都不会从 `sample` 事件推导出来。实时页的截图就是一次未完成运行的截图，UI 的构造方式让读者无法把它误当成结论。
+
+### 为什么被测量的窗口显示的是不确定进度条
+
+一个 phase 可以声明：我知道自己有多大，但我没法在里面逐步上报——
+`progress.phase("Throughput Test", total=396, unit="query", reports_progress=False)`。
+查看器于是画一条不确定进度条，并写上一句*“measured window 内不上报中间进度”*，而不是画一条读起来像卡死的 0% 进度条。
+
+原因在套件里，不在 UI。在 TPC 官方模式下，Throughput 测试自己的墙钟**就是**那个指标（`Throughput@Size`，即 `T_TT` 项），在窗口内写进度文件等于把查看器的 I/O 写进了这个数。所以套件在窗口内什么都不上报，等窗口关闭后，再用它自己已经测好的区间把每条流、每条查询的 step 回放出来——同样的数、同样的布局，只是晚了几秒。套件作者需要遵守的规则见[添加一个测评](/docs/zh/adding-a-suite)的“上报进度”一节。
+
+### 中止一次运行
+
+Stop 按钮是查看器唯一的写操作控件，并且刻意做成两步：先待命，再确认。按下后会向 `/api/progress/<run_id>/cancel` 发一个 `POST`，它在这次运行的进度目录里创建一个零字节的 `cancel` 文件。HTTP 上再没有别的事发生。
+
+运行按自己的节奏来取它——编排器在每个阶段边界检查一次，接好线的套件在自己的循环里轮询 `should_cancel()`（一次带缓存的 `stat`，最多每秒 4 次）。一旦命中，运行抛出 `RunCancelled`；它是 `KeyboardInterrupt` 的子类，因此中止走的是 Ctrl-C 早就走过的那条路：
+
+- **teardown 照常执行**——已开通的资源不会被遗弃，也不会继续计费；
+- 会持久化一条 **`interrupted` 记录**，带上已经完成的那些阶段；
+- 实时页切换成交接卡片，指向那条记录。
+
+一旦请求了中止，按钮保持禁用并显示*“正在停止——teardown 执行中”*。何时能停由运行自己决定；假装浏览器说了算是一句谎话。
+
+### 运行结束之后
+
+页面不会变白，也不会 404。进度目录会存活 `TERMINAL_GRACE_S`（默认 120 秒），正是为了让订阅者仍能读到终态的 `done` 事件和它携带的已封存记录路径；页面随即切换成指向 `#/record/<run_id>` 的交接卡片。
+
+如果有事件为守住流的上限而被丢弃，页面会明说，并说明丢的是哪几类——以及已封存的记录不受影响。
+
+## 阅读结果
+
+四个页面，按问题收敛的顺序排列：
+
+| 页面 | 路由 | 它回答的问题 |
+|---|---|---|
+| 看板 | `#/` | 每个域、每个测评项各测过些什么？ |
+| 套件对比 | `#/suite/:domain/:suite_id` | 在**这一项**上哪个平台更好？ |
+| 记录 | `#/record/:run_id` | 这一次运行得出了什么，可信吗？ |
+| 轨迹 | `#/record/:run_id/trace` | 它内部到底发生了什么？ |
+
+- **看板**把每条记录先按域、再按测评项归组，展示每个测评项的平台数、运行数，以及最新一次运行的头条指标。域和套件按最近活跃时间排序，每张域卡片先展示 5 个测评项、其余折叠：一个积累了大量已退役测评项的结果目录，不该把你今天刚跑的东西挤出第一屏。没有同时给出域名和套件名的记录（schema 0.1 时代的运行会摘要成空字符串）**不会**被折进来——一张没有名字也没有值的卡片比缺席更糟——它们仍可在 `#/runs` 看到。
+- **套件对比**以真正用来做选型决策的那张表开头：每个平台的最新一次运行，每个指标一列，按词表顺序（头条指标在前）而非字母序排列。只有某个平台的**最新**运行确实产出过的指标才会成列，这样 TPC-H 的 `reference` 运行和 `official` 运行就不会拼出一张满是破折号的表。表后是最多四个指标的趋势图，历史是有界的（每个平台最近 30 次运行）。
+- **记录**自上而下地读：它发现了什么、机器本身有没有正常工作、它测到了什么、这些数能不能信。十一个被记录的生命周期阶段被收拢成**一行健康摘要**——“一切正常 · 11 个阶段全部通过”——点开展开成完整的四相位阶段条；一旦有阶段失败，这一行改为直接点名那个阶段。
+- **轨迹**页保持不变：对话记录与瀑布图两个标签页。现在每次运行都有轨迹——见下文“轨迹数据”。
+
+`#/runs` 是从前那张所有运行的平铺表，带客户端过滤框。当你已经知道自己在找哪次运行时它确实好用，所以它仍然在——只是不再是大门。
+
+## 说人话
+
+查看器通过一层统一的去黑话层 `web/src/lib/glossary.ts` 渲染内部词汇，遵守两条规则。
+
+**永远两层，不是一层。** 人话标签在前，原始 key 以等宽字体保留在下方——`Typical query time` 之下是 `tpc-h.geomean_latency_ms`，`Seal evidence` 之下是 `SEAL`。没有任何东西因此变得不可审计，工程师也依然能一眼对上字段名。任何开关都不会改变这一点。
+
+**绝不编造。** 一个不认识的测量 key 仍然会被渲染：它会拿到一个整理过的标签，格式则从它声明的 unit 推断，或者谨慎地从后缀推断。但它拿不到方向。除非有人写过 spec，否则 `betterIs` 保持 `"none"`——因为把一个上升的数说成“更好”而它其实是回退，比什么都不说更糟——所以未知指标在对比表里永远不会被加粗为领先者。
+
+同一层还解释了两个最容易让人误会的东西：`invalid`（我们根本没测到任何东西——这不是被测系统的失败）与 `failed`（我们测了，然后它坏了）的区别；以及 `PUBLISH: skipped`——它是一条持久的声明，说明没有任何发布器碰过这条已封存的记录，而不是一个错误。
+
+**工程师视图**是页头里一个持久化的开关。关掉时，记录页展示的是结论。打开后，它增加一块面板，完整展示记录的 `fingerprints`、`identity`、`environment` 和 `extensions`——正是这些字段让一次运行可复现、可比较，而旧版查看器压根没有渲染过它们。这个开关**不会**隐藏的东西是：每个标签下面的原始 key，两种状态下都在。
+
+## 磁盘上的进度平面
+
+实时进度是与已封存记录刻意分开的第二个平面（`src/clousight_bench/core/progress.py`）：
+
+```
+results/.progress/<run_id>/
+├── state.json     当前快照，原子替换（写 tmp + os.replace）
+├── stream.jsonl   仅追加、有序的事件日志；每个事件带单调递增的 `seq`
+└── cancel         零字节标记——读者唯一可以创建的东西
+```
+
+几条关键性质：
+
+- **可丢弃，且在记录之外。** 这里的任何东西都不被 `record_digest` 覆盖，任何东西都无法改变结论，且一旦已封存记录存在，整个目录就会被清掉。任何时刻删掉 `results/.progress/`，除了实时视图什么都不会丢。
+- **刻意加点前缀。** 一个带 `status` 字段的 `state.json`，距离被一句随手写的 `rglob("*.json")` 当成结果记录只有一步之遥。
+- **尽力而为。** 每次写入都被兜住：IO 失败只在 debug 级别打一条日志，把该次运行剩下的进度平面关掉，测评继续跑。
+- **有界。** 超过上限后写入方选择**丢弃**而不是继续增长，而且只丢可丢的类别——`log` 和 `sample`。`stage` 和 `step` 永远不丢：它们就是这次运行的形状。丢弃计数会写进 `state.json` 并在 UI 上明示。
+- **会被回收。** 运行启动时和查看器启动时各扫一次陈旧目录，这样一台在测评中途断电的机器不会永远显示一行幽灵般的“running”。一个仍然声称在运行、但进程已经消失的快照会被报成 `abandoned`，而不是永远挂着。
+- **有版本。** `state.json` 带 `"schema": "progress/1"`；不认识该 schema 的读者应当忽略该目录，而不是猜。
+
+三个环境变量用来调节它：
+
+| 变量 | 默认值 | 它限制什么 |
+|---|---|---|
+| `CLOUSIGHT_PROGRESS_MAX_LINES` | `20000` | `stream.jsonl` 的行数上限，超过后开始丢 `log`/`sample` 事件 |
+| `CLOUSIGHT_PROGRESS_MAX_BYTES` | `8388608`（8 MiB） | `stream.jsonl` 的字节上限，效果同上 |
+| `CLOUSIGHT_PROGRESS_GRACE_S` | `120` | 已结束运行的目录存活多久，以便订阅者读到交接信息 |
+
+## API
+
+| 路由 | 返回 |
+|---|---|
+| `GET /api/meta` | 结果目录的 basename、版本、记录数、飞行中的运行数 |
+| `GET /api/records` | 每条记录的摘要，最新在前 |
+| `GET /api/board` | 域 → 套件 看板，含每个套件最新一次运行 |
+| `GET /api/suite/<domain>/<suite_id>` | 该套件的各平台：最新运行、有界历史、指标并集 |
+| `GET /api/record/<run_id>` | 完整记录字典 |
+| `GET /api/record/<run_id>/trajectory` | `{spans, t0, source}`——见下文“轨迹数据” |
+| `GET /api/progress` | `{runs: [...]}`——进度平面仍然知道的所有运行 |
+| `GET /api/progress/<run_id>` | `{state, events}`；`?since=<seq>` 只返回更新的事件 |
+| `GET /api/progress/<run_id>/stream` | Server-Sent Events；`?since=<seq>` 断点续传 |
+| `POST /api/progress/<run_id>/cancel` | 请求中止（守卫见下） |
+
+其余一律返回带 JSON body 的 404——这个应用是 hash 路由，没有会把打错的地址变成 HTTP 200 的 SPA 回退。
+
+SSE 流在快照变化时发 `state` 帧，用 `events` 帧携带流事件，每 15 秒发一条 `: heartbeat` 注释以免空闲代理掐断连接，最后发一帧 `done`。它每 400 毫秒轮询这两个文件，而不是监视它们——这个平面刻意就是没有通知通道的普通文件。每条流在其整个生命周期里独占一个服务器线程，因此有硬性上限：**同时 8 条流**（第 9 条拿到 503），以及每条流 **6 小时**的生命上限。每个事件都带 `seq`，浏览器在重连后用它作为续传令牌。
 
 ## 开发与构建
 
-查看器是位于 `web/` 下的 React 18 + TypeScript + Vite + Tailwind 应用。其生产构建产物**已提交**在 `src/clousight_bench/resources/viewer/dist/` 并随 wheel 一起发布，因此安装本包永远不需要 Node。
+查看器是位于 `web/` 下的 React + TypeScript + Vite + Tailwind 应用。其生产构建产物**已提交**在 `src/clousight_bench/resources/viewer/dist/` 并随 wheel 一起发布，因此安装本包永远不需要 Node。
 
 ```bash
 scripts/build_viewer.sh    # npm ci + npm run build -> resources/viewer/dist/
+cd web && npm test         # vitest：路由、词表、ETA、格式化、实时 step 嵌套、事件流归约
 cd web && npm run dev      # Vite 开发服务器（API 指向一个运行中的 csbench serve）
 ```
 
-修改 `web/` 下的任何内容后，需在同一变更中重新构建并提交生成的 `dist/`——测试校验的是已提交的构建产物，而不仅是源码。
+修改 `web/` 下的任何内容后，需在同一变更中重新构建并提交生成的 `dist/`——测试校验的是已提交的构建产物，而不仅是源码。CI 的 `viewer-dist` job 会跑 `npm test`、重新构建，并在已提交的 `dist/` 与重建结果不是逐字节一致时失败。
 
 ## 范围与安全
 
 - 默认绑定 `127.0.0.1`。没有任何鉴权——请勿暴露到公网接口。
+- `Host` 头不是绑定主机或 localhost 别名的请求一律 403（DNS rebinding 守卫）。该守卫位于方法分发之上，因此 `POST` 不可能落到某个措辞不同的副本后面。
+- **中止端点**是这个服务器有史以来唯一的写操作路由，因此被相应地围了起来：共用的 Host 守卫、必须携带的 `X-Csbench-Progress: 1` 头（自定义头是跨域 `<form>` 够不着的，这正好堵死简单表单 CSRF 这一形态）、拒绝任何请求体，以及 run_id 必须先是一个纯 `[A-Za-z0-9._-]+` token 才能去指代磁盘上的任何东西。它能做的极限，就是给一次仍在运行的运行创建一个零字节标记。
+- **缓存策略**：文档和所有 JSON API 响应一律 `no-store`——它们全都是活状态（SSE 流发的是 `no-cache`）；`/assets/*` 一律 `public, max-age=31536000, immutable`——这些文件名由 Vite 构建按内容哈希生成。没有前半条，升级 `csbench` 后刷新会拿到缓存的 `index.html`，而它引用的 asset 哈希在新 wheel 里并不存在：一个白屏，控制台里还什么都不说。
 - 构建后的应用是**离线优先**的：一切（React、ECharts、样式、两套语言词典）都打包进已提交的 `dist/`，只使用系统字体栈，**无任何外部请求**——构建期守卫加测试共同强制所有 dist 文件不含绝对 URL。
-- 它在严格 CSP（`script-src 'self'; style-src 'self'`）下提供服务，无任何内联内容（测试强制 `index.html` 不含内联脚本、样式或事件处理器）；服务器提供的字符串始终以纯文本渲染，绝不作为标记解析（`dangerouslySetInnerHTML` 被测试禁用）。
-- 静态文件服务在打包的 `dist/` 目录内做包含性检查；`..` 路径穿越和未知扩展名返回 404。
-- API 只读：`GET /api/records`、`GET /api/record/<run_id>`、`GET /api/record/<run_id>/trajectory`。artifact 读取被限制在结果目录内部。
+- 它在严格 CSP（`default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'`）下提供服务，无任何内联内容（测试强制 `index.html` 不含内联脚本、样式或事件处理器）；服务器提供的字符串始终以纯文本渲染，绝不作为标记解析（`dangerouslySetInnerHTML` 被测试禁用）。
+- 静态文件服务在**任何路径拼接之前**就做包含性检查；`..`、路径分隔符、冒号和未知扩展名一律返回 404。
+- artifact 与 trace 的读取都会先 resolve，并且必须留在结果目录内部。`/api/meta` 只公开结果目录的 **basename**，绝不公开完整路径——进度交接里的记录路径用相对路径，也是同一个理由。
 
 ## 轨迹数据
 
-轨迹页读取记录的 `trajectory` artifact（`application/jsonl`）：每行一个 span 对象。主要形态是 **v3 OTel 原生** span（`core/sut_span.py`）：`span_id / trace_id / parent_span_id / name / start_unix_nano / end_unix_nano / status / attributes`，其中 `status` 为 OTel 的 `OK` / `ERROR` / `UNSET`，且 `attributes` 必须至少包含一个语义约定命名空间的键——`gen_ai.*`（LLM/工具活动）、`db.*`（查询）或 `csbench.*`（阶段/流）——作为 kind 判别键。旧版 **v2** span（`parent_id`、`t_start` / `t_end`、`attrs`、字面 `kind`）仍被查看器接受并归一化。记录如何引用 artifact 参见结果记录 schema（`src/clousight_bench/resources/schemas/result-record-0.4.schema.json`）。
+轨迹页读取 `/api/record/<run_id>/trajectory`，它有两个来源，并在 `source` 字段里说明用的是哪一个：
+
+- **`artifact`**——记录里 `kind=trajectory` 的边车文件（`application/jsonl`），每行一个 span。只有 official/agent 类运行会产出它，而且它是被测系统自己对做了什么的陈述，所以只要它在就优先用它。一个**声明了却读不出来**的 artifact 会返回 404，而不是悄悄降级：记录声称的是那个文件，渲染另一个文件就是在来源上撒谎。
+- **`run-trace`**——`results/traces/<trace_id>.jsonl`，**每次**运行都会在 finalize 时写出（`core.tracing.emit_run_trace`），记录通过 `extensions.core.trace_id` 指向它。在有这个回退之前，大多数运行的瀑布图是空白的。
+
+主要的 span 形态是 **v3 OTel 原生** span（`core/sut_span.py`）：`span_id / trace_id / parent_span_id / name / start_unix_nano / end_unix_nano / status / attributes`，其中 `status` 为 OTel 的 `OK` / `ERROR` / `UNSET`，且 `attributes` 必须至少包含一个语义约定命名空间的键——`gen_ai.*`（LLM/工具活动）、`db.*`（查询）或 `csbench.*`（阶段/流）——作为 kind 判别键。旧版 **v2** span（`parent_id`、`t_start` / `t_end`、`attrs`、字面 `kind`）仍被查看器接受并归一化。记录如何引用 artifact 参见结果记录 schema（`src/clousight_bench/resources/schemas/result-record-0.4.schema.json`）。
