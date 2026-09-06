@@ -441,7 +441,7 @@ def _remove_empty_run_dir(run_dir: Path) -> None:
     try:
         run_dir.rmdir()
     except FileNotFoundError:
-        pass
+        logger.debug("failed sidecar directory %s was already gone", run_dir)
     except OSError:
         logger.warning("could not remove failed sidecar directory %s", run_dir)
 

@@ -39,6 +39,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import string
 import time
 import uuid
 from typing import Any
@@ -60,13 +61,10 @@ def _hex_id(raw: str, length: int) -> str:
     honesty. Hex-shaped ids are case-folded; non-hex raw ids hash case-sensitively.
     """
     candidate = raw.lower()
-    if len(candidate) == length:
-        try:
-            int(candidate, 16)
-        except ValueError:
-            pass
-        else:
-            return candidate
+    # Not `int(candidate, 16)`: that also accepts "+", "_" and surrounding
+    # whitespace, none of which is a W3C-shaped id. Check the digits directly.
+    if len(candidate) == length and all(c in string.hexdigits for c in candidate):
+        return candidate
     return hashlib.sha256(raw.encode()).hexdigest()[:length]
 
 

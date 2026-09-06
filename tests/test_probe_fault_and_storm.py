@@ -231,7 +231,12 @@ def test_retry_storm_produces_new_shape():
             body = _json.loads(self.rfile.read(n) or b"{}")
             payload = _json.loads(body["messages"][0]["content"])
             corr = payload.get("_correlation_id") or ""
-            base = payload.get("mock_base_url") or mock_base
+            # Deliberately the closure, NOT payload["mock_base_url"]: this fake
+            # only ever talks to the mock server the test just started (the spec
+            # below sends that same value), and reading a URL back out of the
+            # request body makes this handler a request-forgery gadget --
+            # CodeQL's py/partial-ssrf flagged exactly that.
+            base = mock_base
             import urllib.request
 
             # Simulate agent making 3 attempts (lc_agent contract), all failing

@@ -21,10 +21,13 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import logging
 import socket
 import threading
 import time
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -161,8 +164,9 @@ class DisruptionProxy:
                 if wait > 0:
                     time.sleep(wait)
                 dst.sendall(data)
-        except OSError:
-            pass
+        except OSError as exc:
+            # Expected: resetting a relayed connection is what this proxy is for.
+            logger.debug("disruption: relay leg ended: %s", exc)
         finally:
             _close_pair(pair)
             with self._lock:

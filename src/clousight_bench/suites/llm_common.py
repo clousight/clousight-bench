@@ -12,6 +12,7 @@ endpoint path; offline/mock paths need nothing.
 
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import json
 import re
@@ -180,10 +181,8 @@ def _host_to_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | No
     """Parse a URL host to an IP, covering dotted/IPv6 AND the integer encodings
     (decimal / ``0x`` hex) that ``requests`` resolves but ``ip_address(str)``
     rejects — so a metadata IP cannot slip past as ``http://2852039166/``."""
-    try:
+    with contextlib.suppress(ValueError):
         return ipaddress.ip_address(host)
-    except ValueError:
-        pass
     try:
         return ipaddress.ip_address(int(host, 0))
     except (ValueError, TypeError):

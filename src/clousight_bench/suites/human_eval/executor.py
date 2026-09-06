@@ -17,6 +17,7 @@ the caller's decision to make in their own isolated environment.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -55,13 +56,12 @@ def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
     """SIGKILL the whole process group (POSIX) so a candidate that forked
     grandchildren cannot leave runaways after a timeout; fall back to a plain
     kill elsewhere."""
-    try:
+    # Already gone is the outcome we wanted, so nothing to handle.
+    with contextlib.suppress(ProcessLookupError, OSError):
         if _POSIX:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
         else:  # pragma: no cover - non-POSIX fallback
             proc.kill()
-    except (ProcessLookupError, OSError):  # pragma: no cover - already gone
-        pass
 
 
 def build_program(prompt: str, completion: str, test: str, entry_point: str) -> str:
