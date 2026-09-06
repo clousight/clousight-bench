@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { KIND_SLOTS } from "@/charts/palette";
 import { stepsToRows } from "@/features/live/liveRows";
 
 const step = (name: string, start: number, end: number, parent = "", status = "ok") => ({
@@ -51,9 +52,12 @@ describe("stepsToRows", () => {
     expect(rows[0].endS).toBe(rows[0].startS);
   });
 
-  it("colours a query step as a query", () => {
+  it("uses the same kind vocabulary as a sealed span", () => {
+    // Not a private naming: these are what viewer/data.py::_v3_kind returns, so
+    // the live waterfall and the sealed one colour the same work the same way.
     const { rows } = stepsToRows([step("tpc-h.q7", 0, 1), step("tpc-h.load", 0, 1)]);
-    expect(rows.find((row) => row.name === "tpc-h.q7")?.kind).toBe("db_query");
-    expect(rows.find((row) => row.name === "tpc-h.load")?.kind).toBe("stage");
+    expect(rows.find((row) => row.name === "tpc-h.q7")?.kind).toBe("query");
+    expect(rows.find((row) => row.name === "tpc-h.load")?.kind).toBe("phase");
+    for (const row of rows) expect(Object.hasOwn(KIND_SLOTS, row.kind), row.kind).toBe(true);
   });
 });

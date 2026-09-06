@@ -58,13 +58,14 @@ export function stepsToRows(steps: ProgressStep[]): { rows: SpanRow[]; t0: numbe
 /**
  * Guess a span kind from the step name so the waterfall colours it.
  *
- * Only patterns we actually emit are recognised; anything else stays unkinded
- * and paints in the first categorical slot rather than being given a made-up
- * category.
+ * The result is one of the same kinds `viewer/data.py::_v3_kind` derives for a
+ * sealed span, so a live waterfall and the sealed one that replaces it colour
+ * the same work the same way. Only patterns we actually emit are recognised;
+ * anything else is a `phase`.
  */
 function kindOf(name: string): string {
-  if (/\.(q\d+|rf\d+|s\d+\.q\d+)$/.test(name)) return "db_query";
+  if (/\.(q\d+|rf\d+|s\d+\.q\d+)$/.test(name)) return "query";
   if (name.includes("llm") || name.includes("chat")) return "llm_call";
   if (name.includes("tool")) return "tool_call";
-  return "stage";
+  return "phase";
 }

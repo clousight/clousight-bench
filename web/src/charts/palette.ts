@@ -65,20 +65,34 @@ export function seriesColor(colors: string[], index: number): string {
   return colors[Math.min(index, colors.length - 1)];
 }
 
-/** Span kind → the meaning-named token it paints with. */
-const KIND_VARS: Record<string, string> = {
-  llm_call: "--chart-llm",
-  llm: "--chart-llm",
-  tool_call: "--chart-tool",
-  tool: "--chart-tool",
-  db_query: "--chart-db",
-  db: "--chart-db",
-  stage: "--chart-stage",
+/**
+ * Span kind → the token it paints with.
+ *
+ * These five are the whole vocabulary: `viewer/data.py::_v3_kind` derives them
+ * from a span's semconv attributes, and the live stream's reader maps onto the
+ * same five so a run and its sealed trace never colour the same thing
+ * differently.
+ *
+ * The assignment separates the pair that actually co-occurs at volume. A data
+ * benchmark's trace is ~900 `query` spans inside ~15 `phase` spans, so those
+ * two take blue and orange (all-pairs CVD ΔE 24.7, normal-vision 33.6). An
+ * agent trace's `llm_call`/`tool_call` pair takes aqua and yellow, which sits
+ * at ΔE 9.1 protan — above the floor, and legal there only because the
+ * waterfall names every row in text beside its bar.
+ */
+export const KIND_SLOTS: Record<string, string> = {
+  phase: "--chart-1",
+  query: "--chart-2",
+  llm_call: "--chart-3",
+  tool_call: "--chart-4",
+  // `span` is data.py's "no discriminator matched" — it takes the first slot
+  // rather than a colour invented for it.
+  span: "--chart-1",
 };
 
 export function readKindColors(): Record<string, string> {
   const resolved: Record<string, string> = {};
-  for (const [kind, varName] of Object.entries(KIND_VARS)) {
+  for (const [kind, varName] of Object.entries(KIND_SLOTS)) {
     resolved[kind] = resolveCssColor(varName);
   }
   return resolved;

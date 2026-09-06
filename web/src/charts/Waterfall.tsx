@@ -166,14 +166,15 @@ export function Waterfall({ rows, t0, onSelect, axisMaxMs }: WaterfallProps) {
 /** Present whenever more than one kind is on screen, so hue is never the only cue. */
 function KindLegend({ kinds }: { kinds: string[] }) {
   const { t } = useI18n();
+  // Kept in step with KIND_VARS in charts/palette.ts by
+  // charts/palette.test.ts — a legend that disagrees with its chart is worse
+  // than no legend.
   const swatch: Record<string, string> = {
-    llm_call: "bg-chart-1",
-    llm: "bg-chart-1",
-    tool_call: "bg-chart-3",
-    tool: "bg-chart-3",
-    db_query: "bg-chart-2",
-    db: "bg-chart-2",
-    stage: "bg-chart-4",
+    phase: "bg-chart-1",
+    query: "bg-chart-2",
+    llm_call: "bg-chart-3",
+    tool_call: "bg-chart-4",
+    span: "bg-chart-1",
   };
   return (
     <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
