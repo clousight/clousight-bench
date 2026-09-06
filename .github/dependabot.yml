@@ -12,6 +12,22 @@ updates:
     commit-message:
       prefix: "deps"
 
+  # The viewer front-end (web/), whose build output is committed under
+  # src/clousight_bench/resources/viewer/dist and shipped in the wheel -- so a
+  # vulnerable npm package reaches users even though nobody installs from npm.
+  # A bump here needs `cd web && npm ci && npm run build` + the rebuilt dist
+  # committed, which the ci.yml `viewer-dist` job enforces.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    groups:
+      viewer-deps:
+        patterns: ["*"]
+    labels: ["dependencies", "viewer"]
+    commit-message:
+      prefix: "deps"
+
   # GitHub Actions used by the CI / release workflows.
   - package-ecosystem: "github-actions"
     directory: "/"
