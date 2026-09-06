@@ -121,6 +121,28 @@ helper escapes control characters and caps the length. This is the fix CodeQL's
 keeping log arguments as `%s` arguments (never f-strings) is what lets the
 sanitizer sit in one place.
 
+### Viewer dependency bumps
+
+`src/clousight_bench/resources/viewer/dist` is committed and ships in the wheel,
+so `viewer-dist` fails on **every** `web/` dependency PR: Dependabot updates
+`package.json` / `package-lock.json` but cannot rebuild the bundle. Finish the
+PR by hand:
+
+```bash
+cd web && npm ci && npm run build     # writes ../src/clousight_bench/resources/viewer/dist
+git add src/clousight_bench/resources/viewer/dist
+```
+
+Deliberately **not** automated with a CI job that commits the rebuild: that job
+would have to run `npm ci` — arbitrary `postinstall` scripts from the
+just-bumped, not-yet-reviewed packages — while holding a write token. Rebuilding
+a supply-chain-sensitive artifact is the last place to hand out write access.
+
+A bump that crosses a major version also needs a render check before it lands,
+not just a green build: `csbench serve --results <dir>`, then confirm the record
+list, a record detail, the trace waterfall (the only ECharts consumer) and the
+locale/theme toggles, with the browser console clean.
+
 ### Live tests
 
 Tests that hit a real cloud endpoint (they need credentials) are marked
