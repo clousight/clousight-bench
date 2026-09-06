@@ -49,7 +49,7 @@ import platform as platform_mod
 import signal
 import threading
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -127,42 +127,35 @@ _INVALID_STAGES = ("VALIDATE", "DESCRIBE", "PREFLIGHT")
 _EMPTY_WORKLOAD: dict[str, Any] = {"workload": "", "workload_version": "", "assets": []}
 
 
-class _StageMirror(dict):
-    """The ``stages`` dict, with every transition mirrored to the progress plane.
+def _mirrored(on_set: Callable[[str, Any], None]) -> dict[str, Any]:
+    """A dict that reports every assignment to ``on_set``.
 
-    The orchestrator assigns stage outcomes at roughly twenty sites, several of
-    them inside ``except`` and ``finally`` blocks that only run on the unhappy
-    path. Mirroring on assignment means the live view cannot miss one, and a
-    stage added later needs no second edit here to show up.
+    The orchestrator assigns stage outcomes and durations at roughly twenty
+    sites, several inside ``except`` and ``finally`` blocks that only run on the
+    unhappy path. Mirroring on assignment means the live view cannot miss one,
+    and a stage added later needs no second edit here to show up.
+
+    The callback is a closure rather than an instance attribute deliberately:
+    a dict subclass that adds state has to answer what equality means, and here
+    the answer must stay plain dict equality — ``dict(stages) == {...}`` is
+    asserted all over the test suite, and mirroring is not part of a record's
+    identity.
     """
 
-    def __init__(self, progress: ProgressWriter) -> None:
-        super().__init__()
-        self._progress = progress
+    class _Mirror(dict[str, Any]):
+        def __setitem__(self, key: str, value: Any) -> None:
+            super().__setitem__(key, value)
+            on_set(key, value)
 
-    def __setitem__(self, stage: str, status: str) -> None:
-        super().__setitem__(stage, status)
-        self._progress.stage_end(stage, status)
+        def setdefault(self, key: str, default: Any = None) -> Any:
+            # dict.setdefault does not route through __setitem__, so it needs
+            # its own mirror or "SCORE: skipped" on the interrupt path would
+            # never be seen.
+            if key not in self:
+                self[key] = default
+            return self[key]
 
-    def setdefault(self, stage: str, status: Any = None) -> Any:
-        # dict.setdefault does not route through __setitem__, so it needs its own
-        # mirror or "SCORE: skipped" on the interrupt path would never be seen.
-        if stage not in self:
-            self[stage] = status
-        return self[stage]
-
-
-class _TimingMirror(dict):
-    """The ``timings`` dict, mirrored the same way. Durations are assigned
-    separately from statuses, so they need their own mirror."""
-
-    def __init__(self, progress: ProgressWriter) -> None:
-        super().__init__()
-        self._progress = progress
-
-    def __setitem__(self, stage: str, ms: float) -> None:
-        super().__setitem__(stage, ms)
-        self._progress.stage_time(stage, ms)
+    return _Mirror()
 
 
 def _max_persisted_items() -> int:
@@ -297,8 +290,8 @@ def execute(
         started_at=started_at,
     )
     progress.begin()
-    stages: dict[str, str] = _StageMirror(progress)
-    timings: dict[str, float] = _TimingMirror(progress)
+    stages: dict[str, str] = _mirrored(progress.stage_end)
+    timings: dict[str, float] = _mirrored(progress.stage_time)
     errors: list[StageError] = []
 
     # RESOLVE -- raises UserInputError; no record is written. Deliberately NOT

@@ -93,10 +93,28 @@ def progress_root(results_dir: Path) -> Path:
 
 
 def progress_dir(results_dir: Path, run_id: str) -> Path | None:
-    """This run's progress directory, or None when ``run_id`` is not a plain token."""
-    if not _RUN_ID_RE.match(run_id):
+    """This run's progress directory, or None when ``run_id`` cannot name one.
+
+    ``run_id`` reaches here straight off an HTTP path (the viewer's progress and
+    cancel routes), so this is the containment boundary for the whole plane.
+
+    The token pattern alone is not enough: ``".."`` matches ``[A-Za-z0-9._-]+``
+    perfectly well, and ``<results>/.progress/..`` is ``<results>`` — which
+    would have let a cancel request create ``<results>/cancel`` and a stream
+    read ``<results>/stream.jsonl``. So the relative segments are rejected by
+    name, and the result is then resolved and required to stay under the
+    progress root, belt and braces.
+    """
+    if not _RUN_ID_RE.match(run_id) or run_id in (".", ".."):
         return None
-    return progress_root(results_dir) / run_id
+    root = progress_root(results_dir)
+    candidate = root / run_id
+    try:
+        if not candidate.resolve().is_relative_to(root.resolve()):
+            return None
+    except OSError:  # unresolvable path (broken symlink, permissions)
+        return None
+    return candidate
 
 
 class ProgressReporter(Protocol):
