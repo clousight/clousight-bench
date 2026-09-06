@@ -61,6 +61,22 @@ describe("lookupMetric", () => {
   });
 });
 
+describe("the TPC-DS official composite's terms", () => {
+  it("names each term of the QphDS formula rather than prettifying its key", () => {
+    for (const key of [
+      "tpc-ds.load_time_s",
+      "tpc-ds.power_test_s",
+      "tpc-ds.throughput_test_s",
+      "tpc-ds.maintenance_test_s",
+    ]) {
+      const spec = lookupMetric(key);
+      expect(spec.known, key).toBe(true);
+      expect(spec.betterIs, key).toBe("lower");
+      expect(spec.format, key).toBe("duration_s");
+    }
+  });
+});
+
 describe("METRIC_SPECS", () => {
   it("has no duplicate keys", () => {
     const keys = METRIC_SPECS.map((spec) => spec.key);

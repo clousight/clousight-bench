@@ -33,8 +33,18 @@ export function SuiteView({ domain, suiteId }: { domain: string; suiteId: string
   if (compare.data === null) return <LoadingView />;
 
   const data = compare.data;
-  const keys = orderMetricKeys(data.metric_keys);
-  const trendKeys = keys.slice(0, TREND_LIMIT);
+  // Only columns some platform's LATEST run actually produced. `metric_keys` is
+  // the union over every run, and two runs of the same suite in different modes
+  // (TPC-H plain vs official) share almost no keys — so the union renders a
+  // table that is mostly em-dashes, comparing nothing.
+  const comparable = new Set<string>();
+  for (const platform of data.platforms) {
+    for (const [key, value] of Object.entries(platform.latest?.measurements ?? {})) {
+      if (typeof value === "number" && Number.isFinite(value)) comparable.add(key);
+    }
+  }
+  const keys = orderMetricKeys(data.metric_keys.filter((key) => comparable.has(key)));
+  const trendKeys = orderMetricKeys(data.metric_keys).slice(0, TREND_LIMIT);
 
   return (
     <div className="flex flex-col gap-5">

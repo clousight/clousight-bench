@@ -168,6 +168,46 @@ export const METRIC_SPECS: MetricSpec[] = [
     headline: true,
   },
   {
+    key: "tpc-ds.load_time_s",
+    label: bi("数据导入耗时", "Data load time"),
+    blurb: bi(
+      "生成并载入数据集所花的时间，计入官方 QphDS 公式。",
+      "Time to generate and load the dataset; it feeds the official QphDS formula.",
+    ),
+    format: "duration_s",
+    betterIs: "lower",
+  },
+  {
+    key: "tpc-ds.power_test_s",
+    label: bi("单流 Power 耗时", "Power test time"),
+    blurb: bi(
+      "单流跑完 99 条查询的时间，是 QphDS 公式的 T_PT 项。",
+      "Time for one stream to run all 99 queries — the T_PT term of the QphDS formula.",
+    ),
+    format: "duration_s",
+    betterIs: "lower",
+  },
+  {
+    key: "tpc-ds.throughput_test_s",
+    label: bi("多流 Throughput 耗时", "Throughput test time"),
+    blurb: bi(
+      "并发多流跑完查询的时间，是 QphDS 公式的 T_TT 项。这个窗口本身就是被测量的量，所以运行期间不上报中间进度。",
+      "Time for the concurrent streams to finish — the T_TT term of the QphDS formula. This window is itself the measurement, which is why nothing is reported from inside it.",
+    ),
+    format: "duration_s",
+    betterIs: "lower",
+  },
+  {
+    key: "tpc-ds.maintenance_test_s",
+    label: bi("数据维护耗时", "Data maintenance time"),
+    blurb: bi(
+      "插入/删除轮次的时间，是 QphDS 公式的 T_DM 项。",
+      "Time for the insert/delete rounds — the T_DM term of the QphDS formula.",
+    ),
+    format: "duration_s",
+    betterIs: "lower",
+  },
+  {
     key: "tpc-h.acid_*",
     label: bi("ACID 检查", "ACID check"),
     blurb: bi("对应的 ACID 性质是否通过检查。1 = 通过。", "Whether that ACID property passed its probe. 1 = pass."),
