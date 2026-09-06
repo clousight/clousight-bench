@@ -249,7 +249,9 @@ jobs:
 
   viewer-dist:
     # The committed viewer dist/ must be the exact build of web/ — a stale
-    # bundle silently shipping in the wheel is a release bug.
+    # bundle silently shipping in the wheel is a release bug. The same job runs
+    # the viewer's unit tests, since it is the one that already has node and
+    # the npm cache warm.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -258,8 +260,12 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Install viewer dependencies
+        run: cd web && npm ci
+      - name: Viewer unit tests
+        run: cd web && npm test
       - name: Rebuild viewer dist
-        run: cd web && npm ci && npm run build
+        run: cd web && npm run build
       - name: Committed dist must be byte-identical to the rebuild
         run: git diff --exit-code -- src/clousight_bench/resources/viewer/dist
 

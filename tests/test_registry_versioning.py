@@ -1,5 +1,6 @@
 import pytest
 
+from clousight_bench import PLUGIN_API_VERSION
 from clousight_bench.core import registry
 from clousight_bench.core.plugin import DomainPack
 from clousight_bench.core.registry import IncompatiblePluginError
@@ -36,7 +37,7 @@ def test_incompatible_domain_rejected(monkeypatch):
     monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("future", _FutureDomain)])
     with pytest.raises(IncompatiblePluginError) as ei:
         registry.load_domains()
-    assert "future" in str(ei.value) and "3.0" in str(ei.value)
+    assert "future" in str(ei.value) and PLUGIN_API_VERSION in str(ei.value)
 
 
 def test_compatible_domain_loads(monkeypatch):
@@ -90,7 +91,7 @@ def test_incompatible_suite_rejected(monkeypatch):
     monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("future", _FutureSuite)])
     with pytest.raises(IncompatiblePluginError) as ei:
         registry.load_benchmark_suites()
-    assert "future" in str(ei.value) and "3.0" in str(ei.value)
+    assert "future" in str(ei.value) and PLUGIN_API_VERSION in str(ei.value)
 
 
 def test_compatible_suite_loads(monkeypatch):
@@ -102,7 +103,7 @@ def test_incompatible_evaluator_rejected(monkeypatch):
     monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("future", _FutureEvaluator)])
     with pytest.raises(IncompatiblePluginError) as ei:
         registry.load_evaluators()
-    assert "future" in str(ei.value) and "3.0" in str(ei.value)
+    assert "future" in str(ei.value) and PLUGIN_API_VERSION in str(ei.value)
 
 
 @pytest.mark.real_registry
@@ -128,4 +129,4 @@ def test_v1_plugin_is_refused_by_the_2_0_gate(monkeypatch):
     monkeypatch.setattr(registry, "entry_points", lambda group: [_FakeEP("v1-era", _V1Domain)])
     with pytest.raises(IncompatiblePluginError) as ei:
         registry.load_domains()
-    assert "v1-era" in str(ei.value) and "3.0" in str(ei.value)
+    assert "v1-era" in str(ei.value) and PLUGIN_API_VERSION in str(ei.value)
