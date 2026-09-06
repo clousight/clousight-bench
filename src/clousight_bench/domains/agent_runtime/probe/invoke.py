@@ -9,6 +9,7 @@ data-plane endpoint (spec.target_endpoint) is all it needs.
 from __future__ import annotations
 
 import contextlib
+import logging
 import time
 import uuid
 from typing import Any
@@ -21,6 +22,8 @@ from clousight_bench.domains.agent_runtime.adapters.base import (
 )
 
 from .jobs import JobSpec
+
+logger = logging.getLogger(__name__)
 
 
 class ProbeInvoker:
@@ -191,8 +194,9 @@ class ProbeInvoker:
                 parsed = _json.loads(chunk_str)
                 delta = (parsed.get("choices") or [{}])[0].get("delta") or {}
                 merged_content += str(delta.get("content") or "")
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as exc:
+                # Skip the bad chunk, keep the rest of the stream.
+                logger.debug("probe: skipping unparseable stream chunk: %s", exc)
 
         # Build a response that looks like a normal (non-streaming) chat completion.
         full_resp = {"choices": [{"message": {"role": "assistant", "content": merged_content}}]}

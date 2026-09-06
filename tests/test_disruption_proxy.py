@@ -27,13 +27,14 @@ def _echo_server() -> tuple[str, int, socket.socket]:
 
             def _echo(c: socket.socket) -> None:
                 try:
-                    while True:
-                        data = c.recv(4096)
-                        if not data:
-                            return
-                        c.sendall(data)
-                except OSError:
-                    pass
+                    # The proxy under test resets connections on purpose, so an
+                    # OSError here is this leg ending, not a test failure.
+                    with contextlib.suppress(OSError):
+                        while True:
+                            data = c.recv(4096)
+                            if not data:
+                                return
+                            c.sendall(data)
                 finally:
                     c.close()
 

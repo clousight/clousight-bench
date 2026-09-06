@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import threading
 
@@ -19,16 +20,17 @@ def _serve_once(reply: bytes) -> tuple[str, int, threading.Thread]:
 
     def _run() -> None:
         try:
-            conn, _ = srv.accept()
-            conn.settimeout(2)
-            try:
-                conn.recv(64)
-                if reply:
-                    conn.sendall(reply)
-            finally:
-                conn.close()
-        except OSError:
-            pass
+            # The probe may hang up at any point; that is an OSError here and is
+            # the expected end of this one-shot server, not a failure.
+            with contextlib.suppress(OSError):
+                conn, _ = srv.accept()
+                conn.settimeout(2)
+                try:
+                    conn.recv(64)
+                    if reply:
+                        conn.sendall(reply)
+                finally:
+                    conn.close()
         finally:
             srv.close()
 
