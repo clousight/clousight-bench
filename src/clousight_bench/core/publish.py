@@ -13,6 +13,7 @@ possible. A failed or indeterminate upload is evidence rather than a silent gap.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -80,10 +81,9 @@ class TrustedRecordSnapshot:
 def publisher_name(publisher: ResultPublisher) -> tuple[str, BaseException | None]:
     """Read and normalize an extension-owned name without trusting the property."""
     fallback = "publisher"
-    try:
+    # A hostile metaclass is extension code too.
+    with contextlib.suppress(Exception):
         fallback = _normalize_name(type(publisher).__name__) or fallback
-    except Exception:  # noqa: BLE001 - a hostile metaclass is extension code too
-        pass
     try:
         raw = publisher.name
         if not isinstance(raw, str):
@@ -314,20 +314,16 @@ def _locked_receipts(results_dir: Path, *, readable: bool = False) -> Iterator[t
             os.fchmod(fd, 0o600)
             if created:
                 _fsync_directory(root)
-            try:
+            with contextlib.suppress(ImportError):  # pragma: no cover - Windows has the thread lock
                 import fcntl
 
                 fcntl.flock(fd, fcntl.LOCK_EX)
-            except ImportError:  # pragma: no cover - Windows has the thread lock
-                pass
             yield fd, path
         finally:
-            try:
+            with contextlib.suppress(ImportError):  # pragma: no cover
                 import fcntl
 
                 fcntl.flock(fd, fcntl.LOCK_UN)
-            except ImportError:  # pragma: no cover
-                pass
             os.close(fd)
 
 

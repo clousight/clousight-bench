@@ -8,6 +8,7 @@ data-plane endpoint (spec.target_endpoint) is all it needs.
 
 from __future__ import annotations
 
+import contextlib
 import time
 import uuid
 from typing import Any
@@ -269,10 +270,8 @@ class ProbeInvoker:
         cold_start_ms: float | None = None
         for _ in range(max_attempts):
             t0 = time.perf_counter()
-            try:
+            with contextlib.suppress(Exception):
                 self.invoke(session_id, body)
-            except Exception:
-                pass
             ms = (time.perf_counter() - t0) * 1000
             if cold_start_ms is None:
                 cold_start_ms = round(ms, 2)

@@ -6,6 +6,7 @@ Expected result: serialized=False, fast_p50_baseline and fast_p50_under_slow
 both measured and positive.
 """
 
+import contextlib
 import json
 import threading
 import time
@@ -50,12 +51,10 @@ class _FakeAgent(BaseHTTPRequestHandler):
             req.data = b"{}"
 
         ok = False
-        try:
+        with contextlib.suppress(Exception):
             with urllib.request.urlopen(req, timeout=5) as resp:
                 resp.read()
                 ok = True
-        except Exception:
-            pass
 
         result = {"ok": ok, "status": 200 if ok else 500}
         content = json.dumps(result)

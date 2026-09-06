@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .blob_sink import BlobChunkSink
 
+import contextlib
+
 import requests
 
 from clousight_bench.core.observation import ObservationBundle
@@ -299,10 +301,8 @@ def run_sustained_load(
         session_id=warm_session,
     )
     _t0 = time.perf_counter()
-    try:
+    with contextlib.suppress(Exception):
         inv.invoke(warm_session, warm_body)
-    except Exception:
-        pass
     probe_ms = (time.perf_counter() - _t0) * 1000
     inv.destroy_session(warm_session)
     estimated_latency_s = max(probe_ms / 1000, 0.1)
@@ -474,10 +474,9 @@ def _timed_invoke(inv: ProbeInvoker, session_id: str, body: dict[str, Any]) -> f
     """One invoke on ``session_id``; return end-to-end latency in ms (errors → the
     elapsed time, so a slow-then-failing cold wake still reads as slow)."""
     t0 = time.perf_counter()
-    try:
+    # Latency is the signal, not success.
+    with contextlib.suppress(Exception):
         inv.invoke(session_id, body)
-    except Exception:  # noqa: BLE001 — latency is the signal, not success
-        pass
     return (time.perf_counter() - t0) * 1000
 
 
@@ -1018,8 +1017,10 @@ def run_scaling(
 
     points = sorted(points, key=lambda p: p.concurrency)
     extra = [
-        "AgentRun GetAgentRuntime does not expose live instance counts; "
-        "elasticity behaviour cannot be observed."
+        (
+            "AgentRun GetAgentRuntime does not expose live instance counts; "
+            "elasticity behaviour cannot be observed."
+        )
     ]
     return ObservationBundle(
         observations={
@@ -1089,10 +1090,8 @@ def run_hol_blocking(
             correlation_id=corr,
         )
         t0 = time.perf_counter()
-        try:
+        with contextlib.suppress(Exception):
             inv.invoke(session_id, body)
-        except Exception:
-            pass
         return (time.perf_counter() - t0) * 1000
 
     try:
@@ -1109,12 +1108,10 @@ def run_hol_blocking(
     # Configure latency on the mock tool server for the slow target.
     slow_corr = uuid.uuid4().hex
     latency_cfg: dict[str, Any] = {"target": slow_target, "add_ms": slow_latency_ms, "corr": slow_corr}
-    try:
+    with contextlib.suppress(Exception):
         requests.post(
             latency_url, json=latency_cfg, headers=_auth_headers(mock_token), timeout=10
         ).raise_for_status()
-    except Exception:
-        pass  # best-effort; probe continues even if mock unreachable
 
     session_b = inv.create_session()
     # Warm session_b too so Phase B measures HOL blocking, not session_b's cold start.
@@ -1129,10 +1126,8 @@ def run_hol_blocking(
             correlation_id=slow_corr,
         )
         t0 = time.perf_counter()
-        try:
+        with contextlib.suppress(Exception):
             inv.invoke(session_b, body)
-        except Exception:
-            pass
         return (time.perf_counter() - t0) * 1000
 
     try:
@@ -1144,10 +1139,8 @@ def run_hol_blocking(
     finally:
         inv.destroy_session(session_b)
         # Clear latency config so it doesn't affect other probes.
-        try:
+        with contextlib.suppress(Exception):
             requests.post(latency_url, json={}, headers=_auth_headers(mock_token), timeout=5)
-        except Exception:
-            pass
 
     fast_p50_under_slow = percentiles(under_slow_latencies, [50])[50]
     hol_ratio = round(fast_p50_under_slow / fast_p50_baseline, 4) if fast_p50_baseline > 0 else 0.0
@@ -1214,15 +1207,13 @@ def run_fault_recovery(
     warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
     cold_start_ms, warmed = inv.ensure_warm(session, warm_threshold_ms=warm_threshold_ms)
 
-    try:
+    # If mock is unreachable, best-effort — probe will still proceed.
+    with contextlib.suppress(Exception):
         import requests as _requests
 
         _requests.post(
             fault_url, json=fault_config, headers=_auth_headers(mock_token), timeout=10
         ).raise_for_status()
-    except Exception:
-        # If mock is unreachable, best-effort — probe will still proceed.
-        pass
 
     progress_cb(JobProgress("configure", 1, 3, time.perf_counter() - t_start), {})
 
@@ -1260,7 +1251,7 @@ def run_fault_recovery(
 
     # Step 3: Read mock server call counter for this corr bucket.
     observed_attempts = 0
-    try:
+    with contextlib.suppress(Exception):
         import requests as _requests
 
         state_resp = _requests.get(
@@ -1269,8 +1260,6 @@ def run_fault_recovery(
         state_resp.raise_for_status()
         counts = state_resp.json().get("call_counts", {})
         observed_attempts = int(counts.get(f"prices|{corr}", 0))
-    except Exception:
-        pass  # can't read counter; observed_attempts stays 0
 
     progress_cb(JobProgress("observe", 3, 3, time.perf_counter() - t_start), {})
 
@@ -1334,15 +1323,13 @@ def run_retry_storm(
     warm_threshold_ms = float(spec.params.get("warm_threshold_ms", 30000.0))
     cold_start_ms, warmed = inv.ensure_warm(session, warm_threshold_ms=warm_threshold_ms)
 
-    try:
+    # If mock is unreachable, best-effort — probe will still proceed.
+    with contextlib.suppress(Exception):
         import requests as _requests
 
         _requests.post(
             fault_url, json=fault_config, headers=_auth_headers(mock_token), timeout=10
         ).raise_for_status()
-    except Exception:
-        # If mock is unreachable, best-effort — probe will still proceed.
-        pass
 
     progress_cb(JobProgress("configure", 1, 3, time.perf_counter() - t_start), {})
 
@@ -1377,7 +1364,7 @@ def run_retry_storm(
 
     # Step 3: Read mock server call counter for this corr bucket.
     total_attempts = 0
-    try:
+    with contextlib.suppress(Exception):
         import requests as _requests
 
         state_resp = _requests.get(
@@ -1386,8 +1373,6 @@ def run_retry_storm(
         state_resp.raise_for_status()
         counts = state_resp.json().get("call_counts", {})
         total_attempts = int(counts.get(f"prices|{corr}", 0))
-    except Exception:
-        pass  # can't read counter; total_attempts stays 0
 
     progress_cb(JobProgress("observe", 3, 3, time.perf_counter() - t_start), {})
 

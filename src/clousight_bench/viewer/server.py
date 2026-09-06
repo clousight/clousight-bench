@@ -31,6 +31,7 @@ from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from clousight_bench import __version__
+from clousight_bench.core.logsafe import sanitize_for_log
 from clousight_bench.viewer.data import count_records, list_records, load_record, load_trajectory
 
 logger = logging.getLogger(__name__)
@@ -120,7 +121,11 @@ def create_server(results_dir: Path, host: str = "127.0.0.1", port: int = 0) -> 
         server_version = "csbench-viewer"
 
         def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 (stdlib signature)
-            logger.debug("viewer: " + format, *args)
+            # The stdlib passes the raw request line through *args, so the
+            # rendered message is client-controlled: sanitize it, and render it
+            # eagerly only when someone is actually listening at DEBUG.
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("viewer: %s", sanitize_for_log(format % args if args else format))
 
         def do_GET(self) -> None:
             self._route(head_only=False)
@@ -133,13 +138,13 @@ def create_server(results_dir: Path, host: str = "127.0.0.1", port: int = 0) -> 
             try:
                 self._respond(raw_path, head_only)
             except ConnectionError:  # includes BrokenPipeError: client went away mid-write
-                logger.debug("viewer: client disconnected during %s", raw_path)
+                logger.debug("viewer: client disconnected during %s", sanitize_for_log(raw_path))
             except Exception:  # never let a handler bug kill the connection silently
-                logger.exception("viewer: error handling %s", raw_path)
+                logger.exception("viewer: error handling %s", sanitize_for_log(raw_path))
                 try:
                     self._send_json(500, {"error": "internal server error"}, head_only)
                 except ConnectionError:  # client also gone before the 500 could be sent
-                    logger.debug("viewer: client disconnected before 500 for %s", raw_path)
+                    logger.debug("viewer: client disconnected before 500 for %s", sanitize_for_log(raw_path))
 
         def _host_allowed(self) -> bool:
             value = self.headers.get("Host")

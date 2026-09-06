@@ -398,11 +398,11 @@ def test_query_series_closes_its_connection(tmp_path, monkeypatch):
     monkeypatch.setattr(duckdb, "connect", _spy)
     store.query_series()
     assert len(opened) == 1
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.Error):
         opened[0].execute("SELECT 1")
 
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.Error):
         store.query_series("SELECT nope FROM series")
     assert len(opened) == 2
-    with pytest.raises(Exception):
+    with pytest.raises(duckdb.Error):
         opened[1].execute("SELECT 1")

@@ -36,6 +36,7 @@ immediately (loud, never a silently-dropped span).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import time
@@ -166,10 +167,9 @@ class SweSutClient:
             response = self._invoke(transport, session_id, body)
             t_end = time.time()  # invoke bounds only — never includes destroy_session
         finally:
-            try:
+            # Session cleanup is best-effort.
+            with contextlib.suppress(Exception):
                 self._adapter.destroy_session(session_id)
-            except Exception:  # noqa: BLE001 - session cleanup is best-effort
-                pass
         # A non-monotonic clock must never trip validate_span after paying cloud cost.
         t_end = max(t_end, t_start)
 

@@ -55,12 +55,16 @@ def _load_sample() -> list[dict[str, Any]]:
 def format_prompt(q: dict[str, Any]) -> str:
     """The standard 0-shot MMLU prompt: question + lettered choices, ask for a letter."""
     lines = [
-        "The following is a multiple choice question. Reply with ONLY the letter "
-        "(A, B, C, or D) of the correct answer.",
+        (
+            "The following is a multiple choice question. Reply with ONLY the letter "
+            "(A, B, C, or D) of the correct answer."
+        ),
         "",
         q["question"],
     ]
-    for letter, choice in zip(_LETTERS, q["choices"]):
+    # strict: MMLU is 4-choice by definition, so a mismatch is a corrupt item,
+    # not something to paper over with a silently truncated prompt.
+    for letter, choice in zip(_LETTERS, q["choices"], strict=True):
         lines.append(f"{letter}. {choice}")
     lines.append("Answer:")
     return "\n".join(lines)

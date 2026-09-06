@@ -23,6 +23,7 @@ returns 401 (silently swallowed) → observed_attempts == 0.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import urllib.request
@@ -71,13 +72,11 @@ def _start_agent(mock_base: str, token: str) -> tuple[ThreadingHTTPServer, str]:
                     req.add_header("X-Clousight-Correlation-Id", corr)
                 if m_token:
                     req.add_header(AUTH_HEADER, m_token)
-                try:
+                with contextlib.suppress(Exception):
                     with urllib.request.urlopen(req, timeout=3) as r:
                         ok_final = r.status < 300
                         if ok_final:
                             break
-                except Exception:
-                    pass  # 500 from fault injection → continue retrying
 
             result = {"ok": ok_final, "status": 200 if ok_final else 500}
             content = json.dumps(result)

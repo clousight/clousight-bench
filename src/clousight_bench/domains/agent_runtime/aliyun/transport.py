@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 from clousight_bench.domains.agent_runtime.aliyun._shared import (
@@ -24,7 +25,6 @@ from clousight_bench.domains.agent_runtime.aliyun._shared import (
     _p95,
     _SdkMissing,
     build_pooled_http_session,
-    contextlib,
     protocol,
     time,
     uuid,
@@ -300,12 +300,10 @@ class AliyunAgentRunTransport(RuntimeTransport):
 
         merged_content = ""
         for chunk_str in chunks:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 parsed = _json.loads(chunk_str)
                 delta = (parsed.get("choices") or [{}])[0].get("delta") or {}
                 merged_content += str(delta.get("content") or "")
-            except (ValueError, TypeError):
-                pass
 
         # Build a response that looks like a normal (non-streaming) chat completion.
         full_resp = {"choices": [{"message": {"role": "assistant", "content": merged_content}}]}
@@ -787,14 +785,12 @@ class AliyunAgentRunTransport(RuntimeTransport):
             "corr": corr,
         }
         fault_url = base.rstrip("/") + "/fault/config"
-        try:
+        with contextlib.suppress(Exception):
             import requests as _requests
 
             _requests.post(
                 fault_url, json=fault_config, headers=_auth_headers(mock_token), timeout=10
             ).raise_for_status()
-        except Exception:
-            pass  # best-effort; probe proceeds
 
         # Step 2: Single invoke with this corr id.
         session = self.create_session()
@@ -821,7 +817,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
 
         # Step 3: Read mock server call counter.
         total_attempts = 0
-        try:
+        with contextlib.suppress(Exception):
             import requests as _requests
 
             state_resp = _requests.get(
@@ -830,8 +826,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
             state_resp.raise_for_status()
             counts = state_resp.json().get("call_counts", {})
             total_attempts = int(counts.get(f"prices|{corr}", 0))
-        except Exception:
-            pass
 
         # Derive storm_bounded_by from total_attempts (unless platform timeout).
         if storm_bounded_by != "platform":
@@ -919,10 +913,8 @@ class AliyunAgentRunTransport(RuntimeTransport):
                 mock_token=mock_token or None,
             )
             t0 = time.perf_counter()
-            try:
+            with contextlib.suppress(Exception):
                 self._invoke(session_id, body)
-            except Exception:
-                pass
             return (time.perf_counter() - t0) * 1000
 
         fast_count = 20
@@ -1058,8 +1050,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         deadline = _time.perf_counter() + ARMS_WAIT_S
         while _time.perf_counter() < deadline:
             _time.sleep(ARMS_POLL_S)
-            try:
-                # Query a 5-minute window centered on now to catch the trace
+            with contextlib.suppress(Exception):
                 now_ms = int(_time.time() * 1000)
                 resp = client.get_trace(
                     arms_m.GetTraceRequest(
@@ -1091,8 +1082,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
                             }
                         )
                     return spans
-            except Exception:
-                pass
         return []
 
     def _arms_get_spans_by_time(self, invocation_time_ms: int) -> list[dict[str, Any]]:
@@ -1118,7 +1107,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         seen_ids: set = set()
         while _time.perf_counter() < deadline:
             _time.sleep(POLL_S)
-            try:
+            with contextlib.suppress(Exception):
                 resp = client.search_traces(
                     arms_m.SearchTracesRequest(
                         region_id=region,
@@ -1135,8 +1124,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
                         spans = self._arms_get_spans(tid)
                         if spans:
                             return spans
-            except Exception:
-                pass
         return []
 
     def _arms_config_for_invoke(self) -> dict[str, Any] | None:
@@ -1163,9 +1150,9 @@ class AliyunAgentRunTransport(RuntimeTransport):
         session = self.create_session()
         self._collected_spans.clear()
         try:
-            self.run_tool_plan(session, plan)
-        except Exception:
-            pass
+            # A failed plan still leaves collected spans worth inspecting below.
+            with contextlib.suppress(Exception):
+                self.run_tool_plan(session, plan)
         finally:
             self.destroy_session(session)
 
@@ -1211,14 +1198,15 @@ class AliyunAgentRunTransport(RuntimeTransport):
 
         now_ms = int(_time.time() * 1000)
         metrics_found: list[str] = []
-        try:
+        # ARMS client unavailable -> return zero counts, not an exception.
+        with contextlib.suppress(Exception):
             client = self._arms_client()
             for metric_name in [
                 "arms_fc_function_summary_15s",
                 "agentrun_invocations",
                 "fc_function_invocations",
             ]:
-                try:
+                with contextlib.suppress(Exception):
                     resp = client.query_metric_by_page(
                         arms_m.QueryMetricByPageRequest(
                             metric=metric_name,
@@ -1233,10 +1221,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
                     rows = (data.get("items") if isinstance(data, dict) else None) or []
                     if rows:
                         metrics_found.append(metric_name)
-                except Exception:
-                    pass
-        except Exception:
-            pass  # ARMS client unavailable — return zero counts, not an exception.
 
         return SignalsResult(
             metrics_present=len(metrics_found),
@@ -1314,36 +1298,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
             "Ensure the deployed agent supports the _spans response field."
         )
 
-        # Convert ARMS span format → OpenInference-compatible dict expected by the span-completeness scorer.
-        # Map ARMS operation_name to OpenInference kind via tag inspection.
-        def _oi_kind(span: dict) -> str:
-            tags = span.get("tags", {})
-            op = span.get("operation_name", "").lower()
-            if tags.get("openinference.span.kind"):
-                return str(tags["openinference.span.kind"]).upper()
-            # ARMS FC spans: "Invocation /openai/v1/chat/completions" → CHAIN (top-level)
-            # "InvokeFunction" → TOOL (function execution is the "tool call" here)
-            if "invokefunction" in op.replace(" ", ""):
-                return "TOOL"
-            if "invocation" in op or "completions" in op:
-                return "CHAIN"
-            if "llm" in op or "model" in op:
-                return "LLM"
-            return "CHAIN"
-
-        return [
-            {
-                **s,
-                "kind": _oi_kind(s),
-                # Include openinference.span.kind in attributes so kinds_present() finds it.
-                "attributes": {
-                    **s.get("tags", {}),
-                    "openinference.span.kind": _oi_kind(s),
-                },
-            }
-            for s in spans
-        ]
-
     def export_otel(self, session_id: str) -> dict[str, Any]:
         """OTel-export probe: return OTLP-compatible span dict using the openinference.to_otel helper.
 
@@ -1364,7 +1318,7 @@ class AliyunAgentRunTransport(RuntimeTransport):
         """
         if not self._runtime_id:
             return None
-        try:
+        with contextlib.suppress(Exception):
             from alibabacloud_agentrun20250910 import models as m
 
             client = self._control_client()
@@ -1377,8 +1331,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
                         val = getattr(scaling, "current_instances", None)
                         if val is not None:
                             return int(val)
-        except Exception:
-            pass
         return None
 
     def probe_isolation(self) -> Any:
@@ -1406,12 +1358,10 @@ class AliyunAgentRunTransport(RuntimeTransport):
         tenant_isolated = True
         try:
             self._memory.store(session_a, {"sentinel": "isolation-test-value"})
-            try:
+            with contextlib.suppress(Exception):
                 recovered = self._memory.fetch(session_b)
                 if recovered.get("sentinel") == "isolation-test-value":
                     tenant_isolated = False  # session_b read session_a's data
-            except Exception:
-                pass  # OSS key not found → correct, sessions are isolated
         except Exception:
             # OSS store failed (ACL, permissions, connectivity). Cannot probe isolation.
             # Fall back to platform assertion for this dimension too.
@@ -1451,7 +1401,6 @@ class AliyunAgentRunTransport(RuntimeTransport):
             base,
             mock_token=mock_token or None,
         )
-        _instance_count_supported = self._query_current_instances() is not None
         points: list[ScalePoint] = []
 
         for n in levels:
@@ -1635,11 +1584,9 @@ class AliyunAgentRunTransport(RuntimeTransport):
     def stop(self) -> None:
         """Deprovision a lazily-created runtime and clean up state files."""
         # Clean up OSS state files created by _LiveMemory.store()
-        try:
+        with contextlib.suppress(Exception):
             if hasattr(self._memory, "cleanup"):
                 self._memory.cleanup()
-        except Exception:  # noqa: BLE001
-            pass
         if self._runtime_id and self._lazy_provisioned:
             try:
                 self.deprovision(self._runtime_id)

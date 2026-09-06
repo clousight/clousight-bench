@@ -1,0 +1,56 @@
+# CodeQL scope for clousight-bench.
+#
+# We run the full `security-and-quality` suite, then subtract the handful of
+# *style* queries whose findings are, in this codebase, the intended design --
+# not a defect to fix. Without this the security signal drowns: on 2026-09-06
+# the 99 open alerts were 7 security findings and 92 style notes.
+#
+# The rule for adding to this list: a query only earns an exclusion if every
+# current hit is correct-by-design AND there is another gate that would catch a
+# genuine instance. For the import/style queries that gate is ruff, configured
+# in pyproject.toml ([tool.ruff.lint]) and enforced by pre-commit and CI.
+#
+# Everything else -- every `security-severity` query, and every quality query
+# not named below -- stays on and is expected to be zero.
+
+name: clousight-bench
+
+queries:
+  - uses: security-and-quality
+
+query-filters:
+  # Deferred (function-local) imports are how this codebase breaks module
+  # cycles: core/plugin.py, core/registry.py and the agent_runtime dataplane
+  # import late on purpose. The query flags the fix, not the problem.
+  - exclude:
+      id: py/cyclic-import
+
+  # `import x` alongside `from x import y`. Pure import style, and ruff's
+  # isort rules (`I`) already own import layout here.
+  - exclude:
+      id: py/import-and-import-from
+
+  # Re-importing inside a function. The test suite does this deliberately so
+  # each test sees a fresh module state; pyproject already documents it in
+  # [tool.ruff.lint.per-file-ignores].
+  - exclude:
+      id: py/repeated-import
+
+  # `...` as the body of an abstract/Protocol method is the standard stub form
+  # and reads as ineffectual to this query. See core/blobstore.py,
+  # domains/agent_runtime/carrier_base.py.
+  - exclude:
+      id: py/ineffectual-statement
+
+  # Every hit is a false positive of a kind CodeQL cannot see: an
+  # `if TYPE_CHECKING:` import used only in a string annotation, or a
+  # `# noqa: F401` probe that tests whether an optional extra is installed
+  # (core/store.py). Ruff's F401 is the accurate gate.
+  - exclude:
+      id: py/unused-import
+
+  # Implicit concatenation across lines inside a list literal -- which is what
+  # `ruff format` itself emits when it wraps a long string at 110 columns.
+  # Ruff's ISC001 still catches the dangerous same-line form.
+  - exclude:
+      id: py/implicit-string-concatenation-in-list

@@ -9,6 +9,7 @@ test_start_injects_ready_check_and_calls_provision) verify _AliyunCampaignProbe
 directly with injectable fakes — no real ECI or OSS calls.
 """
 
+import contextlib
 import types
 
 # ---------------------------------------------------------------------------
@@ -134,10 +135,8 @@ def test_stop_runs_on_start_campaign_probe_failure(monkeypatch, tmp_path):
     )
 
     # The campaign raises because start failed; that's expected.
-    try:
+    with contextlib.suppress(Exception):
         cli._cmd_run_plan(args)
-    except Exception:
-        pass
 
     # The critical assertion: stop must have been called even though start raised.
     assert stop_called, "stop_campaign_probe was NOT called after start_campaign_probe raised — carrier leak!"
@@ -230,16 +229,11 @@ def test_stop_signals_then_tears_down():
     target = {"run_id": "run-abc", "blob_bucket": "bucket"}
     probe.start_campaign_probe(target)
 
-    # Patch signal_stop to record in same call_log
+    # Record signal_stop into the same call_log, by monkey-patching the channel
+    # stored on the probe.
     from clousight_bench.domains.agent_runtime.probe.blob_channel import BlobChannel
 
     original_signal_stop = BlobChannel.signal_stop
-
-    def recording_signal_stop(self_channel):
-        call_log.append("signal_stop")
-        original_signal_stop(self_channel)
-
-    # Directly monkey-patch the channel stored on the probe
     _ch = probe._channel
 
     def _recording_stop():

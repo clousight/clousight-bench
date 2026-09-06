@@ -1,5 +1,6 @@
 """Tests for run_fault_recovery and run_retry_storm data-plane probes."""
 
+import contextlib
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -239,11 +240,9 @@ def test_retry_storm_produces_new_shape():
                 req = urllib.request.Request(url)
                 if corr:
                     req.add_header("X-Clousight-Correlation-Id", corr)
-                try:
+                with contextlib.suppress(Exception):
                     with urllib.request.urlopen(req, timeout=2):
                         pass
-                except Exception:
-                    pass
             result = {"ok": False, "status": 500}
             content = _json.dumps(result)
             out = _json.dumps({"choices": [{"message": {"role": "assistant", "content": content}}]}).encode()

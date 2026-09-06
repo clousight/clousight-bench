@@ -33,6 +33,7 @@ manifest.yaml:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -216,7 +217,5 @@ class WorkloadEngine:
                 artifacts=artifacts,
             )
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(params_file)
-            except OSError:
-                pass

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -250,10 +251,9 @@ def _cmd_run_plan(args: argparse.Namespace) -> int:
                 failed += 1
             write_manifest(results_dir, manifest)
             if hook is not None:
-                try:
+                # A sync hiccup must not fail the campaign.
+                with contextlib.suppress(Exception):
                     hook.sync_probe_artifacts(results_dir)  # cadence: after each task
-                except Exception:  # noqa: BLE001 — a sync hiccup must not fail the campaign
-                    pass
     finally:
         if hook is not None:
             try:
@@ -353,13 +353,11 @@ def _cmd_progress(args: argparse.Namespace) -> int:
 
     from clousight_bench.core.campaign.manifest import TERMINAL_STATES
 
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         while True:
             print("\033[2J\033[H", end="")  # clear screen, cursor home
             manifest = _print_once()
             if all(t.status in TERMINAL_STATES for t in manifest.tasks):
                 break
             _time.sleep(args.interval)
-    except KeyboardInterrupt:
-        pass
     return 0

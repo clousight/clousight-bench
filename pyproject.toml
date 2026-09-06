@@ -180,7 +180,37 @@ line-length = 110
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "W", "UP"]
+# E/F/I/W/UP are the style+correctness floor. The rest are the *security gate*:
+# each one catches, at commit time, a class of defect CodeQL would otherwise
+# report days later on main (see .github/codeql/codeql-config.yml).
+select = [
+    "E", "F", "I", "W", "UP",
+    "B",       # bugbear: mutable defaults, zip() without strict=, blind asserts
+    "G",       # no f-string / concat inside a logging call -- keep args as args
+    "LOG",     # logging API misuse
+    "ISC",     # same-line implicit string concatenation -- almost always a missing comma
+    "TRY400",  # logging.exception, not logging.error, when handling an exception
+    "SIM105",  # try/except/pass -> contextlib.suppress   (py/empty-except)
+    "SIM115",  # open() without a context manager          (py/file-not-closed)
+    "S102",    # exec
+    "S110",    # try/except/pass                           (py/empty-except)
+    "S307",    # eval
+    "S324",    # insecure hash (md5/sha1) for a security purpose
+    "S506",    # yaml.load without SafeLoader
+    "S602",    # subprocess with shell=True
+    "S605",    # os.system-style shell call
+    "S609",    # wildcard injection into a shell command
+    "S612",    # insecure logging.config.listen
+    "S701",    # jinja2 autoescape=False
+]
+# Deliberately NOT selected, with reasons, so nobody re-litigates them:
+#   S101  - asserts are how the test suite works.
+#   S112  - try/except/continue is the shape of every "try the next candidate"
+#           loop here; each site already carries its rationale inline.
+#   S603/S607 - driving external benchmark binaries (YCSB, BenchBase, docker) is
+#           this tool's job; the argv-building paths are reviewed, not linted.
+#   S310  - urlopen is SSRF-guarded in core/sandbox.py and the doctor probes.
+#   S608  - the TPC-H/DS suites build SQL from a pinned, in-repo query set.
 
 [tool.ruff.lint.per-file-ignores]
 # Tests legitimately use local (mid-file) imports for isolation and lambda

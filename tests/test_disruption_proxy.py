@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import threading
 import time
@@ -76,10 +77,8 @@ def test_reset_closes_active_connections():
         assert n == 1  # ONE logical connection was live — the count must not double
         # the live connection is now dead: recv returns b"" or raises
         sock.sendall(b"b")
-        try:
+        with contextlib.suppress(OSError):
             assert sock.recv(16) == b""
-        except OSError:
-            pass
         sock.close()
         stats = proxy.snapshot()
         assert stats.connections_reset == 1

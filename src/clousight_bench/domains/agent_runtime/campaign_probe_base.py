@@ -11,6 +11,7 @@ implement those three hooks; everything else lives here once.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from clousight_bench.core.plugin import CampaignProbeHook
@@ -104,16 +105,12 @@ class CampaignProbeOrchestrator(CampaignProbeHook):
         the in-region loop gets a chance to drain gracefully.
         """
         if self._channel is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._channel.signal_stop()
-            except Exception:  # noqa: BLE001
-                pass
             self._channel = None
         if self._carrier is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._carrier.teardown()
-            except Exception:  # noqa: BLE001
-                pass
             self._carrier = None
 
     # ---- cloud-specific hooks (subclasses override) --------------------------

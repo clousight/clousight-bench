@@ -30,6 +30,7 @@ audited results.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -69,12 +70,11 @@ def tokens_1k_price() -> tuple[float, str]:
     re-reading the seed via a brittle relative path (which silently ignored the
     override).
     """
-    try:
+    # Unreadable feed → fallback.
+    with contextlib.suppress(Exception):
         for entry in _load_feed().get("prices", []):
             if entry.get("unit") == "tokens_1k" and isinstance(entry.get("price"), (int, float)):
                 return float(entry["price"]), "seed"
-    except Exception:  # noqa: BLE001 - unreadable feed → fallback
-        pass
     return _FALLBACK_TOKENS_1K_PRICE, "fallback"
 
 

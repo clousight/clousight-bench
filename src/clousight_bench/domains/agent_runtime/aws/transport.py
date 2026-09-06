@@ -335,12 +335,10 @@ class AwsAgentCoreTransport(RuntimeTransport):
 
         merged_content = ""
         for chunk_str in chunks:
-            try:
+            with contextlib.suppress(ValueError, TypeError):
                 parsed = _json.loads(chunk_str)
                 delta = (parsed.get("choices") or [{}])[0].get("delta") or {}
                 merged_content += str(delta.get("content") or "")
-            except (ValueError, TypeError):
-                pass
 
         full_resp = {"choices": [{"message": {"role": "assistant", "content": merged_content}}]}
         return round(ttft_ms, 3), full_resp
@@ -662,14 +660,12 @@ class AwsAgentCoreTransport(RuntimeTransport):
             "corr": corr,
         }
         fault_url = (base or "").rstrip("/") + "/fault/config"
-        try:
+        with contextlib.suppress(Exception):
             import requests as _requests  # noqa: PLC0415
 
             _requests.post(
                 fault_url, json=fault_config, headers=_auth_headers(mock_token), timeout=10
             ).raise_for_status()
-        except Exception:
-            pass
 
         session = self.create_session()
         t_start = time.perf_counter()
@@ -690,7 +686,7 @@ class AwsAgentCoreTransport(RuntimeTransport):
         duration_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
         total_attempts = 0
-        try:
+        with contextlib.suppress(Exception):
             import requests as _requests  # noqa: PLC0415
 
             state_resp = _requests.get(
@@ -699,8 +695,6 @@ class AwsAgentCoreTransport(RuntimeTransport):
             state_resp.raise_for_status()
             counts = state_resp.json().get("call_counts", {})
             total_attempts = int(counts.get(f"prices|{corr}", 0))
-        except Exception:
-            pass
 
         if storm_bounded_by != "platform":
             storm_bounded_by = "none" if total_attempts > 3 else "agent"
@@ -768,10 +762,8 @@ class AwsAgentCoreTransport(RuntimeTransport):
                 {"target": target, "method": "GET"}, base, mock_token=mock_token or None
             )
             t0 = time.perf_counter()
-            try:
+            with contextlib.suppress(Exception):
                 self._invoke(session_id, body)
-            except Exception:
-                pass
             return (time.perf_counter() - t0) * 1000
 
         fast_count = 20
@@ -875,12 +867,10 @@ class AwsAgentCoreTransport(RuntimeTransport):
         tenant_isolated = True
         try:
             self._memory.store(session_a, {"sentinel": "isolation-test-value"})
-            try:
+            with contextlib.suppress(Exception):
                 recovered = self._memory.fetch(session_b)
                 if recovered.get("sentinel") == "isolation-test-value":
                     tenant_isolated = False
-            except Exception:
-                pass  # S3 key not found → correct (sessions isolated)
         except Exception:
             tenant_isolated = True
         finally:

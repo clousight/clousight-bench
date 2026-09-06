@@ -45,7 +45,7 @@ def test_unknown_probe_is_rejected_at_submit():
     runner = JobRunner({})
     try:
         runner.submit(JobSpec(probe="nope", params={}, target_endpoint="u"))
-        assert False, "expected KeyError"
+        raise AssertionError("expected KeyError")
     except KeyError:
         pass
 

@@ -7,6 +7,7 @@ under a lock. get() returns a thread-safe snapshot for the poll endpoint.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import threading
 from collections.abc import Callable
@@ -66,12 +67,11 @@ class JobRunner:
                 rec.error = f"{type(exc).__name__}: {exc}"
         finally:
             if sink is not None:
-                try:
+                # Sink flush must not mask job result.
+                with contextlib.suppress(Exception):
                     manifest = sink.close()
                     with self._lock:
                         # We lift only chunk keys here; the full manifest→artifacts
                         # promotion is the deliberate seam blob_sync.chunks_to_artifacts,
                         # intended for control-plane result assembly (not yet wired).
                         self._jobs[job_id].chunk_refs = [ch["key"] for ch in manifest.get("chunks", [])]
-                except Exception:  # noqa: BLE001 — sink flush must not mask job result
-                    pass

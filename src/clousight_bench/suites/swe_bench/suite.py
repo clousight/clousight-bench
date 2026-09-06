@@ -10,6 +10,7 @@ paths — ``mock_artifacts()``, ``resolve()``, ``prepare()`` — work without it
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -417,10 +418,9 @@ class SweBenchSuite(BenchmarkSuite):
         """
         sut = env.payload.get("_sut")
         if sut is not None:
-            try:
+            # Teardown is best-effort by contract.
+            with contextlib.suppress(Exception):
                 sut.close()
-            except Exception:  # noqa: BLE001 - teardown is best-effort by contract
-                pass
         run_id = str(env.payload.get("run_id", ""))
         if not run_id or shutil.which("docker") is None:
             return
