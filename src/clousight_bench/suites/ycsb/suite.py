@@ -33,11 +33,16 @@ from clousight_bench.core.suite import (
     RawArtifacts,
     Target,
 )
+from clousight_bench.suites._progress import raise_if_cancelled
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 # Pins the YCSB distribution the bundled mock fixture reflects.
 _SUITE_VERSION = "ycsb-0.17.0"
+
+# The suite times its phases in ns (the unit its trajectory spans use); a
+# progress step is milliseconds from the load phase's start.
+_NS_PER_MS = 1_000_000.0
 
 # The recognized YCSB core workloads (operation mixes A–F).
 _CORE_WORKLOADS: tuple[str, ...] = (
@@ -212,10 +217,19 @@ class YcsbSuite(BenchmarkSuite):
 
     # ---------------------------------------------------------------------- run
     def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:
-        """Run YCSB load + run phases; capture the run-phase output."""
+        """Run YCSB load + run phases; capture the run-phase output.
+
+        Progress is reported at phase granularity, which is as fine as this suite
+        can honestly go: both phases are one opaque, blocking Java process whose
+        stdout is only parseable once it exits, so there is nothing to advance
+        through and no safe point to interrupt. Cancel is therefore polled at the
+        phase boundaries — in particular right before the MEASURED run phase, so
+        a cancel never buys a half-finished measurement.
+        """
         if target.mock or env.payload.get("mock"):
             return self.mock_artifacts(dict(env.payload))
         p = env.payload
+        progress = driver.progress
         binary, binding = p["binary"], p["binding"]
         workload_arg = ["-P", f"workloads/{p['workload']}"]
         common = [
@@ -229,9 +243,22 @@ class YcsbSuite(BenchmarkSuite):
         # Load phase (populate the store), then the measured run phase.
         from time import time_ns  # noqa: PLC0415
 
+        raise_if_cancelled(progress, "ycsb load phase")
+        progress.phase("Load", total=1, unit="phase")
+        progress.log(f"ycsb load: {p['recordcount']} records into the {binding} binding")
         load_start_ns = time_ns()
         subprocess.run([binary, "load", binding, *common], check=True, capture_output=True, text=True)
         load_end_ns = time_ns()
+        # Every step of this run is measured against the load's start.
+        progress.step("ycsb.load", 0.0, (load_end_ns - load_start_ns) / _NS_PER_MS)
+        progress.advance()
+
+        # Announced BEFORE the disruption plan is armed: `schedule_disruption`
+        # starts a timer relative to itself, so nothing may be inserted between
+        # arming it and starting the run it is meant to hit.
+        raise_if_cancelled(progress, "ycsb run phase")
+        progress.phase("Run", total=1, unit="phase")
+        progress.log(f"ycsb run: {p['operationcount']} operations of {p['workload']}")
 
         # Driver-side disruption (R5): route the MEASURED phase through the
         # harness's TCP proxy toward the real endpoint and fire the configured
@@ -313,6 +340,12 @@ class YcsbSuite(BenchmarkSuite):
                 }
                 proxy.stop()
         run_end_ns = time_ns()
+        progress.step(
+            "ycsb.run",
+            (run_start_ns - load_start_ns) / _NS_PER_MS,
+            (run_end_ns - load_start_ns) / _NS_PER_MS,
+        )
+        progress.advance()
         summary = {
             "workload": p["workload"],
             "binding": binding,
@@ -368,6 +401,12 @@ class YcsbSuite(BenchmarkSuite):
                         end_unix_nano=end_ns,
                         attributes=disruption_attrs,
                     )
+                )
+                progress.step(
+                    f"ycsb.disruption.{action}",
+                    (start_ns - load_start_ns) / _NS_PER_MS,
+                    (end_ns - load_start_ns) / _NS_PER_MS,
+                    parent="ycsb.run",
                 )
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-ycsb-art-"))
         return _write_artifacts(tmp_dir, run_proc.stdout, summary, spans)

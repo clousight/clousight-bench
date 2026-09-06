@@ -33,6 +33,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from clousight_bench.core.progress import NULL_PROGRESS, ProgressReporter
 from clousight_bench.core.suite import (
     BenchmarkSuite,
     DatasetHandle,
@@ -43,6 +44,7 @@ from clousight_bench.core.suite import (
 )
 from clousight_bench.suites.human_eval.executor import run_candidate
 from clousight_bench.suites.llm_common import (
+    ItemProgress,
     chat_once,
     extract_code,
     resolve_endpoint,
@@ -149,7 +151,18 @@ class HumanEvalSuite(BenchmarkSuite):
         completions: list[str] = []
         spans: list[dict[str, Any]] = []
         prompt_tokens = completion_tokens = truncated = 0
+        # Generation is not a measured region here — only the sandboxed execution
+        # below produces `latency_ms` — so these marks exist purely to draw the
+        # step and feed nothing scored.
+        gen = ItemProgress(
+            driver.progress,
+            suite_id=self.suite_id,
+            total=len(p["problems"]),
+            label="Completions",
+            unit="problem",
+        )
         for prob in p["problems"]:
+            started = gen.now()
             content, usage, finish_reason = chat_once(
                 trace_id=getattr(driver, "trace_id", "") or "",
                 span_sink=spans,
@@ -164,8 +177,11 @@ class HumanEvalSuite(BenchmarkSuite):
                 truncated += 1  # completion was cut at max_tokens — visible in summary
             prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
             completion_tokens += int(usage.get("completion_tokens", 0) or 0)
+            gen.item(f"gen.{prob['task_id']}", started, gen.now())
+            gen.check_cancel()
         return self._execute_run(
             p["problems"],
+            progress=driver.progress,
             completions=completions,
             model=p["model"],
             prompt_tokens=prompt_tokens,
@@ -184,16 +200,32 @@ class HumanEvalSuite(BenchmarkSuite):
         completion_tokens: int,
         extra_summary: dict[str, Any] | None = None,
         spans: list[dict[str, Any]] | None = None,
+        progress: ProgressReporter = NULL_PROGRESS,
     ) -> RawArtifacts:
-        """Execute each ``(problem, completion)`` in the sandbox and write artifacts."""
+        """Execute each ``(problem, completion)`` in the sandbox and write artifacts.
+
+        ``progress`` defaults to inert: the offline canonical-solution path
+        (``mock_artifacts`` with ``execute``) reports nothing and stays as fast as
+        it was.
+        """
         results: list[dict[str, Any]] = []
+        items = ItemProgress(
+            progress,
+            suite_id=self.suite_id,
+            total=len(problems),
+            label="Execution",
+            unit="problem",
+        )
         # strict=True: one completion per problem is an invariant of both callers;
         # a length mismatch is a bug, not something to silently truncate.
         for prob, completion in zip(problems, completions, strict=True):
             t = perf_counter()
             outcome = run_candidate(prob, completion)
-            outcome["latency_ms"] = (perf_counter() - t) * 1000.0
+            end = perf_counter()
+            outcome["latency_ms"] = (end - t) * 1000.0
             results.append(outcome)
+            items.item(str(prob["task_id"]), t, end, status="ok" if outcome.get("passed") else "fail")
+            items.check_cancel()
         summary = {
             "model": model,
             "suite_version": self.suite_version,

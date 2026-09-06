@@ -26,6 +26,7 @@ from clousight_bench.core.suite import (
     Target,
 )
 from clousight_bench.suites.llm_common import (
+    ItemProgress,
     chat_once,
     resolve_endpoint,
     sha256_bytes,
@@ -110,6 +111,13 @@ class Gsm8kSuite(BenchmarkSuite):
         spans: list[dict[str, Any]] = []
         answers: list[dict[str, Any]] = []
         prompt_tokens = completion_tokens = 0
+        items = ItemProgress(
+            driver.progress,
+            suite_id=self.suite_id,
+            total=len(p["questions"]),
+            label="Questions",
+            unit="question",
+        )
         for q in p["questions"]:
             t = perf_counter()
             content, usage, _ = chat_once(
@@ -121,7 +129,8 @@ class Gsm8kSuite(BenchmarkSuite):
                 prompt=format_prompt(q),
                 max_tokens=512,
             )
-            latency_ms = (perf_counter() - t) * 1000.0
+            end = perf_counter()
+            latency_ms = (end - t) * 1000.0
             prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
             completion_tokens += int(usage.get("completion_tokens", 0) or 0)
             predicted = parse_number(content)
@@ -134,6 +143,8 @@ class Gsm8kSuite(BenchmarkSuite):
                     "latency_ms": latency_ms,
                 }
             )
+            items.item(str(q["id"]), t, end)
+            items.check_cancel()
         summary = {
             "model": p["model"],
             "suite_version": self.suite_version,

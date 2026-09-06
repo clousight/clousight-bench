@@ -30,6 +30,7 @@ from clousight_bench.core.suite import (
     RawArtifacts,
     Target,
 )
+from clousight_bench.suites._progress import StepClock, raise_if_cancelled
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -291,9 +292,18 @@ class SweBenchSuite(BenchmarkSuite):
         # full dataset row; spans/usage are collected for the REAL trajectory + usage files.
         span_lines: list[dict[str, Any]] = []
         usage_lines: list[dict[str, Any]] = []
+        # Solving is the long half of a real run (one agent session per instance)
+        # and nothing here is timed into a measurement — the harness, not the
+        # clock, decides resolution — so the steps are drawn from marks taken
+        # purely for the waterfall.
+        progress = driver.progress
+        clock = StepClock()
+        progress.phase("Solve instances", total=len(instance_ids), unit="instance")
+        progress.log(f"solving {len(instance_ids)} instances with agent_kind={agent_kind}")
         predictions_path = tmp_dir / "predictions.jsonl"
         with predictions_path.open("w") as fh:
             for iid in instance_ids:
+                started = clock.now()
                 if sut is not None:
                     result = sut.solve(self._load_instance(iid), agent_kind)
                     patch = result["model_patch"]
@@ -311,6 +321,15 @@ class SweBenchSuite(BenchmarkSuite):
                     )
                     + "\n"
                 )
+                progress.step(
+                    f"{self.suite_id}.solve.{iid}",
+                    clock.ms(started),
+                    clock.ms(),
+                    parent=f"{self.suite_id}.solve",
+                )
+                progress.advance()
+                raise_if_cancelled(progress, "swe-bench solve loop")
+        progress.step(f"{self.suite_id}.solve", 0.0, clock.ms())
 
         # Invoke upstream harness — run_id is guaranteed by prepare().
         run_id: str = env.payload["run_id"]
@@ -333,6 +352,9 @@ class SweBenchSuite(BenchmarkSuite):
             "--report_dir",
             str(tmp_dir),
         ]
+        progress.phase("Harness evaluation", total=1, unit="phase")
+        progress.log(f"swebench harness: evaluating {len(instance_ids)} predictions")
+        harness_start = clock.now()
         try:
             subprocess.run(
                 cmd,
@@ -350,6 +372,8 @@ class SweBenchSuite(BenchmarkSuite):
             raise RuntimeError(
                 f"swebench harness timed out after {env.payload['harness_timeout_s']}s"
             ) from exc
+        progress.step(f"{self.suite_id}.harness", clock.ms(harness_start), clock.ms())
+        progress.advance()
 
         # Trajectory + usage: REAL (from the SUT's spans/usage events) on the
         # real path; canned fixtures only on the MockAgent smoke path.

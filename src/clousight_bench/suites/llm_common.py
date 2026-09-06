@@ -23,8 +23,10 @@ from urllib.parse import urlparse
 from clousight_bench.core.canonical import sha256_bytes  # re-exported for suites
 from clousight_bench.core.judge import JudgeModel
 from clousight_bench.core.observation import ItemResult, ItemScore, Measurement
+from clousight_bench.core.progress import NULL_PROGRESS, ProgressReporter
 from clousight_bench.core.suite import RawArtifacts
 from clousight_bench.enrichers.pricing import tokens_1k_price
+from clousight_bench.suites._progress import StepClock, raise_if_cancelled
 
 __all__ = [
     "sha256_bytes",
@@ -36,7 +38,62 @@ __all__ = [
     "resolve_endpoint",
     "chat_once",
     "EndpointJudge",
+    "ItemProgress",
 ]
+
+
+class ItemProgress:
+    """Live progress for an llm suite's per-item loop.
+
+    One of these announces the loop's size up front, then draws one step per
+    finished item, publishes that item's latency as a sample, advances the
+    counter and polls for a cancel. It is built from the marks the suite already
+    timed the item with, so it never takes a second, disagreeing measurement, and
+    it reports strictly BETWEEN items — the next item's timer has not started, so
+    nothing that reaches ``avg_latency_ms`` can move.
+
+    Steps are named ``<suite_id>.<item_id>``. This is the one place the live and
+    the sealed waterfall deliberately differ: the trajectory's spans are
+    ``gen_ai`` call spans all named ``chat /chat/completions``, which is exactly
+    right for an OTel consumer and useless as a row label — the live view needs a
+    name that says WHICH item.
+
+    Constructed with the default inert reporter it costs one ``perf_counter``
+    read and does nothing, which is what the mock/offline paths get.
+    """
+
+    __slots__ = ("_clock", "_reporter", "_suite_id")
+
+    def __init__(
+        self,
+        reporter: ProgressReporter = NULL_PROGRESS,
+        *,
+        suite_id: str,
+        total: int,
+        label: str = "Items",
+        unit: str = "item",
+    ) -> None:
+        self._reporter = reporter
+        self._suite_id = suite_id
+        self._clock = StepClock()
+        reporter.phase(label, total, unit=unit)
+
+    def item(self, item_id: str, start: float, end: float, *, status: str = "ok") -> None:
+        """A finished item: its step, its latency as a sample, one unit advanced."""
+        start_ms = self._clock.ms(start)
+        end_ms = self._clock.ms(end)
+        self._reporter.step(f"{self._suite_id}.{item_id}", start_ms, end_ms, status=status)
+        self._reporter.sample(f"{self._suite_id}.latency_ms", end_ms - start_ms)
+        self._reporter.advance()
+
+    def check_cancel(self) -> None:
+        """Abort the loop if a cancel was requested (raises ``RunCancelled``)."""
+        raise_if_cancelled(self._reporter, f"{self._suite_id} item loop")
+
+    def now(self) -> float:
+        """A clock mark in this loop's frame, for a suite that does not time
+        its items itself (there is no measurement to reuse)."""
+        return self._clock.now()
 
 
 def rows_to_items(
