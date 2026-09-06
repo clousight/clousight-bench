@@ -18,7 +18,7 @@ Trace 是**证据,不是判定**:evaluator 不读它,基准指纹不含它,expor
 | Harness(每次运行) | 根 `csbench.run` + 每个**计时**生命周期阶段一个 span(PREFLIGHT … SCORE),精确 `stage_timings` | `csbench.*` |
 | TPC-H 官方模式 | Load → Power(RF1、Q1…Q22、RF2)→ Throughput(并发流、逐查询 span、刷新对)——由实测区间重建 | `csbench.phase`/`csbench.stream_id` + `db.*` |
 | LLM endpoint 套件(MMLU/GSM8K/HumanEval) | 每次 `/chat/completions` 调用一个 span:模型、token 用量、finish reason | `gen_ai.*`(GenAI 语义约定) |
-| SWE-bench agent | SUT agent 的 LLM/工具 span(schema v3;legacy v2 仍接受) | `gen_ai.*` |
+| SWE-bench agent | 由 agent 的 OpenInference wire 映射到 schema v3 的 LLM/工具 span(确定性 hex id;legacy v2 记录仍可渲染) | `gen_ai.*` |
 
 所有 span 共享该运行的 W3C `trace_id`(orchestrator 启动时预置),整次评测读作一棵树。
 
@@ -38,6 +38,25 @@ csbench run …   # span 同时流向 Jaeger/Tempo/ARMS/X-Ray(经你的 collecto
 
 第三方 exporter 注册在 `clousight_bench.span_exporters` 入口点——契约就是 OTel SDK
 的 `SpanExporter`,生态里任何 exporter 原样即插即用。
+
+## 指标与日志信号
+
+配同一个 `CLOUSIGHT_OTLP_ENDPOINT`(+ `[otlp]`),完成的运行还会发出:
+
+- **metrics** —— 每个数值测量一个 gauge(`csbench.<key>`,属性:unit、
+  reproducibility_class、official、该运行的 trace id);
+- **logs** —— 每个运行错误与 finding 一条记录,severity 已映射、与 trace 关联。
+
+两者都是 finalize 时的一次性快照,且 fail-safe(遥测永远不会让运行失败)。endpoint
+的值可以是 collector 基址,也可以是完整的 `/v1/traces` URL——各信号路径自动推导。
+
+## 导入外部 OTel span
+
+用标准 OTel 装配的 SUT(或任何工具)可以把自己的 span 交给 waterfall:
+`csbench trace import <file>` 接受 OTLP/JSON(`resourceSpans`)或扁平的
+逐行 span JSONL,产出一份校验过的 v3 trajectory(`--out` 默认为
+`<file>.v3.jsonl`)。没有语义约定判别键的 span 会得到一个诚实的
+`csbench.ingested` 标记。
 
 ## 上下文传播(traceparent)
 

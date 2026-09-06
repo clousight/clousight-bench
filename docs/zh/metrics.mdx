@@ -26,7 +26,9 @@ csbench run --domain llm --benchmark mmlu --platform llm-mock \
 
 ## 参考指标:`answered-rate`
 
-确定性、无判定:被测系统实际作答的 item 比例(`output` 非空)。开箱绑定到 `mmlu` / `gsm8k`
+确定性、无判定:被测系统实际作答的 item 比例(`output` 非空)。`answered-rate` 是它的
+**入口点名称**;它的**指标 id** 是 `answered_rate`——写进 `extra_metrics` 和测量键里的是
+这个 id。开箱绑定到 `mmlu` / `gsm8k`
 → 它们也发出 `mmlu.answered_rate` / `gsm8k.answered_rate`。一个模型可以在它作答的部分很准,
 却答得很少。
 
@@ -44,7 +46,7 @@ class NonEmptyOutput(Metric):
         ok = bool(str(item.output or "").strip())
         return ItemScore(metric=self.metric_id, value=1.0 if ok else 0.0,
                          status="ok" if ok else "fail")
-    # 默认 aggregate() = 对 ok/fail 分数取均值 → 一条 <suite>.nonempty 测量
+    # 默认 aggregate() = 对 ok/fail 分数取 ratio → 一条 <suite>.nonempty 测量
 ```
 
 注册并绑定或 opt-in:

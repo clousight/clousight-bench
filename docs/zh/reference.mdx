@@ -5,32 +5,47 @@ description: 核心数据结果契约与插件扩展入口点（entry point）�
 
 核心编排器执行固定的生命周期；所有产品相关的逻辑均由插件实现。本页列出关键类型及其注册所用的入口点（entry point）。如需查阅具体代码细节，请使用页内 **Ask** 助手或 [DeepWiki](https://deepwiki.com/clousight/clousight-bench)。
 
+公共契约与数据模型请从 `clousight_bench`（或 `clousight_bench.api`）导入——切勿从
+`clousight_bench.core.*`（内部实现）导入。插件 API 版本
+（`clousight_bench.PLUGIN_API_VERSION`）所约束的正是这一公共表面。
+
 ## 结果契约
 
-一次运行会输出一条 `ResultRecord`（schema `0.2`）：包含 `status`（`completed` / `failed` /
+一次运行会输出一条 `ResultRecord`（schema `0.4`）：包含 `status`（`completed` / `failed` /
 `invalid` / `unsupported`）、`measurements`（每项测量值含 `value`、`unit`、
-`reproducibility_class`、`official`）、`findings`（每项发现项含稳定的 `code` 与 `severity`），以及
+`reproducibility_class`、`official`，以及可选的 `ci`）、可选的逐条目 `items`
+（`ItemResult`，携带四态 `ItemScore`，测量值即由其聚合而来）、`findings`（每项发现项含稳定的 `code` 与 `severity`），以及
 `fingerprints`（`benchmark` / `environment` / `implementation` / `record_digest`）。
 完整字段表请参见[架构说明](/docs/zh/architecture)。
 
-## 插件基类
+## 插件契约
 
-| 基类 | 作用范围 | 注册方式 |
+首要的公共单元是一个**基准（benchmark）**——即一个 `BenchmarkSuite` + `Evaluator`
+（参见[新增基准](/docs/zh/adding-a-suite)）。自插件 API 2.0 起，套件/评估器组合是唯一的基准轨道
+（旧的内部 `Task` 契约已删除）；当前 `PLUGIN_API_VERSION` 为 `"3.0"`（OTel 原生追踪的破坏性变更）。
+
+| 契约 | 作用范围 | 注册方式 |
 |---|---|---|
+| `BenchmarkSuite` | 一个基准 | `clousight_bench.benchmark_suites` |
+| `Evaluator` | 一个基准的评分 | `clousight_bench.evaluators` |
+| `Metric` | 一个可组合的附加评分 | `clousight_bench.metrics` |
+| `JudgeProvider` | 一个 LLM-as-judge 工厂 | `clousight_bench.judges` |
 | `DomainPack` | 产品类别（领域） | `clousight_bench.domains` |
-| `ProviderAdapter` | （领域，云平台）适配器 | 在对应领域包内注册 |
-| `WorkloadEngine` | 负载引擎 | `manifest.yaml` + 可执行文件 |
-
-自插件 API 2.0 起,新增基准只有一条轨道:实现 `BenchmarkSuite` + `Evaluator` 并注册对应入口点(旧的内部 `Task` 契约已删除)。
+| `ProviderAdapter` | （领域，云平台）SUT | 在对应领域包内注册 |
 
 ## 入口点（Entry Points）
 
-第三方包通过在 `pyproject.toml` 中声明以下入口点（entry point）来扩展测试框架：
+第三方（及商业）包通过在 `pyproject.toml` 中声明以下入口点（entry point）来扩展测试框架：
 
-- `clousight_bench.domains` — 领域包（domain packs）
+- `clousight_bench.benchmark_suites` — 基准套件
+- `clousight_bench.evaluators` — 评估器（带命名空间的测量值 + `items()`）
+- `clousight_bench.metrics` — 可组合的附加指标
+- `clousight_bench.judges` — LLM-as-judge 提供方
+- `clousight_bench.domains` — 领域包（任务 + 平台适配器）
 - `clousight_bench.runtime_providers` — 云运行时提供商适配器
 - `clousight_bench.resource_reapers` — 孤立资源回收器
 - `clousight_bench.enrichers` — 运行后数据增强器（如定价信息）
 - `clousight_bench.span_exporters` — 追踪 span 导出器
+- `clousight_bench.asset_resolvers` — 私有/受限数据集解析器
 
-完整示例请参见[扩展（插件）](/docs/zh/plugins)。
+完整示例请参见[新增基准](/docs/zh/adding-a-suite)与[扩展（插件）](/docs/zh/plugins)。

@@ -7,15 +7,15 @@ Pure function — no cloud, no credentials, no duckdb. A thin subclass of
 ``official-tpcds-evaluator``.
 
 Correctness (``tpc-h.queries_passed``) compares each query's normalized
-``result_digest`` to the suite's pinned SF1 reference. It is a deterministic
-reproducibility/regression check vs a specific pinned engine+extension (duckdb
-tpch), NOT an externally-audited TPC answer. Emitted ONLY at scale factor 1 (the
-reference is SF1-only). Performance (``tpc-h.geomean_latency_ms`` /
-``tpc-h.total_runtime_ms``) is honest, environmental, and never claims an audited
-QphH composite. (DuckDB ships ``tpch_answers()`` SF1 answers; the capture script
-cross-checks the reference against them informationally — a future
-exact-answer-format normalization could upgrade this to verified-answer
-correctness.)
+``result_digest`` to the suite's SF-keyed pinned reference
+(``reference/sf{sf:g}_digests.json``, shipped at SF 1 / 0.1 / 0.01); at a scale
+factor without a shipped reference, correctness is omitted. Each reference is
+captured by ``scripts/capture_tpch_reference.py``, which verifies every entry
+against DuckDB's official ``tpch_answers()`` at capture time and stamps
+``verified_official`` — when every compared entry carries it, the measurement's
+notes say so. Still NOT an externally-audited TPC answer. Performance
+(``tpc-h.geomean_latency_ms`` / ``tpc-h.total_runtime_ms``) is honest,
+environmental, and never claims an audited QphH composite.
 
 All measurements carry ``official=True`` under the ``tpc-h.`` namespace (the
 conformance contract). That is a *provenance* flag, not an audit claim —

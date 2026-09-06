@@ -44,12 +44,28 @@ csbench run --domain key-value --benchmark ycsb --platform ycsb-endpoint --confi
 | `ycsb.overall_runtime_ms` | run 阶段墙钟 |
 | `ycsb.read_p99_us` | READ p99 延迟 |
 | `ycsb.update_p99_us` | UPDATE p99 延迟 |
+| `ycsb.ops_ok` / `ycsb.ops_failed` | 成功 / 失败的操作数,来自 YCSB 自身的 `Return=` 计数 |
+| `ycsb.error_rate` | `ops_failed / (ops_ok + ops_failed)`,来自同一份 `Return=` 计数 |
+| `ycsb.completed_under_disruption` | **仅**在计划内扰动确实触发时才产出 |
 
-输出中缺失的指标(如只读工作负载没有 UPDATE 行)会被省略。三者都带 `official=True`
-——溯源标志(由套件官方评估器产出),非审计声明。
+输出中缺失的指标(如只读工作负载没有 UPDATE 行)会被省略。全部带 `official=True`
+——溯源标志(由套件官方评估器产出),非审计声明。最后三项是可靠性证据,并且始终
+仅以工具证据为准:错误计数只在工具打印了 `Return=` 行时才存在,扰动声明只在
+harness 记录到确实触发时才产出——绝不凭空捏造。
+
+## 可靠性(扰动)运行
+
+`params.reliability: {action: reset|stall, at_s, stall_ms?}` 会武装一次驱动侧扰动,
+作用于**被测量的** run 阶段(load 阶段保持干净)。扰动计划在 `resolve()` 时校验,
+并折入数据集 digest——不同的扰动就是不同的基准。被测量阶段经由驱动侧
+**DisruptionProxy** TCP 中继(`core/disruption.py`)路由,在 `at_s` 时刻触发动作;
+它要求 `redis` binding 加 `target.endpoint`,否则大声失败——绝不让一次干净基准
+顶着带扰动标签的数据集蒙混过关。轨迹中会落一个 `disruption` span。完整 runbook:
+[评测一个托管 KV 服务](/docs/cloud-connect-kv) §5。
 
 ## 本切片的刻意边界
 - 真实数字需真实 YCSB 工具 + 真实后端;离线为 mock 路径。`ycsb-local`(binding=basic)
   在无数据存储的情况下运行 YCSB 自身机制。
-- `ycsb-endpoint` 接入已有服务(先支持 Redis 协议)。
+- `ycsb-endpoint` 接入已有服务(先支持 Redis 协议)——完整云 runbook:
+  [评测一个托管 KV 服务](/docs/cloud-connect-kv)。
 - 云 provision / 托管 KV 后端日后挂在同一 seam。
