@@ -140,6 +140,24 @@ visualization is deferred to the Sub-project C web viewer.
   `run.stages` drops the constant `RESOLVE`, and a non-`completed` run prints the
   failed stage / blocking finding + remediation to stderr (stdout stays JSON).
 
+- ✅ **Reliability dimension (R5)**: tool-evidence reliability metrics extracted
+  from what a suite already reports, plus a driver-side **disruption proxy**
+  (`core/disruption.py`, pure-stdlib TCP relay) that injects a measured fault
+  between driver and SUT. A `completed_under_disruption` verdict is claimed only
+  when the disruption actually fired, and a different disruption plan is a
+  different benchmark (it lands in the dataset digest).
+- ✅ **TPC-H verified official answers**: SF-keyed correctness against the
+  specification's answer set, plus the operator-facing Appendix A stream table.
+- ✅ **TPC-C `tpmC`-style estimate**: goodput x 60 x the configured NewOrder mix —
+  clearly an estimate, never a measured NewOrder rate; audited tpmC still unclaimed.
+- ✅ **Trace completion**: agent spans on schema v3, measured tool phases, OTLP
+  ingest, and metrics + logs signals alongside traces.
+- ✅ **langchain 1.x** for the `[agent]` extra (`create_agent` replaces the removed
+  `AgentExecutor`), which also drops the vulnerable `langchain-core 0.3.x` line.
+- ✅ **Stage naming**: `COLLECT` -> `SEAL` (it seals, it never collected) and a new
+  `DESCRIBE` stage for identity/environment/fingerprint assembly, so a failure
+  there is no longer mis-attributed to `VALIDATE`.
+
 ## Later
 
 - ✅ **Plugin contract hardening (Phase 1D, stability slice)**: plugin API

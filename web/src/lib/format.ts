@@ -17,6 +17,14 @@ export function fmtDur(seconds: number): string {
   return `${(seconds / 60).toFixed(1)}m`;
 }
 
+/** Duration in MILLISECONDS -> human string. `run.stage_timings` is in ms
+ * (see `orchestrator._ms`); handing those to `fmtDur` renders 496 ms as "8.3m". */
+export function fmtDurMs(ms: number): string {
+  if (!Number.isFinite(ms)) return "";
+  if (ms < 1000) return `${ms.toFixed(ms < 10 ? 2 : 0)}ms`;
+  return fmtDur(ms / 1000);
+}
+
 /** ISO timestamp -> locale-formatted date/time; unparseable input verbatim. */
 export function fmtDate(iso: string, locale: Locale): string {
   if (!iso) return "";

@@ -30,11 +30,11 @@ def test_hung_stage_hits_deadline_and_still_tears_down(tmp_path, monkeypatch):
 
     monkeypatch.setattr(LocalSimAdapter, "teardown", spy_teardown)
 
-    def slow_collect(bundle):
+    def slow_seal(bundle):
         time.sleep(3)  # longer than the deadline; SIGALRM interrupts it
         return bundle
 
-    monkeypatch.setattr(orchestrator, "collect", slow_collect)
+    monkeypatch.setattr(orchestrator, "seal", slow_seal)
 
     rec = execute(_spec(), results_dir=tmp_path, timeout_s=0.2)
 

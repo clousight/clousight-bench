@@ -215,3 +215,18 @@ def test_record_provenance_roundtrips():
 def test_from_dict_rejects_0_2_payload():
     with pytest.raises(RecordError, match="no migration path"):
         ResultRecord.from_dict({"schema_version": "0.2"})
+
+
+def test_a_pre_0_6_record_naming_the_collect_stage_still_loads():
+    """SEAL replaced COLLECT in 0.6.0; records written before that must not
+    become unreadable — the old name stays valid in STAGES."""
+    record = _record(
+        run=RunInfo(
+            run_id="run-legacy",
+            started_at="2026-08-01T00:00:00Z",
+            finished_at="2026-08-01T00:00:01Z",
+            stages={"COLLECT": "ok"},
+            stage_timings={"COLLECT": 1.5},
+        )
+    )
+    assert record.run.stages["COLLECT"] == "ok"

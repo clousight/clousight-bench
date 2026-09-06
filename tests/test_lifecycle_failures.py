@@ -277,10 +277,14 @@ def test_environment_facts_failure_is_recorded_and_nothing_is_provisioned(tmp_pa
     record = _run(tmp_path)
 
     assert record.status == "invalid"
-    assert record.run.stages["VALIDATE"] == "failed"
+    # DESCRIBE, not VALIDATE: the facts are collected AFTER the preflight gate, so
+    # blaming VALIDATE produced a record that read "VALIDATE failed, PREFLIGHT ok".
+    assert record.run.stages["DESCRIBE"] == "failed"
+    assert record.run.stages["VALIDATE"] == "ok"
+    assert record.run.stages["PREFLIGHT"] == "ok"
     assert "SETUP" not in record.run.stages
     assert CALLS.count("setup") == 0
-    assert [e["stage"] for e in record.errors] == ["VALIDATE"]
+    assert [e["stage"] for e in record.errors] == ["DESCRIBE"]
     assert record.errors[0]["type"] == "KeyError"
     assert record.environment.facts == {}
     assert _persisted(tmp_path)["status"] == "invalid"
@@ -295,7 +299,9 @@ def test_workload_identity_failure_is_recorded(tmp_path, monkeypatch):
     record = _run(tmp_path)
 
     assert record.status == "invalid"
-    assert record.run.stages["VALIDATE"] == "failed"
+    # workload_identity() runs while the run is being described, before PREFLIGHT.
+    assert record.run.stages["DESCRIBE"] == "failed"
+    assert "PREFLIGHT" not in record.run.stages
     assert record.errors[0]["type"] == "ValueError"
     assert record.identity.workload == ""
     assert record.fingerprints.benchmark.startswith("sha256:")
@@ -309,7 +315,7 @@ def test_an_adapter_that_cannot_be_constructed_is_recorded(tmp_path, monkeypatch
     record = _run(tmp_path)
 
     assert record.status == "invalid"
-    assert record.run.stages["VALIDATE"] == "failed"
+    assert record.run.stages["DESCRIBE"] == "failed"
     assert record.errors[0]["code"] == "adapter_init_failed"
     assert CALLS.count("setup") == 0
     assert _persisted(tmp_path)["errors"][0]["type"] == "RuntimeError"
@@ -422,10 +428,10 @@ def test_non_canonical_observations_fail_collect_and_are_still_persisted(tmp_pat
     record = _run(tmp_path)
 
     assert record.status == "failed"
-    assert record.run.stages["COLLECT"] == "failed"
+    assert record.run.stages["SEAL"] == "failed"
     assert record.run.stages["SCORE"] == "skipped"
     stages = [e["stage"] for e in record.errors]
-    assert stages[0] == "COLLECT"
+    assert stages[0] == "SEAL"
     assert "PERSIST" not in stages
     assert record.run.stages["PERSIST"] == "ok"
 
@@ -450,8 +456,8 @@ def test_a_datetime_observation_is_reported_at_collect(tmp_path, monkeypatch):
     record = _run(tmp_path)
 
     assert record.status == "failed"
-    assert record.run.stages["COLLECT"] == "failed"
-    assert record.errors[0]["stage"] == "COLLECT"
+    assert record.run.stages["SEAL"] == "failed"
+    assert record.errors[0]["stage"] == "SEAL"
     assert "datetime" in record.errors[0]["message"]
 
 
@@ -473,9 +479,9 @@ def test_invalid_observation_bundle_container_fails_collect_and_still_persists(
     record = _run(tmp_path)
 
     assert record.status == "failed"
-    assert record.run.stages["COLLECT"] == "failed"
+    assert record.run.stages["SEAL"] == "failed"
     assert record.run.stages["SCORE"] == "skipped"
-    assert record.errors[0]["stage"] == "COLLECT"
+    assert record.errors[0]["stage"] == "SEAL"
     assert record.observations == {}
     assert record.series == {}
     assert record.artifacts == []
@@ -495,13 +501,13 @@ def test_malformed_partial_bundle_from_collect_error_cannot_escape_record_build(
             code="collect_failed",
         )
 
-    monkeypatch.setattr(orch, "collect", _boom)
+    monkeypatch.setattr(orch, "seal", _boom)
     record = _run(tmp_path)
 
     assert record.status == "failed"
-    assert record.run.stages["COLLECT"] == "failed"
+    assert record.run.stages["SEAL"] == "failed"
     assert record.run.stages["PERSIST"] == "ok"
-    assert [error["stage"] for error in record.errors] == ["COLLECT"]
+    assert [error["stage"] for error in record.errors] == ["SEAL"]
     assert record.observations == {}
     assert record.series == {}
     assert record.artifacts == []

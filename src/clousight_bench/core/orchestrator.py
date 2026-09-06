@@ -3,18 +3,19 @@
 Eleven stages, four phases. The phases are how to READ the machine; the stages
 are the failure-attribution detail underneath them:
 
-    (1) PREPARE   RESOLVE -> VALIDATE -> PREFLIGHT
+    (1) PREPARE   RESOLVE -> VALIDATE -> DESCRIBE -> PREFLIGHT
         nothing has been touched or billed yet; a bad request stops here
+        (DESCRIBE spans the gate: facts needing a live adapter wait for it)
     (2) CONNECT   SETUP ....................... TEARDOWN (finally)
         the only window that talks to the cloud and the only one that can spend
-    (3) MEASURE   EXECUTE -> COLLECT
+    (3) MEASURE   EXECUTE -> SEAL
         produces observations, never a verdict
     ---- the cloud is gone after this line: SCORE cannot see an adapter ----
     (4) CONCLUDE  SCORE -> ENRICH -> PERSIST -> optional PUBLISH
         pure, offline, re-scorable; an enricher may add, never overrule
 
 TEARDOWN is deliberately not a step in that line. It is the mandatory
-``finally`` boundary around SETUP -> COLLECT: once SETUP is entered, teardown
+``finally`` boundary around SETUP -> SEAL: once SETUP is entered, teardown
 always runs, even when setup itself failed half-way, and a teardown failure is
 recorded as its own stage error without overwriting the execute or collect
 error that caused it.
@@ -24,7 +25,7 @@ Three kinds of failure, three different answers:
 - a **request** we cannot parse (RESOLVE / VALIDATE) raises ``UserInputError``
   and writes no record -- it never measured anything;
 - **plugin** code that crashes while describing or checking the benchmark is
-  recorded as a ``VALIDATE`` / ``PREFLIGHT`` stage error with status
+  recorded as a ``DESCRIBE`` / ``PREFLIGHT`` stage error with status
   ``invalid``, because nothing was provisioned and no number was produced;
 - the **platform** failing under test is a recorded outcome (``failed``),
   because "the platform failed" is itself a benchmark finding.
@@ -79,7 +80,7 @@ from clousight_bench.core.observation import (
     ObservationBundle,
     TaskExecutionError,
     TaskResult,
-    collect,
+    seal,
     validate_observation_bundle,
 )
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter
@@ -117,9 +118,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_RESULTS_DIR = Path("results")
 
 # Stages whose failure means the benchmark itself did not produce a verdict.
-_FATAL_STAGES = ("SETUP", "EXECUTE", "COLLECT", "SCORE")
+_FATAL_STAGES = ("SETUP", "EXECUTE", "SEAL", "SCORE")
 # Stages that fail before anything is provisioned: the request never ran.
-_INVALID_STAGES = ("VALIDATE", "PREFLIGHT")
+_INVALID_STAGES = ("VALIDATE", "DESCRIBE", "PREFLIGHT")
 _EMPTY_WORKLOAD: dict[str, Any] = {"workload": "", "workload_version": "", "assets": []}
 
 
@@ -300,7 +301,7 @@ def execute(
 
     if prepared.errors or prepared.adapter is None:
         # Plugin code could not describe this run. Nothing was provisioned.
-        stages["VALIDATE"] = "failed"
+        stages["DESCRIBE"] = "failed"
         errors.extend(prepared.errors)
         return _record_and_finish("invalid")
 
@@ -332,11 +333,15 @@ def execute(
     else:
         stages["PREFLIGHT"] = "skipped"
 
+    # DESCRIBE (second half) -- environment facts need a live adapter, so they are
+    # collected only now, after the preflight gate. The stage is recorded once, at
+    # the end, so a record never claims a stage was ok and then failed.
     environment_error = _complete_environment(prepared, spec, task, results_dir, run_id, debug)
     if environment_error is not None:
-        stages["VALIDATE"] = "failed"
+        stages["DESCRIBE"] = "failed"
         errors.append(environment_error)
         return _record_and_finish("invalid")
+    stages["DESCRIBE"] = "ok"
 
     # PROVISIONED-CLOUD MACHINERY GATE -- the live-run confirmation, the cost
     # budget/ledger, and resource reconciliation ALL apply only to a run that
@@ -402,7 +407,7 @@ def execute(
                 live_run["spent_usd"] = round(spent, 9)
             return _record_and_finish("invalid", live_run=live_run)
 
-    # SETUP -> EXECUTE -> COLLECT, with TEARDOWN as the mandatory finally boundary.
+    # SETUP -> EXECUTE -> SEAL, with TEARDOWN as the mandatory finally boundary.
     # A SIGINT/SIGTERM in this window must still run teardown and persist an
     # interrupted record -- never orphan a provisioned resource or lose progress.
     interrupted: BaseException | None = None
@@ -418,16 +423,16 @@ def execute(
                 stages["EXECUTE"] = "ok"
                 timings["EXECUTE"] = _ms(_st)
                 _st = time.perf_counter()
-                bundle = collect(bundle)
-                stages["COLLECT"] = "ok"
-                timings["COLLECT"] = _ms(_st)
+                bundle = seal(bundle)
+                stages["SEAL"] = "ok"
+                timings["SEAL"] = _ms(_st)
         except TaskExecutionError as exc:
             # The task kept its partial evidence; attribute it to whichever stage
             # was running, since setup and collect can raise this too.
             stage = _failed_stage(stages)
             if isinstance(exc.observations, ObservationBundle):
                 bundle = exc.observations
-                if stage == "COLLECT":
+                if stage == "SEAL":
                     try:
                         validate_observation_bundle(bundle)
                     except Exception:  # noqa: BLE001 - invalid partial evidence is unsafe
@@ -460,7 +465,7 @@ def execute(
             stages[stage] = "failed"
             errors.append(_stage_error(stage, exc))
             _log_traceback(results_dir, run_id, debug, exc)
-            if stage == "COLLECT":
+            if stage == "SEAL":
                 bundle = ObservationBundle()
         finally:
             # Reconcile BEFORE teardown stops the transport: destroy + confirm by
@@ -500,7 +505,7 @@ def execute(
         raise interrupted
 
     # SCORE -- pure; observations already collected survive a scorer failure.
-    if stages.get("COLLECT") == "ok":
+    if stages.get("SEAL") == "ok":
         _sc = time.perf_counter()
         try:
             candidate = task.score(bundle)
@@ -645,7 +650,7 @@ def _prepare(
     errors: list[StageError] = []
 
     def record_failure(code: str, exc: BaseException) -> None:
-        errors.append(_stage_error("VALIDATE", exc, code=code))
+        errors.append(_stage_error("DESCRIBE", exc, code=code))
         _log_traceback(results_dir, run_id, debug, exc)
 
     adapter: ProviderAdapter | None = None
@@ -754,7 +759,7 @@ def _complete_environment(
         )
     except Exception as exc:  # noqa: BLE001 - broken plugin metadata is recordable
         _log_traceback(results_dir, run_id, debug, exc)
-        return _stage_error("VALIDATE", exc, code="environment_facts_failed")
+        return _stage_error("DESCRIBE", exc, code="environment_facts_failed")
     return None
 
 
@@ -817,10 +822,10 @@ def _plugin_versions(pack: DomainPack, adapter_cls: type[ProviderAdapter]) -> di
 
 
 def _failed_stage(stages: dict[str, str]) -> str:
-    for stage in ("SETUP", "EXECUTE", "COLLECT"):
+    for stage in ("SETUP", "EXECUTE", "SEAL"):
         if stage not in stages:
             return stage
-    return "COLLECT"
+    return "SEAL"
 
 
 def _status_for(errors: list[StageError], result: TaskResult | None) -> str:

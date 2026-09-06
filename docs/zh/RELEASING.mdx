@@ -28,7 +28,9 @@ Clousight Bench 通过标签触发的 GitHub Actions 工作流
 
    ```bash
    git switch main && git pull
-   git tag -s v0.2.0 -m "clousight-bench 0.2.0"   # tag must equal the pyproject version
+   # 用 -a 而不是 -s：本项目的 tag 是 annotated 但未签名（v0.5.0 即先例）。
+   # 只有在配了签名密钥时才用 -s。
+   git tag -a v0.2.0 -m "clousight-bench 0.2.0"   # tag must equal the pyproject version
    git push origin v0.2.0
    ```
 

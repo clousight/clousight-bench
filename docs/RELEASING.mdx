@@ -37,7 +37,9 @@ via a tag-triggered GitHub Actions workflow
 
    ```bash
    git switch main && git pull
-   git tag -s v0.2.0 -m "clousight-bench 0.2.0"   # tag must equal the pyproject version
+   # -a, not -s: this project's tags are annotated but unsigned (v0.5.0 is the
+   # precedent). Use -s only if you have a signing key configured.
+   git tag -a v0.2.0 -m "clousight-bench 0.2.0"   # tag must equal the pyproject version
    git push origin v0.2.0
    ```
 
