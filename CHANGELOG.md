@@ -92,6 +92,20 @@ is now `2.0`; plugins declaring `>=1.0,<2.0` are refused with an upgrade message
 
 ### Added
 
+- **Reliability dimension (R5)**: (a) reliability evidence extracted from what
+  the recognized tools already report — `ycsb.error_rate`/`ops_ok`/`ops_failed`
+  from YCSB's own `Return=` counts, `tpc-c.goodput_ratio` from BenchBase's
+  Goodput/Throughput; (b) a **driver-side disruption proxy**
+  (`core/disruption.py`, pure-stdlib TCP relay — the fault-injection heritage
+  generalized): `params.reliability {action: reset|stall, at_s, stall_ms?}` on
+  `ycsb-endpoint` routes the measured phase through the relay and cuts/stalls it
+  mid-run; the record carries the tool-reported damage, a
+  `completed_under_disruption` gate (claimed only when the disruption actually
+  fired) and a `disruption` trajectory span at the measured firing time.
+  A plan that cannot be honored (non-redis binding / no endpoint) fails loudly
+  instead of running a clean benchmark under a disruption-labeled dataset.
+  Server-side fault injection against managed services is deliberately NOT done;
+  a different disruption plan is a different benchmark (dataset digest).
 - **Trace completion pack (D)**: (a) SWE-bench agent spans now map onto schema
   v3 (OpenInference wire → `gen_ai.*` attributes, deterministic hex ids — the
   same raw id always maps to the same hex id so the span forest survives);

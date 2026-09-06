@@ -80,7 +80,24 @@ csbench run --domain key-value --benchmark ycsb --platform ycsb-endpoint \
 `extensions.pricing.price_performance[]` 里加上 `$ / (ops/sec)`——unaudited,
 来自你自己的报价输入,永远改变不了判定。
 
-## 5. 诚实注意事项
+## 5. 扰动下的可靠性(R5)
+
+驱动侧网络路径属于 harness,可以诚实地扰动——绝不对托管服务做服务端故障注入:
+
+```yaml
+params:
+  reliability: {action: reset, at_s: 5}     # 或 {action: stall, at_s: 5, stall_ms: 1000}
+```
+
+测量阶段经本地 TCP 中继连向你的端点;`at_s` 秒时 harness 切断全部活动连接
+(`reset`)或挂起转发(`stall`)。扰动要求 **redis binding + 目标端点**——其他
+binding 会大声失败,绝不在打了扰动标签的数据集下跑一场干净基准。落进记录的
+全是证据:`ycsb.error_rate` / `ycsb.ops_failed` 来自 YCSB 自己的 `Return=` 计数,
+`ycsb.completed_under_disruption` 仅在扰动确实触发时出现,轨迹在实测触发时刻
+带 `disruption` span(`stall` 为闸门强制的窗口,截断到运行结束)。不同扰动
+计划=不同基准(折入 dataset digest)。
+
+## 6. 诚实注意事项
 
 - YCSB 的 Redis binding 面向单节点;cluster 模式服务需要上游的 cluster 客户端
   开关——跨服务对比前先验证。

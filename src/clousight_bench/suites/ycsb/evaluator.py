@@ -12,6 +12,7 @@ contract — not an audit claim; drift is carried by ``reproducibility_class``).
 
 from __future__ import annotations
 
+import json
 import re
 
 from clousight_bench.core.observation import Measurement
@@ -61,5 +62,57 @@ class OfficialYcsbEvaluator(Evaluator):
                 unit=unit,
                 reproducibility_class="environmental",
                 official=True,
+            )
+
+        # --- reliability evidence: the tool's own per-op Return= counts --------
+        # YCSB prints one "[OP], Return=<CODE>, <count>" line per op/return-code
+        # pair; every non-OK code is a failed operation. Nothing is invented:
+        # the metrics exist only when the tool reported Return lines.
+        ok = 0
+        failed = 0
+        saw_return = False
+        for code, count in re.findall(r"\[[A-Z-]+\], Return=([A-Z_]+), (\d+)", text):
+            saw_return = True
+            if code == "OK":
+                ok += int(count)
+            else:
+                failed += int(count)
+        # --- disruption evidence (R5): recorded by the suite's driver-side proxy ---
+        try:
+            summary = json.loads(raw.path("summary").read_text())
+        except Exception:  # noqa: BLE001 - summary optional for this dimension
+            summary = {}
+        disruption = summary.get("disruption") if isinstance(summary, dict) else None
+        # the claim requires evidence the disruption actually FIRED — an armed
+        # plan whose run finished before at_s disrupted nothing, and saying
+        # otherwise would be a fabricated claim
+        if isinstance(disruption, dict) and disruption.get("disrupted_at_unix_nano"):
+            plan = disruption.get("plan") or {}
+            out["ycsb.completed_under_disruption"] = Measurement(
+                value=1.0,
+                unit="pass",
+                reproducibility_class="environmental",
+                official=True,
+                notes=(
+                    f"the measured run completed while the harness disrupted the driver-side "
+                    f"network path (action={plan.get('action')}, at_s={plan.get('at_s')}); "
+                    "any tool-reported Return= damage appears as ycsb.error_rate"
+                ),
+            )
+
+        if saw_return and (ok + failed) > 0:
+            note = "tool-reported Return= counts; every non-OK return code counts as failed"
+            out["ycsb.ops_ok"] = Measurement(
+                value=ok, unit="ops", reproducibility_class="environmental", official=True, notes=note
+            )
+            out["ycsb.ops_failed"] = Measurement(
+                value=failed, unit="ops", reproducibility_class="environmental", official=True, notes=note
+            )
+            out["ycsb.error_rate"] = Measurement(
+                value=failed / (ok + failed),
+                unit="ratio",
+                reproducibility_class="environmental",
+                official=True,
+                notes=note,
             )
         return out

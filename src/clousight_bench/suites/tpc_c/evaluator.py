@@ -77,7 +77,21 @@ class OfficialTpccEvaluator(Evaluator):
                         value=m.value, unit=unit, reproducibility_class="environmental", official=True
                     )
 
+        # --- reliability evidence: goodput vs throughput, both tool-reported ---
+        throughput = out.get("tpc-c.throughput_req_per_sec")
         goodput = out.get("tpc-c.goodput_req_per_sec")
+        if throughput is not None and goodput is not None and throughput.value > 0:
+            out["tpc-c.goodput_ratio"] = Measurement(
+                value=goodput.value / throughput.value,
+                unit="ratio",
+                reproducibility_class="environmental",
+                official=True,
+                notes=(
+                    "tool-reported Goodput / Throughput — the successfully-completed share "
+                    "of submitted requests (BenchBase's own definitions)"
+                ),
+            )
+
         if goodput is not None:
             from clousight_bench.suites.tpc_c.suite import _NEWORDER_WEIGHT_PCT  # noqa: PLC0415
 
