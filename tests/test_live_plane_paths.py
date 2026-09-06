@@ -18,6 +18,18 @@ def test_record_path_is_relative_to_the_results_dir(tmp_path: Path) -> None:
     assert _relative_record_path(record, results) == "data-warehouse/duckdb-local/suite:tpc-h-run-1.json"
 
 
+def test_a_relative_results_dir_still_yields_a_relative_record_path(tmp_path: Path, monkeypatch) -> None:
+    """`csbench serve` defaults to the relative "results", while the store hands
+    back an absolute path. Comparing the two unresolved raises, which degraded
+    every record_path to a bare filename — losing the domain/platform prefix
+    that makes it useful."""
+    monkeypatch.chdir(tmp_path)
+    record = (tmp_path / "results" / "data-warehouse" / "duckdb-local" / "suite:tpc-h-run-1.json").resolve()
+    assert (
+        _relative_record_path(record, Path("results")) == "data-warehouse/duckdb-local/suite:tpc-h-run-1.json"
+    )
+
+
 def test_a_record_outside_the_results_dir_is_named_but_not_located(tmp_path: Path) -> None:
     results = tmp_path / "results"
     elsewhere = tmp_path / "somewhere" / "else" / "run.json"

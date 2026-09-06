@@ -1048,8 +1048,12 @@ def _relative_record_path(path: Path, results_dir: Path) -> str:
     results root is the more useful thing to show anyway.
     """
     try:
-        return str(path.relative_to(results_dir))
-    except ValueError:
+        # Resolved on both sides: the store returns an absolute path while
+        # results_dir is usually the relative "results" the CLI defaults to, and
+        # relative_to() between the two raises — which silently degraded every
+        # record_path to a bare filename.
+        return str(path.resolve().relative_to(Path(results_dir).resolve()))
+    except (ValueError, OSError):
         # A publisher or a custom store could place the record outside the
         # results dir. Name the file without disclosing where it lives.
         return path.name
