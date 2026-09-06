@@ -27,6 +27,7 @@ To build the zip yourself (manual upload / inspection):
 
 ```python
 from clousight_bench.domains.agent_runtime.artifact import build_agent_zip
+
 build_agent_zip("dist/clousight-bench-agent.zip")
 ```
 
