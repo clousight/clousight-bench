@@ -20,9 +20,14 @@ SCHEMA_VERSION = "0.4"
 
 STATUSES: tuple[str, ...] = ("completed", "failed", "invalid", "unsupported", "interrupted")
 # Every stage name a record may carry. The four PHASES a reader thinks in --
-# PREPARE (RESOLVE/VALIDATE/PREFLIGHT) -> CONNECT (SETUP..TEARDOWN) ->
-# MEASURE (EXECUTE/COLLECT) -> CONCLUDE (SCORE/ENRICH/PERSIST/PUBLISH) -- are a
+# PREPARE (RESOLVE/VALIDATE/DESCRIBE/PREFLIGHT) -> CONNECT (SETUP..TEARDOWN) ->
+# MEASURE (EXECUTE/SEAL) -> CONCLUDE (SCORE/ENRICH/PERSIST/PUBLISH) -- are a
 # presentation of this same list; see docs/architecture.mdx.
+#
+# DESCRIBE assembles the run's identity, environment and fingerprints. It spans
+# the preflight gate (facts that need a live adapter are only collected once
+# PREFLIGHT passes), which is why it is its own stage: attributing its failures
+# to VALIDATE produced records that read "VALIDATE failed, PREFLIGHT ok".
 #
 # ``RunInfo.stages`` records the stages whose outcome THIS record depended on,
 # which is why a live record never carries a RESOLVE key: a RESOLVE failure
@@ -31,10 +36,12 @@ STATUSES: tuple[str, ...] = ("completed", "failed", "invalid", "unsupported", "i
 STAGES: tuple[str, ...] = (
     "RESOLVE",
     "VALIDATE",
+    "DESCRIBE",
     "PREFLIGHT",
     "SETUP",
     "EXECUTE",
-    "COLLECT",
+    "SEAL",
+    "COLLECT",  # 0.5.x name for SEAL; kept so older records still load
     "TEARDOWN",
     "SCORE",
     "ENRICH",

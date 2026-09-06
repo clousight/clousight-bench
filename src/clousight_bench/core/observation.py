@@ -242,7 +242,10 @@ def validate_observation_bundle(bundle: ObservationBundle) -> None:
     canonical_json(bundle.to_dict())  # raises CanonicalJSONError on NaN / bad types
 
 
-def collect(bundle: ObservationBundle) -> ObservationBundle:
-    """COLLECT: prove the raw bundle is well formed and canonically encodable."""
+def seal(bundle: ObservationBundle) -> ObservationBundle:
+    """SEAL: prove the raw bundle is well formed and canonically encodable.
+
+    Named COLLECT until 0.6.0, which was misleading: nothing is fetched here.
+    EXECUTE already returned the bundle; this is the seal before scoring."""
     validate_observation_bundle(bundle)
     return bundle

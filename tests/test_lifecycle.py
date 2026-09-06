@@ -240,3 +240,21 @@ def test_stages_omit_resolve_but_keep_the_publish_denial(tmp_path):
     record = _run(tmp_path)
     assert "RESOLVE" not in record.run.stages
     assert record.run.stages["PUBLISH"] == "skipped"
+
+
+def test_the_measure_phase_seals_the_bundle_and_says_so(tmp_path):
+    """COLLECT collected nothing — it validates and seals the bundle before
+    scoring, so the stage is named SEAL. The old name stays readable (older
+    records still carry it) but a new run never writes it."""
+    record = _run(tmp_path)
+    assert record.run.stages["SEAL"] == "ok"
+    assert "COLLECT" not in record.run.stages
+    assert record.run.stage_timings["SEAL"] >= 0.0
+
+
+def test_describing_the_run_is_its_own_stage(tmp_path):
+    """Identity/environment/fingerprint assembly is DESCRIBE, not VALIDATE —
+    its second half runs after PREFLIGHT, so a failure there used to produce a
+    record that read 'VALIDATE failed, PREFLIGHT ok'."""
+    record = _run(tmp_path)
+    assert record.run.stages["DESCRIBE"] == "ok"

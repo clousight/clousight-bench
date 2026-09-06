@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n";
-import { fmtDur, fmtNum, truncate } from "@/lib/format";
+import { fmtDurMs, fmtNum, truncate } from "@/lib/format";
 import { traceHref } from "@/router";
 import { cn } from "@/lib/utils";
 
@@ -44,9 +44,10 @@ function KvRow({ label, value, copy, mono = true }: { label: string; value?: str
  * only) → conclude (pure scoring, cloud already gone).
  */
 const STAGE_PHASES: string[][] = [
-  ["RESOLVE", "VALIDATE", "PREFLIGHT"],
+  ["RESOLVE", "VALIDATE", "DESCRIBE", "PREFLIGHT"],
   ["SETUP", "TEARDOWN"],
-  ["EXECUTE", "COLLECT"],
+  // COLLECT is SEAL's pre-0.6.0 name — older records still carry it.
+  ["EXECUTE", "SEAL", "COLLECT"],
   ["SCORE", "ENRICH", "PERSIST", "PUBLISH"],
 ];
 
@@ -193,7 +194,8 @@ export function RecordDetail({ runId }: { runId: string }) {
                 <div className="flex flex-wrap gap-2">
                   {phase.stages.map((name) => {
                     const status = String(stages[name] ?? "");
-                    const seconds = timings[name];
+                    // stage_timings are MILLISECONDS, not seconds.
+                    const ms = timings[name];
                     return (
                       <div
                         key={name}
@@ -202,7 +204,7 @@ export function RecordDetail({ runId }: { runId: string }) {
                         <div className="font-mono text-[11px] font-medium text-foreground">{name}</div>
                         <div className="text-xs">{status}</div>
                         <div className="font-mono text-[11px] text-muted-foreground">
-                          {typeof seconds === "number" ? fmtDur(seconds) : "—"}
+                          {typeof ms === "number" ? fmtDurMs(ms) : "—"}
                         </div>
                       </div>
                     );

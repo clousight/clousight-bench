@@ -2,7 +2,43 @@
 
 All notable changes to Clousight Bench are recorded here.
 
-## [0.6.0] — 2026-09-05
+## [0.6.0] — 2026-09-06
+
+### Breaking (stage names: `COLLECT` -> `SEAL`, new `DESCRIBE`)
+
+- **`COLLECT` is now `SEAL`.** The stage fetched nothing — EXECUTE already
+  returned the bundle; the stage validates it and seals it before scoring
+  (`core/observation.py::collect()` -> `seal()`). `COLLECT` stays in `STAGES`, so
+  records written by 0.5.x still load, but a new run never writes it.
+- **New `DESCRIBE` stage.** Assembling the run's identity / environment /
+  fingerprints from plugin declarations is no longer filed under `VALIDATE`. Its
+  second half runs *after* the preflight gate (facts need a live adapter), so the
+  old attribution produced records that read `VALIDATE: failed, PREFLIGHT: ok`.
+  `DESCRIBE` is recorded once, at the end, and a failure there is still `invalid`
+  with nothing provisioned.
+
+### Fixed
+
+- **Viewer: stage durations were 1000x too long.** `run.stage_timings` is in
+  milliseconds; the record detail card handed those numbers to the *seconds*
+  formatter, so a 496 ms teardown rendered as "8.3m" on a run that took six
+  seconds end to end. New `fmtDurMs()` formats them, and a source-discipline test
+  keeps the two formatters from being confused again.
+- **CodeQL triage** (closes #79): the real findings are fixed, the scan scope is
+  narrowed to first-party code and the recurring classes are now gated by ruff
+  rules, so they fail the lint job instead of a later scan. Includes log-injection
+  hardening (`tests/test_logsafe.py`) across the probe/campaign/viewer paths.
+
+### Security
+
+- **echarts 5.6.0 -> 6.1.0** in the bundled viewer, clearing CVE-2026-45249 (XSS
+  in the Lines-series tooltip). The vulnerability was never reachable here — the
+  only chart is a `custom` series with its own HTML-escaping tooltip formatter —
+  but the viewer `dist/` ships in the wheel, so the dependency is patched anyway.
+  The waterfall was re-verified against the new major.
+- **ruff 0.15.22 -> 0.16.5** (dev/lint only), plus the markdown formatting its new
+  version applies to fenced code in the README.
+
 
 **Breaking, read first:** `PLUGIN_API_VERSION` goes 1.0 → 2.0 → **3.0** in this
 release — a plugin declaring a 1.x or 2.x range is refused with an upgrade

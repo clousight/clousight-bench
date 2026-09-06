@@ -172,3 +172,22 @@ def test_all_t_referenced_keys_exist_in_both_locales() -> None:
     for key, sources in sorted(referenced.items()):
         assert key in en, f"t({key!r}) in {sources} missing from en.json"
         assert key in zh, f"t({key!r}) in {sources} missing from zh.json"
+
+
+def test_stage_timings_are_formatted_as_milliseconds() -> None:
+    """``run.stage_timings`` is in MILLISECONDS (``orchestrator._ms``).
+
+    Handing those numbers to ``fmtDur(seconds)`` renders a 496 ms teardown as
+    "8.3m" — a 1000x lie in the shipped viewer. The stage card must go through
+    the millisecond formatter instead.
+    """
+    fmt = (_WEB_SRC / "lib" / "format.ts").read_text(encoding="utf-8")
+    assert "export function fmtDurMs(" in fmt, "format.ts must expose a millisecond duration formatter"
+
+    detail = (_WEB_SRC / "views" / "RecordDetail.tsx").read_text(encoding="utf-8")
+    assert "fmtDurMs(" in detail, "the stage card must format stage_timings with fmtDurMs"
+    for line in detail.splitlines():
+        if "stage_timings" in line or ("timings[" in line and "fmtDur(" in line):
+            assert "fmtDur(" not in line or "fmtDurMs(" in line, (
+                f"stage timings must not be passed to the seconds formatter: {line.strip()}"
+            )

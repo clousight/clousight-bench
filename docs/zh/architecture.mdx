@@ -8,14 +8,14 @@ Clousight Bench 对云产品的**运行时工程能力**进行基准测试，而
 
 ## 生命周期（所有领域共用）
 
-11 个阶段，**4 个相位**。相位是读懂这台机器的方式，阶段是它下面的失败归因细节。
+12 个阶段，**4 个相位**。相位是读懂这台机器的方式，阶段是它下面的失败归因细节。
 
 ```
-(1) 准备 PREPARE   RESOLVE -> VALIDATE -> PREFLIGHT
+(1) 准备 PREPARE   RESOLVE -> VALIDATE -> DESCRIBE ... PREFLIGHT ... DESCRIBE
                    还没碰云、没花钱——请求不合法就停在这里
 (2) 连接 CONNECT   SETUP ............................ TEARDOWN (finally)
                    唯一与云对话、唯一会花钱的窗口
-(3) 测量 MEASURE   EXECUTE -> COLLECT
+(3) 测量 MEASURE   EXECUTE -> SEAL
                    只产生观测，不产生结论
     ───────── 这条线之后，云已彻底离场 ─────────
 (4) 定论 CONCLUDE  SCORE -> ENRICH -> PERSIST -> optional PUBLISH
@@ -31,16 +31,17 @@ MEASURE 与 CONCLUDE 之间那条线就是整个信任故事，而且它由函�
 - **RESOLVE** — 根据 `RunSpec` 查找 DomainPack、任务和适配器。
   不写入 `run.stages`：RESOLVE 失败根本不会产生记录，所以"RESOLVE: ok"在每条记录里都是常量。
 - **VALIDATE** — 解析并校验 RunSpec、目标、参数和任务配置（`core/validation.py`）。RESOLVE 和 VALIDATE 失败均属 `UserInputError`：CLI 退出码为 2，**不写入任何记录**。
+- **DESCRIBE** — 依据插件的声明（`workload_identity`、`provenance`、`environment_facts`）组装本次运行的 identity、environment 与三个指纹。它**横跨 preflight 闸门**：需要活适配器才能取到的 facts 要等 PREFLIGHT 通过之后才收集，因此 DESCRIBE 只在最后记录一次。插件在这里崩溃会得到 `invalid` 记录，且不会制备任何资源。（0.6.0 之前这些失败挂在 VALIDATE 名下，导致记录出现"VALIDATE failed、PREFLIGHT ok"这种读不通的组合。）
 - **PREFLIGHT** — `adapter.preflight(task)`：在制备之前检查凭证、SDK、连通性以及本次基准测试在该云上所需的最低权限。CRITICAL 级失败会生成一条 `invalid` 记录，且永远不会进入 SETUP。可通过 `--skip-preflight` 跳过；可使用 `csbench doctor` 单独运行。
 - **SETUP** — `adapter.setup()`：通过 Terraform 制备资源,或通过 SDK/HTTP 建立连接。`setup()` 与 `teardown()` 都是**可选的 no-op 钩子**——"创建 → 接入 → 销毁"三段可分离,**纯接入**运行(经 `target.endpoint` / `credentials_ref` 配置接入一个已运行的服务)只用"接入"这一段。一次运行是否制备是显式的适配器能力 `provisions_resources()`(默认:真实云的 live 运行;`*-endpoint` 配置接入适配器与模拟器为 `False`,或继承 `ProvisionedCloudAdapter` 恒为 `True`)。**制备云机器——live 确认门、成本预算/账本、资源回收(reaper)——仅在 `provisions_resources()` 为 `True` 时运行**;纯接入运行全部跳过。
 - **EXECUTE** — `task.execute(adapter, params)`：驱动负载，返回仅含原始证据的 `ObservationBundle`。
-- **COLLECT** — `core/observation.py::collect()`：验证 bundle 格式完整且可进行规范化编码。它**不从云上收集任何东西**——bundle 是 EXECUTE 已经返回的；这里是打分前的封存。它自成一个阶段，是为了让"套件跑崩了"和"套件返回了编不出来的东西"成为两种可归因的失败。
+- **SEAL** — `core/observation.py::seal()`：验证 bundle 格式完整且可进行规范化编码。它**不从云上取任何东西**——bundle 是 EXECUTE 已经返回的；这里是打分前的封存。它自成一个阶段，是为了让"套件跑崩了"和"套件返回了编不出来的东西"成为两种可归因的失败。0.6.0 之前叫 `COLLECT`，旧名仍保留在 `STAGES` 中，因此 0.5.x 写下的记录照样能读。
 - **SCORE** — `task.score(bundle)`：纯函数，生成测量值和发现。评分器失败时保留观测值，并记录一条 SCORE 错误。
 - **ENRICH** — 已安装的各 `ResultEnricher` 相互隔离运行：失败仅记录为 ENRICH 阶段错误，不会改变 `status`。
 - **PERSIST** — `core/store.py`：写临时文件、刷盘、`fsync`、原子重命名；当结果目录不可写时，会将紧急转储写入系统临时目录（路径会被打印出来）。
 - **PUBLISH** — 默认关闭，需注入 `ResultPublisher` 才生效。在 PERSIST 之后运行，写入仅追加的回执；永远不会改写核心记录。
 
-**TEARDOWN 不在上述流程步骤之列。** 它是围绕 SETUP → COLLECT 的强制性 `finally` 边界：一旦进入 SETUP，`adapter.teardown()` 必然执行，包括 `setup()` 中途失败的情况；teardown 失败会被记录为独立的阶段错误，不会覆盖导致失败的 execute 或 collect 错误。
+**TEARDOWN 不在上述流程步骤之列。** 它是围绕 SETUP → SEAL 的强制性 `finally` 边界：一旦进入 SETUP，`adapter.teardown()` 必然执行，包括 `setup()` 中途失败的情况；teardown 失败会被记录为独立的阶段错误，不会覆盖导致失败的 execute 或 collect 错误。
 
 **PREPARE 与 CONNECT 之间还有两道闸门，它们不是独立阶段**——live 运行确认（`--allow-live`）与成本预算（`--cost-budget`）。两者都在**制备任何资源之前**拒绝，表现形式也相同：`SETUP: skipped`、状态 `invalid`，外加一条 `critical` 发现，其 `details.remediation` 写明该怎么做。`csbench run` 会把这一行打到 stderr，因此被拦下的运行不必去读 stdout 上的 JSON 就能自我解释。
 

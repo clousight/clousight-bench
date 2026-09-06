@@ -11,7 +11,7 @@ def test_lifecycle_stages_are_timed(tmp_path):
         results_dir=tmp_path,
     )
     timings = rec.run.stage_timings
-    for stage in ("SETUP", "EXECUTE", "COLLECT", "TEARDOWN", "SCORE"):
+    for stage in ("SETUP", "EXECUTE", "SEAL", "TEARDOWN", "SCORE"):
         assert stage in timings, f"{stage} not timed"
         assert isinstance(timings[stage], (int, float)) and timings[stage] >= 0.0
 

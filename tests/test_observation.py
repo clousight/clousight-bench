@@ -11,7 +11,7 @@ from clousight_bench.core.observation import (
     ObservationError,
     TaskExecutionError,
     TaskResult,
-    collect,
+    seal,
 )
 
 
@@ -97,29 +97,29 @@ def test_collect_accepts_a_well_formed_bundle_and_returns_it():
             }
         ],
     )
-    assert collect(bundle) is bundle
+    assert seal(bundle) is bundle
 
 
 def test_collect_rejects_a_non_bundle():
     with pytest.raises(ObservationError, match="ObservationBundle"):
-        collect({"observations": {}})
+        seal({"observations": {}})
 
 
 def test_collect_rejects_non_finite_numbers():
     with pytest.raises(CanonicalJSONError):
-        collect(ObservationBundle(observations={"v": float("nan")}))
+        seal(ObservationBundle(observations={"v": float("nan")}))
 
 
 def test_collect_rejects_malformed_series_points():
     with pytest.raises(ObservationError, match="latency_ms"):
-        collect(ObservationBundle(series={"latency_ms": [[1, 2, 3]]}))
+        seal(ObservationBundle(series={"latency_ms": [[1, 2, 3]]}))
 
 
 def test_collect_rejects_artifacts_without_a_pointer_or_digest():
     with pytest.raises(ObservationError, match="sha256"):
-        collect(ObservationBundle(artifacts=[{"kind": "t", "path": "p", "media": "m"}]))
+        seal(ObservationBundle(artifacts=[{"kind": "t", "path": "p", "media": "m"}]))
     with pytest.raises(ObservationError, match="pointer"):
-        collect(ObservationBundle(artifacts=[{"kind": "t", "media": "m", "sha256": "sha256:ab"}]))
+        seal(ObservationBundle(artifacts=[{"kind": "t", "media": "m", "sha256": "sha256:ab"}]))
 
 
 def test_task_result_defaults_are_empty_and_supported():

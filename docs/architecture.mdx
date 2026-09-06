@@ -9,15 +9,15 @@ but the pipeline is identical.
 
 ## Lifecycle (shared by every domain)
 
-Eleven stages, **four phases**. The phases are how to read the machine; the
+Twelve stages, **four phases**. The phases are how to read the machine; the
 stages are the failure-attribution detail underneath them.
 
 ```
-(1) PREPARE    RESOLVE -> VALIDATE -> PREFLIGHT
+(1) PREPARE    RESOLVE -> VALIDATE -> DESCRIBE ... PREFLIGHT ... DESCRIBE
                nothing touched, nothing billed — a bad request stops here
 (2) CONNECT    SETUP ............................ TEARDOWN (finally)
                the only window that talks to the cloud, the only one that spends
-(3) MEASURE    EXECUTE -> COLLECT
+(3) MEASURE    EXECUTE -> SEAL
                produces observations, never a verdict
     ───────── the cloud is gone after this line ─────────
 (4) CONCLUDE   SCORE -> ENRICH -> PERSIST -> optional PUBLISH
@@ -37,6 +37,13 @@ The stages, in order:
 - **VALIDATE** — parse and check the RunSpec, target, params and task config
   (`core/validation.py`). RESOLVE and VALIDATE failures are `UserInputError`s:
   CLI exit code 2, **no record written**.
+- **DESCRIBE** — assemble the run's identity, environment and the three
+  fingerprints from what the plugins declare (`workload_identity`, `provenance`,
+  `environment_facts`). It **spans the preflight gate**: facts that need a live
+  adapter are collected only after PREFLIGHT passes, so DESCRIBE is recorded once,
+  at the end. A plugin that crashes here yields an `invalid` record and nothing is
+  provisioned. (Before 0.6.0 these failures were filed under VALIDATE, which
+  produced records reading "VALIDATE failed, PREFLIGHT ok".)
 - **PREFLIGHT** — `adapter.preflight(task)`: credentials, SDK, connectivity and
   the minimal permissions this benchmark needs on this cloud, **before**
   provisioning. A CRITICAL failure produces an `invalid` record and never
@@ -55,11 +62,12 @@ The stages, in order:
   `provisions_resources()` is `True`**; a connect-only run skips all of it.
 - **EXECUTE** — `task.execute(adapter, params)`: drive the workload, return an
   `ObservationBundle` of raw observations only.
-- **COLLECT** — `core/observation.py::collect()`: prove the bundle is well
-  formed and canonically encodable. It *collects nothing from the cloud* —
-  EXECUTE already returned the bundle; this is the seal before scoring, and it
-  is a stage of its own so "the suite crashed" and "the suite returned something
-  unencodable" are different, attributable failures.
+- **SEAL** — `core/observation.py::seal()`: prove the bundle is well formed and
+  canonically encodable. It *fetches nothing from the cloud* — EXECUTE already
+  returned the bundle; this is the seal before scoring, and it is a stage of its
+  own so "the suite crashed" and "the suite returned something unencodable" are
+  different, attributable failures. Named `COLLECT` before 0.6.0; the old name
+  stays valid in `STAGES` so records written by 0.5.x still load.
 - **SCORE** — `task.score(bundle)`: a pure function producing measurements and
   findings. A scorer failure keeps the observations and records a SCORE error.
 - **ENRICH** — installed `ResultEnricher`s, each isolated: a failure becomes an
@@ -71,7 +79,7 @@ The stages, in order:
   and writes an append-only receipt; it can never rewrite the core record.
 
 **TEARDOWN is not a step in that line.** It is the mandatory `finally` boundary
-around SETUP → COLLECT: once SETUP is entered, `adapter.teardown()` always runs,
+around SETUP → SEAL: once SETUP is entered, `adapter.teardown()` always runs,
 including when `setup()` failed half-way, and a teardown failure is recorded as
 its own stage error without overwriting the execute or collect error that
 caused it.

@@ -29,11 +29,11 @@ def test_interrupt_runs_teardown_and_persists_interrupted_record(tmp_path, monke
 
     monkeypatch.setattr(LocalSimAdapter, "teardown", spy_teardown)
 
-    # Interrupt COLLECT (setup + execute already succeeded, so teardown is owed).
+    # Interrupt SEAL (setup + execute already succeeded, so teardown is owed).
     def boom(_bundle):
         raise KeyboardInterrupt("sigint")
 
-    monkeypatch.setattr(orchestrator, "collect", boom)
+    monkeypatch.setattr(orchestrator, "seal", boom)
 
     with pytest.raises(KeyboardInterrupt):
         execute(_spec(), results_dir=tmp_path)
