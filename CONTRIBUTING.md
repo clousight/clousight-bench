@@ -100,7 +100,10 @@ Two tools, one job each, deliberately non-overlapping:
   so the defect classes CodeQL reports days later on `main` fail at
   `git commit` instead. The `select` list carries a comment per rule, and a
   second list records the rules we deliberately do *not* select and why; extend
-  either rather than sprinkling `# noqa`.
+  either rather than sprinkling `# noqa`. Note `flake8-bandit.check-typed-exception
+  = true`: without it `S110`/`S112` only fire on a broad `except Exception`, and
+  every silent handler CodeQL still reported after the first triage caught a
+  *typed* exception — the gate was blind to exactly the surviving cases.
 - **CodeQL** (`.github/workflows/codeql.yml`) is the *deep* gate: taint
   tracking ruff cannot do. Its scope lives in
   `.github/codeql/codeql-config.yml`, which runs `security-and-quality` minus a

@@ -1,5 +1,7 @@
 import time
 
+import pytest
+
 from clousight_bench.core.observation import ObservationBundle
 from clousight_bench.domains.agent_runtime.probe.jobs import TERMINAL_STATUSES, JobProgress, JobSpec
 from clousight_bench.domains.agent_runtime.probe.runner import JobRunner
@@ -43,11 +45,8 @@ def test_probe_exception_marks_job_failed():
 
 def test_unknown_probe_is_rejected_at_submit():
     runner = JobRunner({})
-    try:
+    with pytest.raises(KeyError):
         runner.submit(JobSpec(probe="nope", params={}, target_endpoint="u"))
-        raise AssertionError("expected KeyError")
-    except KeyError:
-        pass
 
 
 def test_get_unknown_job_returns_none():
