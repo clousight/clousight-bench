@@ -1,11 +1,12 @@
 """LangChain-based benchmark agent with OpenInference tracing.
 
-Uses a real LangChain AgentExecutor chain (0.3.x) with:
+Uses the real LangChain 1.x agent loop (``create_agent``, built on langgraph):
   BenchmarkChatModel — deterministic stub LLM (always calls the specified tool)
   MockServerTool     — LangChain BaseTool wrapping the mock HTTP server
-  AgentExecutor      — standard LangChain agent loop (instrumented by OpenInference)
+  create_agent       — standard LangChain 1.x agent graph (instrumented by
+                       OpenInference through langchain-core callbacks)
 
-OpenInference instruments AgentExecutor, BaseChatModel and BaseTool, producing
+OpenInference instruments the agent graph, BaseChatModel and BaseTool, producing
 genuine CHAIN / LLM / TOOL spans in a single trace with correct parent-child
 linkage.  Spans are collected via InMemorySpanExporter and embedded in the
 response body under ``_spans`` for in-band collection by the transport.
@@ -22,11 +23,10 @@ import time
 from typing import Any
 from urllib import request as urlrequest
 
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.agents import create_agent
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import BaseTool
 from pydantic import Field
 
@@ -48,7 +48,7 @@ AGENT_RETRY_POLICY: dict[str, Any] = {
 class BenchmarkChatModel(BaseChatModel):
     """Always returns exactly the tool call specified at construction.
 
-    Implements bind_tools() so create_tool_calling_agent() can register tools.
+    Implements bind_tools() so create_agent() can register tools.
     OpenInference instruments _generate() → LLM span.
     """
 
@@ -62,7 +62,7 @@ class BenchmarkChatModel(BaseChatModel):
         return "clousight-bench"
 
     def bind_tools(self, tools: list, **kwargs: Any) -> BenchmarkChatModel:
-        """Required by create_tool_calling_agent; returns self (stub ignores tool schemas)."""
+        """Required by create_agent; returns a copy (stub ignores tool schemas)."""
         copy = self.model_copy()
         copy._bound_tools = list(tools)
         return copy
@@ -76,7 +76,7 @@ class BenchmarkChatModel(BaseChatModel):
     ) -> ChatResult:
         """Implement the pinned retry policy.
 
-        LangChain's loop: LLM emits tool_call → executor runs tool → ToolMessage
+        The agent loop: LLM emits tool_call → the tools node runs it → ToolMessage
         fed back → LLM called again.  We implement retry by re-emitting the same
         tool_call when the last ToolMessage carries a 5xx status and the retry
         budget (max_retries=2, i.e. ≤2 retries after the first attempt) is not
@@ -258,20 +258,14 @@ def _try_add_arms_exporter(provider: Any, license_key: str, region: str) -> None
 # Main agent entry point
 # ---------------------------------------------------------------------------
 
-_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", "You are a benchmark agent. Execute exactly the tool call requested."),
-        ("human", "{input}"),
-        ("placeholder", "{agent_scratchpad}"),
-    ]
-)
+_SYSTEM_PROMPT = "You are a benchmark agent. Execute exactly the tool call requested."
 
 
 def run(body: dict[str, Any]) -> dict[str, Any]:
-    """Run a LangChain AgentExecutor for one tool call; return result + OI spans.
+    """Run the LangChain 1.x agent graph for one tool call; return result + OI spans.
 
-    AgentExecutor is instrumented by OpenInference, producing:
-      CHAIN span  — AgentExecutor.invoke()
+    The create_agent graph is instrumented by OpenInference, producing:
+      CHAIN span  — the agent graph invoke()
       LLM span    — BenchmarkChatModel._generate()
       TOOL span   — MockServerTool._run()
     All spans share a single trace_id with correct parent-child linkage.
@@ -291,21 +285,23 @@ def run(body: dict[str, Any]) -> dict[str, Any]:
     llm = BenchmarkChatModel(tool_name=target, tool_args=params)
     tools = make_tools(mock_base_url, mock_token)
 
-    agent = create_tool_calling_agent(llm, tools, _PROMPT)
-    # max_iterations must be >= 1 (initial) + max_retries + 1 (final answer) = 4
-    executor = AgentExecutor(
-        agent=agent,
-        tools=tools,
-        verbose=False,
-        return_intermediate_steps=False,
-        max_iterations=AGENT_RETRY_POLICY["max_retries"] + 2,  # 4: enough for retries
-    )
+    agent = create_agent(llm, tools, system_prompt=_SYSTEM_PROMPT)
+    # The stub LLM ends the loop itself once the retry budget is spent; the
+    # recursion limit is only a safety net. Each attempt costs 2 graph steps
+    # (model + tools), plus the final model step:
+    # (max_retries + 1) * 2 + 1 = 7 — with headroom → 10.
+    recursion_limit = (AGENT_RETRY_POLICY["max_retries"] + 1) * 2 + 4
 
     try:
-        result = executor.invoke({"input": f"execute {target} tool call"})
+        result = agent.invoke(
+            {"messages": [HumanMessage(content=f"execute {target} tool call")]},
+            config={"recursion_limit": recursion_limit},
+        )
         ok = True
         status = 200
-        output = str(result.get("output", ""))
+        messages = result.get("messages", [])
+        final = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
+        output = str(final.content) if final is not None else ""
     except Exception as exc:
         ok = False
         status = 500
@@ -314,7 +310,6 @@ def run(body: dict[str, Any]) -> dict[str, Any]:
     # Collect OpenInference spans from in-memory exporter
     spans: list[dict] = []
     if otel_ok and _mem_exporter is not None:
-        _span_ids_set = {format(s.context.span_id, "016x") for s in _mem_exporter.get_finished_spans()}
         for s in _mem_exporter.get_finished_spans():
             attrs = dict(s.attributes or {})
             spans.append(
