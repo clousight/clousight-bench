@@ -11,8 +11,8 @@ Clousight Bench 采用**核心引擎 + 入口点插件**的架构。引擎负责
 
 | 层次 | 内容 | 分发方式 |
 |---|---|---|
-| **核心包**（`clousight-bench`） | 引擎（编排器、schema/记录格式、CLI、插件注册表）、插件**契约**（`BenchmarkSuite`、`Evaluator`、`Metric`、`AgentRuntimeAdapter`、`RuntimeProviderPlugin`、`ResourceReaper`、`Enricher`、`DomainPack`）、报告/查询/追踪/汇总工具，以及**数据平面探针**运行时。 | pip 可安装，开源（Apache-2.0） |
-| **参考领域** | `agent-runtime`（T0–T6）——含电池的基准测试。 | 捆绑在核心包中，但以*插件*方式注册（见下文） |
+| **核心包**（`clousight-bench`） | 引擎（编排器、schema/记录格式、CLI、插件注册表）、插件**契约**（`BenchmarkSuite`、`Evaluator`、`Metric`、`AgentRuntimeAdapter`、`RuntimeProviderPlugin`、`ResourceReaper`、`ResultEnricher`、`DomainPack`）、报告/查询/追踪/汇总工具，以及**数据平面探针**运行时。 | pip 可安装，开源（Apache-2.0） |
+| **参考领域** | 五个领域——`agent-runtime`、`data-warehouse`、`key-value`、`transactional-db`、`llm`——每个都带一个可运行的参考适配器。领域**不带自研任务**：套件（`BenchmarkSuite` + `Evaluator`）是唯一的基准轨道。 | 捆绑在核心包中，但以*插件*方式注册（见下文） |
 | **你的插件** | 你的任务、适配器、领域、enricher、reaper。 | 你发布或本地安装的独立 pip 包 |
 | **商业版（pro）** | 精选数据集、托管服务、SLA、私有适配器。 | 通过相同入口点在顶层安装的私有插件 |
 
@@ -31,11 +31,11 @@ Clousight Bench 采用**核心引擎 + 入口点插件**的架构。引擎负责
 | `clousight_bench.judges` | `JudgeProvider`——LLM-as-judge(`JudgeModel`)的配置接入工厂,由配置选择;支撑判定型指标 | `openai-compatible` |
 | `clousight_bench.runtime_providers` | `RuntimeProviderPlugin`——某个 provider 的真实云传输 + 活动探针钩子 | `aliyun` |
 | `clousight_bench.resource_reapers` | `ResourceReaper`——为 `csbench sweep` 查找并删除孤立云资源 | `aliyun` |
-| `clousight_bench.enrichers` | `Enricher`——运行后对记录进行丰富处理（例如定价） | `pricing` |
-| `clousight_bench.span_exporters` | 用于追踪导出的 span 导出器 | `local` |
+| `clousight_bench.enrichers` | `ResultEnricher`——运行后对记录进行丰富处理（例如定价） | `pricing` |
+| `clousight_bench.span_exporters` | 用于追踪导出的 span 导出器（本地 JSONL 导出器内置在核心里——`core/tracing.py`——不以插件注册） | — |
 | `clousight_bench.asset_resolvers` | 解析负载资产（数据集、脚本） | — |
 
-**新增一个 benchmark = 实现 `BenchmarkSuite` + `Evaluator`**(可选 `Metric` / judge),注册这些入口点,用 `csbench run --benchmark <id>` 运行。这是唯一对外的 benchmark 契约——开源与商业套件一视同仁(商业套件从私有包发布同样的入口点)。自插件 API 2.0 起,suite/evaluator 就是唯一的基准轨道——旧的内部 `Task` 契约已删除。
+**新增一个 benchmark = 实现 `BenchmarkSuite` + `Evaluator`**(可选 `Metric` / judge),注册这些入口点,用 `csbench run --benchmark <id>` 运行。这是唯一对外的 benchmark 契约——开源与商业套件一视同仁(商业套件从私有包发布同样的入口点)。自插件 API 2.0 起,suite/evaluator 就是唯一的基准轨道——旧的内部 `Task` 契约已删除。当前插件 API 为 `3.0`(OTel 原生追踪的破坏性变更;注册表拒绝钉在 2.x 范围的插件)。
 
 **打分器三角**——三个打分器,三种职责:
 

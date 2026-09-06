@@ -35,9 +35,11 @@ Every registered benchmark, evaluator, and platform — plus a copy-pasteable
 printf 'target:\n  mode: mock\n' > mock.yaml
 csbench run --domain agent-runtime --benchmark swe-bench --platform local-sim --config mock.yaml
 ```
-You get a `status: completed` record on stdout. ✅ That's a full run of the stage
-machine (resolve → prepare → run → score → persist) over a bundled fixture — no
-cloud account, no API key.
+You get a `status: completed` record on stdout. ✅ That's a full run of the
+four-phase lifecycle (prepare → connect → measure → conclude) over a bundled
+fixture — no cloud account, no API key. Any run that does *not* complete prints
+a one-paragraph self-explanation on stderr — which stage broke, or which gate
+refused — so you never grep the JSON for the failure.
 </Step>
 <Step title="Point it at a real system (config-connect)">
 ```bash

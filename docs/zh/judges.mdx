@@ -18,15 +18,18 @@ Clousight Bench 让这件事**结构上可复现**:判定模型被要求给出**
 # 运行配置
 target: { mode: mock }
 params:
-  extra_metrics: [response-quality]
+  extra_metrics: [response_quality]
+  judge_samples: 1                       # 顶层运行参数;>1 = 自一致性多数
   judge:
     provider: openai-compatible          # clousight_bench.judges 接缝
     endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     model: qwen-max
     credentials_ref: env:DASHSCOPE_API_KEY
     cache: .judge_cache.json             # 跨重跑复用判定
-    judge_samples: 1                     # >1 = 自一致性多数
 ```
+
+注意 `judge_samples` 是一个**顶层运行参数**,与 `extra_metrics` 平级——若嵌进
+`judge:` 块内会被忽略。
 
 <Warning>
 **未**配置 `judge` 时,判定型指标干净地 `skip`——因此 mock / conformance / CI 从不调用

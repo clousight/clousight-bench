@@ -48,10 +48,28 @@ throughput/latency benchmark — there is no answer-correctness dimension):
 | `ycsb.overall_runtime_ms` | run-phase wall time |
 | `ycsb.read_p99_us` | READ p99 latency |
 | `ycsb.update_p99_us` | UPDATE p99 latency |
+| `ycsb.ops_ok` / `ycsb.ops_failed` | operations succeeded / failed, from YCSB's own `Return=` counts |
+| `ycsb.error_rate` | `ops_failed / (ops_ok + ops_failed)`, from the same `Return=` counts |
+| `ycsb.completed_under_disruption` | emitted **only** when a planned disruption actually fired |
 
 A metric absent from the output (e.g. no UPDATE line for a read-only workload) is
 omitted. All carry `official=True` — a *provenance* flag (emitted by the suite's
-recognized evaluator), not an audit claim.
+recognized evaluator), not an audit claim. The last three are reliability
+evidence and remain tool-evidence-only: the error counts exist only when the
+tool printed `Return=` lines, and the disruption claim only when the harness
+recorded that it fired — nothing is invented.
+
+## Reliability (disruption) runs
+
+`params.reliability: {action: reset|stall, at_s, stall_ms?}` arms a driver-side
+disruption of the **measured** run phase (the load phase stays clean). The plan
+is validated at `resolve()` and folded into the dataset digest — a different
+disruption is a different benchmark. The measured phase routes through a
+driver-side **DisruptionProxy** TCP relay (`core/disruption.py`) that fires the
+action at `at_s`; it requires the `redis` binding plus a `target.endpoint` and
+fails loudly otherwise — never a clean benchmark under a disruption-labeled
+dataset. A `disruption` span lands in the trajectory. Full runbook:
+[Evaluate a managed KV service](/docs/cloud-connect-kv) §5.
 
 ## Deliberate scope (slice 1)
 - Real numbers need the real YCSB tool + a real backend; offline is the mock

@@ -21,15 +21,18 @@ judge:
 # run config
 target: { mode: mock }
 params:
-  extra_metrics: [response-quality]
+  extra_metrics: [response_quality]
+  judge_samples: 1                       # top-level run param; >1 = self-consistency majority
   judge:
     provider: openai-compatible          # the clousight_bench.judges seam
     endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1"
     model: qwen-max
     credentials_ref: env:DASHSCOPE_API_KEY
     cache: .judge_cache.json             # reuse verdicts across re-runs
-    judge_samples: 1                     # >1 = self-consistency majority
 ```
+
+Note that `judge_samples` is a **top-level run param**, a sibling of
+`extra_metrics` — it is ignored if nested inside the `judge:` block.
 
 <Warning>
 With **no** `judge` configured, judge-based metrics `skip` cleanly — so mock /

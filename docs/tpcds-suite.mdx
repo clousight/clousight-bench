@@ -33,7 +33,7 @@ The `official-tpcds-evaluator` emits three `tpc-ds.*` measurements:
 
 | Measurement | Meaning | reproducibility_class |
 | --- | --- | --- |
-| `tpc-ds.queries_passed` | ratio of queries whose result matches the pinned SF1 reference | `deterministic` |
+| `tpc-ds.queries_passed` | ratio of queries whose result matches the SF-keyed pinned reference (`sf<sf>_digests.json`; only SF1 is shipped — omitted at other SFs) | `deterministic` |
 | `tpc-ds.geomean_latency_ms` | geometric mean of per-query wall-time | `environmental` |
 | `tpc-ds.total_runtime_ms` | sum of per-query wall-time | `environmental` |
 
@@ -57,9 +57,10 @@ in CI.
 ## Deliberate scope (slice 1)
 
 - Correctness is SF1-only; higher scale factors report performance only.
-- The audited **QphDS** composite metric (load + power + concurrent throughput
-  streams, with TPC audit rules) is **not** implemented — we never claim an
-  official QphDS number.
+- An *audited* **QphDS** number is never claimed. The unaudited official-formula
+  composite exists: `params.mode: official` runs the full sequence (load + power
+  + concurrent throughput streams + data maintenance + ACID gate) and computes
+  QphDS@SF — see the **Official mode** section below.
 - Big-data scale and distributed engines (Spark on EMR, cloud data warehouses)
   are a later phase, added as additional `data-warehouse` platforms behind the
   same suite.
@@ -68,9 +69,12 @@ in CI.
 
 TPC-H is the second OLAP suite on the same `data-warehouse` domain and
 `duckdb-local` platform — proof that a new suite drops onto the contract cheaply.
-It is identical in shape to TPC-DS (offline mock + real DuckDB SF1, pinned SF1
-reference-digest correctness, honest per-query latency, no audited QphH), just
-with DuckDB's `tpch` extension (`dbgen` + 22 queries via `PRAGMA tpch(n)`).
+It shares the shape of TPC-DS (offline mock + real DuckDB, honest per-query
+latency), just with DuckDB's `tpch` extension (`dbgen` + 22 queries via
+`PRAGMA tpch(n)`) — and goes further on correctness and composites: SF-keyed
+**verified** references at SF 1 / 0.1 / 0.01 (each verified cell-by-cell against
+DuckDB's official `tpch_answers()` at capture time) and its own official-formula
+QphH@Size mode. See [TPC-H suite](/docs/tpch-suite).
 
 ```bash
 csbench run --domain data-warehouse --benchmark tpc-h \
@@ -79,9 +83,11 @@ csbench run --domain data-warehouse --benchmark tpc-h \
 
 Measurements are `tpc-h.queries_passed` / `tpc-h.geomean_latency_ms` /
 `tpc-h.total_runtime_ms`. Needs the `[tpch]` extra for the real path. Unlike
-TPC-DS, DuckDB ships usable `tpch_answers()` SF1 answers; the capture script
-cross-checks the reference against them informationally, and reconciling their
-exact text format is a future upgrade to verified-answer correctness.
+TPC-DS, DuckDB ships usable `tpch_answers()` official answers, so TPC-H
+correctness is **verified**, not merely pinned: `scripts/capture_tpch_reference.py`
+verifies every reference entry against them at capture time and stamps it
+`verified_official` — 22/22 verified at each of the three shipped scale factors
+(1, 0.1, 0.01).
 
 ## Official mode (QphDS@SF)
 
@@ -98,6 +104,18 @@ QphDS@SF = ⌊ SF · Q / ⁴√(T_PT · T_TT · T_DM · T_LD) ⌋
 printf 'target:\n  mode: runtime\nparams:\n  mode: official\n  scale_factor: 1\n  evaluator: official-tpcds-qphds-evaluator\n' > ds-official.yaml
 csbench run --domain data-warehouse --benchmark tpc-ds --platform duckdb-local --config ds-official.yaml
 ```
+
+The `official-tpcds-qphds-evaluator` emits:
+
+| Measurement | Meaning | reproducibility_class |
+| --- | --- | --- |
+| `tpc-ds.qphds_at_size` | the QphDS@SF composite (unaudited caveats in its `notes`) | `environmental` |
+| `tpc-ds.load_time_s` | Load Test wall time | `environmental` |
+| `tpc-ds.power_test_s` | Power Test — sum of per-query intervals | `environmental` |
+| `tpc-ds.throughput_test_s` | Throughput Tests 1 + 2 combined | `environmental` |
+| `tpc-ds.maintenance_test_s` | Data Maintenance 1 + 2 combined | `environmental` |
+| `tpc-ds.acid_atomicity`, `tpc-ds.acid_isolation` | ACID probe pass/fail (consistency and durability are `n/a` → omitted) | `deterministic` |
+| `tpc-ds.queries_passed` | SF1 only — pinned-reference correctness over the Power stream | `deterministic` |
 
 `params.streams` defaults to the official minimum (4). The run also emits its
 OTel-native trace (`trajectory.jsonl`) — the viewer waterfall shows the power

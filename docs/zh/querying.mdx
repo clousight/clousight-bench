@@ -3,7 +3,7 @@ title: 查询结果
 description: 基于 DuckDB 的分析层，用于查询 Parquet 结果存储。
 ---
 
-每次运行会在 `results/<domain>/<platform>/` 下持久化一条 `0.2` 记录。分析层在读取时将这些记录展平为四个可用 SQL 查询的视图，因此来自**任意**云平台或产品的测量值、发现、成本和时序数据都以相同方式查询——`domain` 和 `platform` 仅作为普通列存在。
+每次运行会在 `results/<domain>/<platform>/` 下持久化一条 `0.4` 记录。分析层在读取时将这些记录展平为四个可用 SQL 查询的视图，因此来自**任意**云平台或产品的测量值、发现、成本和时序数据都以相同方式查询——`domain` 和 `platform` 仅作为普通列存在。
 
 `csbench query`（SQL）及任何 parquet/`series` 读取均需要 `[store]` 扩展包：
 
@@ -43,6 +43,8 @@ region, mode, execution, cost_usd, list_cost_usd, discount_usd
 csbench query "SELECT platform, list_cost_usd, discount_usd, cost_usd AS net
                FROM records WHERE cost_usd IS NOT NULL"
 ```
+
+**性价比（price/performance）组合指标**：同一个 `CLOUSIGHT_PRICING_DATA` 数据源可以携带由运营方提供的 `system_prices` 条目；当某次运行的系统有对应条目时，增强器会写入 `extensions["pricing"]["price_performance"]`，其中包含 `price_per_unit_perf`（例如每 QphH 的价格）。内置种子数据刻意不含任何系统价格——系统价格**绝不凭空捏造**；该组合指标只做加法：它永远不会改动测量值。
 
 **`measurements`** — 每条已评分测量值一行：
 

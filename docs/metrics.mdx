@@ -30,7 +30,9 @@ the run continues — it never voids the run or another metric.
 ## The reference metric: `answered-rate`
 
 Deterministic, judge-free: the fraction of items the SUT actually answered (a
-non-null `output`). Bound to `mmlu` / `gsm8k` out of the box → they also emit
+non-null `output`). `answered-rate` is its **entry-point name**; its **metric id**
+is `answered_rate` — the id is what goes in `extra_metrics` and in measurement
+keys. Bound to `mmlu` / `gsm8k` out of the box → they also emit
 `mmlu.answered_rate` / `gsm8k.answered_rate`. A model can be accurate on what it
 answers yet answer little.
 
@@ -48,7 +50,7 @@ class NonEmptyOutput(Metric):
         ok = bool(str(item.output or "").strip())
         return ItemScore(metric=self.metric_id, value=1.0 if ok else 0.0,
                          status="ok" if ok else "fail")
-    # default aggregate() = mean over ok/fail scores → one <suite>.nonempty Measurement
+    # default aggregate() = ratio over ok/fail scores → one <suite>.nonempty Measurement
 ```
 
 Register it and bind or opt-in:

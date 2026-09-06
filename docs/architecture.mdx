@@ -126,7 +126,7 @@ Top-level fields are fixed: `schema_version`, `run`, `identity`, `environment`,
   `skip`s cleanly when no judge is configured (so CI never calls a live judge) and
   records the judge model id + verdict in each item score. Run it by opting the
   metric in and config-connecting a judge:
-  `params: {extra_metrics: [response-quality], judge: {provider: openai-compatible,
+  `params: {extra_metrics: [response_quality], judge: {provider: openai-compatible,
   endpoint: ..., model: ..., credentials_ref: env:KEY, cache: .judge_cache.json}}` —
   a judge-configured run does network I/O in scoring and is not offline-re-scorable,
   by design. A `cache` path wraps the judge in a content-addressed `CachingJudge`
@@ -152,7 +152,7 @@ a current `0.4` record.
 ## Run plans and statistics (Phase 1C)
 
 A single number is not a measurement. `csbench run --repeat N --warmup W`
-(`core/runplan.py`) runs the same `RunSpec` `warmup + repeat` times through the
+(`ops/runplan.py`) runs the same `RunSpec` `warmup + repeat` times through the
 lifecycle above — every run is still its own digested `0.4` record — then:
 
 - discards the `warmup` runs (cold-start / JIT / cache effects are not the
@@ -338,12 +338,13 @@ and any new benchmark alike:
 **Adapters:** `benchbase-local` reference · `jdbc-endpoint` experimental
 {/* END generated:task-inventory */}
 
-## 0.2 Developer Preview readiness
+## Developer Preview readiness
 
 - `reference` and `wired` adapters can execute.
 - `experimental` adapters can execute with preview caveats.
 - `skeleton` adapters are discoverable but rejected before preflight.
-- Current runnable references are `local-sim`. The Aliyun
+- All five domains ship a runnable reference adapter: `local-sim`,
+  `duckdb-local`, `ycsb-local`, `benchbase-local` and `llm-mock`. The Aliyun
   AgentRun (and AWS AgentCore) `RuntimeProvider`s are registered in-tree. The
   `aliyun-agentrun` adapter is `experimental`: it runs end-to-end in `mode: mock`
   and its live path ran a real-cloud campaign (`cn-hangzhou`,
@@ -354,8 +355,9 @@ and any new benchmark alike:
   resolved with `core.resources.reference_workload_path()`, so wheel and
   editable installs use the same files.
 
-Phase 1B ships ResultRecord schema `0.4` (see "Result contract" above); plugin
-The plugin API is `2.0` (the 1.x dual-rail surface was removed; the registry refuses 1.x-range plugins).
+Phase 1B ships ResultRecord schema `0.4` (see "Result contract" above). The
+plugin API is `3.0` (the OTel-native tracing break; the registry refuses
+2.x-range plugins).
 
 This repository is public and Apache-2.0 licensed; it contains the whole open
 core, **including the reproducibility mechanisms** — the live Aliyun AgentRun
@@ -381,13 +383,13 @@ Principle: **never require users to generate a separate set of keys for the benc
 - `core/credentials.py::resolve_credentials(target, platform)` only **probes** the credential source; it never reads or stores key values. Resolution order: `auth_env` (escape hatch — explicitly named env var) → `profile` (named CLI profile) → standard env vars → credential file. Returns `CredentialResolution(ok, source, identity_hint, remediation)`; `identity_hint` contains only the variable name or profile name, never the key material.
 - `ProviderAdapter.resolve_credentials()` delegates to the resolver above (cross-domain; `provider` is inferred from `target.provider` or the platform-name prefix, e.g. `aliyun-agentrun` → `aliyun`). The real adapter runtime still hands off to the official SDK's default chain.
 - Each provider's credential chain is registered in `PROVIDER_CREDENTIALS` (aws / aliyun / huawei / volcengine: standard env vars, profile env, credential file, SDK module, documentation link).
-- CLI: `csbench init <provider>` generates a private `*.local.yaml` + `.env.example` and writes `.gitignore` (configuration contains no secrets); `csbench doctor --config x` runs a step-by-step health check (provider → SDK importable? → credential chain resolvable? → `mock_base_url` reachable? localhost fails immediately), and provides an actionable remediation hint at each step.
+- CLI: `csbench init <provider>` generates a private `*.local.yaml` + `.env.example` and writes `.gitignore` (configuration contains no secrets); `csbench doctor --config x` runs a step-by-step health check (provider → SDK importable? → credential chain resolvable? → `mock_base_url` reachable? localhost fails immediately), plus target-connectivity probes for config-connect runs: TCP reachability of the endpoint, a Redis RESP `PING`, and `java -version` gates (BenchBase needs Java ≥ 17, YCSB ≥ 11) — all SSRF-guarded; mock targets skip the probes. Each step provides an actionable remediation hint.
 
 **PREFLIGHT phase**: the checks above are not only standalone commands — they are also **a lifecycle phase**. `core/preflight.py` provides `Check` / `PreflightReport` and reusable check functions (`credential_check` / `sdk_check` / `mock_reachable_check`); `doctor` and the orchestrator **share the same functions** (single source of truth).
 
 - `ProviderAdapter.preflight() -> PreflightReport`: validates credentials + provider SDK by default. Usable across domains.
 - `AgentRuntimeAdapter.preflight(task)`: on top of `super()`, appends a `mock_base_url` reachability check + `check_permissions(task)` for **real cloud platforms** (non-empty provider). local-sim (empty provider, self-hosted mock) skips both additions and always passes.
-- The orchestrator runs `adapter.preflight(task)` after RESOLVE and before SETUP; any CRITICAL failure triggers an **early exit** (no provisioning), recording a row with `ok=False`, `metrics.preflight_ok=False`, `error="preflight failed: ..."`, and a `notes=` checklist. `--skip-preflight` disables this gate.
+- The orchestrator runs `adapter.preflight(task)` after RESOLVE and before SETUP; any CRITICAL failure triggers an **early exit** (no provisioning): the record gets a `StageError(stage="PREFLIGHT", code="preflight_failed")` plus a `Finding(code="core.preflight_failed", severity="critical")` whose `details.checks` lists every check line, and the record's `status` is `invalid`. `--skip-preflight` disables this gate.
 
 ### Least privilege: the (benchmark × cloud) matrix
 
@@ -427,7 +429,7 @@ A benchmark is more than code — it also includes **assets** (datasets, corpora
 
 `ResultRecord` carries three independent channels that do not overwrite one another; consumers read whichever they need:
 
-- `metrics` (scalar scores) — numbers used by the report layer for aggregation and comparison.
+- `measurements` (scalar scores) — numbers used by the report layer for aggregation and comparison (there is no top-level `metrics` field).
 - `series` (time series, `{name: [[t, value], ...]}`) — high-frequency samples such as per-second latency or GPU utilization.
 - `artifacts` (`{"kind", "path"/"uri", "media", "sha256"}` pointers) — large files such as OTel traces and log bundles; only the fingerprint is stored in `record.json`, not the content.
 
@@ -446,16 +448,16 @@ The protocol (WorkloadEngine stdout JSONL) adds two new event types alongside th
 Parquet tall-table columns (the stable handshake consumed by `cb-dataservice` and the SaaS web frontend):
 
 ```
-run_id | domain | task_id | platform | config_hash | series | t | value | unit
+run_id | domain | task_id | platform | benchmark_fingerprint | series | t | value | unit
 ```
 
-Convention for the `unit` column: when `ResultStore` writes Parquet, it reads the unit string for each series `<name>` from `metrics["<name>__unit"]` (for example, the `latency_ms` series may carry `"latency_ms__unit": "ms"` in `metrics`); if not provided, the column is an empty string `""`. This is an **implicit convention, not enforced** — omitting it still persists the row; the `unit` column is simply empty.
+Convention for the `unit` column: when `ResultStore` writes Parquet, it reads the unit string for each series `<name>` from `record.measurements[<name>].unit` — a measurement with the same name as the series (for example, a `latency_ms` series takes its unit from the `latency_ms` measurement); when no such measurement exists, the column is an empty string `""`. This is an **implicit convention, not enforced** — omitting it still persists the row; the `unit` column is simply empty.
 
 `ResultStore.query_series(sql=None, glob="**/series.parquet")` runs SQL directly against all Parquet files under `results_dir` via DuckDB; the `glob` path is passed to `read_parquet(?)` as a bound parameter (no string concatenation); raises `ImportError` when the `[store]` extra is absent.
 
-**Extension point**: the `clousight_bench.enrichers` entry-point group hosts `ResultEnricher` subclasses — `name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`. `orchestrator.execute(spec, results_dir=None, enrich=True)` invokes them in sequence after the `record` is constructed and before `_persist`, ordered by the list returned from `registry.load_enrichers()` (sorted by `name` for deterministic execution order). The core ships no enricher implementations (such as cost estimation) — commercial plugins are injected via entry point; `csbench run --no-enrich` skips the entire chain.
+**Extension point**: the `clousight_bench.enrichers` entry-point group hosts `ResultEnricher` subclasses — `name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`. `orchestrator.execute(spec, results_dir=None, enrich=True, preflight=True, publisher=None, …)` (the `publisher=` kwarg injects an optional `ResultPublisher` for the PUBLISH stage) invokes them in sequence after the `record` is constructed and before `_persist`, ordered by the list returned from `registry.load_enrichers()` (sorted by `name` for deterministic execution order). The core ships no enricher implementations (such as cost estimation) — commercial plugins are injected via entry point; `csbench run --no-enrich` skips the entire chain.
 
-**Plugin compatibility contract**: `clousight_bench.PLUGIN_API_VERSION = "2.0"` (SemVer). MAJOR is bumped only when schema fields, entry-point group names, or `ResultEnricher`/`ResultStore` signatures change incompatibly. **Package version and plugin API version are two independent dimensions**: `clousight_bench.__version__` (currently `0.2.0`) increments with every release; `PLUGIN_API_VERSION` moves only when the plugin-facing surface has a breaking change — the two do not evolve in lockstep. Phase 1A commercial plugin `pyproject.toml` pins against the current package version as `clousight-bench>=0.2,<0.3` (the `>=1.0,<2.0` form seen in early design documents was a target-state sketch written against `PLUGIN_API_VERSION` major versions and was not updated when the 0.2 developer preview shipped; corrected here).
+**Plugin compatibility contract**: `clousight_bench.PLUGIN_API_VERSION = "3.0"` (SemVer). MAJOR is bumped only when schema fields, entry-point group names, or `ResultEnricher`/`ResultStore` signatures change incompatibly. **Package version and plugin API version are two independent dimensions**: `clousight_bench.__version__` (currently `0.6.0`) increments with every release; `PLUGIN_API_VERSION` moves only when the plugin-facing surface has a breaking change — the two do not evolve in lockstep. Phase 1A commercial plugin `pyproject.toml` pins against the current package version as `clousight-bench>=0.6,<0.7` (the `>=1.0,<2.0` form seen in early design documents was a target-state sketch written against `PLUGIN_API_VERSION` major versions and was not updated when the 0.2 developer preview shipped; corrected here).
 
 **Pro's three extension boundaries** (injected by `clousight-bench-pro` via entry point; the open core carries no implementations):
 
@@ -463,7 +465,7 @@ Convention for the `unit` column: when `ResultStore` writes Parquet, it reads th
 |---|---|---|
 | `ResultEnricher` (`core/plugin.py`) | Appends derived metrics (e.g. cost estimates) to an already-generated `ResultRecord` | Implemented: `clousight_bench.enrichers` entry point, loaded by `registry.load_enrichers()` |
 | `PrivateAssetResolver` (`core/plugin.py`) | Resolves private/licensed assets (datasets, held-out scoring keys) | Implemented: `clousight_bench.asset_resolvers` entry point; `cb-dataservice`'s `DataServiceAssetResolver` is registered |
-| `ResultPublisher` | Optional result publishing, signing, and team reporting | **Reserved/planned third boundary, not implemented in Phase 1A** — appears only in the design document (`docs/superpowers/specs/2026-07-25-open-source-core-hardening-design.md`); the core does not define this abstraction and Pro registers no implementation |
+| `ResultPublisher` (`core/publish.py`) | Optional result publishing, signing, and team reporting | Implemented: `class ResultPublisher(ABC)` in `core/publish.py`; PUBLISH is a lifecycle stage, run after PERSIST with an append-only receipt. Injected via `orchestrator.execute(publisher=...)` — there is no entry-point group for publishers |
 
 ## Maintaining this document
 

@@ -3,7 +3,7 @@ title: Querying results
 description: DuckDB-backed analytics over the Parquet result store.
 ---
 
-Every run persists a `0.2` record under `results/<domain>/<platform>/`. The
+Every run persists a `0.4` record under `results/<domain>/<platform>/`. The
 analytics layer flattens those records at read time into four SQL-queryable
 views, so measurements, findings, cost and time series from **any** cloud or
 product are queried the same way — `domain` and `platform` are just columns.
@@ -59,6 +59,13 @@ See all three at once:
 csbench query "SELECT platform, list_cost_usd, discount_usd, cost_usd AS net
                FROM records WHERE cost_usd IS NOT NULL"
 ```
+
+**Price/performance composites**: the same `CLOUSIGHT_PRICING_DATA` feed can
+carry operator-supplied `system_prices` entries; when a run's system has one,
+the enricher writes `extensions["pricing"]["price_performance"]` with
+`price_per_unit_perf` (e.g. price per QphH). The shipped seed contains no
+system prices by design — a system price is **never invented**, and the
+composite is additive-only: it never changes measurements.
 
 **`measurements`** — one row per scored measurement:
 

@@ -31,8 +31,10 @@ csbench list
 printf 'target:\n  mode: mock\n' > mock.yaml
 csbench run --domain agent-runtime --benchmark swe-bench --platform local-sim --config mock.yaml
 ```
-stdout 上得到 `status: completed` 记录。✅ 这是完整跑了一遍阶段机
-(resolve → prepare → run → score → persist),基于内置 fixture——无云账号、无 API key。
+stdout 上得到 `status: completed` 记录。✅ 这是完整跑了一遍四阶段生命周期
+(prepare → connect → measure → conclude),基于内置 fixture——无云账号、无 API key。
+任何*未*完成的运行都会在 stderr 上打印一段自解释摘要——哪个阶段坏了、哪道门拒绝了
+——你永远不用去 grep JSON 找失败原因。
 </Step>
 <Step title="对准真实系统(配置接入)">
 ```bash

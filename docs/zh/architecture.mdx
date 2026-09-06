@@ -53,7 +53,7 @@ MEASURE 与 CONCLUDE 之间那条线就是整个信任故事，而且它由函�
 - `status` ∈ `completed` · `failed` · `invalid` · `unsupported`——这是 `execute()` 会返回的全部取值。还有第五个值 `interrupted`，只属于 Ctrl-C：teardown 照常执行、记录照常落盘，随后 `KeyboardInterrupt` 被重新抛出，因此这个状态只会出现在磁盘上，不会作为返回值出现。不存在布尔型 `ok`、顶层 `metrics`、顶层 `evidence_layer`，也没有 `config_hash`。
 - `environment.execution` ∈ `simulated` · `live` · `unknown`，标记数据来自模拟运行时还是真实云端。该字段被折叠进环境指纹，因此模拟结果与真实结果永远不会混入同一分析池。
 - 每条测量值携带 `value`、`unit` 和 `official`，可选字段为 `reproducibility_class`、`aggregation`、`sample_count`、`notes` 和 `ci`。
-- **判定型指标**(`reproducibility_class="judge-based"`)通过判定基座(`core/judge.py`)落地:`JudgeModel`(配置接入的 `EndpointJudge`,带 SSRF 校验)被要求给出**分类**判定,再由固定算术映射为分数——刻意拒绝 G-Eval 不可复现的 top-logprob 加权。`judge_emit` 从任意判定模型取得结构化输出(原生 JSON-schema 模式,否则 prompt + 花括号切片/尾逗号修复)。`response-quality` 指标是参考实现:带可选自一致性的 rubric 判定;未配置判定模型时干净地 `skip`(因此 CI 从不调用真实判定模型),并在每条逐项分数中记录判定模型 id 与判定结果。通过"把指标 opt-in + 配置接入一个判定模型"来运行:`params: {extra_metrics: [response-quality], judge: {provider: openai-compatible, endpoint: ..., model: ..., credentials_ref: env:KEY, cache: .judge_cache.json}}`——配置了判定模型的运行会在打分阶段做网络 I/O,按设计不可离线重打分。config 里给 `cache` 路径会用内容寻址的 `CachingJudge` 包裹判定模型,重跑复用判定、不再重复付费 LLM 调用(只缓存判定打分,绝不缓存 environmental 数值)。
+- **判定型指标**(`reproducibility_class="judge-based"`)通过判定基座(`core/judge.py`)落地:`JudgeModel`(配置接入的 `EndpointJudge`,带 SSRF 校验)被要求给出**分类**判定,再由固定算术映射为分数——刻意拒绝 G-Eval 不可复现的 top-logprob 加权。`judge_emit` 从任意判定模型取得结构化输出(原生 JSON-schema 模式,否则 prompt + 花括号切片/尾逗号修复)。`response-quality` 指标是参考实现:带可选自一致性的 rubric 判定;未配置判定模型时干净地 `skip`(因此 CI 从不调用真实判定模型),并在每条逐项分数中记录判定模型 id 与判定结果。通过"把指标 opt-in + 配置接入一个判定模型"来运行:`params: {extra_metrics: [response_quality], judge: {provider: openai-compatible, endpoint: ..., model: ..., credentials_ref: env:KEY, cache: .judge_cache.json}}`——配置了判定模型的运行会在打分阶段做网络 I/O,按设计不可离线重打分。config 里给 `cache` 路径会用内容寻址的 `CachingJudge` 包裹判定模型,重跑复用判定、不再重复付费 LLM 调用(只缓存判定打分,绝不缓存 environmental 数值)。
 - **Golden ↔ 已执行** 拆分:benchmark spec = 版本化的 `DatasetHandle`(`version` + `digest`,在库固定)+ 每条 item 的 `reference`(golden);运行的 `output` 是已执行侧。没有单独的 Golden 子系统——逐项基座已同时承载两者。
 - 每条发现携带稳定的 `code`、`severity`、`summary` 和 `details`。
 - 每条阶段错误携带 `stage`、`code`、`type`、`message` 和 `retryable`。堆栈跟踪永远不存入记录；`csbench run --debug` 会将其写入 `<results>/debug/<run_id>.log`。
@@ -64,7 +64,7 @@ Schema `1.0` 记录不再受支持。请重新运行基准测试以生成当前�
 
 ## 运行计划与统计（Phase 1C）
 
-单一数字不构成测量。`csbench run --repeat N --warmup W`（`core/runplan.py`）将同一 `RunSpec` 经由上述生命周期运行 `warmup + repeat` 次——每次运行仍为独立的带摘要 `0.4` 记录——随后：
+单一数字不构成测量。`csbench run --repeat N --warmup W`（`ops/runplan.py`）将同一 `RunSpec` 经由上述生命周期运行 `warmup + repeat` 次——每次运行仍为独立的带摘要 `0.4` 记录——随后：
 
 - 丢弃 `warmup` 次运行（冷启动 / JIT / 缓存效应不代表你要发布的稳态），并在每条记录的 `extensions["core"]["run_plan"]` 下标注其角色，使选择可审计、永远不成为指纹；
 - 将正式运行的结果每个测量项汇聚为一个分布（`core/statistics.py`）：数值型 → `n / mean / stdev / min / max / p50 / p95 / cv`，标签型 → 分布 / `mode` / `agreement`；
@@ -167,15 +167,15 @@ CLI (csbench)
 **Adapters:** `benchbase-local` reference · `jdbc-endpoint` experimental
 {/* END generated:task-inventory */}
 
-## 0.2 开发者预览就绪状态
+## 开发者预览就绪状态
 
 - `reference` 和 `wired` 适配器可以执行。
 - `experimental` 适配器可在预览注意事项下执行。
 - `skeleton` 适配器可被发现，但在 preflight 之前会被拒绝。
-- 当前可运行的参考适配器为 `local-sim`。Aliyun AgentRun（及 AWS AgentCore）的 `RuntimeProvider` 已在源码树内注册。`aliyun-agentrun` 适配器为 `experimental`：在 `mode: mock` 下可端到端运行，其 live 路径已完成一次真实云 campaign（`cn-hangzhou`，2026-08-15——25 个 `completed` + 2 个诚实的 `unsupported`）。该适配器尚未晋升为 `wired`（该状态保留给经过稳定、多次验证的 live 路径）；AWS AgentCore 及其他云仍为 `skeleton`。
+- 五个领域各自带有一个可运行的参考适配器：`local-sim`、`duckdb-local`、`ycsb-local`、`benchbase-local` 和 `llm-mock`。Aliyun AgentRun（及 AWS AgentCore）的 `RuntimeProvider` 已在源码树内注册。`aliyun-agentrun` 适配器为 `experimental`：在 `mode: mock` 下可端到端运行，其 live 路径已完成一次真实云 campaign（`cn-hangzhou`，2026-08-15——25 个 `completed` + 2 个诚实的 `unsupported`）。该适配器尚未晋升为 `wired`（该状态保留给经过稳定、多次验证的 live 路径）；AWS AgentCore 及其他云仍为 `skeleton`。
 - 内置负载位于 `clousight_bench.resources.workloads`，通过 `core.resources.reference_workload_path()` 解析，因此 wheel 安装和可编辑安装使用相同的文件。
 
-Phase 1B 发布了 ResultRecord schema `0.4`（见上文"结果契约"）；插件 API 现为 `2.0`（1.x 双轨面已删除;注册表拒绝声明 1.x 范围的插件）。
+Phase 1B 发布了 ResultRecord schema `0.4`（见上文"结果契约"）。插件 API 现为 `3.0`（OTel 原生追踪的破坏性变更;注册表拒绝声明 2.x 范围的插件）。
 
 本仓库为公开仓库，采用 Apache-2.0 许可；包含完整的开放核心，**包括可复现机制**——Aliyun AgentRun `RuntimeProvider`、ECI 探针 carrier、`ResourceReaper`、Terraform 以及种子 `pricing` enricher。护城河在于*数据与服务*，而非私藏代码。独立的私有仓库 `clousight-bench-pro` 仅包含：
 
@@ -192,13 +192,13 @@ Phase 1B 发布了 ResultRecord schema `0.4`（见上文"结果契约"）；插�
 - `core/credentials.py::resolve_credentials(target, platform)` 仅**探测**凭证来源，从不读取或存储密钥值。解析顺序：`auth_env`（逃生舱——显式命名的环境变量）→ `profile`（命名 CLI profile）→ 标准环境变量 → 凭证文件。返回 `CredentialResolution(ok, source, identity_hint, remediation)`；`identity_hint` 仅包含变量名或 profile 名，从不包含密钥材料。
 - `ProviderAdapter.resolve_credentials()` 委托给上述解析器（跨领域；`provider` 从 `target.provider` 或平台名前缀推断，例如 `aliyun-agentrun` → `aliyun`）。真实适配器运行时仍将凭证解析交由官方 SDK 的默认链处理。
 - 每个 provider 的凭证链注册于 `PROVIDER_CREDENTIALS`（aws / aliyun / huawei / volcengine：标准环境变量、profile 环境变量、凭证文件、SDK 模块、文档链接）。
-- CLI：`csbench init <provider>` 生成私有 `*.local.yaml` + `.env.example` 并写入 `.gitignore`（配置不含密钥）；`csbench doctor --config x` 执行逐步健康检查（provider → SDK 可导入？→ 凭证链可解析？→ `mock_base_url` 可达？localhost 立即失败），并在每一步提供可操作的修复提示。
+- CLI：`csbench init <provider>` 生成私有 `*.local.yaml` + `.env.example` 并写入 `.gitignore`（配置不含密钥）；`csbench doctor --config x` 执行逐步健康检查（provider → SDK 可导入？→ 凭证链可解析？→ `mock_base_url` 可达？localhost 立即失败），并为配置接入（config-connect）运行追加目标连通性探测：endpoint 的 TCP 可达性、Redis RESP `PING`，以及 `java -version` 门槛（BenchBase 需要 Java ≥ 17、YCSB ≥ 11）——全部带 SSRF 守护；mock 目标跳过这些探测。每一步都提供可操作的修复提示。
 
 **PREFLIGHT 阶段**：上述检查不仅是独立命令——它们也是**一个生命周期阶段**。`core/preflight.py` 提供 `Check` / `PreflightReport` 和可复用的检查函数（`credential_check` / `sdk_check` / `mock_reachable_check`）；`doctor` 和编排器**共享相同的函数**（单一事实来源）。
 
 - `ProviderAdapter.preflight() -> PreflightReport`：默认验证凭证 + provider SDK。可跨领域使用。
 - `AgentRuntimeAdapter.preflight(task)`：在 `super()` 基础上，为**真实云平台**（非空 provider）追加 `mock_base_url` 可达性检查 + `check_permissions(task)`。local-sim（空 provider，自托管 mock）跳过两者，始终通过。
-- 编排器在 RESOLVE 之后、SETUP 之前运行 `adapter.preflight(task)`；任何 CRITICAL 失败触发**提前退出**（不制备），记录一行 `ok=False`、`metrics.preflight_ok=False`、`error="preflight failed: ..."`，以及 `notes=` 清单。`--skip-preflight` 禁用此门控。
+- 编排器在 RESOLVE 之后、SETUP 之前运行 `adapter.preflight(task)`；任何 CRITICAL 失败触发**提前退出**（不制备）：记录会得到一条 `StageError(stage="PREFLIGHT", code="preflight_failed")`，外加一条 `Finding(code="core.preflight_failed", severity="critical")`——其 `details.checks` 列出每一行检查——且记录的 `status` 为 `invalid`。`--skip-preflight` 禁用此门控。
 
 ### 最小权限：（基准测试 × 云）矩阵
 
@@ -238,7 +238,7 @@ Phase 1B 发布了 ResultRecord schema `0.4`（见上文"结果契约"）；插�
 
 `ResultRecord` 携带三个相互独立、互不覆盖的通道；消费者按需读取：
 
-- `metrics`（标量分数）——报告层用于汇聚和比较的数值。
+- `measurements`（标量分数）——报告层用于汇聚和比较的数值（不存在顶层 `metrics` 字段）。
 - `series`（时间序列，`{name: [[t, value], ...]}`）——高频采样，如每秒延迟或 GPU 利用率。
 - `artifacts`（`{"kind", "path"/"uri", "media", "sha256"}` 指针）——大文件，如 OTel 追踪和日志包；`record.json` 中只存储指纹，不存储内容。
 
@@ -257,16 +257,16 @@ Phase 1B 发布了 ResultRecord schema `0.4`（见上文"结果契约"）；插�
 Parquet 宽表列（`cb-dataservice` 和 SaaS 网页前端消费的稳定握手）：
 
 ```
-run_id | domain | task_id | platform | config_hash | series | t | value | unit
+run_id | domain | task_id | platform | benchmark_fingerprint | series | t | value | unit
 ```
 
-`unit` 列约定：`ResultStore` 写入 Parquet 时，从 `metrics["<name>__unit"]` 读取每个序列 `<name>` 的单位字符串（例如 `latency_ms` 序列可在 `metrics` 中携带 `"latency_ms__unit": "ms"`）；若未提供，则该列为空字符串 `""`。这是**隐式约定，不强制执行**——省略该字段仍可持久化行；`unit` 列仅为空。
+`unit` 列约定：`ResultStore` 写入 Parquet 时，从 `record.measurements[<name>].unit` 读取每个序列 `<name>` 的单位字符串——即与序列同名的测量值（例如 `latency_ms` 序列的单位取自 `latency_ms` 测量值）；当不存在同名测量值时，该列为空字符串 `""`。这是**隐式约定，不强制执行**——省略该字段仍可持久化行；`unit` 列仅为空。
 
 `ResultStore.query_series(sql=None, glob="**/series.parquet")` 通过 DuckDB 直接对 `results_dir` 下所有 Parquet 文件运行 SQL；`glob` 路径作为绑定参数传给 `read_parquet(?)`（无字符串拼接）；当 `[store]` 扩展缺失时抛出 `ImportError`。
 
-**扩展点**：`clousight_bench.enrichers` 入口点组托管 `ResultEnricher` 子类——`name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`。`orchestrator.execute(spec, results_dir=None, enrich=True)` 在记录构建完成后、`_persist` 之前依次调用它们，顺序由 `registry.load_enrichers()`（按 `name` 排序以确保确定性执行顺序）返回的列表决定。核心不提供任何 enricher 实现（如成本估算）——商业插件通过入口点注入；`csbench run --no-enrich` 跳过整个链路。
+**扩展点**：`clousight_bench.enrichers` 入口点组托管 `ResultEnricher` 子类——`name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`。`orchestrator.execute(spec, results_dir=None, enrich=True, preflight=True, publisher=None, …)`（`publisher=` 关键字参数为 PUBLISH 阶段注入可选的 `ResultPublisher`）在记录构建完成后、`_persist` 之前依次调用它们，顺序由 `registry.load_enrichers()`（按 `name` 排序以确保确定性执行顺序）返回的列表决定。核心不提供任何 enricher 实现（如成本估算）——商业插件通过入口点注入；`csbench run --no-enrich` 跳过整个链路。
 
-**插件兼容性契约**：`clousight_bench.PLUGIN_API_VERSION = "2.0"`（SemVer）。只有当 schema 字段、入口点组名称或 `ResultEnricher`/`ResultStore` 签名发生不兼容变更时，MAJOR 才会递增。**包版本与插件 API 版本是两个独立维度**：`clousight_bench.__version__`（当前为 `0.2.0`）随每次发布递增；`PLUGIN_API_VERSION` 仅在插件面向接口有破坏性变更时移动——两者不同步演进。Phase 1A 商业插件的 `pyproject.toml` 针对当前包版本固定为 `clousight-bench>=0.2,<0.3`（早期设计文档中出现的 `>=1.0,<2.0` 形式是针对 `PLUGIN_API_VERSION` 大版本的目标状态草稿，在 0.2 开发者预览发布时未更新；此处已更正）。
+**插件兼容性契约**：`clousight_bench.PLUGIN_API_VERSION = "3.0"`（SemVer）。只有当 schema 字段、入口点组名称或 `ResultEnricher`/`ResultStore` 签名发生不兼容变更时，MAJOR 才会递增。**包版本与插件 API 版本是两个独立维度**：`clousight_bench.__version__`（当前为 `0.6.0`）随每次发布递增；`PLUGIN_API_VERSION` 仅在插件面向接口有破坏性变更时移动——两者不同步演进。Phase 1A 商业插件的 `pyproject.toml` 针对当前包版本固定为 `clousight-bench>=0.6,<0.7`（早期设计文档中出现的 `>=1.0,<2.0` 形式是针对 `PLUGIN_API_VERSION` 大版本的目标状态草稿，在 0.2 开发者预览发布时未更新；此处已更正）。
 
 **Pro 的三个扩展边界**（由 `clousight-bench-pro` 通过入口点注入；开放核心不提供实现）：
 
@@ -274,7 +274,7 @@ run_id | domain | task_id | platform | config_hash | series | t | value | unit
 |---|---|---|
 | `ResultEnricher`（`core/plugin.py`） | 向已生成的 `ResultRecord` 追加派生指标（如成本估算） | 已实现：`clousight_bench.enrichers` 入口点，由 `registry.load_enrichers()` 加载 |
 | `PrivateAssetResolver`（`core/plugin.py`） | 解析私有/许可资产（数据集、留出判分键） | 已实现：`clousight_bench.asset_resolvers` 入口点；`cb-dataservice` 的 `DataServiceAssetResolver` 已注册 |
-| `ResultPublisher` | 可选的结果发布、签名和团队报告 | **第三边界，保留/规划中，Phase 1A 未实现**——仅出现于设计文档（`docs/superpowers/specs/2026-07-25-open-source-core-hardening-design.md`）；核心未定义此抽象，Pro 也未注册任何实现 |
+| `ResultPublisher`（`core/publish.py`） | 可选的结果发布、签名和团队报告 | 已实现：`core/publish.py` 中的 `class ResultPublisher(ABC)`；PUBLISH 是一个生命周期阶段，在 PERSIST 之后运行并写入仅追加的回执。通过 `orchestrator.execute(publisher=...)` 注入——publisher 没有入口点组 |
 
 ## 文档维护
 

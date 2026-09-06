@@ -54,5 +54,6 @@ summary 中缺失的键会被省略。所有测量都带 `official=True`——�
 ## 本切片的刻意边界
 - 真实数字需 BenchBase 构建 + 数据库;离线为 mock 路径。`benchbase-local`(dbtype=sqlite)
   在无服务的情况下跑通流水线。
-- `jdbc-endpoint` 接入已有数据库(Postgres/MySQL/…)。
+- `jdbc-endpoint` 接入已有数据库(Postgres/MySQL/…)——完整云 runbook:
+  [评测一个托管数据库](/docs/cloud-connect-rdbms)。
 - 云托管 RDBMS 后端日后挂同一 seam;审计级 tpmC 不在范围。

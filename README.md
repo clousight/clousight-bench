@@ -9,7 +9,7 @@
 
 **[Clousight](https://clousight.com) Bench is an eval tool for cloud computing** —
 it measures **cloud products and services** with **recognized benchmark suites, unmodified**,
-across five product categories today: agent runtimes (SWE-bench), data warehouses
+across five product categories today: agent runtimes (SWE-bench Verified/Lite/Multimodal), data warehouses
 (TPC-H/TPC-DS), transactional databases (TPC-C), key-value stores (YCSB), and LLM
 endpoints (MMLU/GSM8K/HumanEval). Every published number stands on three legs:
 
@@ -32,7 +32,8 @@ endpoints (MMLU/GSM8K/HumanEval). Every published number stands on three legs:
 **Repository status.** This repository is public and Apache-2.0 licensed.
 `main` is protected: every change lands through a pull request that passes
 ruff, pytest and the no-cloud smoke on Python 3.10–3.13 plus a separate
-installed-wheel smoke. No approving review is required, force pushes and branch
+installed-wheel smoke, and CodeQL + dependency-review workflows gate security.
+No approving review is required, force pushes and branch
 deletion are blocked, and the rules bind administrators too. Commercial plugins
 are developed in a separate private repository and are not required to run
 anything in this one.
@@ -59,7 +60,7 @@ EOF
 ```
 
 The mock run exercises the real code path — the four lifecycle phases *prepare →
-connect → measure → conclude* (eleven stages; see
+connect → measure → conclude* (twelve stages; see
 [Architecture](docs/architecture.mdx)) — over the suite's bundled fixture
 artifacts, and persists a schema-0.4
 record with `swe-bench.resolved` and a full provenance block. `csbench serve` renders
@@ -121,8 +122,9 @@ The core only orchestrates the lifecycle. Everything product- or suite-specific 
 | **WorkloadEngine** | load generator | any language: `manifest.yaml` + executable + JSONL on stdout |
 
 All of them register via entry points (`clousight_bench.benchmark_suites`,
-`.evaluators`, `.domains`, `.runtime_providers`) — third-party packs install like any
-Python package and appear in `csbench list`.
+`.evaluators`, `.domains`, `.runtime_providers`; plus `.metrics`, `.judges`,
+`.enrichers`, `.resource_reapers`, `.span_exporters` for the finer seams) —
+third-party packs install like any Python package and appear in `csbench list`.
 
 | Adapter | Status | Runnable |
 |---|---|---|
@@ -162,11 +164,16 @@ network and region. That is the point.
 csbench serve                 # web viewer: records, provenance, trajectory waterfall
 csbench query "SELECT platform, avg(value_num) FROM measurements WHERE name='swe-bench.resolved' GROUP BY platform"
 csbench export measurements --out m.parquet   # optional [store] extra: Parquet + DuckDB
+csbench trace list|show|import                # per-run traces; import external OTLP/JSONL
+csbench verify <record>                       # record-digest integrity check
 ```
 
 Cost is presented as **list → discount → net** (public price feed via
 `CLOUSIGHT_PRICING_DATA`, private discounts via `CLOUSIGHT_PRICING_DISCOUNTS`;
-see [docs/querying.mdx](docs/querying.mdx)).
+see [docs/querying.mdx](docs/querying.mdx)). Operator-supplied `system_prices`
+entries in the same feed yield price/performance composites
+(`extensions.pricing.price_performance`, e.g. price per QphH) — never invented,
+additive-only.
 
 ## Status
 
@@ -174,20 +181,26 @@ see [docs/querying.mdx](docs/querying.mdx)).
 - [x] **Suite contract (Sub-project B)**: `BenchmarkSuite`/`Evaluator` ABCs, `suite:<id>` runs, SWE-bench Verified at a pinned HF revision with real gold-patch fixtures, official evaluator + namespace conformance, real SUT invocation on Aliyun AgentRun (oracle/llm agent modes) with real trajectory + token capture
 - [x] **Driver host (Sub-project A)**: docker-capable ECS controller (`csbench submit`), suite-aware LaunchSpec, OSS-only control plane, self-destruct reaper
 - [x] **Web viewer (Sub-project C)**: `csbench serve` — React UI (prebuilt, shipped in the wheel), record list/detail, transcript + ECharts waterfall trace views, EN | 中文, dark/light, strict CSP, offline-first
-- [x] **OLAP suites (`data-warehouse` domain)**: TPC-DS **and** TPC-H on a `duckdb-local` reference platform. Both run offline (`suite:tpc-ds` / `suite:tpc-h`, mock + real DuckDB SF1); correctness vs a pinned SF1 reference, honest per-query latency (no audited QphDS/QphH). See [docs/tpcds-suite.mdx](docs/tpcds-suite.mdx)
+- [x] **OLAP suites (`data-warehouse` domain)**: TPC-DS **and** TPC-H on a `duckdb-local` reference platform. Both run offline (`suite:tpc-ds` / `suite:tpc-h`, mock + real DuckDB); correctness vs SF-keyed verified references (SF 0.01/0.1/1 for TPC-H, verified against DuckDB `tpch_answers()`), honest per-query latency, plus a `mode: official` official-formula mode computing QphH@Size / QphDS@SF via a Load/Power/Throughput/ACID phase machine — unaudited, no TPC audit claimed. See [docs/tpch-suite.mdx](docs/tpch-suite.mdx) / [docs/tpcds-suite.mdx](docs/tpcds-suite.mdx)
 - [x] **Key-value domain + config-connect abstraction**: **YCSB** on a `key-value` domain — the SUT-connection abstraction generalized so a suite runs against a local reference (`ycsb-local`, binding=basic) or an **already-running service via config** (`ycsb-endpoint`, binding+endpoint). Wraps the recognized upstream YCSB tool; offline mock path in CI, honest throughput + tail-latency (environmental). See [docs/ycsb-suite.mdx](docs/ycsb-suite.mdx)
-- [x] **OLTP domain**: **TPC-C via BenchBase** on a `transactional-db` domain — `benchbase-local` (dbtype=sqlite reference) or `jdbc-endpoint` (config-connect to an already-running database). Wraps the recognized upstream BenchBase tool (Apache-2.0); offline mock path in CI, honest throughput/goodput/latency (environmental; audited tpmC not claimed). See [docs/tpcc-suite.mdx](docs/tpcc-suite.mdx). Data-systems coverage is now OLAP + KV + OLTP.
-- [x] **LLM domain (test the managed model itself)**: **MMLU** on an `llm` domain — the SUT is a managed LLM endpoint (Bedrock/DashScope/Vertex/any OpenAI-compatible), config-connected via `llm-endpoint` (base_url + model + credentials) or the offline `llm-mock` reference. Runs recognized benchmarks unmodified (**MMLU** + **GSM8K**) → objective accuracy (deterministic) + serving dimensions latency/tokens/cost (environmental). See [docs/mmlu-suite.mdx](docs/mmlu-suite.mdx) / [docs/gsm8k-suite.mdx](docs/gsm8k-suite.mdx)
+- [x] **OLTP domain**: **TPC-C via BenchBase** on a `transactional-db` domain — `benchbase-local` (dbtype=sqlite reference) or `jdbc-endpoint` (config-connect to an already-running database). Wraps the recognized upstream BenchBase tool (Apache-2.0); offline mock path in CI, honest throughput/goodput/latency plus a labeled tpmC-style estimate (`tpc-c.tpmc_estimate`, derived from goodput × NewOrder mix) and `tpc-c.goodput_ratio` (environmental; audited tpmC not claimed). See [docs/tpcc-suite.mdx](docs/tpcc-suite.mdx). Data-systems coverage is now OLAP + KV + OLTP.
+- [x] **LLM domain (test the managed model itself)**: **MMLU** on an `llm` domain — the SUT is a managed LLM endpoint (Bedrock/DashScope/Vertex/any OpenAI-compatible), config-connected via `llm-endpoint` (base_url + model + credentials) or the offline `llm-mock` reference. Runs recognized benchmarks unmodified (**MMLU** + **GSM8K** + **HumanEval**) → objective accuracy (deterministic) + serving dimensions latency/tokens/cost (environmental). See [docs/mmlu-suite.mdx](docs/mmlu-suite.mdx) / [docs/gsm8k-suite.mdx](docs/gsm8k-suite.mdx) / [docs/human-eval-suite.mdx](docs/human-eval-suite.mdx)
 - [x] **pytest & CI gating**: any suite runs as a native pytest test (`assert_run` / the `clousight` fixture, auto-loaded via the `pytest11` entry point) or a CI exit-code gate (`csbench run --assert`), with min/max thresholds per measurement — so a benchmark becomes a red/green check in an enterprise CI pipeline. See [docs/pytest-ci.mdx](docs/pytest-ci.mdx)
+- [x] **OTel-native tracing**: OTel SDK in core, span schema v3 (gen_ai/db semconv, v2 accepted), per-run trace with stage spans, `csbench trace list/show/import` (external OTLP/JSONL ingest), measurements-as-gauges + findings-as-logs via the `[otlp]` extra / `CLOUSIGHT_OTLP_ENDPOINT`, plugin API 3.0. See [docs/tracing.mdx](docs/tracing.mdx)
+- [x] **Official TPC modes**: `mode: official` QphH@Size (TPC-H) and QphDS@SF (TPC-DS) on a shared engine-agnostic phase machine (Load / Power+refresh / multi-stream Throughput / ACID); official-formula, explicitly unaudited
+- [x] **Reliability (R5)**: driver-side DisruptionProxy (TCP relay, `reset`/`stall` at a planned offset) for `ycsb-endpoint`, tool-evidence metrics `ycsb.error_rate` / `tpc-c.goodput_ratio` / `ycsb.completed_under_disruption`; fail-loud when the plan can't be honored
+- [x] **`csbench doctor` connectivity probes**: TCP reach, Redis RESP PING, java-version gates (BenchBase ≥17 / YCSB ≥11), SSRF-guarded; mock targets skip
+- [x] **Cloud-connect runbooks**: [docs/cloud-connect-kv.mdx](docs/cloud-connect-kv.mdx) + [docs/cloud-connect-rdbms.mdx](docs/cloud-connect-rdbms.mdx) with committed example profiles in `examples/cloud-connect/` (managed Redis / RDS-class endpoints)
 - [ ] First **live** SWE-bench smoke on Aliyun (code complete; gated on account preconditions — see the runbook)
-- [ ] Wire the remaining clouds (`huawei-agentarts` / `volcengine-agentkit` / `aws-agentcore` live paths); cloud-provisioned & existing-service backends for the data domains (managed KV/RDBMS, EMR/Spark, cloud DWH) at big-data scale
+- [ ] Wire the remaining clouds (`huawei-agentarts` / `volcengine-agentkit` / `aws-agentcore` live paths); cloud-*provisioned* backends for the data domains (EMR/Spark, cloud DWH) at big-data scale — connecting to existing managed endpoints already ships (see the cloud-connect runbooks)
 - [ ] More suites (τ-bench, Nexmark/streaming) + domain packs (streaming / graph / ml-systems)
 
 ## Contributing
 
 Sign your commits (`git commit -s`, [DCO](https://developercertificate.org/)).
-Adding a suite = one `BenchmarkSuite` + one `Evaluator` (the SWE-bench pilot in
-`src/clousight_bench/suites/gsm8k/` is the simplest template; see docs/adding-a-suite); adding a platform = one adapter file + one
+Adding a suite = one `BenchmarkSuite` + one `Evaluator` (the GSM8K suite in
+`src/clousight_bench/suites/gsm8k/` is the simplest template; SWE-bench is the most
+complete example; see docs/adding-a-suite); adding a platform = one adapter file + one
 example config; adding a product category = one DomainPack. PRs that change suite
 wiring or scoring for a shipped suite require a version bump and a changelog entry —
 published numbers must stay attributable.
