@@ -174,6 +174,21 @@ def _host_without_port(value: str) -> str:
     return value
 
 
+#: Cache policy. The asset filenames are content-hashed by the Vite build, so
+#: they can be cached forever; index.html names them and therefore must never
+#: be. Without this, upgrading csbench and reloading serves a cached index.html
+#: pointing at an asset hash the new wheel does not contain — a white page with
+#: nothing in the console to explain it. Everything else (the JSON API, errors)
+#: defaults to no-store: it is all live state.
+_NO_STORE = "no-store"
+_IMMUTABLE = "public, max-age=31536000, immutable"
+
+
+def _cache_policy(segments: list[str]) -> str:
+    """Long-cache the content-hashed assets; never cache the document."""
+    return _IMMUTABLE if segments[:1] == ["assets"] else _NO_STORE
+
+
 def create_server(results_dir: Path, host: str = "127.0.0.1", port: int = 0) -> ThreadingHTTPServer:
     """A ready-to-serve ThreadingHTTPServer; port=0 picks an ephemeral port."""
     allowed_hosts = {host.lower(), "localhost", "127.0.0.1", "[::1]"}
@@ -247,7 +262,7 @@ def create_server(results_dir: Path, host: str = "127.0.0.1", port: int = 0) -> 
                     self._send_json(404, {"error": f"no such endpoint: {raw_path}"}, head_only)
                 else:
                     body, content_type = asset
-                    self._send(200, body, content_type, head_only)
+                    self._send(200, body, content_type, head_only, cache=_cache_policy(segments))
                 return
             if segments == ["api", "meta"]:
                 meta = {
@@ -455,10 +470,18 @@ def create_server(results_dir: Path, host: str = "127.0.0.1", port: int = 0) -> 
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self._send(status, body, "application/json; charset=utf-8", head_only)
 
-        def _send(self, status: int, body: bytes, content_type: str, head_only: bool) -> None:
+        def _send(
+            self,
+            status: int,
+            body: bytes,
+            content_type: str,
+            head_only: bool,
+            cache: str = _NO_STORE,
+        ) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", cache)
             for name, value in _SECURITY_HEADERS.items():  # centrally: every response kind
                 self.send_header(name, value)
             self.end_headers()

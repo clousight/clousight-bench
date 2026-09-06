@@ -107,8 +107,15 @@ class ProgressReporter(Protocol):
     never saw this field — keeps working untouched.
     """
 
-    def phase(self, label: str, total: int = 0, *, unit: str = "") -> None:
-        """Start a named phase of ``total`` units (0 when the size is unknown)."""
+    def phase(self, label: str, total: int = 0, *, unit: str = "", reports_progress: bool = True) -> None:
+        """Start a named phase of ``total`` units (0 when the size is unknown).
+
+        Set ``reports_progress=False`` when the phase knows its size but cannot
+        tick through it — the classic case being a window whose own wall clock
+        is the measurement, where writing anything inside would perturb the
+        number. The viewer then shows an indeterminate bar and says why, rather
+        than a 0% bar that reads as a hang.
+        """
 
     def advance(self, n: int = 1, *, label: str = "") -> None:
         """Complete ``n`` more units of the current phase."""
@@ -141,7 +148,7 @@ class NullProgressReporter:
 
     __slots__ = ()
 
-    def phase(self, label: str, total: int = 0, *, unit: str = "") -> None:
+    def phase(self, label: str, total: int = 0, *, unit: str = "", reports_progress: bool = True) -> None:
         return None
 
     def advance(self, n: int = 1, *, label: str = "") -> None:
@@ -350,13 +357,14 @@ class ProgressWriter:
     # ProgressReporter surface — suites
     # ------------------------------------------------------------------
 
-    def phase(self, label: str, total: int = 0, *, unit: str = "") -> None:
+    def phase(self, label: str, total: int = 0, *, unit: str = "", reports_progress: bool = True) -> None:
         with self._lock:
             self._state["step"] = {
                 "label": str(label),
                 "completed": 0,
                 "total": max(0, int(total)),
                 "unit": str(unit),
+                "reports_progress": bool(reports_progress),
                 "started_ms": self._elapsed_ms(),
             }
             self._append(
@@ -366,7 +374,10 @@ class ProgressWriter:
 
     def advance(self, n: int = 1, *, label: str = "") -> None:
         with self._lock:
-            step = dict(self._state["step"] or {"label": "", "completed": 0, "total": 0, "unit": ""})
+            step = dict(
+                self._state["step"]
+                or {"label": "", "completed": 0, "total": 0, "unit": "", "reports_progress": True}
+            )
             step["completed"] = int(step.get("completed", 0)) + int(n)
             if label:
                 step["label"] = str(label)

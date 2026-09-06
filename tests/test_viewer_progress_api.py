@@ -15,6 +15,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import threading
 import time
 from collections.abc import Iterator
@@ -624,3 +625,31 @@ def test_post_shares_the_host_guard_with_get(server: ThreadingHTTPServer, result
     assert json.loads(body) == {"error": "host not allowed"}
     marker = results_dir / progress.PROGRESS_DIRNAME / LIVE_RUN / progress.CANCEL_FILE
     assert not marker.exists()
+
+
+# ----------------------------------------------------------------------
+# Cache policy
+# ----------------------------------------------------------------------
+
+
+def test_index_html_is_never_cached_but_hashed_assets_are(server: ThreadingHTTPServer) -> None:
+    """A cached index.html names an asset hash a newer wheel does not contain.
+
+    The result is a white page with nothing in the console to explain it —
+    exactly what happened while developing this, where the browser kept an old
+    index.html and went on requesting a bundle that had been replaced.
+    """
+    status, headers, body = _request(server, "/")
+    assert status == 200
+    assert headers["cache-control"] == "no-store"
+
+    # The asset filename is content-hashed by the build, so it is safe forever.
+    asset = re.search(r'src="\.?/?(assets/[^"]+\.js)"', body.decode("utf-8"))
+    assert asset is not None, "index.html should reference a hashed script"
+    status, headers, _ = _request(server, f"/{asset.group(1)}")
+    assert status == 200
+    assert "immutable" in headers["cache-control"]
+
+    # Live state is never cacheable either.
+    _, headers, _ = _request(server, "/api/meta")
+    assert headers["cache-control"] == "no-store"

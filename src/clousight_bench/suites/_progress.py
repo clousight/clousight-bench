@@ -117,8 +117,10 @@ class TpcProgress:
 
     # -- passthrough ----------------------------------------------------------
 
-    def phase(self, label: str, total: int = 0, *, unit: str = "query") -> None:
-        self.reporter.phase(label, total, unit=unit)
+    def phase(
+        self, label: str, total: int = 0, *, unit: str = "query", reports_progress: bool = True
+    ) -> None:
+        self.reporter.phase(label, total, unit=unit, reports_progress=reports_progress)
 
     def advance(self, n: int = 1) -> None:
         self.reporter.advance(n)

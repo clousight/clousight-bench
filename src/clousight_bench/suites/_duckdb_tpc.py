@@ -218,7 +218,7 @@ class DuckDbTpcSuite(BenchmarkSuite):
         db_path = str(Path(tmp_dir) / f"{self.slug}.duckdb")
         con = duckdb.connect(db_path)
         con.execute(f"INSTALL {self.extension}; LOAD {self.extension};")
-        progress.phase("Load", total=1, unit="dataset")
+        progress.phase("Load", total=1, unit="dataset", reports_progress=False)
         progress.log(f"loading SF{sf:g} via {self.dbgen_proc}")
         load_start = clock.now()
         con.execute(f"CALL {self.dbgen_proc}(sf := ?)", [sf])

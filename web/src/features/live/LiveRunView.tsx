@@ -74,7 +74,9 @@ export function LiveRunView({ runId }: { runId: string }) {
       {rows.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>{t("live.waterfall")}</CardTitle>
+            {/* Drops the "(live)" qualifier once the stream has ended, so a
+                finished page does not keep claiming to be updating. */}
+            <CardTitle>{t(feed.done ? "live.waterfall_done" : "live.waterfall")}</CardTitle>
           </CardHeader>
           <CardContent>
             <Waterfall rows={rows} t0={t0} onSelect={() => undefined} axisMaxMs={elapsedMs} />

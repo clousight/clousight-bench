@@ -146,3 +146,15 @@
       "calt" 1;
   }
 }
+
+/* The indeterminate progress bar: a phase that knows its size but cannot
+ * report from inside itself (a window whose own wall clock is the measurement)
+ * sweeps instead of filling, so it never reads as a stalled 0%. */
+@keyframes csb-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}

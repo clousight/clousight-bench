@@ -11,7 +11,7 @@ import { useEffect } from "react";
 import { usePolledJSON, type ProgressList } from "@/api";
 import { ErrorView, LoadingView } from "@/components/StateViews";
 import { Card, CardContent } from "@/components/ui/card";
-import { LiveStrip } from "@/features/live/LiveStrip";
+import { JustFinished, LiveStrip, stillRunning } from "@/features/live/LiveStrip";
 import { useI18n } from "@/i18n";
 import { boardHref, liveRunHref } from "@/router";
 
@@ -21,7 +21,10 @@ export function LiveConsole() {
   const { t } = useI18n();
   const live = usePolledJSON<ProgressList>("api/progress", POLL_MS);
   const runs = live.data?.runs ?? null;
-  const only = runs !== null && runs.length === 1 ? runs[0].run_id : null;
+  const running = runs === null ? [] : stillRunning(runs);
+  // Forward only for a single RUNNING run: a lone finished one is a page worth
+  // reading, not a redirect.
+  const only = runs !== null && running.length === 1 && runs.length === 1 ? running[0].run_id : null;
 
   useEffect(() => {
     if (only !== null) window.location.hash = liveRunHref(only).slice(1);
@@ -48,6 +51,7 @@ export function LiveConsole() {
     <div className="flex flex-col gap-4">
       <h1 className="text-lg font-semibold tracking-tight">{t("live.console")}</h1>
       <LiveStrip runs={runs} />
+      <JustFinished runs={runs} />
     </div>
   );
 }

@@ -40,12 +40,15 @@ class RecordingProgress:
 
     def __init__(self, *, cancel: bool = False) -> None:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
+        #: (label, total, unit, reports_progress) per phase() call.
+        self.phases: list[tuple[str, int, str, bool]] = []
         self.cancel = cancel
 
     # --- the six-method suite-facing surface --------------------------------
 
-    def phase(self, label: str, total: int = 0, *, unit: str = "") -> None:
+    def phase(self, label: str, total: int = 0, *, unit: str = "", reports_progress: bool = True) -> None:
         self.calls.append(("phase", (label, total, unit)))
+        self.phases.append((label, total, unit, reports_progress))
 
     def advance(self, n: int = 1, *, label: str = "") -> None:
         self.calls.append(("advance", (n, label)))
@@ -498,3 +501,48 @@ def test_a_watched_real_run_produces_the_same_artifacts_as_an_unwatched_one() ->
         assert a["result_digest"] == b["result_digest"]
         assert a.keys() == b.keys()
         assert a["latency_ms"] > 0 and b["latency_ms"] > 0
+
+
+@_needs_duckdb
+def test_measured_windows_declare_that_they_cannot_report_progress() -> None:
+    """A phase whose own wall clock IS the metric cannot tick through itself.
+
+    The TPC throughput tests, data maintenance, the dataset load and the
+    single-opaque-process phases all announce a total they will never advance
+    through, because writing inside the window would perturb the number being
+    measured. They must say so: a bar pinned at 0/396 for the longest phase of a
+    run reads as a hang, and the viewer has no other way to tell the difference.
+    """
+    suite = TpchSuite()
+    rec = RecordingProgress()
+    driver = DriverContext(placement="local", progress=rec)
+    dataset = suite.resolve({"scale_factor": _SF, "query_ids": _QUERIES}, None)
+    env = suite.prepare(_real_target(), dataset, driver)
+    try:
+        suite.run(_real_target(), env, driver)
+    finally:
+        suite.teardown(env)
+
+    reports = {label: flag for label, _total, _unit, flag in rec.phases}
+    assert reports["Load"] is False, "the dataset load is one opaque call"
+    assert reports["Query set"] is True, "per-query reporting lands between measured intervals"
+
+
+@_needs_duckdb
+def test_the_official_throughput_window_declares_itself_unreportable() -> None:
+    """The Throughput test's elapsed_s is Throughput@Size — nothing may be
+    written inside it, so it must not present a bar it will never move."""
+    suite = TpchSuite()
+    rec = RecordingProgress()
+    driver = DriverContext(placement="local", progress=rec)
+    cfg = {"mode": "official", "scale_factor": _SF, "streams": 2, "query_ids": [1, 6]}
+    dataset = suite.resolve(cfg, None)
+    env = suite.prepare(_real_target(), dataset, driver)
+    try:
+        suite.run(_real_target(), env, driver)
+    finally:
+        suite.teardown(env)
+
+    reports = {label: flag for label, _total, _unit, flag in rec.phases}
+    assert reports["Throughput Test"] is False
+    assert reports["Power"] is True, "power sums per-query intervals; reporting fits in the gaps"

@@ -244,7 +244,7 @@ class YcsbSuite(BenchmarkSuite):
         from time import time_ns  # noqa: PLC0415
 
         raise_if_cancelled(progress, "ycsb load phase")
-        progress.phase("Load", total=1, unit="phase")
+        progress.phase("Load", total=1, unit="phase", reports_progress=False)
         progress.log(f"ycsb load: {p['recordcount']} records into the {binding} binding")
         load_start_ns = time_ns()
         subprocess.run([binary, "load", binding, *common], check=True, capture_output=True, text=True)
@@ -257,7 +257,7 @@ class YcsbSuite(BenchmarkSuite):
         # starts a timer relative to itself, so nothing may be inserted between
         # arming it and starting the run it is meant to hit.
         raise_if_cancelled(progress, "ycsb run phase")
-        progress.phase("Run", total=1, unit="phase")
+        progress.phase("Run", total=1, unit="phase", reports_progress=False)
         progress.log(f"ycsb run: {p['operationcount']} operations of {p['workload']}")
 
         # Driver-side disruption (R5): route the MEASURED phase through the

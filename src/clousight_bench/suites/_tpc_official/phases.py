@@ -151,7 +151,7 @@ def run_official(
             return {"pair": int(pair), "rf1_s": rf1_s, "rf2_s": rf2_s}
 
         total_queries = sum(len(order) for order in throughput_orders)
-        progress.phase("Throughput Test", total=total_queries, unit="query")
+        progress.phase("Throughput Test", total=total_queries, unit="query", reports_progress=False)
         progress.log(f"throughput test: {len(throughput_orders)} streams, {total_queries} queries total")
         tp_start = clock()
         doc["throughput"] = run_throughput(
@@ -258,7 +258,7 @@ def run_official_ds(
     total_queries = sum(len(order) for order in throughput_orders)
 
     def _throughput_once(label: str, phase: str) -> dict[str, Any]:
-        progress.phase(label, total=total_queries, unit="query")
+        progress.phase(label, total=total_queries, unit="query", reports_progress=False)
         progress.log(f"{label.lower()}: {len(throughput_orders)} streams, {total_queries} queries total")
         stream_conns = {sid: open_conn() for sid in range(1, len(throughput_orders) + 1)}
         start = clock()
@@ -291,7 +291,7 @@ def run_official_ds(
 
     def _dm_once(label: str, phase: str) -> dict[str, Any]:
         progress.check_cancel(label.lower())
-        progress.phase(label, total=1, unit="pass")
+        progress.phase(label, total=1, unit="pass", reports_progress=False)
         progress.log(f"{label.lower()}: {int(n_dm_rows)} rows")
         t = clock()
         run_dm(con, n_dm_rows)

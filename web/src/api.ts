@@ -204,6 +204,10 @@ export interface ProgressStepCounter {
   completed: number;
   total: number;
   unit: string;
+  /** False when the phase knows its size but cannot tick through it — a window
+   * whose own wall clock is the measurement. Absent on older snapshots, which
+   * predate the flag; treat that as true. */
+  reports_progress?: boolean;
   started_ms: number;
 }
 

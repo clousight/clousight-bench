@@ -1038,11 +1038,28 @@ def _finish(
     if progress is not None:
         progress.finish(
             record.status,
-            str(path),
+            _relative_record_path(path, results_dir),
             stages=dict(record.run.stages),
             timings=dict(record.run.stage_timings),
         )
     return record
+
+
+def _relative_record_path(path: Path, results_dir: Path) -> str:
+    """The persisted record's path, relative to the results directory.
+
+    The progress plane is read over HTTP by the viewer, which deliberately
+    publishes only the results directory's *basename* and never its full path
+    (see viewer/server.py's /api/meta). An absolute path here would hand the
+    same information back through a different door — and a path relative to the
+    results root is the more useful thing to show anyway.
+    """
+    try:
+        return str(path.relative_to(results_dir))
+    except ValueError:
+        # A publisher or a custom store could place the record outside the
+        # results dir. Name the file without disclosing where it lives.
+        return path.name
 
 
 def _emit_trace(

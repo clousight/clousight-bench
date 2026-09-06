@@ -188,7 +188,7 @@ class TpccSuite(BenchmarkSuite):
         from time import time_ns  # noqa: PLC0415
 
         raise_if_cancelled(progress, "tpc-c benchbase phase")
-        progress.phase("BenchBase create+load+execute", total=1, unit="phase")
+        progress.phase("BenchBase create+load+execute", total=1, unit="phase", reports_progress=False)
         progress.log(
             f"benchbase tpcc: {p['terminals']} terminals for {p['time']}s "
             f"at scalefactor {p['scalefactor']} on {p['dbtype']}"
