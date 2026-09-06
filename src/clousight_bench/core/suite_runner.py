@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from clousight_bench.core.observation import ObservationBundle, TaskResult
+from clousight_bench.core.progress import NULL_PROGRESS, ProgressReporter
 from clousight_bench.core.record import Provenance
 from clousight_bench.core.suite import (
     DriverContext,
@@ -67,6 +68,11 @@ class SuiteRunner:
     # required_permissions to each cloud's concrete minimal permissions.
     required_permissions: tuple[str, ...] = ()
     capability_tags: tuple[str, ...] = ()
+    # Assigned by the orchestrator once the run has an id, alongside
+    # ``adapter.run_id`` — so it can never perturb a fingerprint, which is fixed
+    # before that point. Inert until then, and inert for every caller that
+    # constructs a SuiteRunner directly (tests, conformance checks).
+    progress: ProgressReporter = NULL_PROGRESS
 
     def __init__(
         self,
@@ -171,7 +177,7 @@ class SuiteRunner:
                 endpoint=str(adapter_target.get("endpoint", "") or ""),
                 credentials_ref=str(adapter_target.get("credentials_ref", "") or ""),
             )
-            driver = DriverContext(placement="local", trace_id=self.trace_id)
+            driver = DriverContext(placement="local", trace_id=self.trace_id, progress=self.progress)
             # Use the cached dataset handle from constructor params.  The bridge
             # passes spec.params into the constructor, so in the real path the
             # two dicts are identical.  Fingerprint stability requires the dataset

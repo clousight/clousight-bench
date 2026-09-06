@@ -17,6 +17,18 @@ from clousight_bench.core.suite import (
 )
 
 
+def record_json_files(root: Path) -> list[Path]:
+    """Every persisted *record* under ``root``.
+
+    Excludes dot-prefixed sidecars — the cost ledger and the progress plane —
+    which live in the results tree but are not results. Tests that assert "one
+    record was written" mean records, not files.
+    """
+    return sorted(
+        p for p in root.rglob("*.json") if not any(part.startswith(".") for part in p.relative_to(root).parts)
+    )
+
+
 def stub_artifacts() -> RawArtifacts:
     """A fresh one-file artifact dir (the runner stages then removes it)."""
     d = Path(tempfile.mkdtemp(prefix="csbench-stub-"))

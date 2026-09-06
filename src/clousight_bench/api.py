@@ -54,6 +54,7 @@ from clousight_bench.core.plugin import (
     ResultEnricher,
     RuntimeProviderPlugin,
 )
+from clousight_bench.core.progress import NULL_PROGRESS, ProgressReporter
 from clousight_bench.core.record import Provenance
 from clousight_bench.core.registry import (
     ASSET_RESOLVER_ENTRY_POINT_GROUP,
@@ -97,6 +98,8 @@ __all__ = [
     "RawArtifacts",
     "Target",
     "DriverContext",
+    "NULL_PROGRESS",
+    "ProgressReporter",
     "evaluate_with_metrics",
     # metrics
     "Metric",

@@ -22,6 +22,7 @@ from clousight_bench.core.observation import (
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter, ResultEnricher
 from clousight_bench.core.record import Provenance
 from clousight_bench.core.schema import RunSpec
+from tests.conftest import record_json_files
 
 CALLS: list[str] = []
 
@@ -98,7 +99,7 @@ def _run(tmp_path, **kwargs):
 
 
 def _persisted(tmp_path) -> dict:
-    files = [p for p in tmp_path.rglob("*.json")]
+    files = record_json_files(tmp_path)
     assert len(files) == 1, files
     return json.loads(files[0].read_text(encoding="utf-8"))
 
@@ -376,7 +377,7 @@ def test_a_task_rejecting_params_stays_a_user_input_error_without_a_record(tmp_p
     )
     with pytest.raises(UserInputError):
         _run(tmp_path)
-    assert list(tmp_path.rglob("*.json")) == []
+    assert record_json_files(tmp_path) == []
 
 
 # --- M7 / M2: one config() call, and stage states that mean what they say -----
@@ -435,7 +436,7 @@ def test_non_canonical_observations_fail_collect_and_are_still_persisted(tmp_pat
     assert "PERSIST" not in stages
     assert record.run.stages["PERSIST"] == "ok"
 
-    files = [p for p in tmp_path.rglob("*.json")]
+    files = record_json_files(tmp_path)
     assert len(files) == 1
     text = files[0].read_text(encoding="utf-8")
     assert "NaN" not in text

@@ -15,6 +15,7 @@ from clousight_bench.core.observation import (
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter
 from clousight_bench.core.record import Provenance
 from clousight_bench.core.schema import RunSpec
+from tests.conftest import record_json_files
 
 CALLS: list[str] = []
 
@@ -226,7 +227,7 @@ def test_resolve_and_validate_errors_write_no_record(tmp_path):
 
     with pytest.raises(UnknownTaskError):
         orch.execute(RunSpec("fake-domain", "NOPE", "fake"), results_dir=tmp_path)
-    assert list(tmp_path.rglob("*.json")) == []
+    assert record_json_files(tmp_path) == []
 
 
 def test_stages_omit_resolve_but_keep_the_publish_denial(tmp_path):

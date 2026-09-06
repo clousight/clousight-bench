@@ -1,16 +1,15 @@
 """An interrupt (Ctrl-C / SIGTERM) mid-run still tears down and persists an
 interrupted record, so resources are released and progress is not lost."""
 
-import glob
 import json
 import threading
-from pathlib import Path
 
 import pytest
 
 from clousight_bench.core import orchestrator
 from clousight_bench.core.orchestrator import _terminate_as_interrupt, execute
 from clousight_bench.core.schema import RunSpec
+from tests.conftest import record_json_files
 
 
 def _spec():
@@ -40,8 +39,7 @@ def test_interrupt_runs_teardown_and_persists_interrupted_record(tmp_path, monke
 
     assert torn["ran"] is True, "teardown must run on interrupt"
 
-    files = glob.glob(str(tmp_path / "**" / "*.json"), recursive=True)
-    records = [json.loads(Path(f).read_text(encoding="utf-8")) for f in files]
+    records = [json.loads(p.read_text(encoding="utf-8")) for p in record_json_files(tmp_path)]
     interrupted = [r for r in records if r.get("status") == "interrupted"]
     assert interrupted, "an interrupted record must be persisted"
     rec = interrupted[0]

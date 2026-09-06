@@ -64,8 +64,10 @@ from clousight_bench.core.cost_budget import (
 )
 from clousight_bench.core.errors import (
     AdapterNotRunnableError,
+    RunCancelled,
     UnknownPlatformError,
     UnknownTaskError,
+    UserInputError,
 )
 from clousight_bench.core.finalize import _enrich, _publish
 from clousight_bench.core.fingerprints import (
@@ -84,6 +86,7 @@ from clousight_bench.core.observation import (
     validate_observation_bundle,
 )
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter
+from clousight_bench.core.progress import ProgressWriter, reap_stale
 from clousight_bench.core.publish import (
     ResultPublisher,
 )
@@ -122,6 +125,44 @@ _FATAL_STAGES = ("SETUP", "EXECUTE", "SEAL", "SCORE")
 # Stages that fail before anything is provisioned: the request never ran.
 _INVALID_STAGES = ("VALIDATE", "DESCRIBE", "PREFLIGHT")
 _EMPTY_WORKLOAD: dict[str, Any] = {"workload": "", "workload_version": "", "assets": []}
+
+
+class _StageMirror(dict):
+    """The ``stages`` dict, with every transition mirrored to the progress plane.
+
+    The orchestrator assigns stage outcomes at roughly twenty sites, several of
+    them inside ``except`` and ``finally`` blocks that only run on the unhappy
+    path. Mirroring on assignment means the live view cannot miss one, and a
+    stage added later needs no second edit here to show up.
+    """
+
+    def __init__(self, progress: ProgressWriter) -> None:
+        super().__init__()
+        self._progress = progress
+
+    def __setitem__(self, stage: str, status: str) -> None:
+        super().__setitem__(stage, status)
+        self._progress.stage_end(stage, status)
+
+    def setdefault(self, stage: str, status: Any = None) -> Any:
+        # dict.setdefault does not route through __setitem__, so it needs its own
+        # mirror or "SCORE: skipped" on the interrupt path would never be seen.
+        if stage not in self:
+            self[stage] = status
+        return self[stage]
+
+
+class _TimingMirror(dict):
+    """The ``timings`` dict, mirrored the same way. Durations are assigned
+    separately from statuses, so they need their own mirror."""
+
+    def __init__(self, progress: ProgressWriter) -> None:
+        super().__init__()
+        self._progress = progress
+
+    def __setitem__(self, stage: str, ms: float) -> None:
+        super().__setitem__(stage, ms)
+        self._progress.stage_time(stage, ms)
 
 
 def _max_persisted_items() -> int:
@@ -241,19 +282,40 @@ def execute(
     trace_id = new_trace_id()
     root_start_ns = time.time_ns()
     started_at = utc_now()
-    stages: dict[str, str] = {}
-    timings: dict[str, float] = {}
+    # Sweep any progress directory left behind by a run that died without
+    # finishing, so the viewer never shows a phantom "running" row.
+    reap_stale(results_dir)
+    progress = ProgressWriter(
+        results_dir,
+        run_id,
+        trace_id=trace_id,
+        domain=spec.domain,
+        task_id=spec.task_id,
+        suite_id=spec.task_id.removeprefix(_BENCHMARK_KIND_PREFIX),
+        adapter=spec.platform,
+        mode=str(spec.target.get("mode", "") or ""),
+        started_at=started_at,
+    )
+    progress.begin()
+    stages: dict[str, str] = _StageMirror(progress)
+    timings: dict[str, float] = _TimingMirror(progress)
     errors: list[StageError] = []
 
     # RESOLVE -- raises UserInputError; no record is written. Deliberately NOT
     # recorded in ``stages``: a RESOLVE failure produces no record at all, so
     # "RESOLVE: ok" would be a constant in every record (see STAGES in
     # core/record.py -- stages hold what this record's outcome depended on).
-    pack, task, adapter_cls = _resolve(spec, results_dir, trace_id)
+    try:
+        pack, task, adapter_cls = _resolve(spec, results_dir, trace_id)
 
-    # VALIDATE -- raises UserInputError; no record is written. The validated
-    # task config is reused below, so config() is called exactly once per run.
-    config = validate_run_spec(spec, task)
+        # VALIDATE -- raises UserInputError; no record is written. The validated
+        # task config is reused below, so config() is called exactly once per run.
+        config = validate_run_spec(spec, task)
+    except UserInputError:
+        # Neither stage writes a record, so leave no progress row behind either:
+        # a row the viewer can never resolve to a result is worse than no row.
+        progress.discard()
+        raise
     stages["VALIDATE"] = "ok"
 
     logger.info("run %s: %s/%s on %s", run_id, spec.domain, spec.task_id, spec.platform)
@@ -297,6 +359,7 @@ def execute(
             debug=debug,
             trace_id=trace_id,
             root_start_ns=root_start_ns,
+            progress=progress,
         )
 
     if prepared.errors or prepared.adapter is None:
@@ -313,6 +376,9 @@ def execute(
     adapter.run_id = run_id
     adapter.deadline_s = timeout_s
     adapter.results_dir = results_dir
+    # Same reasoning as adapter.run_id: assigned only now, after fingerprints are
+    # fixed, so reporting progress can never perturb one.
+    task.progress = progress
     bundle = ObservationBundle()
     result: TaskResult | None = None
 
@@ -320,6 +386,7 @@ def execute(
     # request could not be measured here, so the record is `invalid` and nothing
     # is ever provisioned.
     if preflight:
+        progress.stage_start("PREFLIGHT")
         _pf = time.perf_counter()
         gate_error, gate_finding = _preflight(adapter, task, run_id, results_dir, debug)
         timings["PREFLIGHT"] = _ms(_pf)
@@ -336,6 +403,7 @@ def execute(
     # DESCRIBE (second half) -- environment facts need a live adapter, so they are
     # collected only now, after the preflight gate. The stage is recorded once, at
     # the end, so a record never claims a stage was ok and then failed.
+    progress.stage_start("DESCRIBE")
     environment_error = _complete_environment(prepared, spec, task, results_dir, run_id, debug)
     if environment_error is not None:
         stages["DESCRIBE"] = "failed"
@@ -414,14 +482,22 @@ def execute(
     with _terminate_as_interrupt():
         try:
             with _stage_deadline(timeout_s):
+                # Checked before SETUP so a cancel that lands while we are still
+                # in the gates never provisions anything in the first place.
+                _raise_if_cancelled(progress)
+                progress.stage_start("SETUP")
                 _st = time.perf_counter()
                 adapter.setup()
                 stages["SETUP"] = "ok"
                 timings["SETUP"] = _ms(_st)
+                _raise_if_cancelled(progress)
+                progress.stage_start("EXECUTE")
                 _st = time.perf_counter()
                 bundle = task.execute(adapter, spec.params)
                 stages["EXECUTE"] = "ok"
                 timings["EXECUTE"] = _ms(_st)
+                _raise_if_cancelled(progress)
+                progress.stage_start("SEAL")
                 _st = time.perf_counter()
                 bundle = seal(bundle)
                 stages["SEAL"] = "ok"
@@ -487,6 +563,7 @@ def execute(
                 except Exception as exc:  # noqa: BLE001 - reconcile must never break teardown
                     errors.append(_stage_error("TEARDOWN", exc, code="reconcile_failed"))
                     _log_traceback(results_dir, run_id, debug, exc)
+            progress.stage_start("TEARDOWN")
             _td = time.perf_counter()
             try:
                 adapter.teardown()
@@ -506,6 +583,7 @@ def execute(
 
     # SCORE -- pure; observations already collected survive a scorer failure.
     if stages.get("SEAL") == "ok":
+        progress.stage_start("SCORE")
         _sc = time.perf_counter()
         try:
             candidate = task.score(bundle)
@@ -530,6 +608,18 @@ def execute(
             run_id, getattr(adapter, "provider", None), run_cost_usd(record, spec.target)
         )
     return record
+
+
+def _raise_if_cancelled(progress: ProgressWriter) -> None:
+    """Abort the run if a cancel was requested.
+
+    Raises :class:`RunCancelled`, a ``KeyboardInterrupt``, so the surrounding
+    handler treats it exactly like a Ctrl-C: teardown still runs, an
+    ``interrupted`` record with the stages completed so far is still persisted,
+    and nothing provisioned is orphaned.
+    """
+    if progress.should_cancel():
+        raise RunCancelled("cancel requested by the viewer")
 
 
 def _resolve_cost_budget(cost_budget: float | None, target: Mapping[str, Any]) -> float | None:
@@ -923,6 +1013,7 @@ def _finish(
     debug: bool,
     trace_id: str | None = None,
     root_start_ns: int | None = None,
+    progress: ProgressWriter | None = None,
 ) -> ResultRecord:
     if trace_id is not None:
         # Link this result to its execution trace before persisting, so a record
@@ -944,6 +1035,13 @@ def _finish(
         logger.error("result NOT written to %s; degraded record -> %s", results_dir, path)
     _publish(path, results_dir, publisher, debug)
     _emit_trace(record, results_dir, trace_id, root_start_ns)
+    if progress is not None:
+        progress.finish(
+            record.status,
+            str(path),
+            stages=dict(record.run.stages),
+            timings=dict(record.run.stage_timings),
+        )
     return record
 
 
