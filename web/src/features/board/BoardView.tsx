@@ -8,8 +8,16 @@
  */
 
 import { ChevronRight } from "lucide-react";
+import { useState } from "react";
 
-import { useJSON, usePolledJSON, type BoardData, type BoardSuite, type ProgressList } from "@/api";
+import {
+  useJSON,
+  usePolledJSON,
+  type BoardData,
+  type BoardDomain,
+  type BoardSuite,
+  type ProgressList,
+} from "@/api";
 import { StatusPill } from "@/components/Glossed";
 import { ErrorView, LoadingView } from "@/components/StateViews";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +39,13 @@ export function BoardView() {
   if (board.error !== null) return <ErrorView message={board.error} />;
   if (board.data === null) return <LoadingView />;
 
-  const domains = board.data.domains;
+  // Most recently active domain first, not alphabetical. This results tree
+  // still holds 26 suites from a benchmark generation that was removed in the
+  // suite-first pivot; sorted by name they push everything anyone is actually
+  // running today off the first screen.
+  const domains = board.data.domains
+    .slice()
+    .sort((a, b) => lastActivity(b).localeCompare(lastActivity(a)));
   const running = live.data?.runs ?? [];
 
   return (
@@ -70,16 +84,59 @@ export function BoardView() {
                   </span>
                 </CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-col divide-y">
-                {domain.suites.map((suite) => (
-                  <SuiteTile key={suite.suite_id} domain={domain.domain} suite={suite} />
-                ))}
-              </CardContent>
+              <DomainSuites domain={domain} />
             </Card>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+/** ISO timestamp of the newest run anywhere in a domain; "" when it has none. */
+function lastActivity(domain: BoardDomain): string {
+  let newest = "";
+  for (const suite of domain.suites) {
+    const started = suite.latest?.started_at ?? "";
+    if (started > newest) newest = started;
+  }
+  return newest;
+}
+
+/** How many suites a domain card shows before it asks to be expanded. */
+const SUITE_PREVIEW = 5;
+
+/**
+ * A domain's suites, newest first and capped.
+ *
+ * The cap is what keeps a domain with a long tail of retired benchmarks from
+ * turning the board into a scroll — the point of this page is that the answer
+ * is on the first screen.
+ */
+function DomainSuites({ domain }: { domain: BoardDomain }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const ordered = domain.suites
+    .slice()
+    .sort((a, b) => (b.latest?.started_at ?? "").localeCompare(a.latest?.started_at ?? ""));
+  const shown = expanded ? ordered : ordered.slice(0, SUITE_PREVIEW);
+  const hidden = ordered.length - shown.length;
+
+  return (
+    <CardContent className="flex flex-col divide-y">
+      {shown.map((suite) => (
+        <SuiteTile key={suite.suite_id} domain={domain.domain} suite={suite} />
+      ))}
+      {hidden > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="-mx-2 rounded-md px-2 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {t("board.show_more").replace("{n}", String(hidden))}
+        </button>
+      )}
+    </CardContent>
   );
 }
 

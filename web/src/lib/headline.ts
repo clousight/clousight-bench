@@ -7,7 +7,21 @@
  * platforms stay comparable at a glance.
  */
 
-import { lookupMetric, type ResolvedMetric } from "@/lib/glossary";
+import { METRIC_SPECS, lookupMetric, type ResolvedMetric } from "@/lib/glossary";
+
+/** Where a key sits in METRIC_SPECS; unmatched keys sort last. */
+function specIndex(key: string): number {
+  const exact = METRIC_SPECS.findIndex((spec) => spec.key === key);
+  if (exact >= 0) return exact;
+  const pattern = METRIC_SPECS.findIndex(
+    (spec) =>
+      spec.key.includes("*") &&
+      (spec.key.startsWith("*")
+        ? key.endsWith(spec.key.slice(1))
+        : key.startsWith(spec.key.slice(0, -1))),
+  );
+  return pattern >= 0 ? pattern : METRIC_SPECS.length;
+}
 
 export interface HeadlineMetric {
   key: string;
@@ -32,7 +46,13 @@ export function headlineMetrics(
   );
   const resolved = entries.map(([key, value]) => ({ key, value, spec: lookupMetric(key) }));
   const declared = resolved.filter((entry) => entry.spec.headline === true);
-  if (declared.length > 0) return declared.slice(0, limit);
+  if (declared.length > 0) {
+    // Ordered by the specs, not by the record's key order: correctness should
+    // lead a TPC card whether or not it happens to sort before latency in the
+    // measurements dict, and two platforms must present their numbers in the
+    // same sequence to be comparable at a glance.
+    return declared.sort((a, b) => specIndex(a.key) - specIndex(b.key)).slice(0, limit);
+  }
   return resolved.sort((a, b) => a.key.localeCompare(b.key)).slice(0, limit);
 }
 
@@ -42,7 +62,10 @@ export function headlineMetrics(
  */
 export function orderMetricKeys(keys: string[]): string[] {
   const withSpec = keys.map((key) => ({ key, spec: lookupMetric(key) }));
-  const headline = withSpec.filter((entry) => entry.spec.headline === true).map((entry) => entry.key);
+  const headline = withSpec
+    .filter((entry) => entry.spec.headline === true)
+    .map((entry) => entry.key)
+    .sort((a, b) => specIndex(a) - specIndex(b));
   const rest = withSpec
     .filter((entry) => entry.spec.headline !== true)
     .map((entry) => entry.key)

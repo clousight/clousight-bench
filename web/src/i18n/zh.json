@@ -21,6 +21,7 @@
   "board.no_runs": "还没跑过",
   "board.platforms": "{n} 个平台",
   "board.runs": "{n} 次运行",
+  "board.show_more": "还有 {n} 个",
   "suite.compare": "平台横向对比",
   "suite.compare_blurb": "各平台最近一次运行的结果。在我们知道方向的指标上，加粗的是当前领先者。",
   "suite.platform": "平台",

@@ -440,3 +440,45 @@ def test_load_suite_over_the_real_run(results_dir: Path) -> None:
 def test_load_suite_rejects_non_token_segments(results_dir: Path) -> None:
     for domain, suite_id in (("../etc", "swe-bench"), ("agent-runtime", "../x"), ("", "swe-bench")):
         assert load_suite(results_dir, domain, suite_id) is None
+
+
+def test_board_skips_records_it_cannot_place(tmp_path: Path) -> None:
+    """A schema 0.1-era record has no ``identity`` block, so it summarises to
+    empty strings. Bucketing those under ("", "") put a nameless, valueless card
+    on the board — indistinguishable, to a reader, from a bug."""
+    legacy = tmp_path / "agent-runtime" / "local-sim"
+    legacy.mkdir(parents=True)
+    (legacy / "T1.3-run-old.json").write_text(
+        json.dumps(
+            {  # flat 0.1 shape: no identity, no run, no provenance, no measurements
+                "domain": "agent-runtime",
+                "task_id": "T1.3",
+                "platform": "local-sim",
+                "run_id": "run-old",
+            }
+        ),
+        encoding="utf-8",
+    )
+    modern = tmp_path / "data-warehouse" / "duckdb-local"
+    modern.mkdir(parents=True)
+    (modern / "suite:tpc-h-run-new.json").write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "run": {"run_id": "run-new", "started_at": "2026-09-06T00:00:00Z"},
+                "identity": {"domain": "data-warehouse", "task_id": "suite:tpc-h", "adapter": "duckdb-local"},
+                "provenance": {"suite_id": "tpc-h"},
+                "measurements": {"tpc-h.queries_passed": {"value": 1.0}},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    board = load_board(tmp_path)
+    assert [domain["domain"] for domain in board["domains"]] == ["data-warehouse"]
+    # Still listed by /api/records — skipped from the board, not hidden. Its
+    # fields summarise to blanks (a 0.1 record has no `run` block to read a
+    # run_id out of), which is precisely why it cannot be placed on a board.
+    rows = list_records(tmp_path)
+    assert len(rows) == 2
+    assert sorted(row["run_id"] for row in rows) == ["", "run-new"]

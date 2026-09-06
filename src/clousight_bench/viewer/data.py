@@ -327,10 +327,23 @@ def _started_at(summary: dict[str, Any]) -> str:
 
 
 def _group(results_dir: Path) -> dict[tuple[str, str], list[dict[str, Any]]]:
-    """Every summary bucketed by ``(domain, suite)``, newest run first in each."""
+    """Every *placeable* summary bucketed by ``(domain, suite)``, newest first.
+
+    A record that names neither a domain nor a suite is skipped rather than
+    bucketed under ``("", "")``. Schema 0.1-era records (flat ``domain`` /
+    ``task_id`` at the top level, no ``identity`` block, no measurements)
+    summarise to empty strings, and folding them in produced a nameless,
+    valueless card on the board — worse than not showing them, since the reader
+    cannot tell whether it is a bug or a benchmark. They remain visible through
+    ``/api/records``, which is where an unplaceable record belongs.
+    """
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for summary in list_records(results_dir):  # already sorted newest started_at first
-        grouped.setdefault((str(summary.get("domain") or ""), _suite_key(summary)), []).append(summary)
+        domain = str(summary.get("domain") or "")
+        suite = _suite_key(summary)
+        if domain == "" or suite == "":
+            continue
+        grouped.setdefault((domain, suite), []).append(summary)
     return grouped
 
 

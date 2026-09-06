@@ -198,6 +198,5 @@ def test_stage_timings_are_formatted_as_milliseconds() -> None:
         for line in path.read_text(encoding="utf-8").splitlines():
             if "stage_timings" in line or ("timings[" in line and "fmtDur(" in line):
                 assert "fmtDur(" not in line or "fmtDurMs(" in line, (
-                    f"stage timings must not be passed to the seconds formatter "
-                    f"({path.name}): {line.strip()}"
+                    f"stage timings must not be passed to the seconds formatter ({path.name}): {line.strip()}"
                 )

@@ -21,6 +21,7 @@
   "board.no_runs": "no runs yet",
   "board.platforms": "{n} platform(s)",
   "board.runs": "{n} run(s)",
+  "board.show_more": "Show {n} more",
   "suite.compare": "Platforms compared",
   "suite.compare_blurb": "The latest run on each platform. Bold marks the current leader on a metric whose direction we know.",
   "suite.platform": "Platform",
