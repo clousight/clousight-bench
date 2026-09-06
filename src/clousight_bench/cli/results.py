@@ -120,13 +120,16 @@ def _print_rows(rows: list[dict], fmt: str) -> None:
 def _cmd_verify(args: argparse.Namespace) -> int:
 
     from clousight_bench.core.fingerprints import record_digest
+    from clousight_bench.core.store import is_results_sidecar
     from clousight_bench.ops.runplan import AGGREGATES_DIRNAME
 
     results_dir = Path(args.results)
     ok = failed = skipped = 0
     for path in sorted(results_dir.rglob("*.json")):
         rel = path.relative_to(results_dir)
-        if AGGREGATES_DIRNAME in rel.parts:
+        # A sidecar carries no record_digest, so verifying it would report a
+        # failure and exit non-zero over a file that was never a result.
+        if AGGREGATES_DIRNAME in rel.parts or is_results_sidecar(path, results_dir):
             skipped += 1
             continue
         try:
@@ -147,7 +150,7 @@ def _cmd_verify(args: argparse.Namespace) -> int:
             print(f"✗  {rel}  ({exc})")
             failed += 1
     total = ok + failed
-    suffix = f" ({skipped} aggregate file(s) skipped)" if skipped else ""
+    suffix = f" ({skipped} non-record file(s) skipped)" if skipped else ""
     print(f"\nverified {total} file(s) — {ok} ok, {failed} failed{suffix}")
     return 0 if failed == 0 else 1
 

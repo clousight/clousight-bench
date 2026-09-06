@@ -7,6 +7,7 @@ same information back through a different door.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from clousight_bench.core.orchestrator import _relative_record_path
@@ -90,3 +91,46 @@ def test_a_reader_never_joins_the_callers_string_into_a_path(tmp_path: Path) -> 
     # A file by that name is not a progress directory.
     assert locate_progress_dir(tmp_path, "not-a-dir") is None
     assert locate_progress_dir(tmp_path, "run-absent") is None
+
+
+def test_walkers_over_the_results_tree_skip_the_progress_plane(tmp_path: Path, capsys) -> None:
+    """`Path.rglob` descends into hidden directories, so the dot convention is
+    not self-enforcing — every walker has to ask.
+
+    `csbench verify` did not: it reported a progress snapshot (which carries no
+    record_digest) as a digest failure and exited non-zero over a file that was
+    never a result.
+    """
+    import argparse
+
+    from clousight_bench.cli.results import _cmd_verify
+    from clousight_bench.core.fingerprints import record_digest
+    from clousight_bench.core.progress import SCHEMA, progress_dir
+    from clousight_bench.core.store import is_results_sidecar
+
+    results = tmp_path / "results"
+    out = results / "data-warehouse" / "duckdb-local"
+    out.mkdir(parents=True)
+    record: dict[str, object] = {
+        "schema_version": "0.4",
+        "status": "completed",
+        "run": {"run_id": "run-1"},
+        "fingerprints": {},
+    }
+    record["fingerprints"] = {"record_digest": record_digest(record)}
+    (out / "suite:tpc-h-run-1.json").write_text(json.dumps(record), encoding="utf-8")
+
+    live = progress_dir(results, "run-2")
+    assert live is not None
+    live.mkdir(parents=True)
+    (live / "state.json").write_text(json.dumps({"schema": SCHEMA, "status": "completed"}), encoding="utf-8")
+    (results / ".cost_ledger.json").write_text("{}", encoding="utf-8")
+
+    assert is_results_sidecar(live / "state.json", results)
+    assert is_results_sidecar(results / ".cost_ledger.json", results)
+    assert not is_results_sidecar(out / "suite:tpc-h-run-1.json", results)
+
+    assert _cmd_verify(argparse.Namespace(results=str(results))) == 0
+    printed = capsys.readouterr().out
+    assert "1 ok, 0 failed" in printed, printed
+    assert "state.json" not in printed

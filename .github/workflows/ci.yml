@@ -131,11 +131,16 @@ jobs:
           python - <<'PY'
           import json, pathlib
           # Scope to record files only: the suite run also writes raw evaluator
-          # output under results/artifacts/** and plan aggregates under
-          # results/aggregates/**, neither of which is a result record.
+          # output under results/artifacts/**, plan aggregates under
+          # results/aggregates/**, and dot-prefixed sidecars that are not
+          # results at all — the progress plane (results/.progress/<run>/
+          # state.json, which survives a grace period after a run ends) and the
+          # cost ledger. rglob descends into hidden directories, so the dot has
+          # to be checked, not assumed.
           paths = [
               p for p in pathlib.Path("results").rglob("*.json")
               if "artifacts" not in p.parts and "aggregates" not in p.parts
+              and not any(part.startswith(".") for part in p.parts)
               and p.name not in {"comparison.json", "migration-manifest.json"}
           ]
           assert paths, "the smoke wrote no records"
@@ -170,7 +175,8 @@ jobs:
           # Four run records + one aggregate; warmups are excluded from the stats.
           # Exclude the aggregate itself AND the raw evaluator artifacts.
           recs = [p for p in pathlib.Path("/tmp/plan-results").rglob("*.json")
-                  if "aggregates" not in p.parts and "artifacts" not in p.parts]
+                  if "aggregates" not in p.parts and "artifacts" not in p.parts
+                  and not any(part.startswith(".") for part in p.parts)]
           assert len(recs) == 4, recs
           print("run plan: 4 records, 3 measured pooled, 1 warmup dropped")
           PY

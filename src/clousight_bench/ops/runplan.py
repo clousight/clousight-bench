@@ -37,6 +37,7 @@ from clousight_bench.core.publish import ResultPublisher
 from clousight_bench.core.record import SCHEMA_VERSION, ResultRecord
 from clousight_bench.core.schema import RunSpec
 from clousight_bench.core.statistics import aggregate_measurements
+from clousight_bench.core.store import is_results_sidecar
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +228,8 @@ def _completed_slots(results_dir: Path, plan_id: str) -> dict[tuple[str, int], R
     done: dict[tuple[str, int], ResultRecord] = {}
     for path in Path(results_dir).rglob("*.json"):
         if AGGREGATES_DIRNAME in path.parts or CAMPAIGNS_DIRNAME in path.parts:
+            continue
+        if is_results_sidecar(path, Path(results_dir)):
             continue
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
