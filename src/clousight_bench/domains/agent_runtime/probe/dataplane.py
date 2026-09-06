@@ -1017,8 +1017,10 @@ def run_scaling(
 
     points = sorted(points, key=lambda p: p.concurrency)
     extra = [
-        "AgentRun GetAgentRuntime does not expose live instance counts; "
-        "elasticity behaviour cannot be observed."
+        (
+            "AgentRun GetAgentRuntime does not expose live instance counts; "
+            "elasticity behaviour cannot be observed."
+        )
     ]
     return ObservationBundle(
         observations={

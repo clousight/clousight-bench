@@ -48,9 +48,27 @@ def test_non_str_values_are_coerced() -> None:
 
 
 def test_viewer_never_logs_a_forged_line(tmp_path, caplog) -> None:
-    """End-to-end: a hostile run_id in the API path stays on one log line."""
+    """End-to-end: hostile trajectory content reaches a real logger call and
+    still lands on one line (a warning IS emitted — the test must not pass
+    vacuously on an empty caplog)."""
+    import json
+
     from clousight_bench.viewer.data import load_trajectory
 
+    run_id = "run-1"
+    record = {
+        "run": {"run_id": run_id},
+        "artifacts": [{"kind": "trajectory", "path": "t.jsonl"}],
+    }
+    rec_dir = tmp_path / "kv" / "local"  # records live at <domain>/<adapter>/*-<run_id>.json
+    rec_dir.mkdir(parents=True)
+    (rec_dir / f"r-{run_id}.json").write_text(json.dumps(record))
+    art_dir = tmp_path / "artifacts"
+    art_dir.mkdir()
+    # a bad-JSON span line whose parse error embeds attacker newlines
+    (art_dir / "t.jsonl").write_text('{"broken\nCRITICAL:root:forged entry\n')
+
     caplog.set_level(logging.DEBUG)
-    load_trajectory(tmp_path, "run-1\nCRITICAL:root:forged")
+    load_trajectory(tmp_path, run_id)
+    assert caplog.records, "expected the bad-span warning to be logged"
     assert all("\n" not in rec.getMessage() for rec in caplog.records)

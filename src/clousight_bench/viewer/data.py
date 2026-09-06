@@ -171,7 +171,7 @@ def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
         logger.warning(
             "viewer: run %s: cannot read trajectory %s: %s",
             sanitize_for_log(run_id),
-            candidate,
+            sanitize_for_log(candidate),
             sanitize_for_log(exc),
         )
         return None

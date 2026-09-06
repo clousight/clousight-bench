@@ -43,8 +43,10 @@ def test_controller_user_data_default_flags_byte_identical_to_pre_docker_shape()
                 "export CB_PLATFORM='aliyun-agentrun'",
                 "yum install -y 'python3.11'",
                 "python3.11 -m ensurepip --upgrade",
-                "python3.11 -m pip install -i 'https://mirrors.cloud.aliyuncs.com/pypi/simple/'"
-                " 'clousight-bench[probe,store]'",
+                (
+                    "python3.11 -m pip install -i 'https://mirrors.cloud.aliyuncs.com/pypi/simple/'"
+                    " 'clousight-bench[probe,store]'"
+                ),
                 "exec python3.11 -m clousight_bench.core.campaign.controller_main",
             ]
         )

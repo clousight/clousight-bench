@@ -43,7 +43,7 @@ def stage_error(stage: str, exc: BaseException, code: str | None = None) -> Stag
 
 def log_traceback(results_dir: Path, run_id: str, debug: bool, exc: BaseException) -> None:
     """Tracebacks belong in a local log, never in a shareable record."""
-    logger.exception("run %s stage failure", run_id, exc_info=exc)
+    logger.exception("run %s stage failure", run_id, exc_info=exc)  # noqa: LOG004 - exc passed explicitly; called from the stage failure path, not a handler
     if not debug:
         return
     text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))

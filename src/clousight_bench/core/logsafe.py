@@ -19,6 +19,13 @@ from __future__ import annotations
 DEFAULT_LIMIT = 200
 
 
+def _escape(ch: str) -> str:
+    # \xNN only reads unambiguously for one byte; U+2028 as \x2028 would parse
+    # as \x20 + "28", so wider codepoints use the \uNNNN form.
+    code = ord(ch)
+    return f"\\x{code:02x}" if code <= 0xFF else f"\\u{code:04x}"
+
+
 def sanitize_for_log(value: object, *, limit: int = DEFAULT_LIMIT) -> str:
     """Return ``value`` as a single-line, printable, length-capped string."""
     text = value if isinstance(value, str) else str(value)
@@ -27,7 +34,7 @@ def sanitize_for_log(value: object, *, limit: int = DEFAULT_LIMIT) -> str:
     text = text.replace("\r", "\\r").replace("\n", "\\n")
     # The remaining C0/C1 controls cannot split a record, but they can still
     # rewrite what a terminal shows (ANSI escapes, backspace), so escape them.
-    text = "".join(ch if ch == " " or ch.isprintable() else f"\\x{ord(ch):02x}" for ch in text)
+    text = "".join(ch if ch == " " or ch.isprintable() else _escape(ch) for ch in text)
     if len(text) > limit:
         text = text[:limit] + "...(truncated)"
     return text

@@ -55,8 +55,10 @@ def _load_sample() -> list[dict[str, Any]]:
 def format_prompt(q: dict[str, Any]) -> str:
     """The standard 0-shot MMLU prompt: question + lettered choices, ask for a letter."""
     lines = [
-        "The following is a multiple choice question. Reply with ONLY the letter "
-        "(A, B, C, or D) of the correct answer.",
+        (
+            "The following is a multiple choice question. Reply with ONLY the letter "
+            "(A, B, C, or D) of the correct answer."
+        ),
         "",
         q["question"],
     ]

@@ -109,8 +109,10 @@ def render_show(spans: list[dict[str, Any]]) -> str:
     children = [s for s in spans if s is not root and s.get("parent_span_id") == root.get("span_id")]
     slowest = max((s.get("duration_ms", 0.0) for s in children), default=0.0)
     lines = [
-        f"{root.get('name', 'csbench.run')}  {attrs.get('run_id', '')} "
-        f"[{attrs.get('status', '')}]  (total {root.get('duration_ms', 0.0):.3f} ms)"
+        (
+            f"{root.get('name', 'csbench.run')}  {attrs.get('run_id', '')} "
+            f"[{attrs.get('status', '')}]  (total {root.get('duration_ms', 0.0):.3f} ms)"
+        )
     ]
     for i, span in enumerate(children):
         branch = "└─" if i == len(children) - 1 else "├─"
