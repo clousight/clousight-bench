@@ -130,7 +130,16 @@ def test_walkers_over_the_results_tree_skip_the_progress_plane(tmp_path: Path, c
     assert is_results_sidecar(results / ".cost_ledger.json", results)
     assert not is_results_sidecar(out / "suite:tpc-h-run-1.json", results)
 
+    # Raw evaluator output lives under artifacts/ and carries no record_digest
+    # either. Verifying it made `csbench verify` exit 1 on a healthy results
+    # directory as soon as any suite had run.
+    art = results / "artifacts" / "suite-tpc-h-abc"
+    art.mkdir(parents=True)
+    (art / "summary.json").write_text(json.dumps({"queries": 22}), encoding="utf-8")
+    (art / "answers.json").write_text("[1, 2, 3]", encoding="utf-8")
+
     assert _cmd_verify(argparse.Namespace(results=str(results))) == 0
     printed = capsys.readouterr().out
     assert "1 ok, 0 failed" in printed, printed
     assert "state.json" not in printed
+    assert "summary.json" not in printed

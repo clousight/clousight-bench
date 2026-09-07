@@ -20,11 +20,13 @@ from pathlib import Path
 from typing import Any
 
 from clousight_bench.core.logsafe import sanitize_for_log
+from clousight_bench.core.store import RESERVED_SUBTREES
 
 logger = logging.getLogger(__name__)
 
-#: Reserved top-level subtrees of results_dir that never contain record files.
-_SKIP_DIRS = frozenset({"aggregates", "campaigns", "artifacts", "traces", "debug"})
+#: Reserved subtrees of results_dir that never contain record files. Shared with
+#: ``csbench verify`` so the two cannot drift about what a record is.
+_SKIP_DIRS = RESERVED_SUBTREES
 
 #: run_ids are used to locate files on disk, so they must be plain tokens.
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")

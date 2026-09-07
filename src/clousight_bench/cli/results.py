@@ -120,16 +120,17 @@ def _print_rows(rows: list[dict], fmt: str) -> None:
 def _cmd_verify(args: argparse.Namespace) -> int:
 
     from clousight_bench.core.fingerprints import record_digest
-    from clousight_bench.core.store import is_results_sidecar
-    from clousight_bench.ops.runplan import AGGREGATES_DIRNAME
+    from clousight_bench.core.store import RESERVED_SUBTREES, is_results_sidecar
 
     results_dir = Path(args.results)
     ok = failed = skipped = 0
     for path in sorted(results_dir.rglob("*.json")):
         rel = path.relative_to(results_dir)
-        # A sidecar carries no record_digest, so verifying it would report a
-        # failure and exit non-zero over a file that was never a result.
-        if AGGREGATES_DIRNAME in rel.parts or is_results_sidecar(path, results_dir):
+        # None of these carries a record_digest, so verifying one reports a
+        # failure over a file that was never a result — which made `csbench
+        # verify` exit 1 on a perfectly healthy results directory as soon as any
+        # suite had written its raw evaluator output under artifacts/.
+        if RESERVED_SUBTREES & set(rel.parts) or is_results_sidecar(path, results_dir):
             skipped += 1
             continue
         try:
