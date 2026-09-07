@@ -552,9 +552,7 @@ def _minimal_payload(record: ResultRecord) -> dict[str, Any]:
 #: Subtrees of a results directory that never hold result records. ``artifacts``
 #: is the raw evaluator output a record *points at*; the rest are derived or
 #: internal. Applied at whatever depth a given walker needs.
-RESERVED_SUBTREES: frozenset[str] = frozenset(
-    {"aggregates", "campaigns", "artifacts", "traces", "debug"}
-)
+RESERVED_SUBTREES: frozenset[str] = frozenset({"aggregates", "campaigns", "artifacts", "traces", "debug"})
 
 
 def is_results_sidecar(path: Path, results_dir: Path) -> bool:
