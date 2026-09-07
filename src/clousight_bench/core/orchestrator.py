@@ -274,6 +274,7 @@ def execute(
     run_id = new_run_id()
     trace_id = new_trace_id()
     root_start_ns = time.time_ns()
+    root_perf = time.perf_counter()
     started_at = utc_now()
     # Sweep any progress directory left behind by a run that died without
     # finishing, so the viewer never shows a phantom "running" row.
@@ -292,7 +293,24 @@ def execute(
     progress.begin()
     stages: dict[str, str] = _mirrored(progress.stage_end)
     timings: dict[str, float] = _mirrored(progress.stage_time)
+    #: stage -> [start_ms, end_ms] from the run's start. Recorded alongside the
+    #: duration because a duration cannot say *when*, and the trace needs to
+    #: place a stage on a real timeline that a suite's own spans can nest into.
+    stage_spans: dict[str, list[float]] = {}
     errors: list[StageError] = []
+
+    def _mark(stage: str, started_perf: float) -> float:
+        """Close a stage: record its real window, return its duration in ms.
+
+        Replaces a bare ``_ms(_st)`` so the start mark the caller already took is
+        not thrown away — that is the whole reason the trace used to have to
+        fabricate a timeline.
+        """
+        now = time.perf_counter()
+        start_ms = round((started_perf - root_perf) * 1000, 3)
+        end_ms = round((now - root_perf) * 1000, 3)
+        stage_spans[stage] = [start_ms, end_ms]
+        return round(end_ms - start_ms, 3)
 
     # RESOLVE -- raises UserInputError; no record is written. Deliberately NOT
     # recorded in ``stages``: a RESOLVE failure produces no record at all, so
@@ -343,6 +361,7 @@ def execute(
             run_context,
             timings,
             live_run,
+            stage_spans,
         )
         return _finish(
             record,
@@ -382,7 +401,7 @@ def execute(
         progress.stage_start("PREFLIGHT")
         _pf = time.perf_counter()
         gate_error, gate_finding = _preflight(adapter, task, run_id, results_dir, debug)
-        timings["PREFLIGHT"] = _ms(_pf)
+        timings["PREFLIGHT"] = _mark("PREFLIGHT", _pf)
         if gate_error is not None:
             stages["PREFLIGHT"] = "failed"
             errors.append(gate_error)
@@ -482,19 +501,19 @@ def execute(
                 _st = time.perf_counter()
                 adapter.setup()
                 stages["SETUP"] = "ok"
-                timings["SETUP"] = _ms(_st)
+                timings["SETUP"] = _mark("SETUP", _st)
                 _raise_if_cancelled(progress)
                 progress.stage_start("EXECUTE")
                 _st = time.perf_counter()
                 bundle = task.execute(adapter, spec.params)
                 stages["EXECUTE"] = "ok"
-                timings["EXECUTE"] = _ms(_st)
+                timings["EXECUTE"] = _mark("EXECUTE", _st)
                 _raise_if_cancelled(progress)
                 progress.stage_start("SEAL")
                 _st = time.perf_counter()
                 bundle = seal(bundle)
                 stages["SEAL"] = "ok"
-                timings["SEAL"] = _ms(_st)
+                timings["SEAL"] = _mark("SEAL", _st)
         except TaskExecutionError as exc:
             # The task kept its partial evidence; attribute it to whichever stage
             # was running, since setup and collect can raise this too.
@@ -565,7 +584,7 @@ def execute(
                 stages["TEARDOWN"] = "failed"
                 errors.append(_stage_error("TEARDOWN", exc))
                 _log_traceback(results_dir, run_id, debug, exc)
-            timings["TEARDOWN"] = _ms(_td)
+            timings["TEARDOWN"] = _mark("TEARDOWN", _td)
 
     if interrupted is not None:
         # Teardown has run; persist an interrupted record (no enrich/publish) so
@@ -587,7 +606,7 @@ def execute(
             stages["SCORE"] = "failed"
             errors.append(_stage_error("SCORE", exc))
             _log_traceback(results_dir, run_id, debug, exc)
-        timings["SCORE"] = _ms(_sc)
+        timings["SCORE"] = _mark("SCORE", _sc)
     else:
         stages["SCORE"] = "skipped"  # nothing was collected to score
 
@@ -950,6 +969,7 @@ def _build_record(
     run_context: Mapping[str, Any] | None = None,
     timings: Mapping[str, float] | None = None,
     live_run: Mapping[str, Any] | None = None,
+    stage_spans: Mapping[str, list[float]] | None = None,
 ) -> ResultRecord:
     all_findings = list(findings) + list(result.findings if result else [])
     core_extension: dict[str, Any] = {}
@@ -981,6 +1001,7 @@ def _build_record(
             finished_at=utc_now(),
             stages=dict(stages),
             stage_timings=dict(timings or {}),
+            stage_spans={k: list(v) for k, v in (stage_spans or {}).items()},
         ),
         identity=prepared.identity,
         environment=prepared.environment,

@@ -183,6 +183,117 @@ def _build_provider(record: ResultRecord, results_dir: Path, trace_id: str) -> T
     return provider
 
 
+#: The stage a suite's trajectory belongs under. Everything a suite reports
+#: happened while ``task.execute()`` was running, by construction — SCORE is a
+#: pure function over what EXECUTE already sealed.
+_TRAJECTORY_STAGE = "EXECUTE"
+
+
+def _replay_trajectory(
+    tracer: Any, parent_ctx: Any, stage: str, record: ResultRecord, results_dir: Path
+) -> None:
+    """Re-emit a suite's own trajectory as children of the stage that ran it.
+
+    The two halves of a run's trace were already the same trace — a suite gets
+    the run's ``trace_id`` on ``DriverContext`` — but the suite's root span had
+    no parent, so it was a *second* root sitting in a separate file, and the
+    viewer showed one or the other. A reader of an official TPC run saw 76 query
+    spans and no lifecycle; a reader of a reference run saw the lifecycle and an
+    empty EXECUTE.
+
+    Re-emitting here rather than at write time keeps the suite's own artifact
+    byte-identical — it is the SUT's unmodified account, and its sha256 is
+    pinned in the record. The run trace becomes the merged view; the artifact
+    stays the primary source.
+
+    Spans whose timestamps fall outside the stage window are still emitted at
+    their own times. Clamping them would hide exactly the disagreement worth
+    seeing, and an honest overhang is better than a tidy lie.
+    """
+    if stage != _TRAJECTORY_STAGE:
+        return
+    spans = _load_trajectory_spans(record, results_dir)
+    if not spans:
+        return
+    by_id: dict[str, Any] = {}
+    # Parents before children: a span whose parent is in the file must nest
+    # under the re-emitted parent, not under the stage.
+    for span in _in_parent_order(spans):
+        start_ns = span.get("start_unix_nano")
+        end_ns = span.get("end_unix_nano")
+        if not isinstance(start_ns, int) or not isinstance(end_ns, int):
+            continue
+        parent_span_id = str(span.get("parent_span_id") or "")
+        ctx = by_id.get(parent_span_id, parent_ctx)
+        attributes = span.get("attributes")
+        emitted = tracer.start_span(
+            str(span.get("name") or "span"),
+            context=ctx,
+            start_time=start_ns,
+            attributes=dict(attributes) if isinstance(attributes, dict) else None,
+        )
+        emitted.set_status(StatusCode.ERROR if span.get("status") == "ERROR" else StatusCode.OK)
+        span_id = str(span.get("span_id") or "")
+        if span_id:
+            by_id[span_id] = otel_trace.set_span_in_context(emitted)
+        emitted.end(end_time=max(end_ns, start_ns))
+
+
+def _in_parent_order(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Spans ordered so every parent precedes its children.
+
+    A trajectory file is normally already in that order, but nothing enforces
+    it, and emitting a child first would silently re-root it on the stage.
+    Spans in a cycle or with a dangling parent come last and land on the stage,
+    which is the honest place for a span whose parent we cannot resolve.
+    """
+    remaining = {str(s.get("span_id") or f"#{i}"): s for i, s in enumerate(spans)}
+    ordered: list[dict[str, Any]] = []
+    placed: set[str] = set()
+    progressed = True
+    while remaining and progressed:
+        progressed = False
+        for span_id in list(remaining):
+            parent = str(remaining[span_id].get("parent_span_id") or "")
+            if parent == "" or parent in placed or parent not in remaining:
+                ordered.append(remaining.pop(span_id))
+                placed.add(span_id)
+                progressed = True
+    ordered.extend(remaining.values())  # cycles: emit them, parented to the stage
+    return ordered
+
+
+def _load_trajectory_spans(record: ResultRecord, results_dir: Path) -> list[dict[str, Any]]:
+    """The record's trajectory artifact, parsed. Empty on anything unexpected —
+    a trace is telemetry and must never be the reason a run fails."""
+    artifact = next(
+        (a for a in record.artifacts if isinstance(a, dict) and a.get("kind") == "trajectory"),
+        None,
+    )
+    declared = artifact.get("path") if isinstance(artifact, dict) else None
+    if not isinstance(declared, str):
+        return []
+    root = Path(results_dir).resolve()
+    candidate = (Path(results_dir) / "artifacts" / declared).resolve()
+    if not candidate.is_relative_to(root) or not candidate.is_file():
+        return []
+    spans: list[dict[str, Any]] = []
+    try:
+        text = candidate.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            spans.append(parsed)
+    return spans
+
+
 def emit_run_trace(
     record: ResultRecord,
     results_dir: Path,
@@ -191,8 +302,17 @@ def emit_run_trace(
     root_end_ns: int,
 ) -> None:
     """Emit the run's trace through the SDK: one root ``csbench.run`` span with a
-    child ``csbench.stage.<STAGE>`` span per timed stage, laid end-to-end in
-    lifecycle order using the measured ``stage_timings`` for exact durations."""
+    child ``csbench.stage.<STAGE>`` span per timed stage.
+
+    Stages are placed at the **real** offsets in ``run.stage_spans``, so a gap
+    between two stages shows as a gap and anything with its own clock — a
+    suite's trajectory spans — lands inside the stage that produced it.
+
+    Records written before 0.6.1 carry no ``stage_spans``; those fall back to
+    the old behaviour of laying the stages end-to-end from ``stage_timings``,
+    which gets every duration right and every start time wrong. The fallback is
+    kept so an old record still renders, not because it was correct.
+    """
     provider = _build_provider(record, Path(results_dir), trace_id)
     try:
         tracer = provider.get_tracer("clousight_bench")
@@ -211,20 +331,30 @@ def emit_run_trace(
         root.set_status(StatusCode.OK if record.status in ("completed", "unsupported") else StatusCode.ERROR)
         parent_ctx = otel_trace.set_span_in_context(root)
         cursor = root_start_ns
+        windows = record.run.stage_spans
+        stage_ctx: dict[str, Any] = {}
         for stage in STAGES:
             duration_ms = record.run.stage_timings.get(stage)
             if duration_ms is None:
                 continue
-            duration_ns = int(duration_ms * 1_000_000)
+            window = windows.get(stage)
+            if window is not None:
+                start_ns = root_start_ns + int(window[0] * 1_000_000)
+                end_ns = root_start_ns + int(window[1] * 1_000_000)
+            else:  # pre-0.6.1 record: durations only, so lay them end-to-end
+                start_ns = cursor
+                end_ns = cursor + int(duration_ms * 1_000_000)
             span = tracer.start_span(
                 f"csbench.stage.{stage}",
                 context=parent_ctx,
-                start_time=cursor,
+                start_time=start_ns,
                 attributes={"csbench.stage": stage},
             )
             span.set_status(_STATUS.get(record.run.stages.get(stage, ""), StatusCode.UNSET))
-            span.end(end_time=cursor + duration_ns)
-            cursor += duration_ns
+            stage_ctx[stage] = otel_trace.set_span_in_context(span)
+            _replay_trajectory(tracer, stage_ctx[stage], stage, record, results_dir)
+            span.end(end_time=end_ns)
+            cursor = end_ns
         root.end(end_time=root_end_ns)
     finally:
         provider.shutdown()

@@ -159,26 +159,41 @@ def load_record(results_dir: Path, run_id: str) -> dict[str, Any] | None:
 def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
     """Parsed spans for ``run_id``: ``{"spans": [...], "t0": float, "source": str}``.
 
-    Two sources, in order of preference:
+    Two files can hold this run's spans, and since 0.6.1 one of them is a
+    superset of the other:
 
+    ``full`` (preferred)
+        ``results_dir/traces/<trace_id>.jsonl``. Every run writes one at
+        finalize, and ``emit_run_trace`` now re-emits the suite's own
+        trajectory as children of the stage that produced it — so this is the
+        whole chain, ``csbench.run`` down to a single query.
     ``artifact``
-        the ``kind=trajectory`` sidecar. Only official/agent runs emit one, and
-        it is the SUT's own account of what it did, so it wins when present.
-    ``run-trace``
-        ``results_dir/traces/<trace_id>.jsonl``, which *every* run writes at
-        finalize (``core.tracing.emit_run_trace``) and the record points at
-        through ``extensions.core.trace_id``. Without this fallback the
-        waterfall was blank for most runs.
+        the ``kind=trajectory`` sidecar. Preferred only for a record written
+        before the merge existed, where the run trace holds the eleven
+        lifecycle stages and nothing else while the artifact holds the detail.
+    ``lifecycle``
+        a run trace with no suite spans in it — either the suite writes no
+        trajectory, or it wrote none this time.
 
-    Returns None when the record is missing, when neither source exists, or
-    when a declared path escapes ``results_dir``. A declared-but-unreadable
-    artifact is *not* silently downgraded to the run trace: the record claims
-    that file, and quietly rendering a different one would be a lie about
-    provenance.
+    The choice is made by looking, not by version: a run trace that contains
+    any non-``csbench.`` span is the merged one. Returns None when the record
+    is missing, when neither file exists, or when a declared path escapes
+    ``results_dir``. A declared-but-unreadable artifact is *not* silently
+    downgraded — the record claims that file, and quietly rendering a different
+    one would be a lie about provenance.
     """
     record = load_record(results_dir, run_id)
     if record is None:
         return None
+
+    from_trace = None
+    trace_id = _run_trace_id(record)
+    if trace_id is not None:
+        relative = f"{_TRACES_DIRNAME}/{trace_id}.jsonl"
+        from_trace = _load_spans(results_dir, run_id, results_dir / relative, relative, "full")
+    if from_trace is not None and _has_suite_spans(from_trace["spans"]):
+        return from_trace
+
     artifact = next(
         (a for a in record.get("artifacts") or [] if isinstance(a, dict) and a.get("kind") == "trajectory"),
         None,
@@ -188,11 +203,15 @@ def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
         if not isinstance(declared, str):
             return None
         return _load_spans(results_dir, run_id, results_dir / "artifacts" / declared, declared, "artifact")
-    trace_id = _run_trace_id(record)
-    if trace_id is None:
-        return None
-    relative = f"{_TRACES_DIRNAME}/{trace_id}.jsonl"
-    return _load_spans(results_dir, run_id, results_dir / relative, relative, "run-trace")
+
+    if from_trace is not None:
+        return {**from_trace, "source": "lifecycle"}
+    return None
+
+
+def _has_suite_spans(spans: list[dict[str, Any]]) -> bool:
+    """True when a trace holds more than the lifecycle it always holds."""
+    return any(not str(span.get("name") or "").startswith("csbench.") for span in spans)
 
 
 def _run_trace_id(record: dict[str, Any]) -> str | None:
