@@ -1,13 +1,29 @@
 name: codeql
 
-# Static security analysis (CodeQL) for the Python source. Runs on pushes/PRs to
-# main and on a weekly schedule so newly-published queries catch older code.
+# Static security analysis (CodeQL) for the Python source. Runs on pushes to
+# main, on EVERY pull request, and on a weekly schedule so newly-published
+# queries catch older code.
+#
+# `pull_request` deliberately carries no `branches:` filter. It used to say
+# `[main]`, which meant a PR stacked on another branch was analysed by nothing:
+# the base is not main, so the workflow never fired, and the change could merge
+# into its base and from there into main without CodeQL ever having seen it.
+# Retargeting the PR at main does not help either — `edited` is not in
+# `pull_request`'s default activity types, so nothing re-triggers.
+#
+# The risk is not hypothetical in this repo. #105 was stacked on #104 and got no
+# analysis until it was retargeted and reopened by hand; #104 itself, which did
+# target main, is where CodeQL found four high-severity `py/path-injection`
+# alerts in the same subsystem. Had that work been split the other way round,
+# the alerts would have reached main unseen.
+#
+# The cost is one extra analysis per stacked PR, which is the right price for a
+# gate that is supposed to be unconditional.
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
   schedule:
     - cron: "27 3 * * 1" # Mondays 03:27 UTC
 
