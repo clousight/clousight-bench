@@ -380,11 +380,12 @@ def test_api_meta_shape(server: ThreadingHTTPServer) -> None:
     assert status == 200
     assert headers["content-type"] == "application/json; charset=utf-8"
     meta = json.loads(body)
-    assert set(meta) == {"results_dir", "version", "counts"}
+    assert set(meta) == {"results_dir", "version", "counts", "progress_active"}
     assert meta["results_dir"] == "results"  # basename only — never a filesystem path
     assert "/" not in meta["results_dir"]
     assert meta["version"] == clousight_bench.__version__
     assert meta["counts"] == {"records": 1}
+    assert meta["progress_active"] == 0  # no progress plane in the seeded fixture
 
 
 # ---------------------------------------------------------------------------

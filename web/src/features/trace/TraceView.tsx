@@ -2,6 +2,13 @@
  * #/record/:id/trace — trajectory spans as a Transcript (conversation-style
  * cards, the default tab) and an ECharts Waterfall. Span selection lives above
  * the tabs, so a span picked in one tab stays open in the other.
+ *
+ * Two feeds can land here and they carry very different detail, so the page
+ * says which one it got. A suite that writes its own trajectory artifact gives
+ * per-query spans; every other run falls back to the run trace, which is the
+ * eleven lifecycle stages and nothing finer. Before this fallback existed,
+ * "view trace" simply did not appear for most runs, which read as "this run
+ * has no trace" when in fact one had been on disk the whole time.
  */
 
 import { ArrowLeft, Brain, Wrench } from "lucide-react";
@@ -112,7 +119,7 @@ export function TraceView({ runId }: { runId: string }) {
     <div className="flex flex-col gap-4">
       <nav className="flex items-center justify-between">
         <a
-          href="#/"
+          href={recordHref(runId)}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" /> {t('common.back')}
@@ -133,6 +140,14 @@ export function TraceView({ runId }: { runId: string }) {
           <span className="mx-1.5">·</span>
           {rows.length} {t('trace.spans')}
         </span>
+        {data.source !== undefined && (
+          <span
+            title={t(`trace.source.${data.source}_blurb`)}
+            className="cursor-help rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+          >
+            {t(`trace.source.${data.source}`)}
+          </span>
+        )}
       </div>
 
       {rows.length === 0 ? (

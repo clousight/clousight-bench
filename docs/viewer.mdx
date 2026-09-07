@@ -1,11 +1,16 @@
 ---
 title: Results viewer
-description: Local read-only web viewer over a results directory — record list, record detail, trajectory transcript and waterfall.
+description: Local web viewer over a results directory — watch a run while it happens, then read the board, the suite comparison, the record and its trace.
 ---
 
 `csbench serve` starts a small local web server on top of a results directory
-and serves an embedded single-page viewer. It is strictly **read-only**: the
-server only reads record JSON files and trajectory artifacts, never writes.
+and serves an embedded single-page viewer. It has two jobs: showing you a run
+**while it is happening**, and helping you read the runs that have already
+finished.
+
+Everything it reads comes from files under the results directory. The one thing
+it can write is a zero-byte `cancel` marker for a run that is still going — see
+[Stopping a run](#stopping-a-run). Nothing it does can change a sealed record.
 
 ## Usage
 
@@ -19,87 +24,320 @@ csbench serve --host 0.0.0.0           # bind non-localhost — the viewer has N
 The command prints the actual bound address (useful with `--port 0`) and runs
 until Ctrl-C.
 
-## Interface
+The header has two destinations — **Live** and **Results** — plus a
+**language switcher** (EN | 中文; the choice persists in `localStorage` and
+defaults to the browser language), an **engineer-view** toggle and a **theme**
+toggle (follows `prefers-color-scheme` until toggled, then persists). The Live
+tab carries a count badge only while something is actually running; there is no
+permanent "0".
 
-The header has a **language switcher** (EN | 中文 — every UI string is
-bilingual; the choice persists in `localStorage` and defaults to the browser
-language) and a **theme toggle** (🌙/☀️ — follows the system
-`prefers-color-scheme` until toggled, then persists).
+## Watching a run happen
 
-## What it shows
+Start a run in one terminal and `csbench serve` in another. The run appears on
+its own — the viewer polls `/api/progress` every few seconds, and a strip
+appears above the board while anything is in flight.
 
-- **Record list** (`#/`) — one row per run: run id (links to the detail page),
-  task, adapter, status badge, suite badge when the run came from a suite,
-  scalar measurement chips inline, and a 🧵 link when a trajectory artifact
-  exists. A client-side filter box narrows rows by run id / task / adapter /
-  status / suite.
-- **Record detail** (`#/record/<run_id>`) — cards for measurements (value,
-  unit, official ✓/—, reproducibility class), provenance (suite id/version,
-  evaluator, scaffold, dataset digest with a copy button), a horizontal stage
-  strip (status-colored steps with timings), recorded errors (hidden when
-  empty), and artifacts (kind, media, sha256 with a copy button).
-- **Trace page** (`#/record/<run_id>/trace`) — two tabs over the trajectory
-  spans; the header shows the span count and total duration:
-  - **Transcript** (the default) — spans as conversation-style cards in
-    start order: a kind icon (🧠 `llm_call` / 🔧 `tool_call`; for v3 spans the
-    kind is derived from the semconv attributes — `gen_ai.*` / `db.*` /
-    `csbench.*` — rather than a literal `kind` field), the parent
-    chain as a breadcrumb, and a right-aligned timing trail
-    `+<offset> · <duration>`. Error spans get a red edge and their error
-    message. Clicking a card toggles its attributes as JSON with a copy
-    button.
-  - **Waterfall** — an ECharts custom-series chart: every span as a
-    time-positioned bar on a millisecond (or second, for long traces) axis,
-    colored by kind with error bars in the destructive color, labels indented
-    by span depth. Hovering a bar shows `name · kind · duration · status`;
-    clicking a bar opens the same attributes panel as the transcript, and the
-    selection survives switching tabs.
+- **`#/live`** — everything in flight at once. With exactly one run it forwards
+  straight to that run's page.
+- **`#/live/:run_id`** — one run, fed by a single SSE connection to
+  `/api/progress/<run_id>/stream`.
+
+The run page is five panes:
+
+- **Header** — benchmark, platform, status, an elapsed clock that ticks once a
+  second while the run is running, and the **Stop run** button.
+- **Progress** — the current stage in plain language (from the same stage
+  glossary the record page uses), and the current phase as `12 / 99 query` with
+  a bar. An estimate of the time left is labelled *est.* and is **withheld
+  until at least three units have completed** (`web/src/lib/eta.ts`): a
+  confidently wrong "3 seconds left" costs more than a blank.
+- **Execution, as it happens** — the same waterfall renderer the sealed trace
+  page uses, fed by `step` events instead of spans. A live step names its
+  parent (a suite knows what it called the enclosing phase, not what span id
+  the tracer will mint later), so nesting is resolved by name.
+- **Numbers so far** — computed *in the browser* from the steps that have
+  finished: how many steps are done, the median and p99 step, failed steps, the
+  slowest step so far.
+- **Log** — the tail of this run's `clousight_bench` log records, filterable by
+  level. Auto-scroll is sticky-to-bottom: scroll up and it stops yanking you
+  back.
+
+### "Preliminary" means it is not a measurement
+
+Every tile in *Numbers so far* carries a **preliminary** chip, and the pane says
+outright where the numbers came from. That is a contract, not modesty:
+
+- a **measurement** is produced by an `Evaluator`, offline, over the sealed
+  evidence, after the run has ended — it is what lands in the record and what
+  `record_digest` covers;
+- the live tiles are a lagging browser-side arithmetic over whatever events
+  have arrived so far, from a stream that is explicitly allowed to drop events.
+
+Nothing scored is ever derived from a `sample` event. A screenshot of the live
+page is a screenshot of a partial run, and the UI is built so a reader cannot
+mistake it for a result.
+
+### Why a measured window shows an indeterminate bar
+
+A phase can declare that it knows its size but cannot tick through it:
+`progress.phase("Throughput Test", total=396, unit="query", reports_progress=False)`.
+The viewer then draws an indeterminate bar and says
+*"no progress reported from inside a measured window"*, instead of a 0% bar
+that reads as a hang.
+
+The reason is in the suite, not the UI. In the TPC official mode the Throughput
+test's own wall clock **is** the metric (`Throughput@Size` / the `T_TT` term),
+so writing progress files inside that window would put the viewer's I/O into
+the number. The suite therefore reports nothing from inside it and replays the
+per-stream, per-query steps from the intervals it already measured once the
+window has closed — same numbers, same layout, a few seconds late. See
+[reporting progress](/docs/adding-a-suite#reporting-progress) for the rule a
+suite author has to follow.
+
+### Stopping a run
+
+The Stop button is the viewer's only mutating control, and it is deliberately
+two-step: arm, then confirm. Pressing it `POST`s to
+`/api/progress/<run_id>/cancel`, which creates a zero-byte `cancel` file in the
+run's progress directory. Nothing else happens over HTTP.
+
+The run picks it up on its own schedule — the orchestrator checks at every
+stage boundary, and a wired suite polls `should_cancel()` inside its loops (a
+cached `stat`, at most four per second). When it fires, the run raises
+`RunCancelled`, which is a `KeyboardInterrupt` subclass, so the cancel takes the
+path a Ctrl-C already took:
+
+- **teardown still runs** — nothing provisioned is orphaned or left billing;
+- an **`interrupted` record is persisted**, with whatever stages completed;
+- the live page swaps to a handoff card pointing at that record.
+
+Once a cancel is requested the button stays disabled and reads
+*"stopping — teardown is running"*. The run decides when it can stop; pretending
+the browser is in control would be a lie.
+
+### When the run ends
+
+The page does not go blank or 404. The progress directory survives for
+`TERMINAL_GRACE_S` (120 s by default) precisely so a subscriber can still read
+the terminal `done` event and the sealed record's path out of it, and the page
+swaps to a handoff card linking to `#/record/<run_id>`.
+
+If some events were dropped to stay inside the stream caps, the page says so
+and says which kinds — and says that the sealed record is unaffected.
+
+## Reading results
+
+Four pages, in the order a question narrows:
+
+| Page | Route | The question it answers |
+|---|---|---|
+| Board | `#/` | What has been measured, per domain and per benchmark? |
+| Suite comparison | `#/suite/:domain/:suite_id` | Which platform is better at *this* benchmark? |
+| Record | `#/record/:run_id` | What did this one run find, and can I trust it? |
+| Trace | `#/record/:run_id/trace` | What actually happened inside it? |
+
+- **Board** groups every record by domain and then by benchmark, showing each
+  benchmark's platform count, run count and its newest run's headline metrics.
+  Domains and suites are ordered by most recent activity, and a domain card
+  shows five benchmarks before offering to expand: a results tree that has
+  accumulated a long tail of retired benchmarks should not push what you ran
+  today off the first screen. A record that does not name both a domain and a
+  suite (a schema-0.1-era run summarises to empty strings) is *not* folded in —
+  a nameless, valueless card is worse than an absence — it stays visible under
+  `#/runs`.
+- **Suite comparison** leads with the table a selection decision is made on:
+  the latest run on each platform, one column per metric, ordered by the
+  glossary (headline metrics first) rather than alphabetically. Only metrics
+  some platform's *latest* run actually produced get a column, so a TPC-H
+  `reference` run and an `official` run do not produce a table of em-dashes.
+  Trend charts for up to four metrics follow, over a bounded history (the last
+  30 runs per platform).
+- **Record** reads top-down: what it found, whether the machinery behaved, what
+  it measured, whether the numbers can be trusted. The eleven recorded
+  lifecycle stages collapse into **one health line** — "Everything behaved · 11
+  stages, all passed" — which expands into the full four-phase stage strip;
+  when something failed, the line names the stage instead.
+- **Trace** is unchanged: transcript and waterfall tabs over the run's spans.
+  Every run now has one — see [Trajectory data](#trajectory-data).
+
+`#/runs` is the old flat table of every run, with a client-side filter box. It
+is genuinely useful once you already know which run you are hunting for, which
+is why it is still there and no longer the front door.
+
+## Plain language
+
+The viewer renders internal vocabulary through one de-jargon layer,
+`web/src/lib/glossary.ts`, under two rules.
+
+**Two layers, never one.** The human label leads and the raw key stays visible
+underneath in mono — `Typical query time` over `tpc-h.geomean_latency_ms`,
+`Seal evidence` over `SEAL`. Nothing becomes unauditable, and an engineer can
+still match a field name at a glance. This is not affected by any toggle.
+
+**Never invent.** An unrecognised measurement key still renders: it gets a
+prettified label and a format inferred from its declared unit or, cautiously,
+from its suffix. It never gets a direction. `betterIs` stays `"none"` unless a
+human wrote the spec, because calling a rising number "better" when it is
+actually a regression is worse than saying nothing — so an unknown metric is
+simply never bolded as a leader in the comparison table.
+
+The same layer explains the two things that reliably confuse readers:
+`invalid` (we never measured anything — not a failure of the system under test)
+versus `failed` (we measured and it broke), and `PUBLISH: skipped`, which is a
+durable denial that any publisher touched the sealed record, not an error.
+
+**Engineer view** is a persisted toggle in the header. Off, the record page
+shows conclusions. On, it adds a panel with the record's `fingerprints`,
+`identity`, `environment` and `extensions` in full — the fields that make a run
+reproducible and comparable, and that the previous viewer never rendered at
+all. What the toggle does *not* hide either way is the raw key under every
+label.
+
+## The progress plane on disk
+
+Live progress is a second, deliberately separate plane from the sealed record
+(`src/clousight_bench/core/progress.py`):
+
+```
+results/.progress/<run_id>/
+├── state.json     the current snapshot, atomically replaced (write tmp + os.replace)
+├── stream.jsonl   an append-only, ordered event log; every event carries a monotonic `seq`
+└── cancel         a zero-byte marker — the one thing a reader may create
+```
+
+Properties that are load-bearing:
+
+- **Disposable, and outside the record.** Nothing here is covered by
+  `record_digest`, nothing here can move a verdict, and the whole directory is
+  swept once the sealed record exists. Deleting `results/.progress/` at any
+  time loses nothing but a live view.
+- **Dot-prefixed on purpose.** A `state.json` with a `status` field sits one
+  careless `rglob("*.json")` away from being read as a result record.
+- **Best-effort.** Every write is contained: an IO failure logs at debug level,
+  disables the plane for the rest of the run, and the benchmark carries on.
+- **Bounded.** Past the caps, the writer *drops* rather than grows, and it only
+  ever drops the droppable kinds — `log` and `sample`. `stage` and `step`
+  events are never dropped; they are the shape of the run. Dropped counts are
+  published in `state.json` and surfaced in the UI.
+- **Reaped.** A stale directory is collected when a run starts and when the
+  viewer starts, so a machine that lost power mid-benchmark never shows a
+  phantom "running" row. A snapshot that still claims to be running while its
+  pid is gone is reported as `abandoned`, not as running forever.
+- **Versioned.** `state.json` carries `"schema": "progress/1"`; a reader that
+  does not recognise the schema ignores the directory rather than guessing.
+
+Three environment variables tune it:
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `CLOUSIGHT_PROGRESS_MAX_LINES` | `20000` | Lines in `stream.jsonl` before `log`/`sample` events start being dropped |
+| `CLOUSIGHT_PROGRESS_MAX_BYTES` | `8388608` (8 MiB) | Bytes of `stream.jsonl` before the same |
+| `CLOUSIGHT_PROGRESS_GRACE_S` | `120` | How long a finished run's directory survives so a subscriber can read its handoff |
+
+## API
+
+| Route | Returns |
+|---|---|
+| `GET /api/meta` | results-dir basename, version, record count, count of runs in flight |
+| `GET /api/records` | every record's summary, newest first |
+| `GET /api/board` | domain → suite board, with each suite's newest run |
+| `GET /api/suite/<domain>/<suite_id>` | that suite's platforms: latest run, bounded history, metric union |
+| `GET /api/record/<run_id>` | the full record dict |
+| `GET /api/record/<run_id>/trajectory` | `{spans, t0, source}` — see [Trajectory data](#trajectory-data) |
+| `GET /api/progress` | `{runs: [...]}` — every run the progress plane still knows about |
+| `GET /api/progress/<run_id>` | `{state, events}`; `?since=<seq>` returns only newer events |
+| `GET /api/progress/<run_id>/stream` | Server-Sent Events; `?since=<seq>` resumes |
+| `POST /api/progress/<run_id>/cancel` | requests cancellation (guards below) |
+
+Anything else is a 404 with a JSON body — the app is a hash router, so there is
+no SPA fallback that would turn a typo into an HTTP 200.
+
+The SSE stream sends `state` frames when the snapshot changes, `events` frames
+carrying stream events, a `: heartbeat` comment every 15 s so an idle proxy does
+not drop the connection, and a final `done` frame. It polls the two files every
+400 ms rather than watching them — the plane is deliberately plain files with no
+notification channel. Each stream owns a server thread for its whole life, so
+there is a hard cap of **8 concurrent streams** (a 9th gets a 503) and a **6
+hour** lifetime cap per stream. Every event carries a `seq`, which the browser
+uses as a resume token after a reconnect.
 
 ## Development and build
 
-The viewer is a React 18 + TypeScript + Vite + Tailwind app under `web/`. Its
+The viewer is a React + TypeScript + Vite + Tailwind app under `web/`. Its
 production build is **committed** at
 `src/clousight_bench/resources/viewer/dist/` and shipped inside the wheel, so
 installing the package never requires Node.
 
 ```bash
 scripts/build_viewer.sh    # npm ci + npm run build -> resources/viewer/dist/
+cd web && npm test         # vitest: router, glossary, ETA, formatting, live-step nesting, stream reducer
 cd web && npm run dev      # Vite dev server (point it at a running csbench serve for the API)
 ```
 
 After changing anything under `web/`, rebuild and commit the regenerated
 `dist/` in the same change — tests validate the committed artifact, not the
-sources alone.
+sources alone. CI's `viewer-dist` job runs `npm test`, rebuilds, and fails if
+the committed `dist/` is not byte-identical to the rebuild.
 
 ## Scope and security
 
-- Binds `127.0.0.1` by default. It has no authentication — do not expose it
-  on a public interface.
-- The built app is **offline-first**: everything (React, ECharts, styles,
-  both locale dictionaries) is bundled into the committed `dist/`, system
-  font stack only, and **no external requests** — a build-time guard plus a
-  test enforce that no dist file contains an absolute URL.
-- It is served under a strict CSP (`script-src 'self'; style-src 'self'`)
-  with nothing inline (tests enforce that `index.html` has no inline scripts,
-  styles, or handlers), and server-provided strings are always rendered as
-  text, never as markup (`dangerouslySetInnerHTML` is banned by test).
-- Static serving is containment-checked inside the packaged `dist/`
-  directory; `..` traversal and unknown extensions return 404.
-- The API is read-only: `GET /api/records`, `GET /api/record/<run_id>`,
-  `GET /api/record/<run_id>/trajectory`. Artifact reads are contained inside
-  the results directory.
+- Binds `127.0.0.1` by default. It has no authentication — do not expose it on
+  a public interface.
+- Requests whose `Host` header is not the bound host or a localhost alias get a
+  403 (DNS-rebinding guard). The guard sits above the method split, so `POST`
+  can never end up behind a differently-worded copy of it.
+- **The cancel endpoint** is the only mutating route the server has ever had,
+  and is fenced accordingly: the shared Host guard, a required
+  `X-Csbench-Progress: 1` header (a custom header is unreachable from a
+  cross-origin `<form>`, which closes simple-form CSRF), a refusal of any
+  request body, and a run_id that must be a plain `[A-Za-z0-9._-]+` token
+  before it can name anything on disk. All it can ever do is create a zero-byte
+  marker for a run that is still running.
+- **Cache policy**: `no-store` for the document and every JSON API response — it
+  is all live state; the SSE stream sends `no-cache` — and `public, max-age=31536000, immutable` for `/assets/*`,
+  whose filenames are content-hashed by the Vite build. Without the first half,
+  upgrading `csbench` and reloading would serve a cached `index.html` naming an
+  asset hash the new wheel does not contain: a white page with nothing in the
+  console to explain it.
+- The built app is **offline-first**: everything (React, ECharts, styles, both
+  locale dictionaries) is bundled into the committed `dist/`, system font stack
+  only, and **no external requests** — a build-time guard plus a test enforce
+  that no dist file contains an absolute URL.
+- It is served under a strict CSP (`default-src 'none'; script-src 'self';
+  style-src 'self'; connect-src 'self'`) with nothing inline (tests enforce that
+  `index.html` has no inline scripts, styles, or handlers), and server-provided
+  strings are always rendered as text, never as markup
+  (`dangerouslySetInnerHTML` is banned by test).
+- Static serving is containment-checked inside the packaged `dist/` directory
+  *before* any path joining; `..`, separators, colons and unknown extensions
+  return 404.
+- Artifact and trace reads are resolved and must stay inside the results
+  directory. `/api/meta` publishes the results directory's **basename** only,
+  never its full path — and the record path in a progress handoff is relative
+  for the same reason.
 
 ## Trajectory data
 
-The trace page reads the record's `trajectory` artifact
-(`application/jsonl`): one span object per line. The primary shape is the
-**v3 OTel-native** span (`core/sut_span.py`):
+The trace page reads `/api/record/<run_id>/trajectory`, which has two sources
+and says in its `source` field which one it used:
+
+- **`artifact`** — the record's `kind=trajectory` sidecar (`application/jsonl`),
+  one span per line. Only official/agent runs emit one, and it is the SUT's own
+  account of what it did, so it wins whenever it is present. A *declared but
+  unreadable* artifact is a 404, not a silent downgrade: the record claims that
+  file, and rendering a different one would be a lie about provenance.
+- **`run-trace`** — `results/traces/<trace_id>.jsonl`, which **every** run
+  writes at finalize (`core.tracing.emit_run_trace`) and the record points at
+  through `extensions.core.trace_id`. Before this fallback the waterfall was
+  blank for most runs.
+
+The primary span shape is the **v3 OTel-native** span (`core/sut_span.py`):
 `span_id / trace_id / parent_span_id / name / start_unix_nano / end_unix_nano /
 status / attributes`, where `status` is OTel `OK` / `ERROR` / `UNSET` and
 `attributes` must contain at least one semconv-namespaced key — `gen_ai.*`
 (LLM/tool activity), `db.*` (queries) or `csbench.*` (phases/streams) — as the
 kind discriminator. Legacy **v2** spans (`parent_id`, `t_start` / `t_end`,
-`attrs`, a literal `kind`) are still accepted and normalized by the viewer.
-See the result-record schema
-(`src/clousight_bench/resources/schemas/result-record-0.4.schema.json`) for
-how artifacts are referenced from a record.
+`attrs`, a literal `kind`) are still accepted and normalized by the viewer. See
+the result-record schema
+(`src/clousight_bench/resources/schemas/result-record-0.4.schema.json`) for how
+artifacts are referenced from a record.

@@ -49,6 +49,7 @@ from clousight_bench.suites._duckdb_tpc import (
     result_digest,
 )
 from clousight_bench.suites._duckdb_tpc import run_query_set as _run_query_set
+from clousight_bench.suites._progress import TpcProgress
 from clousight_bench.suites._tpc_official import phases, refresh
 from clousight_bench.suites._tpc_official.streams import (
     GENERATOR_VERSION,
@@ -185,18 +186,25 @@ class TpchSuite(DuckDbTpcSuite):
         if target.mock:
             return EnvHandle({"mock": True, "mode": "official"})
 
-        from time import perf_counter  # noqa: PLC0415
-
         duckdb = import_duckdb(suite_id=self.suite_id, extra=self.extra)
         sf = float(dataset.payload["scale_factor"])
+        progress = driver.progress
+        clock = self._new_step_clock()
         tmp_dir = tempfile.mkdtemp(prefix=f"csbench-{self.slug}-official-")
         db_path = str(Path(tmp_dir) / f"{self.slug}.duckdb")
         con = duckdb.connect(db_path)
         con.execute("INSTALL tpch; LOAD tpch;")
-        t = perf_counter()
+        progress.phase("Load", total=1, unit="dataset")
+        progress.log(f"loading SF{sf:g} via dbgen")
+        t = clock.now()
         con.execute("CALL dbgen(sf := ?)", [sf])
-        load_time_s = perf_counter() - t
+        load_end = clock.now()
+        load_time_s = load_end - t
         con.close()
+        progress.step(
+            f"{self.suite_id}.load", clock.ms(t), clock.ms(load_end), parent=f"{self.suite_id}.official"
+        )
+        progress.advance()
         return EnvHandle(
             {
                 "mock": False,
@@ -237,6 +245,8 @@ class TpchSuite(DuckDbTpcSuite):
 
         from time import time_ns  # noqa: PLC0415
 
+        progress = TpcProgress(driver.progress, suite_id=self.suite_id, clock=self._step_clock())
+        progress.check_cancel("tpc-h official run")
         con = _connect_loaded(duckdb, db_path)
         ext_version = con.execute(
             "SELECT extension_version FROM duckdb_extensions() WHERE extension_name='tpch'"
@@ -260,6 +270,7 @@ class TpchSuite(DuckDbTpcSuite):
                     "duckdb_version": duckdb.__version__,
                     "extension_version": ext_version[0] if ext_version else "unknown",
                 },
+                progress=progress,
             )
         finally:
             con.close()

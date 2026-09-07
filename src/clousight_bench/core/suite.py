@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from clousight_bench.core.observation import ItemResult, Measurement
+from clousight_bench.core.progress import NULL_PROGRESS, ProgressReporter
 
 TARGET_MODES: tuple[str, ...] = ("endpoint", "runtime")
 PLACEMENTS: tuple[str, ...] = ("local", "in_cloud")
@@ -61,6 +62,11 @@ class DriverContext:
     # The run's W3C trace id (32 hex chars) — threaded from the orchestrator so a
     # suite's trajectory spans share the run trace. Empty when not traced.
     trace_id: str = ""
+    # Where a long-running suite reports what it is doing, so the viewer can show
+    # it while it happens. Defaults to an inert reporter, so a suite written
+    # against plugin API 3.0 (which never saw this field) is unaffected and a
+    # unit test needs no wiring. See core/progress.py for the contract.
+    progress: ProgressReporter = NULL_PROGRESS
 
     def __post_init__(self) -> None:
         if self.placement not in PLACEMENTS:

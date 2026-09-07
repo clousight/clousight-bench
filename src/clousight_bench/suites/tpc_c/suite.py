@@ -34,11 +34,16 @@ from clousight_bench.core.suite import (
     RawArtifacts,
     Target,
 )
+from clousight_bench.suites._progress import raise_if_cancelled
 
 _FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 # Pins the BenchBase distribution the bundled mock fixture reflects.
 _SUITE_VERSION = "benchbase-2023"
+
+# The suite times its one phase in ns (the unit its trajectory span uses); a
+# progress step is milliseconds from that phase's start.
+_NS_PER_MS = 1_000_000.0
 
 # The configured TPC-C transaction mix (NewOrder,Payment,OrderStatus,Delivery,
 # StockLevel). NewOrder's share feeds the evaluator's tpmC-style estimate.
@@ -146,10 +151,17 @@ class TpccSuite(BenchmarkSuite):
 
     # ---------------------------------------------------------------------- run
     def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:
-        """Run BenchBase create+load+execute; capture the produced summary.json."""
+        """Run BenchBase create+load+execute; capture the produced summary.json.
+
+        One opaque blocking Java process does create+load+execute and only writes
+        its summary at the end, so progress is reported at that single phase's
+        granularity and cancel is polled at its boundary — there is no inner loop
+        here to advance through or interrupt.
+        """
         if target.mock or env.payload.get("mock"):
             return self.mock_artifacts(dict(env.payload))
         p = env.payload
+        progress = driver.progress
         work = Path(tempfile.mkdtemp(prefix="csbench-tpcc-"))  # mkdtemp is 0o700
         results_dir = work / "results"
         results_dir.mkdir(parents=True, exist_ok=True)
@@ -175,9 +187,17 @@ class TpccSuite(BenchmarkSuite):
         ]
         from time import time_ns  # noqa: PLC0415
 
+        raise_if_cancelled(progress, "tpc-c benchbase phase")
+        progress.phase("BenchBase create+load+execute", total=1, unit="phase", reports_progress=False)
+        progress.log(
+            f"benchbase tpcc: {p['terminals']} terminals for {p['time']}s "
+            f"at scalefactor {p['scalefactor']} on {p['dbtype']}"
+        )
         bench_start_ns = time_ns()
         subprocess.run(cmd, check=True, capture_output=True, text=True)
         bench_end_ns = time_ns()
+        progress.step("tpc-c.benchbase", 0.0, (bench_end_ns - bench_start_ns) / _NS_PER_MS)
+        progress.advance()
         summaries = sorted(results_dir.glob("*.summary.json"))
         if not summaries:
             raise RuntimeError(f"BenchBase produced no *.summary.json under {results_dir}")

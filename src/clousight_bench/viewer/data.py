@@ -4,6 +4,11 @@ Record files live at ``results_dir/<domain>/<adapter>/<task_id>-<run_id>.json``
 (see core/store.py:ResultStore._record_path). Everything here is strictly
 read-only and tolerant: unparseable files are skipped with a warning, and every
 artifact read is contained inside ``results_dir`` via resolve + is_relative_to.
+
+Two derived views sit on top of the per-record summaries: :func:`load_board`
+(domain -> suite -> newest run) and :func:`load_suite` (one suite's platforms,
+each with its latest run and a bounded history), so the UI never has to fetch
+and group every record itself.
 """
 
 from __future__ import annotations
@@ -15,14 +20,27 @@ from pathlib import Path
 from typing import Any
 
 from clousight_bench.core.logsafe import sanitize_for_log
+from clousight_bench.core.store import RESERVED_SUBTREES
 
 logger = logging.getLogger(__name__)
 
-#: Reserved top-level subtrees of results_dir that never contain record files.
-_SKIP_DIRS = frozenset({"aggregates", "campaigns", "artifacts", "traces", "debug"})
+#: Reserved subtrees of results_dir that never contain record files. Shared with
+#: ``csbench verify`` so the two cannot drift about what a record is.
+_SKIP_DIRS = RESERVED_SUBTREES
 
 #: run_ids are used to locate files on disk, so they must be plain tokens.
 _RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")
+
+#: Domain / suite_id path segments, checked before they are used to filter (and
+#: before they can end up interpolated anywhere). Same conservative token shape.
+_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+\Z")
+
+#: How many runs of one platform the suite view carries. The chart only ever
+#: draws a trend line, so an unbounded history would be payload for nothing.
+_HISTORY_LIMIT = 30
+
+#: The subtree emit_run_trace writes to: ``results_dir/traces/<trace_id>.jsonl``.
+_TRACES_DIRNAME = "traces"
 
 
 def _iter_record_files(results_dir: Path) -> list[Path]:
@@ -74,6 +92,8 @@ def _summarize(record: dict[str, Any]) -> dict[str, Any]:
         "status": record.get("status", ""),
         "started_at": run.get("started_at", ""),
         "suite_id": provenance.get("suite_id", ""),
+        "suite_version": provenance.get("suite_version", ""),
+        "evaluator_id": provenance.get("evaluator_id", ""),
         "scaffold": provenance.get("scaffold", ""),
         "measurements": measurements,
         "has_trajectory": has_trajectory,
@@ -137,10 +157,24 @@ def load_record(results_dir: Path, run_id: str) -> dict[str, Any] | None:
 
 
 def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
-    """Parsed trajectory spans for ``run_id``: ``{"spans": [...], "t0": float}``.
+    """Parsed spans for ``run_id``: ``{"spans": [...], "t0": float, "source": str}``.
 
-    Returns None when the record, its trajectory artifact, or the artifact file
-    is missing — or when the artifact path escapes ``results_dir``.
+    Two sources, in order of preference:
+
+    ``artifact``
+        the ``kind=trajectory`` sidecar. Only official/agent runs emit one, and
+        it is the SUT's own account of what it did, so it wins when present.
+    ``run-trace``
+        ``results_dir/traces/<trace_id>.jsonl``, which *every* run writes at
+        finalize (``core.tracing.emit_run_trace``) and the record points at
+        through ``extensions.core.trace_id``. Without this fallback the
+        waterfall was blank for most runs.
+
+    Returns None when the record is missing, when neither source exists, or
+    when a declared path escapes ``results_dir``. A declared-but-unreadable
+    artifact is *not* silently downgraded to the run trace: the record claims
+    that file, and quietly rendering a different one would be a lie about
+    provenance.
     """
     record = load_record(results_dir, run_id)
     if record is None:
@@ -149,29 +183,57 @@ def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
         (a for a in record.get("artifacts") or [] if isinstance(a, dict) and a.get("kind") == "trajectory"),
         None,
     )
-    if artifact is None or not isinstance(artifact.get("path"), str):
+    if artifact is not None:
+        declared = artifact.get("path")
+        if not isinstance(declared, str):
+            return None
+        return _load_spans(results_dir, run_id, results_dir / "artifacts" / declared, declared, "artifact")
+    trace_id = _run_trace_id(record)
+    if trace_id is None:
         return None
+    relative = f"{_TRACES_DIRNAME}/{trace_id}.jsonl"
+    return _load_spans(results_dir, run_id, results_dir / relative, relative, "run-trace")
 
+
+def _run_trace_id(record: dict[str, Any]) -> str | None:
+    """``extensions.core.trace_id``, when it is a plain token that can name a file."""
+    extensions = record.get("extensions")
+    core = extensions.get("core") if isinstance(extensions, dict) else None
+    trace_id = core.get("trace_id") if isinstance(core, dict) else None
+    if not isinstance(trace_id, str) or not _RUN_ID_RE.match(trace_id):
+        return None
+    return trace_id
+
+
+def _load_spans(
+    results_dir: Path, run_id: str, candidate: Path, declared: str, source: str
+) -> dict[str, Any] | None:
+    """Read one JSONL span file into the waterfall's render shape, or None.
+
+    Contained first: the path is resolved and must stay under ``results_dir``,
+    whichever source declared it. Tolerant after that — a bad line is warned
+    about and skipped, never raised.
+    """
     root = results_dir.resolve()
-    candidate = (results_dir / "artifacts" / artifact["path"]).resolve()
-    if not candidate.is_relative_to(root):
+    resolved = candidate.resolve()
+    if not resolved.is_relative_to(root):
         logger.warning(
             "viewer: run %s trajectory path %s escapes results_dir; refusing to read",
             sanitize_for_log(run_id),
-            sanitize_for_log(artifact["path"]),
+            sanitize_for_log(declared),
         )
         return None
-    if not candidate.is_file():
+    if not resolved.is_file():
         return None
 
     spans: list[dict[str, Any]] = []
     try:
-        text = candidate.read_text(encoding="utf-8")
+        text = resolved.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         logger.warning(
             "viewer: run %s: cannot read trajectory %s: %s",
             sanitize_for_log(run_id),
-            sanitize_for_log(candidate),
+            sanitize_for_log(resolved),
             sanitize_for_log(exc),
         )
         return None
@@ -199,7 +261,7 @@ def load_trajectory(results_dir: Path, run_id: str) -> dict[str, Any] | None:
 
     t_starts = [s["t_start"] for s in spans if isinstance(s.get("t_start"), (int, float))]
     t0 = float(min(t_starts)) if t_starts else 0.0
-    return {"spans": spans, "t0": t0}
+    return {"spans": spans, "t0": t0, "source": source}
 
 
 def _v3_kind(attributes: dict[str, Any]) -> str:
@@ -240,4 +302,134 @@ def _render_span(span: dict[str, Any]) -> dict[str, Any]:
         "t_end": (end_ns / 1e9) if isinstance(end_ns, (int, float)) else 0.0,
         "status": "error" if span.get("status") == "ERROR" else "ok",
         "attrs": dict(attributes),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Derived views: the board (domain -> suite) and one suite's platforms
+# ---------------------------------------------------------------------------
+
+
+def _suite_key(summary: dict[str, Any]) -> str:
+    """The suite a record belongs to.
+
+    Provenance is authoritative when it names a suite. A record without one --
+    an older run, or a direct task -- falls back to its task_id with the
+    ``suite:`` prefix stripped, which is the same name under a different coat.
+    """
+    suite_id = str(summary.get("suite_id") or "")
+    if suite_id:
+        return suite_id
+    task_id = str(summary.get("task_id") or "")
+    return task_id[len("suite:") :] if task_id.startswith("suite:") else task_id
+
+
+def _started_at(summary: dict[str, Any]) -> str:
+    return str(summary.get("started_at") or "")
+
+
+def _group(results_dir: Path) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    """Every *placeable* summary bucketed by ``(domain, suite)``, newest first.
+
+    A record that names neither a domain nor a suite is skipped rather than
+    bucketed under ``("", "")``. Schema 0.1-era records (flat ``domain`` /
+    ``task_id`` at the top level, no ``identity`` block, no measurements)
+    summarise to empty strings, and folding them in produced a nameless,
+    valueless card on the board — worse than not showing them, since the reader
+    cannot tell whether it is a bug or a benchmark. They remain visible through
+    ``/api/records``, which is where an unplaceable record belongs.
+    """
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for summary in list_records(results_dir):  # already sorted newest started_at first
+        domain = str(summary.get("domain") or "")
+        suite = _suite_key(summary)
+        if domain == "" or suite == "":
+            continue
+        grouped.setdefault((domain, suite), []).append(summary)
+    return grouped
+
+
+def load_board(results_dir: Path) -> dict[str, Any]:
+    """Every record folded into a domain -> suite board, with each suite's latest run.
+
+    Domains and suites are name-sorted so the board does not reshuffle itself
+    between polls; ``latest`` is the newest run of that suite on any platform.
+    """
+    grouped = _group(results_dir)
+    domains: list[dict[str, Any]] = []
+    for domain in sorted({key[0] for key in grouped}):
+        suites: list[dict[str, Any]] = []
+        runs = 0
+        for suite_id in sorted(suite for dom, suite in grouped if dom == domain):
+            rows = grouped[(domain, suite_id)]
+            runs += len(rows)
+            latest = max(rows, key=_started_at)
+            suites.append(
+                {
+                    "suite_id": suite_id,
+                    "task_id": str(latest.get("task_id") or ""),
+                    "platforms": len({str(row.get("adapter") or "") for row in rows}),
+                    "runs": len(rows),
+                    "latest": {
+                        "run_id": str(latest.get("run_id") or ""),
+                        "adapter": str(latest.get("adapter") or ""),
+                        "started_at": _started_at(latest),
+                        "status": str(latest.get("status") or ""),
+                        "measurements": dict(latest.get("measurements") or {}),
+                    },
+                }
+            )
+        domains.append({"domain": domain, "runs": runs, "suites": suites})
+    return {"domains": domains}
+
+
+def load_suite(results_dir: Path, domain: str, suite_id: str) -> dict[str, Any] | None:
+    """One suite's platforms: latest run, bounded history, and the metric union.
+
+    Returns None when no record matches the pair, which the server renders as a
+    404 rather than an empty board a reader would mistake for "ran, scored zero".
+    """
+    if not _SEGMENT_RE.match(domain) or not _SEGMENT_RE.match(suite_id):
+        return None
+    rows = _group(results_dir).get((domain, suite_id))
+    if not rows:
+        return None
+
+    metric_keys = sorted({key for row in rows for key in (row.get("measurements") or {})})
+    by_adapter: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_adapter.setdefault(str(row.get("adapter") or ""), []).append(row)
+
+    platforms: list[dict[str, Any]] = []
+    for adapter in sorted(by_adapter):
+        runs = sorted(by_adapter[adapter], key=_started_at)  # oldest -> newest
+        latest = runs[-1]
+        platforms.append(
+            {
+                "adapter": adapter,
+                "runs": len(runs),
+                "latest": {
+                    "run_id": str(latest.get("run_id") or ""),
+                    "started_at": _started_at(latest),
+                    "status": str(latest.get("status") or ""),
+                    "measurements": dict(latest.get("measurements") or {}),
+                    "suite_version": str(latest.get("suite_version") or ""),
+                    "evaluator_id": str(latest.get("evaluator_id") or ""),
+                },
+                "history": [
+                    {
+                        "run_id": str(row.get("run_id") or ""),
+                        "started_at": _started_at(row),
+                        "status": str(row.get("status") or ""),
+                        "measurements": dict(row.get("measurements") or {}),
+                    }
+                    for row in runs[-_HISTORY_LIMIT:]
+                ],
+            }
+        )
+    return {
+        "domain": domain,
+        "suite_id": suite_id,
+        "metric_keys": metric_keys,
+        "platforms": platforms,
     }

@@ -109,7 +109,7 @@ def test_reliability_run_records_disruption_and_recovers(tmp_path, monkeypatch):
         ds = suite.resolve(cfg, None)
         assert ds.payload["reliability"] == {"action": "reset", "at_s": 1.0}
         target = Target(mode="runtime", mock=False, handle=_Handle(), endpoint=f"127.0.0.1:{rport}")
-        env = suite.prepare(target, ds, None)
+        env = suite.prepare(target, ds, DriverContext("local"))
         raw = suite.run(target, env, DriverContext(placement="local", trace_id="e" * 32))
 
         summary = json.loads(raw.path("summary").read_text())

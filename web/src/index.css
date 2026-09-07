@@ -28,10 +28,36 @@
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
   --ring: oklch(0.705 0.015 286.067);
-  /* Waterfall span-kind colors (read from JS at chart render time, resolved
-   * to rgb for the canvas — see charts/Waterfall.tsx). */
-  --chart-llm: oklch(0.585 0.203 277.117);
-  --chart-tool: oklch(0.627 0.17 149.2);
+  /* ---- Chart palette -------------------------------------------------
+   * Categorical slots in FIXED order — a series takes slot N by identity,
+   * never by rank, and the order is never cycled. Validated against this
+   * app's own surfaces (#ffffff light / #121215 dark), not the palette's
+   * defaults: worst adjacent CVD ΔE 9.1 light / 8.4 dark, worst adjacent
+   * normal-vision ΔE 22.9 / 19.8. In light mode slots 3 and 4 sit below 3:1
+   * against white, so every chart using them carries visible direct labels
+   * or a table view — that relief is not optional.
+   * Read from JS at render time and resolved to rgb for canvas, because a
+   * canvas paint does not track CSS variables the way a DOM style does. */
+  --chart-1: #2a78d6; /* blue    */
+  --chart-2: #eb6834; /* orange  */
+  --chart-3: #1baf7a; /* aqua    */
+  --chart-4: #eda100; /* yellow  */
+  /* Span kinds map onto the slots above; kept as their own names so a chart
+   * asks for a meaning ("this is a tool call") rather than a slot number. */
+  --chart-llm: var(--chart-1);
+  --chart-tool: var(--chart-3);
+  --chart-db: var(--chart-2);
+  --chart-stage: var(--chart-4);
+  /* Status is reserved: never reused as "series 5", and never the only
+   * channel — every use ships with an icon or a label beside it. */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-running: #2a78d6;
+  /* Recessive chrome for plots. */
+  --chart-grid: oklch(0.92 0.004 286.32);
+  --chart-axis: oklch(0.8 0.008 286.32);
   --radius: 0.5rem;
 }
 
@@ -54,8 +80,23 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.552 0.016 285.938);
-  --chart-llm: oklch(0.673 0.182 276.935);
-  --chart-tool: oklch(0.723 0.192 149.58);
+  /* The same four hues re-stepped for the dark surface — a selected dark
+   * palette, not an automatic flip. All four clear 3:1 on #121215. */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-llm: var(--chart-1);
+  --chart-tool: var(--chart-3);
+  --chart-db: var(--chart-2);
+  --chart-stage: var(--chart-4);
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-running: #3987e5;
+  --chart-grid: oklch(1 0 0 / 10%);
+  --chart-axis: oklch(1 0 0 / 22%);
 }
 
 @theme inline {
@@ -74,6 +115,15 @@
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-success: var(--success);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-status-good: var(--status-good);
+  --color-status-warning: var(--status-warning);
+  --color-status-serious: var(--status-serious);
+  --color-status-critical: var(--status-critical);
+  --color-status-running: var(--status-running);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -94,5 +144,17 @@
     font-feature-settings:
       "rlig" 1,
       "calt" 1;
+  }
+}
+
+/* The indeterminate progress bar: a phase that knows its size but cannot
+ * report from inside itself (a window whose own wall clock is the measurement)
+ * sweeps instead of filling, so it never reads as a stalled 0%. */
+@keyframes csb-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
   }
 }

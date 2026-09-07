@@ -1,14 +1,24 @@
+/**
+ * Every run, flat — the escape hatch.
+ *
+ * This is what the old landing page was, and it is genuinely useful once you
+ * already know which run you are hunting for. It is no longer the front door,
+ * because "178 rows, newest first" answers no question anybody arrives with.
+ */
+
 import { useMemo, useState } from "react";
 
 import { useJSON, type RecordSummary } from "@/api";
+import { StatusPill } from "@/components/Glossed";
 import { EmptyView, ErrorView, LoadingView } from "@/components/StateViews";
-import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n";
-import { fmtDate, fmtNum } from "@/lib/format";
+import { fmtRelative } from "@/lib/format";
+import { formatMetric, lookupMetric, metricLabel } from "@/lib/glossary";
+import { orderMetricKeys, suiteLabel } from "@/lib/headline";
 import { recordHref, traceHref } from "@/router";
 
 function filterKey(record: RecordSummary): string {
@@ -25,7 +35,7 @@ function filterKey(record: RecordSummary): string {
     .toLowerCase();
 }
 
-export function RecordList() {
+export function RunsView() {
   const { t, locale } = useI18n();
   const { data: records, error } = useJSON<RecordSummary[]>("api/records");
   const [query, setQuery] = useState("");
@@ -88,7 +98,7 @@ export function RecordList() {
                         >
                           {record.run_id}
                         </a>
-                        {record.suite_id !== "" && <Badge variant="outline">{record.suite_id}</Badge>}
+                        {record.suite_id !== "" && <Badge variant="outline">{suiteLabel(record.suite_id)}</Badge>}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -97,23 +107,30 @@ export function RecordList() {
                     </TableCell>
                     <TableCell className="text-sm">{record.adapter}</TableCell>
                     <TableCell>
-                      <StatusBadge status={record.status} />
+                      <StatusPill status={record.status} />
                     </TableCell>
                     <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
-                      {fmtDate(record.started_at, locale)}
+                      {fmtRelative(record.started_at, locale)}
                     </TableCell>
                     <TableCell>
-                      <div className="flex max-w-72 flex-wrap gap-1">
-                        {Object.keys(record.measurements)
-                          .sort()
-                          .map((key) => (
+                      <div className="flex max-w-80 flex-wrap gap-1">
+                        {orderMetricKeys(Object.keys(record.measurements)).map((key) => {
+                          const spec = lookupMetric(key);
+                          const formatted = formatMetric(record.measurements[key], spec.format);
+                          return (
                             <span
                               key={key}
-                              className="rounded border bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] leading-4 text-muted-foreground"
+                              title={key}
+                              className="cursor-help rounded border bg-muted/50 px-1.5 py-0.5 text-[11px] leading-4"
                             >
-                              {key} = {fmtNum(record.measurements[key])}
+                              <span className="text-muted-foreground">{metricLabel(spec, locale)}</span>{" "}
+                              <span className="tabular-nums">
+                                {formatted.text}
+                                {formatted.unit}
+                              </span>
                             </span>
-                          ))}
+                          );
+                        })}
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap">

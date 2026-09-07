@@ -184,10 +184,19 @@ def test_stage_timings_are_formatted_as_milliseconds() -> None:
     fmt = (_WEB_SRC / "lib" / "format.ts").read_text(encoding="utf-8")
     assert "export function fmtDurMs(" in fmt, "format.ts must expose a millisecond duration formatter"
 
-    detail = (_WEB_SRC / "views" / "RecordDetail.tsx").read_text(encoding="utf-8")
-    assert "fmtDurMs(" in detail, "the stage card must format stage_timings with fmtDurMs"
-    for line in detail.splitlines():
-        if "stage_timings" in line or ("timings[" in line and "fmtDur(" in line):
-            assert "fmtDur(" not in line or "fmtDurMs(" in line, (
-                f"stage timings must not be passed to the seconds formatter: {line.strip()}"
-            )
+    # Scanned across the whole source tree rather than one named file: the
+    # stage card has already moved once (views/RecordDetail.tsx ->
+    # components/Lifecycle.tsx), and a test pinned to a path stops guarding the
+    # invariant the moment the code is reorganised.
+    sources = [path for path in _web_src_files() if path.suffix in {".ts", ".tsx"}]
+    users = [path for path in sources if "stage_timings" in path.read_text(encoding="utf-8")]
+    assert users, "no source reads stage_timings — has the field been renamed?"
+    assert any("fmtDurMs(" in path.read_text(encoding="utf-8") for path in sources), (
+        "no source formats a stage duration with fmtDurMs — the stage card must use it"
+    )
+    for path in users:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "stage_timings" in line or ("timings[" in line and "fmtDur(" in line):
+                assert "fmtDur(" not in line or "fmtDurMs(" in line, (
+                    f"stage timings must not be passed to the seconds formatter ({path.name}): {line.strip()}"
+                )

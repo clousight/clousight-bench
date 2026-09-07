@@ -55,7 +55,7 @@ EOF
 .venv/bin/csbench run --domain agent-runtime --benchmark swe-bench \
     --platform local-sim --config mock.yaml
 
-# open the web viewer: record list, provenance, trajectory waterfall (EN | 中文)
+# open the web viewer: watch a run while it happens, then read the results (EN | 中文)
 .venv/bin/csbench serve
 ```
 
@@ -64,7 +64,10 @@ connect → measure → conclude* (twelve stages; see
 [Architecture](docs/architecture.mdx)) — over the suite's bundled fixture
 artifacts, and persists a schema-0.4
 record with `swe-bench.resolved` and a full provenance block. `csbench serve` renders
-it at `http://127.0.0.1:8787` (React UI, bilingual, dark/light, strict CSP, read-only).
+it at `http://127.0.0.1:8787` (React UI, bilingual, dark/light, strict CSP). Leave it
+open while a longer run goes and it shows that run's stages, waterfall and log as they
+happen; every run — not just the ones that emit a trajectory artifact — gets a trace.
+See [docs/viewer.mdx](docs/viewer.mdx).
 
 One run is not a measurement — repeat and pool:
 
@@ -94,7 +97,7 @@ official measurements are the upstream suite's own verdict under the suite's
 namespace (`swe-bench.resolved`); custom evaluators are structurally confined to
 their own namespace (`csbench conformance --suite` enforces it). A run ends in
 exactly one `status`: `completed`, `failed`, `invalid` or `unsupported` (plus
-`interrupted`, which only a Ctrl-C writes) — there is
+`interrupted`, which a Ctrl-C or a cancel requested from the viewer writes) — there is
 no boolean `ok`, because "the platform does not support this" and "the run crashed"
 are different results. We publish **per-dimension results, never a single blended
 score**.
@@ -108,7 +111,7 @@ BenchmarkSuite.resolve → prepare → run   (the suite's OWN upstream harness, 
         ▼                        ▼
 Evaluator.evaluate(RawArtifacts) — pure, offline, namespaced Measurements
         ▼
-schema-0.4 record  →  csbench serve (web viewer)  /  csbench query (SQL)
+schema-0.4 record  →  csbench serve (web viewer: live + results)  /  csbench query (SQL)
 ```
 
 The core only orchestrates the lifecycle. Everything product- or suite-specific is a plugin:
@@ -161,7 +164,7 @@ network and region. That is the point.
 ## Analysis & viewing
 
 ```bash
-csbench serve                 # web viewer: records, provenance, trajectory waterfall
+csbench serve                 # web viewer: watch a run live; board → suite comparison → record → trace
 csbench query "SELECT platform, avg(value_num) FROM measurements WHERE name='swe-bench.resolved' GROUP BY platform"
 csbench export measurements --out m.parquet   # optional [store] extra: Parquet + DuckDB
 csbench trace list|show|import                # per-run traces; import external OTLP/JSONL
@@ -180,7 +183,7 @@ additive-only.
 - [x] Core: lifecycle orchestrator, `RunSpec`/`ResultRecord` schema 0.4 with provenance-folded fingerprints, entry-point plugin registry, cross-language workload protocol, DuckDB-backed `csbench query`, cost budget + live-run gate + resource reaper (`csbench sweep`)
 - [x] **Suite contract (Sub-project B)**: `BenchmarkSuite`/`Evaluator` ABCs, `suite:<id>` runs, SWE-bench Verified at a pinned HF revision with real gold-patch fixtures, official evaluator + namespace conformance, real SUT invocation on Aliyun AgentRun (oracle/llm agent modes) with real trajectory + token capture
 - [x] **Driver host (Sub-project A)**: docker-capable ECS controller (`csbench submit`), suite-aware LaunchSpec, OSS-only control plane, self-destruct reaper
-- [x] **Web viewer (Sub-project C)**: `csbench serve` — React UI (prebuilt, shipped in the wheel), record list/detail, transcript + ECharts waterfall trace views, EN | 中文, dark/light, strict CSP, offline-first
+- [x] **Web viewer (Sub-project C)**: `csbench serve` — React UI (prebuilt, shipped in the wheel). Watch a run **while it happens** (SSE-fed stages, live waterfall, log tail, stop button) off a disposable progress plane under `results/.progress/`; read finished runs through a domain board → suite comparison → record → trace, with every run getting a trace (run-trace fallback) and internal vocabulary rendered in plain language. EN | 中文, dark/light, strict CSP, offline-first. See [docs/viewer.mdx](docs/viewer.mdx)
 - [x] **OLAP suites (`data-warehouse` domain)**: TPC-DS **and** TPC-H on a `duckdb-local` reference platform. Both run offline (`suite:tpc-ds` / `suite:tpc-h`, mock + real DuckDB); correctness vs SF-keyed verified references (SF 0.01/0.1/1 for TPC-H, verified against DuckDB `tpch_answers()`), honest per-query latency, plus a `mode: official` official-formula mode computing QphH@Size / QphDS@SF via a Load/Power/Throughput/ACID phase machine — unaudited, no TPC audit claimed. See [docs/tpch-suite.mdx](docs/tpch-suite.mdx) / [docs/tpcds-suite.mdx](docs/tpcds-suite.mdx)
 - [x] **Key-value domain + config-connect abstraction**: **YCSB** on a `key-value` domain — the SUT-connection abstraction generalized so a suite runs against a local reference (`ycsb-local`, binding=basic) or an **already-running service via config** (`ycsb-endpoint`, binding+endpoint). Wraps the recognized upstream YCSB tool; offline mock path in CI, honest throughput + tail-latency (environmental). See [docs/ycsb-suite.mdx](docs/ycsb-suite.mdx)
 - [x] **OLTP domain**: **TPC-C via BenchBase** on a `transactional-db` domain — `benchbase-local` (dbtype=sqlite reference) or `jdbc-endpoint` (config-connect to an already-running database). Wraps the recognized upstream BenchBase tool (Apache-2.0); offline mock path in CI, honest throughput/goodput/latency plus a labeled tpmC-style estimate (`tpc-c.tpmc_estimate`, derived from goodput × NewOrder mix) and `tpc-c.goodput_ratio` (environmental; audited tpmC not claimed). See [docs/tpcc-suite.mdx](docs/tpcc-suite.mdx). Data-systems coverage is now OLAP + KV + OLTP.

@@ -549,16 +549,44 @@ def _minimal_payload(record: ResultRecord) -> dict[str, Any]:
     return payload
 
 
+#: Subtrees of a results directory that never hold result records. ``artifacts``
+#: is the raw evaluator output a record *points at*; the rest are derived or
+#: internal. Applied at whatever depth a given walker needs.
+RESERVED_SUBTREES: frozenset[str] = frozenset({"aggregates", "campaigns", "artifacts", "traces", "debug"})
+
+
+def is_results_sidecar(path: Path, results_dir: Path) -> bool:
+    """True for internal state living in the results tree — never a record.
+
+    Anything under a dot-prefixed name: the cost ledger (``.cost_ledger.json``)
+    and the progress plane (``.progress/<run_id>/state.json``, which outlives a
+    run by a grace period so a viewer can read its handoff).
+
+    The dot is the convention, but it is not self-enforcing: ``Path.rglob``
+    descends into hidden directories, so every walker over the results tree has
+    to ask. ``csbench verify`` did not, and reported a progress snapshot as a
+    digest failure.
+    """
+    try:
+        relative = path.relative_to(results_dir)
+    except ValueError:
+        relative = path
+    return any(part.startswith(".") for part in relative.parts)
+
+
 def iter_verified_records(results_dir: Path) -> Iterator[tuple[Path, dict[str, Any]]]:
     """Yield (path, payload) for each result JSON whose record_digest verifies.
 
-    Skips run_plan aggregates (results/aggregates/**), non-dict payloads,
-    unreadable files, and any record whose recomputed digest != stored digest.
+    Skips run_plan aggregates (results/aggregates/**), dot-prefixed sidecars
+    (see :func:`is_results_sidecar`), non-dict payloads, unreadable files, and
+    any record whose recomputed digest != stored digest.
     """
     root = Path(results_dir)
     agg = (root / "aggregates").resolve()
     campaigns = (root / "campaigns").resolve()
     for record_path in sorted(root.rglob("*.json")):
+        if is_results_sidecar(record_path, root):
+            continue
         try:
             resolved = record_path.resolve()
             if agg in resolved.parents or campaigns in resolved.parents:

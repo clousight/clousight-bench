@@ -18,6 +18,7 @@ import json
 import math
 import shutil
 import tempfile
+from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,7 @@ from clousight_bench.core.suite import (
     RawArtifacts,
     Target,
 )
+from clousight_bench.suites._progress import StepClock, raise_if_cancelled
 
 # Field separator inside a row, and the numeric rounding, are the wire rules of the
 # result digest. They MUST stay identical between run() and the capture scripts.
@@ -95,11 +97,24 @@ def import_duckdb(*, suite_id: str, extra: str) -> Any:
     return duckdb
 
 
-def run_query_set(con: Any, query_ids: list[int], *, extension: str) -> list[dict[str, Any]]:
+def run_query_set(
+    con: Any,
+    query_ids: list[int],
+    *,
+    extension: str,
+    on_query: Callable[[dict[str, Any], float, float], None] | None = None,
+) -> list[dict[str, Any]]:
     """Run each ``PRAGMA <extension>(nr)`` on *con*, returning per-query artifact rows.
 
     Shared by ``run()`` and the reference-capture scripts so the timing/digest
     procedure is identical.
+
+    ``on_query(row, start, end)`` — when given — is called once per finished query
+    with the artifact row and the two ``perf_counter`` marks the row's own
+    ``latency_ms`` was computed from, so a caller can report live progress without
+    taking a second timing. It runs in the gap BETWEEN two queries (nothing
+    measures that gap) and may raise to abort the set, which is how a cancel
+    stops the loop.
     """
     from time import perf_counter  # noqa: PLC0415
 
@@ -107,15 +122,16 @@ def run_query_set(con: Any, query_ids: list[int], *, extension: str) -> list[dic
     for nr in query_ids:
         t = perf_counter()
         rows = con.execute(f"PRAGMA {extension}({nr})").fetchall()
-        latency_ms = (perf_counter() - t) * 1000.0
-        out.append(
-            {
-                "query_nr": int(nr),
-                "latency_ms": latency_ms,
-                "row_count": len(rows),
-                "result_digest": result_digest(rows),
-            }
-        )
+        end = perf_counter()
+        row = {
+            "query_nr": int(nr),
+            "latency_ms": (end - t) * 1000.0,
+            "row_count": len(rows),
+            "result_digest": result_digest(rows),
+        }
+        out.append(row)
+        if on_query is not None:
+            on_query(row, t, end)
     return out
 
 
@@ -136,6 +152,23 @@ class DuckDbTpcSuite(BenchmarkSuite):
     slug: str = ""  # short id for temp dir / db file names, e.g. "tpcds" / "tpch"
     all_query_ids: tuple[int, ...] = ()
     fixtures_dir: Path = Path()
+
+    # The millisecond origin every progress step of THIS run is measured against.
+    # Started in prepare() (so the data-load step and the query steps share one
+    # frame) and lazily created if run() is driven without a prepare().
+    _steps: StepClock | None = None
+
+    def _new_step_clock(self) -> StepClock:
+        """Start a fresh step frame. Called at the top of ``prepare()``, so a
+        suite instance reused across a run plan never carries a stale origin."""
+        self._steps = StepClock()
+        return self._steps
+
+    def _step_clock(self) -> StepClock:
+        """This run's step frame, starting one if ``prepare()`` did not."""
+        if self._steps is None:
+            self._steps = StepClock()
+        return self._steps
 
     @property
     def _reference_file(self) -> Path:
@@ -170,7 +203,7 @@ class DuckDbTpcSuite(BenchmarkSuite):
         )
 
     # ------------------------------------------------------------------ prepare
-    def prepare(self, target: Target, dataset: DatasetHandle, driver: DriverContext) -> EnvHandle:  # noqa: ARG002
+    def prepare(self, target: Target, dataset: DatasetHandle, driver: DriverContext) -> EnvHandle:
         """Generate data at the chosen scale factor into a temp DuckDB db.
 
         Mock target → empty EnvHandle (never touches duckdb).
@@ -179,12 +212,20 @@ class DuckDbTpcSuite(BenchmarkSuite):
             return EnvHandle({"mock": True})
         duckdb = import_duckdb(suite_id=self.suite_id, extra=self.extra)
         sf = float(dataset.payload["scale_factor"])
+        progress = driver.progress
+        clock = self._new_step_clock()
         tmp_dir = tempfile.mkdtemp(prefix=f"csbench-{self.slug}-")
         db_path = str(Path(tmp_dir) / f"{self.slug}.duckdb")
         con = duckdb.connect(db_path)
         con.execute(f"INSTALL {self.extension}; LOAD {self.extension};")
+        progress.phase("Load", total=1, unit="dataset", reports_progress=False)
+        progress.log(f"loading SF{sf:g} via {self.dbgen_proc}")
+        load_start = clock.now()
         con.execute(f"CALL {self.dbgen_proc}(sf := ?)", [sf])
+        load_end = clock.now()
         con.close()
+        progress.step(f"{self.suite_id}.load", clock.ms(load_start), clock.ms(load_end))
+        progress.advance()
         return EnvHandle(
             {
                 "mock": False,
@@ -196,7 +237,7 @@ class DuckDbTpcSuite(BenchmarkSuite):
         )
 
     # ---------------------------------------------------------------------- run
-    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:  # noqa: ARG002
+    def run(self, target: Target, env: EnvHandle, driver: DriverContext) -> RawArtifacts:
         """Run the query set via ``PRAGMA <extension>(nr)`` and emit RawArtifacts."""
         if target.mock or env.payload.get("mock"):
             return self.mock_artifacts(dict(env.payload))
@@ -204,7 +245,28 @@ class DuckDbTpcSuite(BenchmarkSuite):
         con = duckdb.connect(env.payload["db_path"])
         con.execute(f"LOAD {self.extension};")
         query_ids = list(env.payload["query_ids"])
-        queries = run_query_set(con, query_ids, extension=self.extension)
+        progress = driver.progress
+        clock = self._step_clock()
+        parent = f"{self.suite_id}.query-set"
+
+        def _reported(row: dict[str, Any], start: float, end: float) -> None:
+            """One finished query — drawn on the waterfall, sampled, counted.
+
+            Runs between two queries: the row's ``latency_ms`` was already taken,
+            and every measurement this path feeds (total runtime, geomean) sums
+            per-query intervals, so the gap this occupies is not measured.
+            """
+            name = f"{self.suite_id}.q{row['query_nr']}"
+            progress.step(name, clock.ms(start), clock.ms(end), parent=parent)
+            progress.sample(f"{self.suite_id}.latency_ms", float(row["latency_ms"]))
+            progress.advance()
+            raise_if_cancelled(progress, f"{self.suite_id} query set")
+
+        progress.phase("Query set", total=len(query_ids), unit="query")
+        progress.log(f"query set: {len(query_ids)} queries via PRAGMA {self.extension}")
+        set_start = clock.now()
+        queries = run_query_set(con, query_ids, extension=self.extension, on_query=_reported)
+        progress.step(parent, clock.ms(set_start), clock.ms())
         ext_version = con.execute(
             "SELECT extension_version FROM duckdb_extensions() WHERE extension_name=?", [self.extension]
         ).fetchone()

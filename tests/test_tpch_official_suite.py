@@ -9,6 +9,7 @@ import pytest
 
 from clousight_bench.core import orchestrator as orch
 from clousight_bench.core.schema import RunSpec
+from clousight_bench.core.suite import DriverContext
 from clousight_bench.suites.tpc_h.suite import TpchSuite
 
 _DUCKDB = importlib.util.find_spec("duckdb") is not None
@@ -82,9 +83,9 @@ def test_official_generated_ordering_scales_past_two_streams(tmp_path) -> None:
     ds = suite.resolve(
         {"mode": "official", "scale_factor": 0.01, "streams": 3, "query_order": "generated"}, None
     )
-    env = suite.prepare(Target(mode="runtime", mock=False), ds, None)
+    env = suite.prepare(Target(mode="runtime", mock=False), ds, DriverContext("local"))
     try:
-        raw = suite.run(Target(mode="runtime", mock=False), env, None)
+        raw = suite.run(Target(mode="runtime", mock=False), env, DriverContext("local"))
         doc = json.loads(raw.path("official").read_text())
         assert len(doc["throughput"]["query_streams"]) == 3
         assert len(doc["throughput"]["refresh_stream"]) == 3
@@ -112,7 +113,7 @@ def test_official_mode_streams_over_table_raises_without_generated() -> None:
         }
     )
     with pytest.raises(ValueError, match="query_order.json"):
-        TpchSuite().run(Target(mode="runtime", mock=False), fake, None)
+        TpchSuite().run(Target(mode="runtime", mock=False), fake, DriverContext("local"))
 
 
 @pytest.mark.slow
@@ -122,9 +123,9 @@ def test_official_real_duckdb_artifact_shape(tmp_path) -> None:
 
     suite = TpchSuite()
     ds = suite.resolve({"mode": "official", "scale_factor": 0.01, "streams": 2}, None)
-    env = suite.prepare(Target(mode="runtime", mock=False), ds, None)
+    env = suite.prepare(Target(mode="runtime", mock=False), ds, DriverContext("local"))
     try:
-        raw = suite.run(Target(mode="runtime", mock=False), env, None)
+        raw = suite.run(Target(mode="runtime", mock=False), env, DriverContext("local"))
         doc = json.loads(raw.path("official").read_text())
         assert len(doc["power"]["queries"]) == 22
         assert len(doc["throughput"]["query_streams"]) == 2

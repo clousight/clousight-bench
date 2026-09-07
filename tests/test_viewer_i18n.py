@@ -56,8 +56,28 @@ def test_covers_full_key_set(en: dict[str, object]) -> None:
 
 
 def test_keys_are_namespaced(en: dict[str, object]) -> None:
-    """Every key is ``<namespace>.<name>`` from the agreed namespaces."""
-    namespaces = {"header", "common", "list", "detail", "trace", "status"}
+    """Every key is ``<namespace>.<name>`` from the agreed namespaces.
+
+    The namespace list is the app's page map, so it grows when the app does:
+    `nav`/`board`/`suite`/`record`/`live`/`metric`/`health`/`engineer` arrived
+    with the two-entry navigation and the results board.
+    """
+    namespaces = {
+        "header",
+        "nav",
+        "common",
+        "board",
+        "suite",
+        "record",
+        "metric",
+        "health",
+        "engineer",
+        "live",
+        "list",
+        "detail",
+        "trace",
+        "status",
+    }
     for key in en:
         ns, _, name = key.partition(".")
         assert ns in namespaces and name, f"key {key!r} is not namespaced as expected"

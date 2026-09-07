@@ -16,6 +16,7 @@ import clousight_bench.core.orchestrator as orch
 from clousight_bench.core.errors import UnknownTaskError
 from clousight_bench.core.schema import RunSpec
 from clousight_bench.core.suite_runner import SuiteRunner
+from tests.conftest import record_json_files
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -159,7 +160,7 @@ def test_end_to_end_record_has_no_tmp_leak(tmp_path, monkeypatch):
     assert record.status == "completed", f"expected completed: {record.errors}"
 
     # Locate the persisted record file (stored under domain/adapter/ subdir)
-    record_files = [p for p in tmp_path.rglob("*.json") if p.name != ".cost_ledger.json"]
+    record_files = record_json_files(tmp_path)
     assert record_files, "no record JSON found under results_dir"
     record_text = record_files[0].read_text()
 

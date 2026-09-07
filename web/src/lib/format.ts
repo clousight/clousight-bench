@@ -44,3 +44,37 @@ export function fmtDate(iso: string, locale: Locale): string {
 export function truncate(value: string, max: number): string {
   return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }
+
+/**
+ * "2 minutes ago" / "3 天前". Falls back to the absolute date past a week,
+ * where "9 days ago" stops being easier to place than the date itself.
+ */
+export function fmtRelative(iso: string, locale: Locale, now: number = Date.now()): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return iso;
+  const seconds = Math.round((now - then) / 1000);
+  if (seconds < 0) return fmtDate(iso, locale);
+  const zh = locale === "zh";
+  if (seconds < 45) return zh ? "刚刚" : "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return zh ? `${minutes} 分钟前` : `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return zh ? `${hours} 小时前` : `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days <= 7) return zh ? `${days} 天前` : `${days}d ago`;
+  return fmtDate(iso, locale);
+}
+
+/** Elapsed milliseconds as a running clock: "0:42", "12:07", "1:03:11". */
+export function fmtClock(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "0:00";
+  const total = Math.floor(ms / 1000);
+  const seconds = total % 60;
+  const minutes = Math.floor(total / 60) % 60;
+  const hours = Math.floor(total / 3600);
+  const mm = String(minutes).padStart(hours > 0 ? 2 : 1, "0");
+  return hours > 0
+    ? `${hours}:${mm}:${String(seconds).padStart(2, "0")}`
+    : `${mm}:${String(seconds).padStart(2, "0")}`;
+}

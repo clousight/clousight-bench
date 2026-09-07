@@ -35,6 +35,7 @@ from clousight_bench.cli.results import (
 )
 from clousight_bench.cli.run import _cmd_progress, _cmd_run, _cmd_run_plan
 from clousight_bench.core.errors import (
+    RunCancelled,
     UserInputError,
 )
 from clousight_bench.core.orchestrator import DEFAULT_RESULTS_DIR
@@ -302,6 +303,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         print("hint: run `csbench list --verbose` to inspect valid choices", file=sys.stderr)
         return 2
+    except RunCancelled:
+        # Same handling as a Ctrl-C (RunCancelled is one), but say where it came
+        # from: the operator pressed nothing here, the viewer asked for it.
+        print("\ncancelled from the viewer: teardown ran and progress was saved", file=sys.stderr)
+        return 130
     except KeyboardInterrupt:
         # The orchestrator already ran teardown and persisted an interrupted
         # record; report cleanly instead of dumping a traceback.

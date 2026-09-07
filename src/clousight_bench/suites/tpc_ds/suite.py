@@ -51,6 +51,7 @@ from clousight_bench.core.suite import (
 )
 from clousight_bench.suites._duckdb_tpc import DuckDbTpcSuite, import_duckdb, result_digest
 from clousight_bench.suites._duckdb_tpc import run_query_set as _run_query_set
+from clousight_bench.suites._progress import TpcProgress
 from clousight_bench.suites._tpc_official import maintenance, phases
 from clousight_bench.suites._tpc_official.acid import run_acid_generic
 from clousight_bench.suites._tpc_official.streams import GENERATOR_VERSION, generate_orders
@@ -161,18 +162,25 @@ class TpcdsSuite(DuckDbTpcSuite):
         if target.mock:
             return EnvHandle({"mock": True, "mode": "official"})
 
-        from time import perf_counter  # noqa: PLC0415
-
         duckdb = import_duckdb(suite_id=self.suite_id, extra=self.extra)
         sf = float(dataset.payload["scale_factor"])
+        progress = driver.progress
+        clock = self._new_step_clock()
         tmp_dir = tempfile.mkdtemp(prefix=f"csbench-{self.slug}-official-")
         db_path = str(Path(tmp_dir) / f"{self.slug}.duckdb")
         con = duckdb.connect(db_path)
         con.execute("INSTALL tpcds; LOAD tpcds;")
-        t = perf_counter()
+        progress.phase("Load", total=1, unit="dataset")
+        progress.log(f"loading SF{sf:g} via dsdgen")
+        t = clock.now()
         con.execute("CALL dsdgen(sf := ?)", [sf])
-        load_time_s = perf_counter() - t
+        load_end = clock.now()
+        load_time_s = load_end - t
         con.close()
+        progress.step(
+            f"{self.suite_id}.load", clock.ms(t), clock.ms(load_end), parent=f"{self.suite_id}.official"
+        )
+        progress.advance()
         return EnvHandle(
             {
                 "mock": False,
@@ -202,6 +210,8 @@ class TpcdsSuite(DuckDbTpcSuite):
         query_ids = [int(q) for q in env.payload.get("query_ids", self.all_query_ids)]
         power_order, throughput_orders = generate_orders(query_ids, num_streams=streams)
 
+        progress = TpcProgress(driver.progress, suite_id=self.suite_id, clock=self._step_clock())
+        progress.check_cancel("tpc-ds official run")
         con = _connect_loaded(duckdb, db_path)
         ext_version = con.execute(
             "SELECT extension_version FROM duckdb_extensions() WHERE extension_name='tpcds'"
@@ -225,6 +235,7 @@ class TpcdsSuite(DuckDbTpcSuite):
                     "extension_version": ext_version[0] if ext_version else "unknown",
                 },
                 acid=lambda c, oc: run_acid_generic(c, oc, table="store_sales", value_column="ss_list_price"),
+                progress=progress,
             )
         finally:
             con.close()

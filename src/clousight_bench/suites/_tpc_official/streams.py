@@ -122,6 +122,7 @@ def run_throughput(
     run_refresh_pair: Callable[[int], dict[str, Any]] | None,
     *,
     clock: Callable[[], float] = perf_counter,
+    poll: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Run ``S`` query streams (+ optionally one refresh stream) concurrently.
 
@@ -131,18 +132,31 @@ def run_throughput(
     maintenance runs AFTER each throughput test, not alongside). Stream ids are
     1-based (matching the permutation table).
     Returns ``{"elapsed_s", "query_streams", "refresh_stream"}``.
+
+    ``poll`` — when given — is called on every stream before each unit of work and
+    may raise to abort it. It exists for the cancel check, which has to work
+    per-stream; ``elapsed_s`` is the Throughput metric itself, so ``poll`` must
+    stay cheap (the cancel probe is a cached ``stat``) and nothing else may be
+    done inside this window.
     """
     num_streams = len(throughput_orders)
 
     def _query_stream(stream_id: int, order: list[int]) -> dict[str, Any]:
-        return {
-            "stream_id": stream_id,
-            "queries": [run_query(stream_id, nr) for nr in order],
-        }
+        queries: list[QueryResult] = []
+        for nr in order:
+            if poll is not None:
+                poll()
+            queries.append(run_query(stream_id, nr))
+        return {"stream_id": stream_id, "queries": queries}
 
     def _refresh_stream() -> list[dict[str, Any]]:
         assert run_refresh_pair is not None  # guarded by the submit-site check
-        return [run_refresh_pair(pair) for pair in range(1, num_streams + 1)]
+        pairs: list[dict[str, Any]] = []
+        for pair in range(1, num_streams + 1):
+            if poll is not None:
+                poll()
+            pairs.append(run_refresh_pair(pair))
+        return pairs
 
     start = clock()
     with ThreadPoolExecutor(max_workers=num_streams + 1) as pool:
