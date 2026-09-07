@@ -158,7 +158,7 @@ Four pages, in the order a question narrows:
   stages, all passed" — which expands into the full four-phase stage strip;
   when something failed, the line names the stage instead.
 - **Trace** is unchanged: transcript and waterfall tabs over the run's spans.
-  Every run now has one — see [Trajectory data](#trajectory-data).
+  Every run now has one — see [the execution trace](#the-execution-trace).
 
 `#/runs` is the old flat table of every run, with a client-side filter box. It
 is genuinely useful once you already know which run you are hunting for, which
@@ -243,7 +243,7 @@ Three environment variables tune it:
 | `GET /api/board` | domain → suite board, with each suite's newest run |
 | `GET /api/suite/<domain>/<suite_id>` | that suite's platforms: latest run, bounded history, metric union |
 | `GET /api/record/<run_id>` | the full record dict |
-| `GET /api/record/<run_id>/trajectory` | `{spans, t0, source}` — see [Trajectory data](#trajectory-data) |
+| `GET /api/record/<run_id>/trajectory` | `{spans, t0, source}` — see [the execution trace](#the-execution-trace) |
 | `GET /api/progress` | `{runs: [...]}` — every run the progress plane still knows about |
 | `GET /api/progress/<run_id>` | `{state, events}`; `?since=<seq>` returns only newer events |
 | `GET /api/progress/<run_id>/stream` | Server-Sent Events; `?since=<seq>` resumes |
@@ -316,28 +316,72 @@ the committed `dist/` is not byte-identical to the rebuild.
   never its full path — and the record path in a progress handoff is relative
   for the same reason.
 
-## Trajectory data
+## The execution trace
 
-The trace page reads `/api/record/<run_id>/trajectory`, which has two sources
-and says in its `source` field which one it used:
+A run's trace is **one tree**: `csbench.run` at the root, its lifecycle stages
+beneath, and — for a benchmark that reports them — that benchmark's own spans
+nested inside the stage that produced them, down to a single query.
 
-- **`artifact`** — the record's `kind=trajectory` sidecar (`application/jsonl`),
-  one span per line. Only official/agent runs emit one, and it is the SUT's own
-  account of what it did, so it wins whenever it is present. A *declared but
-  unreadable* artifact is a 404, not a silent downgrade: the record claims that
-  file, and rendering a different one would be a lie about provenance.
-- **`run-trace`** — `results/traces/<trace_id>.jsonl`, which **every** run
-  writes at finalize (`core.tracing.emit_run_trace`) and the record points at
-  through `extensions.core.trace_id`. Before this fallback the waterfall was
-  blank for most runs.
+That took two things, and neither was obvious from the outside.
+
+**The stages needed a real timeline.** `emit_run_trace` used to lay them
+end-to-end from their durations, so only *how long* a stage took was real and
+*when* it happened was invented. `run.stage_spans` now records each timed
+stage's real `[start_ms, end_ms]` from the run's start. Two consequences: a
+suite's spans, which carry their own timestamps, land where they belong; and a
+gap between two stages is visible, which a list of durations cannot show — the
+first run with real marks revealed five seconds before `PREFLIGHT` that nobody
+could previously see. The field is optional and additive, and a record written
+without it still renders through the old reconstruction.
+
+**The two halves had to be joined.** They were already the same trace — a suite
+receives the run's `trace_id` on its `DriverContext` — but the suite's root span
+had no parent and lived in its own file, so the viewer showed one or the other.
+`emit_run_trace` now re-emits the suite's trajectory as children of
+`csbench.stage.EXECUTE`. The suite's own artifact is left byte-identical: it is
+the SUT's unmodified account and its sha256 is pinned in the record, so the
+*run trace* becomes the merged view while the artifact stays the primary source.
+A span whose timestamps fall outside the stage window keeps them — clamping
+would hide exactly the disagreement worth seeing.
+
+### What a reader gets
+
+`/api/record/<run_id>/trajectory` says in its `source` field which of three
+things it returned, decided by looking at the spans rather than at a version:
+
+- **`full`** — `results/traces/<trace_id>.jsonl` with the benchmark's spans
+  merged in. The whole chain. This is the normal case.
+- **`artifact`** — the record's `kind=trajectory` sidecar, for a record written
+  before the merge existed. Its detail is there; the stages are not.
+- **`lifecycle`** — a run trace with no benchmark spans in it, because the
+  benchmark reported none. Every run has at least this.
+
+A *declared but unreadable* artifact is still a 404 when the run trace cannot
+supersede it, which is exactly the pre-merge case: the record claims that file,
+and rendering six stage bars instead would let a reader mistake the frame for
+the whole run.
+
+### Which benchmarks report
+
+A benchmark gets spans inside `EXECUTE` by writing a `kind=trajectory`
+artifact. See [reporting progress](/docs/adding-a-suite#reporting-progress) —
+the same rule applies: a span may be *recorded* from marks a measured region
+already took, but nothing may be *written* inside a window whose own wall clock
+is the measurement.
+
+### Span shape
 
 The primary span shape is the **v3 OTel-native** span (`core/sut_span.py`):
 `span_id / trace_id / parent_span_id / name / start_unix_nano / end_unix_nano /
 status / attributes`, where `status` is OTel `OK` / `ERROR` / `UNSET` and
-`attributes` must contain at least one semconv-namespaced key — `gen_ai.*`
-(LLM/tool activity), `db.*` (queries) or `csbench.*` (phases/streams) — as the
-kind discriminator. Legacy **v2** spans (`parent_id`, `t_start` / `t_end`,
-`attrs`, a literal `kind`) are still accepted and normalized by the viewer. See
-the result-record schema
+`attributes` must contain at least one semconv-namespaced key as the kind
+discriminator — `gen_ai.*` (model and tool calls), `db.*` (queries) or
+`csbench.*` (phases, streams, and the run's own lifecycle). Legacy **v2** spans
+(`parent_id`, `t_start` / `t_end`, `attrs`, a literal `kind`) are still accepted
+and normalized by the viewer.
+
+The viewer colours by that kind, and treats the run's own lifecycle as chrome
+rather than as a series: it takes the recessive axis colour, so the frame does
+not compete with the work hanging inside it. See the result-record schema
 (`src/clousight_bench/resources/schemas/result-record-0.4.schema.json`) for how
 artifacts are referenced from a record.

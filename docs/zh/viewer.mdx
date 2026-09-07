@@ -84,7 +84,7 @@ Stop 按钮是查看器唯一的写操作控件，并且刻意做成两步：先
 - **看板**把每条记录先按域、再按测评项归组，展示每个测评项的平台数、运行数，以及最新一次运行的头条指标。域和套件按最近活跃时间排序，每张域卡片先展示 5 个测评项、其余折叠：一个积累了大量已退役测评项的结果目录，不该把你今天刚跑的东西挤出第一屏。没有同时给出域名和套件名的记录（schema 0.1 时代的运行会摘要成空字符串）**不会**被折进来——一张没有名字也没有值的卡片比缺席更糟——它们仍可在 `#/runs` 看到。
 - **套件对比**以真正用来做选型决策的那张表开头：每个平台的最新一次运行，每个指标一列，按词表顺序（头条指标在前）而非字母序排列。只有某个平台的**最新**运行确实产出过的指标才会成列，这样 TPC-H 的 `reference` 运行和 `official` 运行就不会拼出一张满是破折号的表。表后是最多四个指标的趋势图，历史是有界的（每个平台最近 30 次运行）。
 - **记录**自上而下地读：它发现了什么、机器本身有没有正常工作、它测到了什么、这些数能不能信。十一个被记录的生命周期阶段被收拢成**一行健康摘要**——“一切正常 · 11 个阶段全部通过”——点开展开成完整的四相位阶段条；一旦有阶段失败，这一行改为直接点名那个阶段。
-- **轨迹**页保持不变：对话记录与瀑布图两个标签页。现在每次运行都有轨迹——见下文“轨迹数据”。
+- **轨迹**页现在展示的是一整棵树：生命周期阶段，加上嵌在产生它们的阶段里的测评自有 span。每次运行都有轨迹——见下文“执行轨迹”。
 
 `#/runs` 是从前那张所有运行的平铺表，带客户端过滤框。当你已经知道自己在找哪次运行时它确实好用，所以它仍然在——只是不再是大门。
 
@@ -137,7 +137,7 @@ results/.progress/<run_id>/
 | `GET /api/board` | 域 → 套件 看板，含每个套件最新一次运行 |
 | `GET /api/suite/<domain>/<suite_id>` | 该套件的各平台：最新运行、有界历史、指标并集 |
 | `GET /api/record/<run_id>` | 完整记录字典 |
-| `GET /api/record/<run_id>/trajectory` | `{spans, t0, source}`——见下文“轨迹数据” |
+| `GET /api/record/<run_id>/trajectory` | `{spans, t0, source}`——见下文“执行轨迹” |
 | `GET /api/progress` | `{runs: [...]}`——进度平面仍然知道的所有运行 |
 | `GET /api/progress/<run_id>` | `{state, events}`；`?since=<seq>` 只返回更新的事件 |
 | `GET /api/progress/<run_id>/stream` | Server-Sent Events；`?since=<seq>` 断点续传 |
@@ -170,11 +170,32 @@ cd web && npm run dev      # Vite 开发服务器（API 指向一个运行中的
 - 静态文件服务在**任何路径拼接之前**就做包含性检查；`..`、路径分隔符、冒号和未知扩展名一律返回 404。
 - artifact 与 trace 的读取都会先 resolve，并且必须留在结果目录内部。`/api/meta` 只公开结果目录的 **basename**，绝不公开完整路径——进度交接里的记录路径用相对路径，也是同一个理由。
 
-## 轨迹数据
+## 执行轨迹
 
-轨迹页读取 `/api/record/<run_id>/trajectory`，它有两个来源，并在 `source` 字段里说明用的是哪一个：
+一次运行的轨迹是**一棵树**：根是 `csbench.run`，下面是生命周期阶段，再往下——对于会上报的测评——是该测评自己的 span，嵌在产生它们的那个阶段里，一直细到单条查询。
 
-- **`artifact`**——记录里 `kind=trajectory` 的边车文件（`application/jsonl`），每行一个 span。只有 official/agent 类运行会产出它，而且它是被测系统自己对做了什么的陈述，所以只要它在就优先用它。一个**声明了却读不出来**的 artifact 会返回 404，而不是悄悄降级：记录声称的是那个文件，渲染另一个文件就是在来源上撒谎。
-- **`run-trace`**——`results/traces/<trace_id>.jsonl`，**每次**运行都会在 finalize 时写出（`core.tracing.emit_run_trace`），记录通过 `extensions.core.trace_id` 指向它。在有这个回退之前，大多数运行的瀑布图是空白的。
+这需要两件事，而且从外面都看不出来。
 
-主要的 span 形态是 **v3 OTel 原生** span（`core/sut_span.py`）：`span_id / trace_id / parent_span_id / name / start_unix_nano / end_unix_nano / status / attributes`，其中 `status` 为 OTel 的 `OK` / `ERROR` / `UNSET`，且 `attributes` 必须至少包含一个语义约定命名空间的键——`gen_ai.*`（LLM/工具活动）、`db.*`（查询）或 `csbench.*`（阶段/流）——作为 kind 判别键。旧版 **v2** span（`parent_id`、`t_start` / `t_end`、`attrs`、字面 `kind`）仍被查看器接受并归一化。记录如何引用 artifact 参见结果记录 schema（`src/clousight_bench/resources/schemas/result-record-0.4.schema.json`）。
+**阶段需要一条真实的时间线。** `emit_run_trace` 以前把阶段按时长首尾相接摆出来，所以只有"花了多久"是真的，"什么时候发生"是编的。现在 `run.stage_spans` 记录每个计时阶段相对运行开始的真实 `[start_ms, end_ms]`。两个后果：套件自带时间戳的 span 能落到该落的位置；阶段之间的空隙变得可见，而一串时长是显示不出空隙的——第一次带真实标记的运行就暴露了 `PREFLIGHT` 之前有五秒钟，此前没人看得见。这个字段是可选的增量字段，没有它的旧记录仍会通过旧的重建方式渲染。
+
+**两半必须接起来。** 它们本来就是同一条 trace——套件在 `DriverContext` 上拿到的就是这次运行的 `trace_id`——但套件的根 span 没有父节点，又待在自己的文件里，于是查看器只能二选一。现在 `emit_run_trace` 会把套件的轨迹重新发射为 `csbench.stage.EXECUTE` 的子节点。套件自己的 artifact 保持逐字节不变：它是被测系统未经改动的陈述，其 sha256 钉在记录里；所以**运行轨迹**成为合并后的视图，而 artifact 仍是第一手来源。时间戳落在阶段窗口之外的 span 保留其原值——把它裁进去只会藏起最值得看见的那处不一致。
+
+### 读者拿到的是什么
+
+`/api/record/<run_id>/trajectory` 会在 `source` 字段里说明返回的是三者中的哪一个，判断依据是 span 本身而不是版本号：
+
+- **`full`**——`results/traces/<trace_id>.jsonl`，已合并测评自己的 span。完整链路。这是常态。
+- **`artifact`**——记录里 `kind=trajectory` 的边车文件，用于合并机制出现之前写下的记录。细节在，阶段不在。
+- **`lifecycle`**——不含任何测评 span 的运行轨迹，因为这次测评什么都没上报。每次运行至少有这一层。
+
+一个**声明了却读不出来**的 artifact，在运行轨迹无法取代它时仍然返回 404——也就是合并前的那种记录：记录声称的是那个文件，改渲染六根阶段条会让读者把框架误当成整次运行。
+
+### 哪些测评会上报
+
+一个测评要让自己的 span 出现在 `EXECUTE` 里，就要写一个 `kind=trajectory` 的 artifact。参见[上报进度](/docs/zh/adding-a-suite#上报进度)——规则是同一条：span 可以**记录**自一段被测量区域已经取过的标记，但绝不能在"自身墙钟就是测量值"的窗口里**写**任何东西。
+
+### span 形态
+
+主要的 span 形态是 **v3 OTel 原生** span（`core/sut_span.py`）：`span_id / trace_id / parent_span_id / name / start_unix_nano / end_unix_nano / status / attributes`，其中 `status` 为 OTel 的 `OK` / `ERROR` / `UNSET`，且 `attributes` 必须至少包含一个语义约定命名空间的键作为 kind 判别键——`gen_ai.*`（模型与工具调用）、`db.*`（查询）或 `csbench.*`（阶段、流，以及运行自身的生命周期）。旧版 **v2** span（`parent_id`、`t_start` / `t_end`、`attrs`、字面 `kind`）仍被查看器接受并归一化。
+
+查看器按 kind 上色，并把运行自身的生命周期当作**框架**而非一个数据系列：它取的是不抢眼的坐标轴色，好让框架不与挂在里面的工作争视线。记录如何引用 artifact 参见结果记录 schema（`src/clousight_bench/resources/schemas/result-record-0.4.schema.json`）。
