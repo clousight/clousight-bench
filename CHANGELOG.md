@@ -98,6 +98,19 @@ All notable changes to Clousight Bench are recorded here.
   viewer publishes only its basename and says so in `/api/meta`; `record_path`
   handed the full path back through a different door. It is relative to the
   results root now.
+- **`csbench verify` exited 1 on a healthy results directory.** It walked every
+  `*.json` under the results tree and reported anything without a
+  `record_digest` as a failure — so raw evaluator output under `artifacts/`, and
+  the cost ledger, went red the moment any suite had run. The reserved-subtree
+  list the viewer already maintained is now shared as
+  `core.store.RESERVED_SUBTREES`, and dot-prefixed sidecars are skipped by
+  `core.store.is_results_sidecar()`. Both are used by every walker over the
+  results tree, so they cannot drift about what counts as a record.
+- **A `run_id` of `".."` escaped the progress plane.** `[A-Za-z0-9._-]+` matches
+  `".."` perfectly well, and `<results>/.progress/..` is `<results>`, so a
+  cancel request could have created `<results>/cancel`. Readers now locate a
+  progress directory by listing and matching a name, rather than joining the
+  caller's string into a path at all.
 - **The board drew a nameless, valueless card** for schema-0.1-era records,
   which carry no `identity` block and so summarise to empty strings. Those are
   skipped from the board and stay listed under `#/runs`, where an unplaceable
