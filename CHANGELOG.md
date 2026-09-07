@@ -65,6 +65,20 @@ All notable changes to Clousight Bench are recorded here.
   outside their parent. It also makes a gap between two stages visible: the
   first run with real marks showed five seconds before `PREFLIGHT` that nothing
   previously reported.
+- **The reference paths seal the spans they were already measuring.** A plain
+  `csbench run --benchmark tpc-h` measured 22 per-query intervals, wrote them to
+  `queries.json` and reported them live — and sealed no trajectory, so its trace
+  had an empty `EXECUTE`. TPC-H/TPC-DS reference mode now emits `<suite>.load`,
+  `<suite>.query-set` and a span per query, named and nested exactly as the live
+  progress plane draws them. Every bound comes from a mark the run already took:
+  on a real run the worst gap between a span's width and its row's `latency_ms`
+  is 1 ns. Mock paths deliberately seal nothing — the fixtures carry canned
+  latencies, and a waterfall of invented numbers is worse than none.
+- **`csbench trace show` renders the whole tree**, two levels deep by default
+  with `--depth` to go further. It printed the run root's direct children and
+  stopped, which was complete when the trace held only the lifecycle and is not
+  any more. Anything past the limit is counted and announced rather than cut
+  silently.
 
 ### Changed
 

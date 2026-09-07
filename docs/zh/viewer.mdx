@@ -192,7 +192,19 @@ cd web && npm run dev      # Vite 开发服务器（API 指向一个运行中的
 
 ### 哪些测评会上报
 
-一个测评要让自己的 span 出现在 `EXECUTE` 里，就要写一个 `kind=trajectory` 的 artifact。参见[上报进度](/docs/zh/adding-a-suite#上报进度)——规则是同一条：span 可以**记录**自一段被测量区域已经取过的标记，但绝不能在"自身墙钟就是测量值"的窗口里**写**任何东西。
+一个测评要让自己的 span 出现在 `EXECUTE` 里，就要写一个 `kind=trajectory` 的 artifact。内置的这些在真实路径上都会写：
+
+| 测评 | `EXECUTE` 里的 span |
+|---|---|
+| TPC-H / TPC-DS，reference 模式 | `<suite>.load`、`<suite>.query-set`，以及每条查询一个 `<suite>.q<nr>` |
+| TPC-H / TPC-DS，`mode: official` | 完整的阶段机——load、power、refresh function、每条流的 throughput 查询、data maintenance、ACID |
+| YCSB | `ycsb.load`、`ycsb.run`，以及可靠性计划触发时的 `ycsb.disruption.<action>` |
+| TPC-C | `tpc-c.benchbase`（单个不透明的 JVM 进程） |
+| SWE-bench | `swe_bench.run`、`swe_bench.apply_patch` |
+
+**mock 路径不封存任何 span。** 内置 fixture 里是预置的固定耗时，一张由编造数字画成的瀑布图比没有瀑布图更糟，所以 `mode: mock` 的运行显示为 `lifecycle` 并如实标注。
+
+如何写一个，参见[上报进度](/docs/zh/adding-a-suite#上报进度)。两者受同一条规则约束：span 可以**记录**自一段被测量区域已经取过的标记——上表里的每条查询 span 就是 `latency_ms` 所依据的那个区间本身——但绝不能在"自身墙钟就是测量值"的窗口里**写**任何东西。
 
 ### span 形态
 

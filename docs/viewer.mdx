@@ -364,10 +364,25 @@ the whole run.
 ### Which benchmarks report
 
 A benchmark gets spans inside `EXECUTE` by writing a `kind=trajectory`
-artifact. See [reporting progress](/docs/adding-a-suite#reporting-progress) —
-the same rule applies: a span may be *recorded* from marks a measured region
-already took, but nothing may be *written* inside a window whose own wall clock
-is the measurement.
+artifact. The bundled ones do, on their real paths:
+
+| Benchmark | Spans inside `EXECUTE` |
+|---|---|
+| TPC-H / TPC-DS, reference mode | `<suite>.load`, `<suite>.query-set`, one `<suite>.q<nr>` per query |
+| TPC-H / TPC-DS, `mode: official` | the full phase machine — load, power, refresh functions, per-stream throughput queries, data maintenance, ACID |
+| YCSB | `ycsb.load`, `ycsb.run`, and `ycsb.disruption.<action>` when a reliability plan fired |
+| TPC-C | `tpc-c.benchbase` (one opaque JVM process) |
+| SWE-bench | `swe_bench.run`, `swe_bench.apply_patch` |
+
+**Mock paths seal nothing.** The bundled fixtures carry canned latencies, and a
+waterfall of invented numbers is worse than no waterfall, so a `mode: mock` run
+shows `lifecycle` and says so.
+
+See [reporting progress](/docs/adding-a-suite#reporting-progress) for writing
+one. The same rule governs both: a span may be *recorded* from marks a measured
+region already took — the per-query spans above are literally the intervals
+`latency_ms` was computed from — but nothing may be *written* inside a window
+whose own wall clock is the measurement.
 
 ### Span shape
 
