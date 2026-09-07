@@ -19,6 +19,7 @@ from clousight_bench.core.errors import (
 
 def _cmd_trace(args: argparse.Namespace) -> int:
     from clousight_bench.core.traceview import (
+        DEFAULT_DEPTH,
         find_trace,
         render_list,
         render_show,
@@ -50,7 +51,7 @@ def _cmd_trace(args: argparse.Namespace) -> int:
     if spans is None:
         print(f"error: no trace for {args.id!r} under {results}/traces", file=sys.stderr)
         return 2
-    print(render_show(spans))
+    print(render_show(spans, depth=getattr(args, "depth", DEFAULT_DEPTH)))
     return 0
 
 
