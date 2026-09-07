@@ -81,6 +81,11 @@ export function seriesColor(colors: string[], index: number): string {
  * waterfall names every row in text beside its bar.
  */
 export const KIND_SLOTS: Record<string, string> = {
+  // The run root and its stages are the frame the work hangs in, not a series
+  // competing with it, so they take the recessive axis colour rather than a
+  // categorical slot. That also keeps the palette at its four validated hues
+  // instead of inventing a fifth for a kind that is not data.
+  lifecycle: "--chart-axis",
   phase: "--chart-1",
   query: "--chart-2",
   llm_call: "--chart-3",

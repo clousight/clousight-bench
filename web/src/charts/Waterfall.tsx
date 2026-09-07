@@ -170,6 +170,7 @@ function KindLegend({ kinds }: { kinds: string[] }) {
   // charts/palette.test.ts — a legend that disagrees with its chart is worse
   // than no legend.
   const swatch: Record<string, string> = {
+    lifecycle: "bg-[var(--chart-axis)]",
     phase: "bg-chart-1",
     query: "bg-chart-2",
     llm_call: "bg-chart-3",

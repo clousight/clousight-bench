@@ -129,6 +129,7 @@
   "trace.source.lifecycle": "lifecycle only",
   "trace.source.lifecycle_blurb": "This run reported nothing finer than its lifecycle stages — every run has these.",
   "trace.kind.phase": "phase",
+  "trace.kind.lifecycle": "lifecycle",
   "trace.kind.query": "query",
   "trace.kind.llm_call": "model call",
   "trace.kind.tool_call": "tool call",

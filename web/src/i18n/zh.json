@@ -129,6 +129,7 @@
   "trace.source.lifecycle": "仅生命周期",
   "trace.source.lifecycle_blurb": "这次运行没有上报比生命周期阶段更细的内容——每次运行都有这一层。",
   "trace.kind.phase": "阶段",
+  "trace.kind.lifecycle": "生命周期",
   "trace.kind.query": "查询",
   "trace.kind.llm_call": "模型调用",
   "trace.kind.tool_call": "工具调用",

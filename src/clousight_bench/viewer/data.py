@@ -292,6 +292,13 @@ def _v3_kind(attributes: dict[str, Any]) -> str:
         return "llm_call"
     if any(k.startswith("db.") for k in attributes):
         return "query"
+    # The run root and its stages are the scaffold, not a series: since the
+    # merge they share a chart with the suite's own spans, and telling the frame
+    # apart from the work inside it is most of what makes that chart readable.
+    # Both attributes are written only by emit_run_trace, so this cannot catch
+    # a suite's span by accident.
+    if any(isinstance(attributes.get(k), str) and attributes[k] for k in ("csbench.stage", "csbench.run_id")):
+        return "lifecycle"
     phase = attributes.get("csbench.phase")
     if isinstance(phase, str) and phase:
         return "phase"
