@@ -10,6 +10,12 @@ holds the identical machinery; each suite is a thin subclass setting those knobs
 The digest wire rules (``_canon_value`` / ``result_digest`` / ``write_artifacts``)
 are shared verbatim — they MUST stay identical between ``run()`` and the
 reference-capture scripts, or every query would read as "failed".
+
+A real reference run also seals a ``trajectory.jsonl`` (:func:`reference_spans`)
+so the run trace holds the per-query waterfall the run already measured, nested
+under the lifecycle's ``EXECUTE`` stage. It is built ONLY from marks the run
+already took — the same ``perf_counter`` pair each row's ``latency_ms`` came
+from — so no measured value moves.
 """
 
 from __future__ import annotations
@@ -35,10 +41,15 @@ from clousight_bench.core.suite import (
     Target,
 )
 from clousight_bench.suites._progress import StepClock, raise_if_cancelled
+from clousight_bench.suites._tpc_official.trace import phase_span
 
 # Field separator inside a row, and the numeric rounding, are the wire rules of the
 # result digest. They MUST stay identical between run() and the capture scripts.
 _ROW_SEP = "\x1f"
+
+# The engine every suite on this base runs against (``db.system.name`` in the
+# trajectory's OTel semconv attributes).
+_ENGINE = "duckdb"
 
 
 def canon_value(v: Any) -> str:
@@ -69,8 +80,18 @@ def result_digest(rows: list[tuple[Any, ...]]) -> str:
     return sha256_bytes("\n".join(row_strs).encode("utf-8"))
 
 
-def write_artifacts(tmp_dir: Path, queries: list[dict[str, Any]], summary: dict[str, Any]) -> RawArtifacts:
-    """Write queries.json + summary.json into *tmp_dir* and build the manifest."""
+def write_artifacts(
+    tmp_dir: Path,
+    queries: list[dict[str, Any]],
+    summary: dict[str, Any],
+    spans: list[dict[str, Any]] | None = None,
+) -> RawArtifacts:
+    """Write queries.json + summary.json (+ trajectory.jsonl) and build the manifest.
+
+    ``spans`` is the run's sealed trajectory; when absent (the mock path, the
+    reference-capture scripts) the manifest is exactly what it always was, so
+    nothing downstream sees a trajectory that was never measured.
+    """
     q_path = tmp_dir / "queries.json"
     s_path = tmp_dir / "summary.json"
     q_path.write_text(json.dumps(queries), encoding="utf-8")
@@ -83,7 +104,77 @@ def write_artifacts(tmp_dir: Path, queries: list[dict[str, Any]], summary: dict[
         },
         "summary": {"path": "summary.json", "sha256": sha256_bytes(s_path.read_bytes()), "rows": None},
     }
+    if spans:
+        t_path = tmp_dir / "trajectory.jsonl"
+        t_path.write_text("".join(json.dumps(s) + "\n" for s in spans), encoding="utf-8")
+        manifest["trajectory"] = {
+            "path": "trajectory.jsonl",
+            "sha256": sha256_bytes(t_path.read_bytes()),
+            "rows": len(spans),
+        }
     return RawArtifacts(dir=tmp_dir, manifest=manifest)
+
+
+def reference_spans(
+    *,
+    trace_id: str,
+    suite_id: str,
+    clock: StepClock,
+    query_set: tuple[float, float],
+    queries: list[tuple[dict[str, Any], float, float]],
+    load: tuple[float, float] | None = None,
+) -> list[dict[str, Any]]:
+    """The reference path's trajectory, laid out from the marks it already took.
+
+    Every bound is a ``perf_counter`` mark the run ALREADY measured with — the
+    data load's two marks from ``prepare()``, the query set's two marks from
+    ``run()``, and per query the very pair its ``latency_ms`` was computed from
+    — converted to absolute wall-clock through the one origin reading
+    :class:`StepClock` holds. Nothing here re-measures anything.
+
+    Names and nesting are the live progress plane's, verbatim
+    (``<suite_id>.q<nr>`` under ``<suite_id>.query-set``, ``<suite_id>.load``
+    beside it), so the live waterfall and the sealed one describe the same run
+    the same way.
+    """
+    base = {"csbench.suite_id": suite_id}
+    spans: list[dict[str, Any]] = []
+    if load is not None:
+        spans.append(
+            phase_span(
+                trace_id=trace_id,
+                name=f"{suite_id}.load",
+                start_unix_nano=clock.unix_ns(load[0]),
+                end_unix_nano=clock.unix_ns(load[1]),
+                attributes={**base, "csbench.phase": "load"},
+            )
+        )
+    set_span = phase_span(
+        trace_id=trace_id,
+        name=f"{suite_id}.query-set",
+        start_unix_nano=clock.unix_ns(query_set[0]),
+        end_unix_nano=clock.unix_ns(query_set[1]),
+        attributes={**base, "csbench.phase": "query-set", "csbench.query_count": len(queries)},
+    )
+    spans.append(set_span)
+    for row, start, end in queries:
+        spans.append(
+            phase_span(
+                trace_id=trace_id,
+                name=f"{suite_id}.q{row['query_nr']}",
+                start_unix_nano=clock.unix_ns(start),
+                end_unix_nano=clock.unix_ns(end),
+                attributes={
+                    **base,
+                    "csbench.phase": "query-set",
+                    "csbench.row_count": int(row["row_count"]),
+                    "db.system.name": _ENGINE,
+                    "db.operation.name": f"query {row['query_nr']}",
+                },
+                parent_span_id=set_span["span_id"],
+            )
+        )
+    return spans
 
 
 def import_duckdb(*, suite_id: str, extra: str) -> Any:
@@ -233,6 +324,9 @@ class DuckDbTpcSuite(BenchmarkSuite):
                 "db_path": db_path,
                 "scale_factor": sf,
                 "query_ids": list(dataset.payload["query_ids"]),
+                # the load's own marks, handed to run() so the sealed trajectory
+                # can draw the load bar from the interval already measured here
+                "load_marks": (load_start, load_end),
             }
         )
 
@@ -248,6 +342,9 @@ class DuckDbTpcSuite(BenchmarkSuite):
         progress = driver.progress
         clock = self._step_clock()
         parent = f"{self.suite_id}.query-set"
+        # (row, start, end) per finished query — the marks the live step and the
+        # sealed span are BOTH drawn from, so the two waterfalls agree exactly.
+        marks: list[tuple[dict[str, Any], float, float]] = []
 
         def _reported(row: dict[str, Any], start: float, end: float) -> None:
             """One finished query — drawn on the waterfall, sampled, counted.
@@ -256,6 +353,7 @@ class DuckDbTpcSuite(BenchmarkSuite):
             and every measurement this path feeds (total runtime, geomean) sums
             per-query intervals, so the gap this occupies is not measured.
             """
+            marks.append((row, start, end))
             name = f"{self.suite_id}.q{row['query_nr']}"
             progress.step(name, clock.ms(start), clock.ms(end), parent=parent)
             progress.sample(f"{self.suite_id}.latency_ms", float(row["latency_ms"]))
@@ -266,7 +364,8 @@ class DuckDbTpcSuite(BenchmarkSuite):
         progress.log(f"query set: {len(query_ids)} queries via PRAGMA {self.extension}")
         set_start = clock.now()
         queries = run_query_set(con, query_ids, extension=self.extension, on_query=_reported)
-        progress.step(parent, clock.ms(set_start), clock.ms())
+        set_end = clock.now()
+        progress.step(parent, clock.ms(set_start), clock.ms(set_end))
         ext_version = con.execute(
             "SELECT extension_version FROM duckdb_extensions() WHERE extension_name=?", [self.extension]
         ).fetchone()
@@ -278,8 +377,22 @@ class DuckDbTpcSuite(BenchmarkSuite):
             "query_count": len(queries),
             "query_ids": query_ids,
         }
+        from clousight_bench.core.tracing import new_trace_id  # noqa: PLC0415
+
+        # absent when run() was driven without this base's prepare(): no marks
+        # were taken there, so no load bar is drawn
+        load_marks = env.payload.get("load_marks")
+        load = (float(load_marks[0]), float(load_marks[1])) if load_marks else None
+        spans = reference_spans(
+            trace_id=getattr(driver, "trace_id", "") or new_trace_id(),
+            suite_id=self.suite_id,
+            clock=clock,
+            query_set=(set_start, set_end),
+            queries=marks,
+            load=load,
+        )
         tmp_dir = Path(tempfile.mkdtemp(prefix=f"csbench-{self.slug}-art-"))
-        return write_artifacts(tmp_dir, queries, summary)
+        return write_artifacts(tmp_dir, queries, summary, spans)
 
     # ----------------------------------------------------------------- teardown
     def teardown(self, env: EnvHandle) -> None:
@@ -290,7 +403,13 @@ class DuckDbTpcSuite(BenchmarkSuite):
 
     # ------------------------------------------------------------ mock_artifacts
     def mock_artifacts(self, cfg: dict[str, Any]) -> RawArtifacts:  # noqa: ARG002
-        """Copy the bundled mock fixture into a temp dir — no duckdb, no network."""
+        """Copy the bundled mock fixture into a temp dir — no duckdb, no network.
+
+        Deliberately NO trajectory: the fixture carries canned latencies that
+        nothing ever measured, and laying them out as spans would put invented
+        numbers on a waterfall a reader is entitled to trust. A mock run shows
+        an empty EXECUTE, which is the truth.
+        """
         tmp_dir = Path(tempfile.mkdtemp(prefix=f"csbench-{self.slug}-mock-"))
         queries = json.loads((self.fixtures_dir / "mock" / "queries.json").read_text())
         summary = json.loads((self.fixtures_dir / "mock" / "summary.json").read_text())

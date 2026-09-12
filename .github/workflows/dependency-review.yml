@@ -2,10 +2,13 @@ name: dependency-review
 
 # Flag known-vulnerable or license-incompatible dependencies introduced by a PR,
 # before they land on main. Complements Dependabot (which updates existing deps).
+#
+# No `branches:` filter, for the same reason as codeql.yml: a dependency added
+# by a PR stacked on another branch reaches main just as surely as one added
+# directly, so reviewing only PRs whose base is main reviews the wrong set.
 
 on:
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read

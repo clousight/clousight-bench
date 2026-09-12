@@ -237,7 +237,11 @@ class TpccSuite(BenchmarkSuite):
 
     # ------------------------------------------------------------ mock_artifacts
     def mock_artifacts(self, cfg: dict[str, Any]) -> RawArtifacts:  # noqa: ARG002
-        """Copy the bundled real-format BenchBase summary — no tool, no database."""
+        """Copy the bundled real-format BenchBase summary — no tool, no database.
+
+        No trajectory: the fixture's numbers were never measured here, and
+        drawing invented spans on a waterfall would misrepresent them.
+        """
         art_dir = Path(tempfile.mkdtemp(prefix="csbench-tpcc-mock-"))
         summary_json = (_FIXTURES_DIR / "mock" / "summary.json").read_text(encoding="utf-8")
         meta = json.loads((_FIXTURES_DIR / "mock" / "meta.json").read_text())

@@ -99,31 +99,73 @@ def render_list(summaries: list[dict[str, Any]], sort: str = "started") -> str:
     return "\n".join(lines)
 
 
-def render_show(spans: list[dict[str, Any]]) -> str:
-    """A tree of the run's stages with durations + status, flagging the slowest
-    stage and any that failed."""
+#: How deep `csbench trace show` descends by default. One level is the eleven
+#: lifecycle stages; two reaches a benchmark's phases; a TPC official run goes
+#: four deep and ~900 spans wide, which is a waterfall's job, not a terminal's.
+DEFAULT_DEPTH = 2
+
+
+def render_show(spans: list[dict[str, Any]], depth: int = DEFAULT_DEPTH) -> str:
+    """The run's tree with durations + status, flagging the slowest and failures.
+
+    Descends ``depth`` levels. Since the benchmark's own spans are merged into
+    the run trace, stopping at the stages would print strictly less than the
+    trace holds — but printing all of it would bury the shape under hundreds of
+    query rows, so a subtree past the limit is summarised by its count rather
+    than dropped silently.
+    """
     root = _root(spans)
     if not root:
         return "empty trace"
     attrs = root.get("attributes", {})
-    children = [s for s in spans if s is not root and s.get("parent_span_id") == root.get("span_id")]
-    slowest = max((s.get("duration_ms", 0.0) for s in children), default=0.0)
+    by_parent: dict[str, list[dict[str, Any]]] = {}
+    for span in spans:
+        if span is root:
+            continue
+        by_parent.setdefault(str(span.get("parent_span_id") or ""), []).append(span)
+    for kids in by_parent.values():
+        kids.sort(key=lambda s: s.get("start_unix_nano", 0))
+
     lines = [
         (
-            f"{root.get('name', 'csbench.run')}  {attrs.get('run_id', '')} "
-            f"[{attrs.get('status', '')}]  (total {root.get('duration_ms', 0.0):.3f} ms)"
+            f"{root.get('name', 'csbench.run')}  {attrs.get('csbench.run_id', '')} "
+            f"[{attrs.get('csbench.status', '')}]  (total {root.get('duration_ms', 0.0):.3f} ms, "
+            f"{len(spans)} spans)"
         )
     ]
-    for i, span in enumerate(children):
-        branch = "└─" if i == len(children) - 1 else "├─"
-        stage = span.get("attributes", {}).get("stage") or span.get("name", "")
-        duration = span.get("duration_ms", 0.0)
-        status = span.get("status", "")
-        flags = []
-        if status == "ERROR":
-            flags.append("FAILED")
-        if slowest > 0 and duration >= slowest:
-            flags.append("slowest")
-        suffix = f"  <- {', '.join(flags)}" if flags else ""
-        lines.append(f" {branch} {stage:<10} {duration:>10.3f} ms  {status}{suffix}")
+
+    def _descendants(span_id: str) -> int:
+        total = 0
+        for child in by_parent.get(span_id, []):
+            total += 1 + _descendants(str(child.get("span_id") or ""))
+        return total
+
+    def _walk(parent_id: str, level: int, prefix: str) -> None:
+        children = by_parent.get(parent_id, [])
+        slowest = max((c.get("duration_ms", 0.0) for c in children), default=0.0)
+        for i, span in enumerate(children):
+            last = i == len(children) - 1
+            branch = "└─" if last else "├─"
+            name = span.get("attributes", {}).get("csbench.stage") or span.get("name", "")
+            duration = span.get("duration_ms", 0.0)
+            status = span.get("status", "")
+            flags = []
+            if status == "ERROR":
+                flags.append("FAILED")
+            if slowest > 0 and duration >= slowest and len(children) > 1:
+                flags.append("slowest")
+            suffix = f"  <- {', '.join(flags)}" if flags else ""
+            lines.append(f"{prefix}{branch} {name:<24} {duration:>10.3f} ms  {status}{suffix}")
+
+            span_id = str(span.get("span_id") or "")
+            hidden = _descendants(span_id)
+            # Aligns the continuation bar under this row's branch character.
+            child_prefix = prefix + ("  " if last else "│ ")
+            if level + 1 < depth:
+                _walk(span_id, level + 1, child_prefix)
+            elif hidden:
+                # Say what was elided rather than let the tree end in a lie.
+                lines.append(f"{child_prefix}└─ … {hidden} more span(s) — see the waterfall")
+
+    _walk(str(root.get("span_id") or ""), 0, " ")
     return "\n".join(lines)
