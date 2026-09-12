@@ -2,7 +2,7 @@
 
 All notable changes to Clousight Bench are recorded here.
 
-## [Unreleased]
+## [0.7.0] — 2026-09-13
 
 ### Added
 
@@ -147,6 +147,25 @@ All notable changes to Clousight Bench are recorded here.
   which carry no `identity` block and so summarise to empty strings. Those are
   skipped from the board and stay listed under `#/runs`, where an unplaceable
   record belongs.
+
+### Security
+
+- **The security gates skipped every stacked pull request.** CodeQL and
+  dependency-review were both filtered to `pull_request: branches: [main]`, so a
+  PR based on another branch was analysed by nothing — and could then merge into
+  its base, and from there into main, without either gate having seen it.
+  Retargeting at main does not rescue it: `edited` is not one of
+  `pull_request`'s default activity types, so nothing re-triggers and the PR has
+  to be reopened by hand. Not hypothetical — the trace-chain work was stacked and
+  got no CodeQL until it was reopened manually, while the viewer rebuild, which
+  did target main, is where CodeQL found four high-severity `py/path-injection`
+  alerts in the same subsystem. The branch filter is gone; the cost is one extra
+  analysis per stacked PR.
+- **vitest 3.x -> 5.0** in the viewer's dev dependencies, clearing the
+  `@vitest/mocker` path-traversal advisory (arbitrary file read via redirect
+  mock). Test-time only — vitest is not part of the `dist/` that ships in the
+  wheel — but the lockfile is patched anyway.
+- **ruff 0.16.5 -> 0.16.6** (dev/lint only).
 
 ## [0.6.0] — 2026-09-06
 

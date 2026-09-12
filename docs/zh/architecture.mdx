@@ -266,7 +266,7 @@ run_id | domain | task_id | platform | benchmark_fingerprint | series | t | valu
 
 **扩展点**：`clousight_bench.enrichers` 入口点组托管 `ResultEnricher` 子类——`name: str` + `enrich(self, record: ResultRecord) -> ResultRecord`。`orchestrator.execute(spec, results_dir=None, enrich=True, preflight=True, publisher=None, …)`（`publisher=` 关键字参数为 PUBLISH 阶段注入可选的 `ResultPublisher`）在记录构建完成后、`_persist` 之前依次调用它们，顺序由 `registry.load_enrichers()`（按 `name` 排序以确保确定性执行顺序）返回的列表决定。核心不提供任何 enricher 实现（如成本估算）——商业插件通过入口点注入；`csbench run --no-enrich` 跳过整个链路。
 
-**插件兼容性契约**：`clousight_bench.PLUGIN_API_VERSION = "3.0"`（SemVer）。只有当 schema 字段、入口点组名称或 `ResultEnricher`/`ResultStore` 签名发生不兼容变更时，MAJOR 才会递增。**包版本与插件 API 版本是两个独立维度**：`clousight_bench.__version__`（当前为 `0.6.0`）随每次发布递增；`PLUGIN_API_VERSION` 仅在插件面向接口有破坏性变更时移动——两者不同步演进。Phase 1A 商业插件的 `pyproject.toml` 针对当前包版本固定为 `clousight-bench>=0.6,<0.7`（早期设计文档中出现的 `>=1.0,<2.0` 形式是针对 `PLUGIN_API_VERSION` 大版本的目标状态草稿，在 0.2 开发者预览发布时未更新；此处已更正）。
+**插件兼容性契约**：`clousight_bench.PLUGIN_API_VERSION = "3.1"`（SemVer）。只有当 schema 字段、入口点组名称或 `ResultEnricher`/`ResultStore` 签名发生不兼容变更时，MAJOR 才会递增。**包版本与插件 API 版本是两个独立维度**：`clousight_bench.__version__`（当前为 `0.7.0`）随每次发布递增；`PLUGIN_API_VERSION` 仅在插件面向接口有破坏性变更时移动——两者不同步演进。Phase 1A 商业插件的 `pyproject.toml` 针对当前包版本固定为 `clousight-bench>=0.7,<0.8`（早期设计文档中出现的 `>=1.0,<2.0` 形式是针对 `PLUGIN_API_VERSION` 大版本的目标状态草稿，在 0.2 开发者预览发布时未更新；此处已更正）。
 
 **Pro 的三个扩展边界**（由 `clousight-bench-pro` 通过入口点注入；开放核心不提供实现）：
 
