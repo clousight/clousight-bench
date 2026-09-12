@@ -39,6 +39,7 @@ from clousight_bench.core.errors import (
     UserInputError,
 )
 from clousight_bench.core.orchestrator import DEFAULT_RESULTS_DIR
+from clousight_bench.core.traceview import DEFAULT_DEPTH
 
 
 def _dispatch(args: argparse.Namespace) -> int:
@@ -229,9 +230,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     ti.add_argument("file", help="OTLP/JSON export or span-per-line JSONL")
     ti.add_argument("--out", help="output path (default: <file>.v3.jsonl)")
-    ts = trace_sub.add_parser("show", help="render one run's trace as a stage tree")
+    ts = trace_sub.add_parser("show", help="render one run's trace as a tree")
     ts.add_argument("id", help="a run_id or trace_id")
     ts.add_argument("--results", default=str(DEFAULT_RESULTS_DIR))
+    ts.add_argument(
+        "--depth",
+        type=int,
+        default=DEFAULT_DEPTH,
+        help=(
+            f"how many levels to descend (default: {DEFAULT_DEPTH}). A benchmark's own "
+            "spans are merged into the run trace, so a TPC official run is four deep "
+            "and ~900 wide; anything elided is counted, never dropped silently."
+        ),
+    )
 
     roll_p = sub.add_parser("rollup", help="downsample a run's series.parquet (needs the [store] extra)")
     roll_p.add_argument("run_dir", help="directory containing series.parquet")

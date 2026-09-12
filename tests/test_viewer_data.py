@@ -178,7 +178,12 @@ def test_load_trajectory_real_run(results_dir: Path) -> None:
     traj = load_trajectory(results_dir, run_id)
     assert traj is not None
     spans = traj["spans"]
-    assert len(spans) == 3
+    # The merged trace: the lifecycle plus the suite's own spans. Asserting a
+    # count would pin the number of stages a run happens to time, so this pins
+    # the shape instead — both layers present, every span normalised.
+    names = {s["name"] for s in spans}
+    assert "csbench.run" in names
+    assert any(not n.startswith("csbench.") for n in names)
     for span in spans:
         assert SPAN_V2_KEYS <= set(span), f"span missing v2 keys: {sorted(span)}"
     assert traj["t0"] == min(s["t_start"] for s in spans)
@@ -258,10 +263,39 @@ def test_load_trajectory_traversal_never_reads_existing_outside_file(
     assert any("escapes results_dir" in r.message for r in caplog.records)
 
 
-def test_load_trajectory_missing_file(results_dir: Path) -> None:
-    """Record exists, artifact declared, but the file itself is gone -> None."""
+def test_a_deleted_artifact_still_renders_from_the_merged_trace(results_dir: Path) -> None:
+    """The sidecar's spans were re-emitted into the run trace at finalize, so
+    losing the sidecar afterwards loses no spans.
+
+    This deliberately relaxes an earlier rule ("never downgrade a declared
+    artifact to the run trace"). That rule existed because the run trace was
+    *thinner* — the lifecycle and nothing else. Now it is a superset, so the
+    reason has dissolved. The next test pins the case where the rule still
+    applies.
+    """
     run_id = _the_run_id(results_dir)
     shutil.rmtree(results_dir / "artifacts")
+    traj = load_trajectory(results_dir, run_id)
+    assert traj is not None
+    assert traj["source"] == "full"
+    assert any(not s["name"].startswith("csbench.") for s in traj["spans"])
+
+
+def test_a_pre_merge_record_with_a_deleted_artifact_is_still_none(results_dir: Path) -> None:
+    """Where the run trace is lifecycle-only — a record written before the
+    merge — a missing artifact must still be None rather than a silent
+    downgrade to six stage bars the reader would mistake for the whole run."""
+    run_id = _the_run_id(results_dir)
+    record = json.loads(_record_path(results_dir, run_id).read_text())
+    trace = results_dir / "traces" / f"{record['extensions']['core']['trace_id']}.jsonl"
+    lifecycle_only = [
+        line
+        for line in trace.read_text().splitlines()
+        if line.strip() and json.loads(line)["name"].startswith("csbench.")
+    ]
+    trace.write_text("\n".join(lifecycle_only) + "\n")
+    shutil.rmtree(results_dir / "artifacts")
+
     assert load_trajectory(results_dir, run_id) is None
 
 
@@ -320,7 +354,7 @@ def test_count_records_matches_list_without_parsing(results_dir, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# load_trajectory: the run-trace fallback (every run has a waterfall)
+# load_trajectory: which of the two files a reader gets, and why
 # ---------------------------------------------------------------------------
 
 
@@ -330,8 +364,13 @@ def _record_path(results_dir: Path, run_id: str) -> Path:
     return paths[0]
 
 
-def test_load_trajectory_prefers_the_artifact_when_both_exist(results_dir: Path) -> None:
-    """The real run has BOTH a trajectory artifact and results/traces/<id>.jsonl."""
+def test_load_trajectory_prefers_the_merged_run_trace(results_dir: Path) -> None:
+    """The real run has BOTH a trajectory artifact and results/traces/<id>.jsonl.
+
+    Since the merge, the run trace holds the suite's own spans re-emitted under
+    the stage that produced them — so it is a superset, and preferring the
+    sidecar would show a reader strictly less than exists.
+    """
     run_id = _the_run_id(results_dir)
     record = json.loads(_record_path(results_dir, run_id).read_text())
     trace_id = record["extensions"]["core"]["trace_id"]
@@ -339,21 +378,34 @@ def test_load_trajectory_prefers_the_artifact_when_both_exist(results_dir: Path)
 
     traj = load_trajectory(results_dir, run_id)
     assert traj is not None
-    assert traj["source"] == "artifact"
-    assert len(traj["spans"]) == 3  # the sidecar's spans, not the run trace's
+    assert traj["source"] == "full"
+    names = {span["name"] for span in traj["spans"]}
+    assert "csbench.run" in names, "the lifecycle must be present"
+    assert any(not n.startswith("csbench.") for n in names), "the suite's spans must be present"
+    # A superset of the sidecar, which on its own carries 3 spans.
+    assert len(traj["spans"]) > 3
 
 
-def test_load_trajectory_falls_back_to_the_run_trace(results_dir: Path) -> None:
-    """Drop the trajectory artifact: the run trace still yields a waterfall."""
+def test_a_run_that_reported_nothing_finer_is_labelled_lifecycle(results_dir: Path) -> None:
+    """Strip the suite's spans from the trace: what is left is the lifecycle,
+    and the reader is told so rather than being left to wonder why the waterfall
+    is six bars deep."""
     run_id = _the_run_id(results_dir)
     path = _record_path(results_dir, run_id)
     record = json.loads(path.read_text())
     record["artifacts"] = [a for a in record["artifacts"] if a.get("kind") != "trajectory"]
     path.write_text(json.dumps(record))
+    trace = results_dir / "traces" / f"{record['extensions']['core']['trace_id']}.jsonl"
+    lifecycle_only = [
+        line
+        for line in trace.read_text().splitlines()
+        if line.strip() and json.loads(line)["name"].startswith("csbench.")
+    ]
+    trace.write_text("\n".join(lifecycle_only) + "\n")
 
     traj = load_trajectory(results_dir, run_id)
     assert traj is not None
-    assert traj["source"] == "run-trace"
+    assert traj["source"] == "lifecycle"
     assert traj["spans"], "the run trace must produce spans"
     for span in traj["spans"]:
         assert SPAN_V2_KEYS <= set(span), f"span missing v2 keys: {sorted(span)}"
