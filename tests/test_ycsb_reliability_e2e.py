@@ -120,8 +120,13 @@ def test_reliability_run_records_disruption_and_recovers(tmp_path, monkeypatch):
         output = raw.path("ycsb_output").read_text()
         assert "Return=OK" in output  # ops succeeded before AND after (reconnect)
         # the trajectory carries the measured disruption span
-        spans = [json.loads(x) for x in raw.path("trajectory").read_text().splitlines() if x.strip()]
-        assert any(s["name"] == "ycsb.disruption.reset" for s in spans)
+        spans = {
+            s["name"]: s
+            for s in (json.loads(x) for x in raw.path("trajectory").read_text().splitlines() if x.strip())
+        }
+        assert "ycsb.disruption.reset" in spans
+        # ...inside the measured run, exactly where the live plane drew it
+        assert spans["ycsb.disruption.reset"]["parent_span_id"] == spans["ycsb.run"]["span_id"]
 
         # evaluator turns the evidence into measurements
         from clousight_bench.suites.ycsb.evaluator import OfficialYcsbEvaluator
@@ -246,3 +251,74 @@ def test_proxy_is_stopped_when_the_run_phase_fails(tmp_path):
     # collide with the target and TCP self-connect succeeds without a listener)
     with pytest.raises(RuntimeError, match="single-use"):
         proxy.start()
+
+
+def test_the_disruption_span_nests_under_the_measured_run_span(monkeypatch):
+    """The live plane draws the disruption inside ``ycsb.run`` (``parent=``);
+    the sealed trajectory must nest it there too, or the two waterfalls tell a
+    reader two different stories about where the fault landed."""
+    import types
+
+    from clousight_bench.core import disruption as disruption_mod
+    from clousight_bench.core.suite import EnvHandle
+    from clousight_bench.suites.ycsb import suite as ycsb_suite
+
+    fired_at = time.time_ns()
+
+    class _FakeProxy:
+        def __init__(self, host, port):
+            self.host, self.port = host, port
+
+        def start(self):
+            return "127.0.0.1:65000"
+
+        def snapshot(self):
+            return types.SimpleNamespace(
+                disrupted_at_unix_nano=[fired_at],
+                connections_total=1,
+                connections_reset=1,
+                stall_windows=0,
+                stall_ms_total=0.0,
+                stall_windows_unix_nano=[],
+            )
+
+        def stop(self):
+            return None
+
+    monkeypatch.setattr(disruption_mod, "DisruptionProxy", _FakeProxy)
+    monkeypatch.setattr(
+        disruption_mod,
+        "schedule_disruption",
+        lambda *a, **k: types.SimpleNamespace(cancel=lambda: None, join=lambda timeout=0: None),
+    )
+    monkeypatch.setattr(
+        ycsb_suite.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "[OVERALL], x, 1", ""),
+    )
+
+    env = EnvHandle(
+        {
+            "mock": False,
+            "binary": "/usr/bin/false",  # never executed: subprocess.run is faked
+            "binding": "redis",
+            "props": ["-p", "redis.host=127.0.0.1", "-p", "redis.port=6379"],
+            "workload": "workloada",
+            "recordcount": 1,
+            "operationcount": 1,
+            "reliability": {"action": "reset", "at_s": 0.0},
+            "endpoint": "127.0.0.1:6379",
+        }
+    )
+    target = Target(mode="runtime", mock=False, handle=None, endpoint="127.0.0.1:6379")
+    raw = ycsb_suite.YcsbSuite().run(target, env, DriverContext(placement="local", trace_id="e" * 32))
+
+    spans = {
+        json.loads(line)["name"]: json.loads(line)
+        for line in raw.path("trajectory").read_text().splitlines()
+        if line.strip()
+    }
+    assert set(spans) == {"ycsb.load", "ycsb.run", "ycsb.disruption.reset"}
+    assert spans["ycsb.disruption.reset"]["parent_span_id"] == spans["ycsb.run"]["span_id"]
+    assert spans["ycsb.run"]["parent_span_id"] == ""
+    assert spans["ycsb.load"]["parent_span_id"] == ""

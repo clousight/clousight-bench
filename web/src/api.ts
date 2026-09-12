@@ -101,10 +101,12 @@ export interface TraceSpan {
 export interface TrajectoryData {
   spans: TraceSpan[];
   t0: number;
-  /** Where the spans came from: the suite's own artifact, or the run trace
-   * every run emits. The UI says which, so a reader knows how much detail to
-   * expect. */
-  source?: "artifact" | "run-trace";
+  /** How complete this trace is. `full` = the run trace with the suite's own
+   * spans merged in, the whole chain. `artifact` = a pre-merge record, where
+   * the detail lives only in the suite's sidecar. `lifecycle` = the stages and
+   * nothing finer, because the suite reported nothing. The UI says which, so a
+   * reader knows how much detail to expect. */
+  source?: "full" | "artifact" | "lifecycle";
 }
 
 export async function getJSON<T>(path: string): Promise<T> {

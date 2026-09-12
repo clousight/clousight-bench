@@ -90,8 +90,21 @@ class RunInfo:
     # Per-stage wall-clock durations in ms, for spotting a slow/hung stage. Only
     # the stages that were timed appear; a key must be a known stage.
     stage_timings: dict[str, float] = field(default_factory=dict)
+    # Each timed stage's REAL window as ``[start_ms, end_ms]`` from the run's
+    # start. Durations alone cannot say *when* a stage ran, so the trace had to
+    # lay the stages end-to-end and invent a timeline; anything with its own
+    # clock — a suite's trajectory spans — then failed to line up with it. It
+    # also makes a gap between two stages visible, which a duration list hides.
+    # Optional and additive: absent on records written before 0.6.1, and the
+    # trace falls back to the old end-to-end reconstruction for those.
+    stage_spans: dict[str, list[float]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        for stage, window in self.stage_spans.items():
+            if stage not in STAGES:
+                raise RecordError(f"unknown stage {stage!r} in stage_spans")
+            if len(window) != 2 or window[1] < window[0]:
+                raise RecordError(f"stage_spans[{stage!r}] must be [start_ms, end_ms], got {window!r}")
         for name, state in self.stages.items():
             if name not in STAGES:
                 raise RecordError(f"unknown stage {name!r}")
@@ -108,6 +121,11 @@ class RunInfo:
             "finished_at": self.finished_at,
             "stages": dict(self.stages),
             "stage_timings": dict(self.stage_timings),
+            # Omitted when empty so a record written without real stage marks
+            # (or replayed from an older one) is byte-identical to before.
+            **(
+                {"stage_spans": {k: list(v) for k, v in self.stage_spans.items()}} if self.stage_spans else {}
+            ),
         }
 
     @classmethod
@@ -118,6 +136,7 @@ class RunInfo:
             finished_at=str(data["finished_at"]),
             stages=dict(data.get("stages", {})),
             stage_timings=dict(data.get("stage_timings", {})),
+            stage_spans={k: [float(x) for x in v] for k, v in (data.get("stage_spans") or {}).items()},
         )
 
 

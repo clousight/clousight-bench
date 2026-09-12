@@ -40,13 +40,14 @@ un-reported at fine grain. Concretely:
 from __future__ import annotations
 
 from collections.abc import Callable
-from time import perf_counter
+from time import perf_counter, time_ns
 from typing import Any
 
 from clousight_bench.core.errors import RunCancelled
 from clousight_bench.core.progress import NULL_PROGRESS, ProgressReporter
 
 _MS = 1000.0
+_NS = 1_000_000_000
 
 
 class StepClock:
@@ -55,13 +56,24 @@ class StepClock:
     Reads the same ``perf_counter`` the suites already time with, so a step can be
     built from the very marks a measured interval used — no second, disagreeing
     timing is ever taken.
+
+    One wall-clock reading is taken next to that origin (:meth:`unix_ns`), which
+    is what a sealed trajectory span needs: OTel timestamps are absolute, while
+    ``perf_counter`` is an arbitrary monotonic origin. Only the ORIGIN is read
+    from the wall clock — every span bound is that origin plus an offset from a
+    mark the suite already took, so an interval is never re-measured.
     """
 
-    __slots__ = ("_clock", "_t0")
+    __slots__ = ("_clock", "_t0", "_t0_unix_ns")
 
-    def __init__(self, clock: Callable[[], float] = perf_counter) -> None:
+    def __init__(
+        self,
+        clock: Callable[[], float] = perf_counter,
+        wall: Callable[[], int] = time_ns,
+    ) -> None:
         self._clock = clock
         self._t0 = clock()
+        self._t0_unix_ns = wall()
 
     def now(self) -> float:
         """The raw clock value, to be handed back to :meth:`ms` later."""
@@ -70,6 +82,15 @@ class StepClock:
     def ms(self, at: float | None = None) -> float:
         """Milliseconds from the origin to ``at`` (default: now)."""
         return ((self._clock() if at is None else at) - self._t0) * _MS
+
+    def unix_ns(self, at: float) -> int:
+        """Absolute wall-clock nanoseconds for the mark ``at`` from this clock.
+
+        The conversion carries the sub-microsecond skew between the two origin
+        readings; every *duration* is exact, because it is a difference of two
+        marks from the one monotonic clock.
+        """
+        return self._t0_unix_ns + int((at - self._t0) * _NS)
 
 
 def raise_if_cancelled(progress: ProgressReporter, where: str) -> None:

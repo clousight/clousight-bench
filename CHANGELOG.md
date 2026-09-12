@@ -47,6 +47,38 @@ All notable changes to Clousight Bench are recorded here.
   engineer-view toggle.
 - **Viewer unit tests** (`cd web && npm test`, vitest), run by CI's
   `viewer-dist` job alongside the byte-identical dist check.
+- **The execution trace is one tree**, `csbench.run` down to a single query. A
+  benchmark's own spans were already on the run's trace — a suite gets the
+  `trace_id` on its `DriverContext` — but its root span had no parent and lived
+  in a separate file, so the viewer showed the lifecycle *or* the detail, never
+  both: an official TPC run rendered 76 query spans and no stages, a reference
+  run rendered the stages and an empty `EXECUTE`. `emit_run_trace` now re-emits
+  the benchmark's trajectory as children of the stage that produced it. The
+  benchmark's own artifact is left byte-identical — it is the SUT's unmodified
+  account, and its sha256 is pinned in the record — so the run trace becomes the
+  merged view while the artifact stays the primary source.
+- **`run.stage_spans`** records each timed stage's real `[start_ms, end_ms]`
+  from the run's start. Additive and optional. Durations alone cannot say *when*
+  a stage ran, so the trace had to lay the stages end-to-end and invent a
+  timeline — on a real official run the benchmark's spans started 5.117s after
+  the reconstructed `EXECUTE` window began, which would have drawn children
+  outside their parent. It also makes a gap between two stages visible: the
+  first run with real marks showed five seconds before `PREFLIGHT` that nothing
+  previously reported.
+- **The reference paths seal the spans they were already measuring.** A plain
+  `csbench run --benchmark tpc-h` measured 22 per-query intervals, wrote them to
+  `queries.json` and reported them live — and sealed no trajectory, so its trace
+  had an empty `EXECUTE`. TPC-H/TPC-DS reference mode now emits `<suite>.load`,
+  `<suite>.query-set` and a span per query, named and nested exactly as the live
+  progress plane draws them. Every bound comes from a mark the run already took:
+  on a real run the worst gap between a span's width and its row's `latency_ms`
+  is 1 ns. Mock paths deliberately seal nothing — the fixtures carry canned
+  latencies, and a waterfall of invented numbers is worse than none.
+- **`csbench trace show` renders the whole tree**, two levels deep by default
+  with `--depth` to go further. It printed the run root's direct children and
+  stopped, which was complete when the trace held only the lifecycle and is not
+  any more. Anything past the limit is counted and announced rather than cut
+  silently.
 
 ### Changed
 

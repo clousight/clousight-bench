@@ -360,6 +360,13 @@ class YcsbSuite(BenchmarkSuite):
 
         trace_id = getattr(driver, "trace_id", "") or new_trace_id()
         base_attrs = {"csbench.suite_id": "ycsb", "db.system.name": binding}
+        run_span = phase_span(
+            trace_id=trace_id,
+            name="ycsb.run",
+            start_unix_nano=run_start_ns,
+            end_unix_nano=run_end_ns,
+            attributes={**base_attrs, "csbench.phase": "run"},
+        )
         spans = [
             phase_span(
                 trace_id=trace_id,
@@ -368,13 +375,7 @@ class YcsbSuite(BenchmarkSuite):
                 end_unix_nano=load_end_ns,
                 attributes={**base_attrs, "csbench.phase": "load"},
             ),
-            phase_span(
-                trace_id=trace_id,
-                name="ycsb.run",
-                start_unix_nano=run_start_ns,
-                end_unix_nano=run_end_ns,
-                attributes={**base_attrs, "csbench.phase": "run"},
-            ),
+            run_span,
         ]
         if disruption_meta is not None and disruption_meta["fired"]:
             action = disruption_meta["plan"]["action"]
@@ -400,6 +401,10 @@ class YcsbSuite(BenchmarkSuite):
                         start_unix_nano=start_ns,
                         end_unix_nano=end_ns,
                         attributes=disruption_attrs,
+                        # inside the measured run, exactly as the live plane
+                        # draws it (parent="ycsb.run") — the two waterfalls
+                        # must nest the same thing the same way
+                        parent_span_id=run_span["span_id"],
                     )
                 )
                 progress.step(
@@ -417,7 +422,11 @@ class YcsbSuite(BenchmarkSuite):
 
     # ------------------------------------------------------------ mock_artifacts
     def mock_artifacts(self, cfg: dict[str, Any]) -> RawArtifacts:  # noqa: ARG002
-        """Copy the bundled real-format YCSB output fixture — no tool, no network."""
+        """Copy the bundled real-format YCSB output fixture — no tool, no network.
+
+        No trajectory: the fixture's numbers were never measured here, and
+        drawing invented spans on a waterfall would misrepresent them.
+        """
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-ycsb-mock-"))
         output = (_FIXTURES_DIR / "mock" / "ycsb_output.txt").read_text(encoding="utf-8")
         summary = json.loads((_FIXTURES_DIR / "mock" / "summary.json").read_text())
