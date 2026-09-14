@@ -28,12 +28,15 @@ import {
 } from "@/lib/glossary";
 import { cn } from "@/lib/utils";
 
-const TONE_CARD: Record<StageTone, string> = {
-  ok: "border-status-good/30 bg-status-good/[0.06]",
-  failed: "border-status-critical/40 bg-status-critical/[0.07]",
-  skipped: "border-border bg-muted/40",
-  running: "border-status-running/45 bg-status-running/[0.08]",
-  pending: "border-dashed border-border bg-transparent",
+// A stage tile is a hairline, not a box: the left rule carries the tone (the
+// same status colours the text below already uses), so pass/fail/skipped read
+// at a glance without drawing the rounded, filled chip the chrome rule forbids.
+const TONE_RULE: Record<StageTone, string> = {
+  ok: "border-status-good/70",
+  failed: "border-status-critical/80",
+  skipped: "border-border",
+  running: "border-status-running/80",
+  pending: "border-dashed border-border",
 };
 
 const TONE_TEXT: Record<StageTone, string> = {
@@ -87,8 +90,8 @@ export function StageStrip({ stages, timings = {}, activeStage, activeElapsedMs 
                     key={stage}
                     title={spec === undefined ? stage : locale === "zh" ? spec.blurb.zh : spec.blurb.en}
                     className={cn(
-                      "min-w-[7.5rem] cursor-help rounded-md border px-2.5 py-1.5 transition-colors",
-                      TONE_CARD[tone],
+                      "min-w-[7.5rem] cursor-help border-l-2 py-0.5 pl-2.5 transition-colors",
+                      TONE_RULE[tone],
                     )}
                   >
                     <div className="text-xs font-medium">

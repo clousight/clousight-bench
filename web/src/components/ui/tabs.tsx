@@ -58,10 +58,12 @@ export function TabsTrigger({ value, className, ...props }: TabsTriggerProps) {
       type="button"
       role="tab"
       aria-selected={active}
+      data-state={active ? "active" : "inactive"}
       onClick={() => tabs.onValueChange(value)}
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        active ? "bg-background text-foreground shadow-sm" : "hover:text-foreground",
+        // A tab is a place in the document, not a raised button. The underline
+        // reads as position; the pill read as chrome competing for attention.
+        "inline-flex items-center justify-center whitespace-nowrap border-b-2 border-transparent px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.06em] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=active]:border-foreground data-[state=active]:text-foreground",
         className,
       )}
       {...props}

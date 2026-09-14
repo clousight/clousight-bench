@@ -241,3 +241,52 @@ def test_bundled_font_stays_within_a_latin_subset_budget(dist_files: list[tuple[
     assert len(fonts) <= 2, f"more than two bundled weights: {[n for n, _ in fonts]}"
     total = sum(len(data) for _, data in fonts)
     assert total < 80 * 1024, f"bundled fonts total {total} bytes — a Latin subset is ~15 KB per weight"
+
+
+#: Tokens that dress the interface rather than carry a measurement. Chart and
+#: status tokens are deliberately absent: those ARE the data channel.
+_CHROME_TOKENS = (
+    "background", "foreground", "card", "card-foreground",
+    "primary", "primary-foreground", "secondary", "secondary-foreground",
+    "muted", "muted-foreground", "accent", "accent-foreground",
+    "border", "input", "ring",
+)
+
+_OKLCH_RE = re.compile(r"oklch\(\s*[\d.]+%?\s+([\d.]+)\s")
+
+
+def test_chrome_tokens_carry_no_hue() -> None:
+    """Colour is the data channel; chrome must not compete with it.
+
+    A hue in the chrome is how an interface starts arguing with its own charts —
+    the four categorical slots were validated for separation against each other,
+    not against a tinted header. Status colours and chart slots are excluded
+    because carrying meaning is exactly their job.
+    """
+    css = (_WEB_SRC / "index.css").read_text(encoding="utf-8")
+    offenders: list[str] = []
+    for token in _CHROME_TOKENS:
+        for match in re.finditer(rf"^\s*--{re.escape(token)}:\s*(.+?);", css, re.MULTILINE):
+            value = match.group(1).strip()
+            chroma = _OKLCH_RE.match(value)
+            if chroma is None:
+                continue  # not an oklch literal (e.g. a var() alias or rgb alpha form)
+            if float(chroma.group(1)) > 0.02:
+                offenders.append(f"--{token}: {value}")
+    assert not offenders, "chrome tokens with a hue: " + ", ".join(offenders)
+
+
+def test_chrome_components_do_not_reference_chart_or_status_colours() -> None:
+    """A chip or a button reaching for a chart slot re-uses a series colour as
+    decoration, which silently breaks the rule that a slot belongs to one series
+    by identity."""
+    chrome = [
+        _WEB_SRC / "components" / "ui" / "badge.tsx",
+        _WEB_SRC / "components" / "ui" / "button.tsx",
+        _WEB_SRC / "components" / "ui" / "tabs.tsx",
+        _WEB_SRC / "components" / "Header.tsx",
+    ]
+    for path in chrome:
+        text = path.read_text(encoding="utf-8")
+        for needle in ("chart-1", "chart-2", "chart-3", "chart-4", "status-"):
+            assert needle not in text, f"{path.name} references {needle}"

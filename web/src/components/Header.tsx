@@ -77,8 +77,8 @@ function Nav({ activeCount }: { activeCount: number }) {
         >
           {item.label}
           {item.badge !== undefined && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-status-running/15 px-1.5 text-[10px] font-semibold text-status-running">
-              <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-status-running" />
+            <span className="inline-flex items-center gap-1 rounded-full bg-foreground/10 px-1.5 text-[10px] font-medium text-foreground">
+              <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-foreground" />
               {item.badge}
             </span>
           )}
@@ -98,7 +98,7 @@ export function Header() {
   const activeCount = live.data?.runs.filter((run) => run.status === "running").length ?? 0;
 
   return (
-    <header className="sticky top-0 z-10 border-b bg-background/90 backdrop-blur">
+    <header className="sticky top-0 z-10 border-b border-border">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-6">
         <a href={boardHref} className="flex items-baseline gap-2">
           <span className="text-base font-semibold tracking-tight">{t("header.title")}</span>
