@@ -20,7 +20,7 @@ import {
 } from "@/api";
 import { StatusPill } from "@/components/Glossed";
 import { ErrorView, LoadingView } from "@/components/StateViews";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Section, SectionBody, SectionHead, SectionTitle } from "@/components/ui/section";
 import { LiveStrip } from "@/features/live/LiveStrip";
 import { useI18n } from "@/i18n";
 import { fmtRelative } from "@/lib/format";
@@ -63,17 +63,17 @@ export function BoardView() {
       </div>
 
       {domains.length === 0 ? (
-        <Card>
-          <CardContent className="px-4 py-8 text-center text-sm text-muted-foreground">
+        <Section>
+          <SectionBody className="px-4 py-8 text-center text-sm text-muted-foreground">
             {t("board.empty")}
-          </CardContent>
-        </Card>
+          </SectionBody>
+        </Section>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {domains.map((domain) => (
-            <Card key={domain.domain}>
-              <CardHeader>
-                <CardTitle className="flex items-baseline gap-2">
+            <Section key={domain.domain}>
+              <SectionHead>
+                <SectionTitle className="flex items-baseline gap-2">
                   <span>
                     {locale === "zh"
                       ? (DOMAIN_LABELS[domain.domain]?.zh ?? domain.domain)
@@ -82,10 +82,10 @@ export function BoardView() {
                   <span className="font-mono text-[10px] font-normal text-muted-foreground">
                     {domain.domain}
                   </span>
-                </CardTitle>
-              </CardHeader>
+                </SectionTitle>
+              </SectionHead>
               <DomainSuites domain={domain} />
-            </Card>
+            </Section>
           ))}
         </div>
       )}
@@ -123,7 +123,7 @@ function DomainSuites({ domain }: { domain: BoardDomain }) {
   const hidden = ordered.length - shown.length;
 
   return (
-    <CardContent className="flex flex-col divide-y">
+    <SectionBody className="flex flex-col divide-y">
       {shown.map((suite) => (
         <SuiteTile key={suite.suite_id} domain={domain.domain} suite={suite} />
       ))}
@@ -136,7 +136,7 @@ function DomainSuites({ domain }: { domain: BoardDomain }) {
           {t("board.show_more").replace("{n}", String(hidden))}
         </button>
       )}
-    </CardContent>
+    </SectionBody>
   );
 }
 
