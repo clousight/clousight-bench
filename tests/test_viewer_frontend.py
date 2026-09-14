@@ -255,11 +255,17 @@ _CHROME_TOKENS = (
 _OKLCH_RE = re.compile(r"oklch\(\s*[\d.]+%?\s+([\d.]+)\s")
 
 #: The only non-literal form a chrome token is allowed to take: a reference to
-#: another custom property. Whatever it points at is either itself a chrome
-#: token (and so checked in its own right) or a deliberate, reviewed choice —
-#: but a raw hex/rgb/hsl literal is not, since those are exactly the forms
-#: that would smuggle a hue past the oklch-only check below.
-_ALIAS_RE = re.compile(r"^var\(--[\w-]+\)$")
+#: another custom property, captured so the target name can be resolved and
+#: checked in its own right (see ``test_chrome_tokens_carry_no_hue``) rather
+#: than merely pattern-matched and waved through.
+_ALIAS_RE = re.compile(r"^var\(--([\w-]+)\)$")
+
+
+def _declared_values(css: str, name: str) -> list[str]:
+    """Every ``--name: value;`` declaration of a custom property, across every
+    scope (``:root``, ``.dark``, ...). The same shape used to find a chrome
+    token's own declaration, reused to resolve one level of ``var()`` alias."""
+    return [m.group(1).strip() for m in re.finditer(rf"^\s*--{re.escape(name)}:\s*(.+?);", css, re.MULTILINE)]
 
 
 def test_chrome_tokens_carry_no_hue() -> None:
@@ -269,22 +275,51 @@ def test_chrome_tokens_carry_no_hue() -> None:
     the four categorical slots were validated for separation against each other,
     not against a tinted header. Status colours and chart slots are excluded
     because carrying meaning is exactly their job.
+
+    A chrome token may alias another custom property with ``var(--other)``,
+    but the alias is only as clean as what it points at: this resolves ONE
+    level of indirection and applies the same chroma test to the target's own
+    declaration, rather than trusting that the shape ``var(...)`` implies a
+    reviewed value. Aliasing a chrome token straight to a chart or status slot
+    (e.g. ``--card: var(--chart-1)``) is exactly the cheap way to smuggle a hue
+    into the chrome, and it is caught here now. Deliberately NOT chased further
+    than one level: a target that is itself an alias fails loudly instead of
+    being silently accepted, since following chains needs real recursion for a
+    case nothing in this file currently needs.
     """
     css = (_WEB_SRC / "index.css").read_text(encoding="utf-8")
     offenders: list[str] = []
     matched: set[str] = set()
     for token in _CHROME_TOKENS:
-        for match in re.finditer(rf"^\s*--{re.escape(token)}:\s*(.+?);", css, re.MULTILINE):
+        for value in _declared_values(css, token):
             matched.add(token)
-            value = match.group(1).strip()
-            chroma = _OKLCH_RE.match(value)
-            if chroma is not None:
-                if float(chroma.group(1)) > 0.02:
+            alias = _ALIAS_RE.match(value)
+            if alias is None:
+                chroma = _OKLCH_RE.match(value)
+                if chroma is None:
+                    offenders.append(f"--{token}: {value} (neither an oklch() literal nor a var() alias)")
+                elif float(chroma.group(1)) > 0.02:
                     offenders.append(f"--{token}: {value}")
                 continue
-            if _ALIAS_RE.match(value):
-                continue  # delegates to another custom property, not a new literal
-            offenders.append(f"--{token}: {value} (neither an oklch() literal nor a var() alias)")
+            target = alias.group(1)
+            target_values = _declared_values(css, target)
+            if not target_values:
+                offenders.append(f"--{token}: {value} -> --{target} is not declared anywhere in index.css")
+                continue
+            for target_value in target_values:
+                if _ALIAS_RE.match(target_value):
+                    offenders.append(
+                        f"--{token}: {value} -> --{target}: {target_value} is itself an alias; "
+                        "this test resolves one level of var() only"
+                    )
+                    continue
+                chroma = _OKLCH_RE.match(target_value)
+                if chroma is None:
+                    offenders.append(
+                        f"--{token}: {value} -> --{target}: {target_value} is not an oklch() literal"
+                    )
+                elif float(chroma.group(1)) > 0.02:
+                    offenders.append(f"--{token}: {value} -> --{target}: {target_value}")
     assert not offenders, "chrome tokens with a hue: " + ", ".join(offenders)
     # A ratchet that never sees its token rename/deletion is not a ratchet: it
     # would silently pass with zero matches while guarding nothing.
