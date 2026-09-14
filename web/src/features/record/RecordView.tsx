@@ -103,7 +103,7 @@ export function RecordView({ runId }: { runId: string }) {
       {errors.length > 0 && (
         <Section className="border-status-critical/40 bg-status-critical/[0.05]">
           <SectionHead>
-            <SectionTitle>{t("record.what_broke")}</SectionTitle>
+            <SectionTitle className="text-status-critical">{t("record.what_broke")}</SectionTitle>
           </SectionHead>
           <SectionBody className="flex flex-col gap-2">
             {errors.map((error, index) => (

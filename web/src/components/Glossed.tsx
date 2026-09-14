@@ -127,7 +127,9 @@ export function MetricValue({
   return (
     <div className={cn("min-w-0", className)}>
       <div className={cn("flex items-baseline gap-1.5", hero && "flex-wrap")}>
-        <span className={cn("tabular-nums", hero ? "text-2xl font-semibold tracking-tight" : "font-medium")}>
+        <span
+          className={cn("font-mono tabular-nums", hero ? "text-2xl font-medium tracking-tight" : "font-medium")}
+        >
           {formatted.text}
         </span>
         {formatted.unit !== "" && (
