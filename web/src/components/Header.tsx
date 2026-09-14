@@ -21,22 +21,25 @@ function LocaleSwitch() {
     <div
       role="group"
       aria-label={t("header.lang")}
-      className="inline-flex items-center rounded-md bg-muted p-0.5 text-xs font-medium text-muted-foreground"
+      className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
     >
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          aria-pressed={locale === option.value}
-          onClick={() => setLocale(option.value)}
-          className={cn(
-            "rounded-[5px] px-2 py-1 transition-colors",
-            locale === option.value ? "bg-background text-foreground shadow-sm" : "hover:text-foreground",
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
+      {options.map((option) => {
+        const active = locale === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => setLocale(option.value)}
+            className={cn(
+              "border-b-2 border-transparent px-1.5 py-1 transition-colors hover:text-foreground",
+              active && "border-foreground text-foreground",
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -71,13 +74,18 @@ function Nav({ activeCount }: { activeCount: number }) {
           href={item.href}
           aria-current={item.active ? "page" : undefined}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors",
-            item.active ? "bg-secondary text-secondary-foreground" : "text-muted-foreground hover:text-foreground",
+            "inline-flex items-center gap-1.5 border-b-2 border-transparent px-2.5 py-1.5 text-sm font-medium transition-colors",
+            item.active ? "border-foreground text-foreground" : "text-muted-foreground hover:text-foreground",
           )}
         >
           {item.label}
           {item.badge !== undefined && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-status-running/15 px-1.5 text-[10px] font-semibold text-status-running">
+            // On the same scale as ui/badge.tsx (mono, rounded-sm, uppercase,
+            // tracked) rather than the old sans/semibold/pill one-off — this is
+            // still status, not decoration, so it keeps status-running's hue.
+            // font-medium (not the badge default font-normal) is deliberate:
+            // this is the one indicator meant to say "look here now".
+            <span className="inline-flex items-center gap-1 rounded-sm border border-transparent bg-status-running/15 px-1.5 py-0 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-status-running transition-colors dark:bg-status-running/20">
               <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-status-running" />
               {item.badge}
             </span>

@@ -288,6 +288,16 @@ def test_chrome_components_do_not_reuse_chart_series_slots() -> None:
     AND status, chrome just must not invent a hue of its own. Only the four
     categorical chart slots, which are validated for separation against each
     other as an identity-by-series contract, are off limits to decoration.
+
+    The needle is the bare substring "chart-", not "chart-1".."chart-4": the
+    semantic aliases (`--chart-llm`, `--chart-tool`, `--chart-db`,
+    `--chart-stage`) resolve to the same four slots and are the *more* natural
+    thing to reach for since they read by meaning, and `--chart-grid` /
+    `--chart-axis` are the same series-adjacent surface. A narrower needle
+    would leave all six reachable by name. Left consciously unguarded: a
+    chrome element reaching for a `status-*` colour with no real status to
+    report. That is a judgement call ("is this genuinely status?") no grep
+    can make, so it stays a human-review concern rather than a test.
     """
     chrome = [
         _WEB_SRC / "components" / "ui" / "badge.tsx",
@@ -297,5 +307,4 @@ def test_chrome_components_do_not_reuse_chart_series_slots() -> None:
     ]
     for path in chrome:
         text = path.read_text(encoding="utf-8")
-        for needle in ("chart-1", "chart-2", "chart-3", "chart-4"):
-            assert needle not in text, f"{path.name} references {needle}"
+        assert "chart-" not in text, f"{path.name} references a chart-* slot or alias"

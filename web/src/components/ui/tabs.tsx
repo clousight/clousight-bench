@@ -38,7 +38,10 @@ export function TabsList({ className, ...props }: HTMLAttributes<HTMLDivElement>
     <div
       role="tablist"
       className={cn(
-        "inline-flex h-9 w-fit items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
+        // A rule for the underline to sit on, not a raised, filled track: the
+        // pill idiom is exactly what Task 5 removed from the trigger, so it
+        // cannot survive one level up in the container that wraps it.
+        "inline-flex w-fit items-center justify-center border-b border-border text-muted-foreground",
         className,
       )}
       {...props}

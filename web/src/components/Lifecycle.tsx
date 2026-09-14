@@ -34,9 +34,14 @@ import { cn } from "@/lib/utils";
 const TONE_RULE: Record<StageTone, string> = {
   ok: "border-status-good/70",
   failed: "border-status-critical/80",
-  skipped: "border-border",
+  // `--border` is close to invisible at a 2px rule (~1.2:1 on white, 10% white
+  // alpha in dark) — skipped and pending would both read as "no mark". Both
+  // get a `muted-foreground` rule instead, which is still achromatic but
+  // actually renders; solid-vs-dashed then tells the two apart rather than
+  // relying on a hue neither of them has.
+  skipped: "border-muted-foreground/45",
   running: "border-status-running/80",
-  pending: "border-dashed border-border",
+  pending: "border-dashed border-muted-foreground/25",
 };
 
 const TONE_TEXT: Record<StageTone, string> = {
