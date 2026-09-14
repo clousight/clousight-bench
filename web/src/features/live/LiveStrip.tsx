@@ -15,7 +15,7 @@
 import { ChevronRight } from "lucide-react";
 
 import type { ProgressState } from "@/api";
-import { Card, CardContent } from "@/components/ui/card";
+import { Section, SectionBody } from "@/components/ui/section";
 import { useI18n } from "@/i18n";
 import { fmtClock, fmtRelative } from "@/lib/format";
 import { fractionDone } from "@/lib/eta";
@@ -35,9 +35,9 @@ export function LiveStrip({ runs }: { runs: ProgressState[] }) {
   const running = stillRunning(runs);
   if (running.length === 0) return null;
   return (
-    <Card className="border-status-running/30 bg-status-running/[0.04]">
-      <CardContent className="flex flex-col gap-1 px-3 py-2">
-        <div className="flex items-center gap-2 px-1 text-xs font-medium text-status-running">
+    <Section className="border-status-running/30 bg-status-running/[0.04]">
+      <SectionBody className="flex flex-col gap-1 py-2">
+        <div className="flex items-center gap-2 text-xs font-medium text-status-running">
           <span aria-hidden className="size-2 animate-pulse rounded-full bg-status-running" />
           {t("live.now_running").replace("{n}", String(running.length))}
           <a
@@ -50,8 +50,8 @@ export function LiveStrip({ runs }: { runs: ProgressState[] }) {
         {running.slice(0, 3).map((run) => (
           <LiveStripRow key={run.run_id} run={run} />
         ))}
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }
 
@@ -98,7 +98,7 @@ function LiveStripRow({ run }: { run: ProgressState }) {
   return (
     <a
       href={liveRunHref(run.run_id)}
-      className="group flex items-center gap-3 rounded-md px-1 py-1.5 text-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex items-center gap-3 py-1.5 text-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="font-medium">{suiteLabel(run.suite_id)}</span>
       <span className="font-mono text-[11px] text-muted-foreground">{run.adapter}</span>

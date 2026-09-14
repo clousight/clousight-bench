@@ -1,5 +1,5 @@
 import { Header } from "@/components/Header";
-import { Card, CardContent } from "@/components/ui/card";
+import { Section, SectionBody } from "@/components/ui/section";
 import { BoardView } from "@/features/board/BoardView";
 import { LiveConsole } from "@/features/live/LiveConsole";
 import { LiveRunView } from "@/features/live/LiveRunView";
@@ -13,15 +13,15 @@ import { boardHref, useRoute } from "@/router";
 function NotFound() {
   const { t } = useI18n();
   return (
-    <Card>
-      <CardContent className="px-4 py-3 text-sm">
+    <Section>
+      <SectionBody className="px-4 py-3 text-sm">
         <span className="font-medium">{t("common.error")}</span>
         <span className="ml-2 font-mono text-xs text-muted-foreground">{window.location.hash}</span>
         <a href={boardHref} className="ml-4 text-muted-foreground underline-offset-4 hover:underline">
           {t("common.back")}
         </a>
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }
 

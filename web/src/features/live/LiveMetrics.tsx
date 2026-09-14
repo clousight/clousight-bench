@@ -10,7 +10,13 @@
 
 import type { ProgressStep } from "@/api";
 import { LatencyBars } from "@/charts/LatencyBars";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Section,
+  SectionBody,
+  SectionHead,
+  SectionNote,
+  SectionTitle,
+} from "@/components/ui/section";
 import { useI18n } from "@/i18n";
 import { formatMetric } from "@/lib/glossary";
 import { useLiveAggregates, type SampleSeries } from "@/lib/progressStream";
@@ -35,17 +41,17 @@ export function LiveMetrics({ steps, samples }: LiveMetricsProps) {
     }));
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+    <Section>
+      <SectionHead>
+        <SectionTitle className="flex items-center gap-2">
           {t("live.metrics")}
           <span className="rounded bg-status-warning/15 px-1.5 py-px text-[10px] font-medium text-status-serious">
             {t("live.preliminary")}
           </span>
-        </CardTitle>
-        <CardDescription>{t("live.metrics_blurb")}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+        </SectionTitle>
+        <SectionNote>{t("live.metrics_blurb")}</SectionNote>
+      </SectionHead>
+      <SectionBody className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Tile label={t("live.completed_steps")} text={String(aggregates.count)} unit="" />
           <Tile label={t("live.p50")} {...duration(aggregates.p50Ms)} />
@@ -81,8 +87,8 @@ export function LiveMetrics({ steps, samples }: LiveMetricsProps) {
             <LatencyBars bars={bars} limit={12} ariaLabel={t("live.slowest_chart")} />
           </div>
         )}
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }
 

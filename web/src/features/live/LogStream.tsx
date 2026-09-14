@@ -13,7 +13,7 @@ import { useI18n } from "@/i18n";
 import { fmtClock } from "@/lib/format";
 import type { LogLine } from "@/lib/progressStream";
 import { cn } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Section, SectionBody, SectionHead, SectionTitle } from "@/components/ui/section";
 
 const LEVELS = ["ALL", "INFO", "WARNING", "ERROR"] as const;
 type LevelFilter = (typeof LEVELS)[number];
@@ -53,9 +53,9 @@ export function LogStream({ lines }: { lines: LogLine[] }) {
   };
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
-        <CardTitle>{t("live.logs")}</CardTitle>
+    <Section>
+      <SectionHead className="flex-row items-center justify-between space-y-0">
+        <SectionTitle>{t("live.logs")}</SectionTitle>
         <div role="group" aria-label={t("live.log_level")} className="flex items-center gap-1">
           {LEVELS.map((level) => (
             <button
@@ -74,8 +74,8 @@ export function LogStream({ lines }: { lines: LogLine[] }) {
             </button>
           ))}
         </div>
-      </CardHeader>
-      <CardContent>
+      </SectionHead>
+      <SectionBody>
         {visible.length === 0 ? (
           <p className="py-4 text-center text-xs text-muted-foreground">{t("live.no_logs")}</p>
         ) : (
@@ -92,7 +92,7 @@ export function LogStream({ lines }: { lines: LogLine[] }) {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }

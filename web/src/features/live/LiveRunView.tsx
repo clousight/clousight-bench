@@ -14,7 +14,7 @@ import { cancelRun } from "@/api";
 import { StatusPill } from "@/components/Glossed";
 import { ErrorView, LoadingView } from "@/components/StateViews";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Section, SectionBody, SectionHead, SectionTitle } from "@/components/ui/section";
 import { Waterfall } from "@/charts/Waterfall";
 import { LiveMetrics } from "@/features/live/LiveMetrics";
 import { LiveProgress } from "@/features/live/LiveProgress";
@@ -75,16 +75,16 @@ export function LiveRunView({ runId }: { runId: string }) {
       <LiveProgress state={state} elapsedMs={elapsedMs} />
 
       {rows.length > 0 && (
-        <Card>
-          <CardHeader>
+        <Section>
+          <SectionHead>
             {/* Drops the "(live)" qualifier once the stream has ended, so a
                 finished page does not keep claiming to be updating. */}
-            <CardTitle>{t(feed.done ? "live.waterfall_done" : "live.waterfall")}</CardTitle>
-          </CardHeader>
-          <CardContent>
+            <SectionTitle>{t(feed.done ? "live.waterfall_done" : "live.waterfall")}</SectionTitle>
+          </SectionHead>
+          <SectionBody>
             <Waterfall rows={rows} t0={t0} onSelect={() => undefined} axisMaxMs={elapsedMs} />
-          </CardContent>
-        </Card>
+          </SectionBody>
+        </Section>
       )}
 
       <LiveMetrics steps={feed.steps} samples={feed.samples} />
@@ -117,8 +117,8 @@ function Handoff({
 }) {
   const { t } = useI18n();
   return (
-    <Card className="border-status-good/30 bg-status-good/[0.05]">
-      <CardContent className="flex flex-wrap items-center gap-3 px-4 py-3">
+    <Section className="border-status-good/30 bg-status-good/[0.05]">
+      <SectionBody className="flex flex-wrap items-center gap-3 px-4 py-3">
         <StatusPill status={status} />
         <span className="text-sm">{t("live.finished")}</span>
         <a
@@ -131,8 +131,8 @@ function Handoff({
         {recordPath !== null && (
           <span className="w-full font-mono text-[10px] text-muted-foreground">{recordPath}</span>
         )}
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }
 

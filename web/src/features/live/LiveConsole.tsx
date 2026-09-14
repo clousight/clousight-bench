@@ -10,7 +10,7 @@ import { useEffect } from "react";
 
 import { usePolledJSON, type ProgressList } from "@/api";
 import { ErrorView, LoadingView } from "@/components/StateViews";
-import { Card, CardContent } from "@/components/ui/card";
+import { Section, SectionBody } from "@/components/ui/section";
 import { JustFinished, LiveStrip, stillRunning } from "@/features/live/LiveStrip";
 import { useI18n } from "@/i18n";
 import { boardHref, liveRunHref } from "@/router";
@@ -35,15 +35,15 @@ export function LiveConsole() {
 
   if (runs.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center gap-2 px-4 py-12 text-center">
+      <Section>
+        <SectionBody className="flex flex-col items-center gap-2 py-12 text-center">
           <p className="text-sm text-muted-foreground">{t("live.idle")}</p>
           <p className="max-w-md text-xs text-muted-foreground">{t("live.idle_hint")}</p>
           <a href={boardHref} className="mt-2 text-xs underline-offset-4 hover:underline">
             {t("live.back_to_board")}
           </a>
-        </CardContent>
-      </Card>
+        </SectionBody>
+      </Section>
     );
   }
 

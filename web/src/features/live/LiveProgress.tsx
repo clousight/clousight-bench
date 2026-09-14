@@ -8,7 +8,7 @@
 
 import type { ProgressState } from "@/api";
 import { StageStrip } from "@/components/Lifecycle";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Section, SectionBody, SectionHead, SectionTitle } from "@/components/ui/section";
 import { useI18n } from "@/i18n";
 import { estimateRemainingMs, fractionDone } from "@/lib/eta";
 import { fmtClock, fmtDurMs } from "@/lib/format";
@@ -41,11 +41,11 @@ export function LiveProgress({ state, elapsedMs }: LiveProgressProps) {
     state.stage_started_ms === null ? undefined : Math.max(0, elapsedMs - state.stage_started_ms);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("live.progress")}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+    <Section>
+      <SectionHead>
+        <SectionTitle>{t("live.progress")}</SectionTitle>
+      </SectionHead>
+      <SectionBody className="flex flex-col gap-4">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <span className="text-sm font-medium">
             {stageSpec === undefined
@@ -119,7 +119,7 @@ export function LiveProgress({ state, elapsedMs }: LiveProgressProps) {
             activeElapsedMs={stageElapsedMs}
           />
         </div>
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }
