@@ -12,7 +12,7 @@ export function ErrorView({ message }: { message: string }) {
   const { t } = useI18n();
   return (
     <Section className="border-destructive/40">
-      <SectionBody className="px-4 py-3 text-sm" role="alert">
+      <SectionBody className="py-3 text-sm" role="alert">
         <span className="font-medium text-destructive">{t('common.error')}</span>
         <span className="ml-2 text-muted-foreground">
           {t('common.request_failed')} — {message}

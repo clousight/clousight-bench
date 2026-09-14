@@ -62,12 +62,12 @@ export function JustFinished({ runs }: { runs: ProgressState[] }) {
   if (done.length === 0) return null;
   return (
     <div className="flex flex-col gap-1">
-      <h2 className="px-1 text-xs font-medium text-muted-foreground">{t("live.just_finished")}</h2>
+      <h2 className="text-xs font-medium text-muted-foreground">{t("live.just_finished")}</h2>
       {done.map((run) => (
         <a
           key={run.run_id}
           href={recordHref(run.run_id)}
-          className="group flex items-center gap-3 rounded-md px-1 py-1.5 text-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group flex items-center gap-3 py-1.5 text-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className="font-medium">{suiteLabel(run.suite_id)}</span>
           <span className="font-mono text-[11px] text-muted-foreground">{run.adapter}</span>

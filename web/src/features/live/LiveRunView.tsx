@@ -118,7 +118,7 @@ function Handoff({
   const { t } = useI18n();
   return (
     <Section className="border-status-good/30 bg-status-good/[0.05]">
-      <SectionBody className="flex flex-wrap items-center gap-3 px-4 py-3">
+      <SectionBody className="flex flex-wrap items-center gap-3 py-3">
         <StatusPill status={status} />
         <span className="text-sm">{t("live.finished")}</span>
         <a
