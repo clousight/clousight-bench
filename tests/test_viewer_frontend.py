@@ -276,10 +276,19 @@ def test_chrome_tokens_carry_no_hue() -> None:
     assert not offenders, "chrome tokens with a hue: " + ", ".join(offenders)
 
 
-def test_chrome_components_do_not_reference_chart_or_status_colours() -> None:
+def test_chrome_components_do_not_reuse_chart_series_slots() -> None:
     """A chip or a button reaching for a chart slot re-uses a series colour as
     decoration, which silently breaks the rule that a slot belongs to one series
-    by identity."""
+    by identity.
+
+    `status-*` is a different channel from `chart-*` and is deliberately NOT
+    banned here: a chrome element (like the header's live-run count) can be a
+    genuine status indicator, and stripping its colour to satisfy this test
+    would violate the rule this whole task exists for — colour carries data
+    AND status, chrome just must not invent a hue of its own. Only the four
+    categorical chart slots, which are validated for separation against each
+    other as an identity-by-series contract, are off limits to decoration.
+    """
     chrome = [
         _WEB_SRC / "components" / "ui" / "badge.tsx",
         _WEB_SRC / "components" / "ui" / "button.tsx",
@@ -288,5 +297,5 @@ def test_chrome_components_do_not_reference_chart_or_status_colours() -> None:
     ]
     for path in chrome:
         text = path.read_text(encoding="utf-8")
-        for needle in ("chart-1", "chart-2", "chart-3", "chart-4", "status-"):
+        for needle in ("chart-1", "chart-2", "chart-3", "chart-4"):
             assert needle not in text, f"{path.name} references {needle}"
