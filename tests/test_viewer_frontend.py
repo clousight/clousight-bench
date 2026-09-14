@@ -45,6 +45,14 @@ _I18N_DIR = _WEB_SRC / "i18n"
 #: fetched) that are unavoidable in standalone SVG documents.
 _SVG_NAMESPACE_PREFIX = "http://www.w3.org/"
 
+#: Bundled third-party licence texts that must ship byte-for-byte verbatim by
+#: the terms of their own licence (OFL-1.1 requires the IBM Plex Mono licence
+#: to travel unmodified with the font). Their one `http://` substring is the
+#: licensor's own FAQ pointer, not something this repo authored or fetches —
+#: exempt from the offline rewrite rather than an exception to offline-first.
+#: The viewer never requests these; they are documents sitting in the bundle.
+_VERBATIM_LICENCE_FILES = {"IBM-Plex-Mono-LICENSE.txt"}
+
 
 def _dist_root() -> Traversable:
     return resource_files("clousight_bench.resources").joinpath("viewer").joinpath("dist")
@@ -82,6 +90,8 @@ def index_html(dist_files: list[tuple[str, bytes]]) -> str:
 
 def test_no_external_urls_in_dist(dist_files: list[tuple[str, bytes]]) -> None:
     for name, data in dist_files:
+        if name in _VERBATIM_LICENCE_FILES:
+            continue  # ships byte-for-byte by licence obligation; see comment above
         text = data.decode("utf-8", errors="replace")
         for match in re.finditer(r"https?://[^\s\"'`<)]*", text):
             if name.endswith(".svg") and match.group(0).startswith(_SVG_NAMESPACE_PREFIX):

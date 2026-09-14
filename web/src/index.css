@@ -21,13 +21,6 @@
   font-display: swap;
   src: url("./assets/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
 }
-/* OFL-1.1 requires the licence text to travel with the font binaries it
- * covers. This selector matches no element in the app — it exists only so
- * Vite content-hashes the licence into assets/ next to the two faces above,
- * the same mechanism as the @font-face src urls. */
-.csb-ibm-plex-mono-licence {
-  --csb-unused: url("./assets/fonts/IBM-Plex-Mono-LICENSE.txt");
-}
 
 /* Dark mode is class-driven (`<html class="dark">`), not media-query driven,
  * so the theme toggle can persist an explicit choice (localStorage csb.theme;
