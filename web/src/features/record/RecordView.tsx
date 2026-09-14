@@ -16,7 +16,13 @@ import { CopyButton } from "@/components/CopyButton";
 import { Field, Glossed, MetricValue, StatusPill } from "@/components/Glossed";
 import { HealthLine } from "@/components/Lifecycle";
 import { ErrorView, LoadingView } from "@/components/StateViews";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Section,
+  SectionBody,
+  SectionHead,
+  SectionNote,
+  SectionTitle,
+} from "@/components/ui/section";
 import { EngineerPanel } from "@/features/record/EngineerPanel";
 import { useI18n } from "@/i18n";
 import { fmtDate, fmtDurMs } from "@/lib/format";
@@ -95,11 +101,11 @@ export function RecordView({ runId }: { runId: string }) {
       </div>
 
       {errors.length > 0 && (
-        <Card className="border-status-critical/40 bg-status-critical/[0.05]">
-          <CardHeader>
-            <CardTitle>{t("record.what_broke")}</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-2">
+        <Section className="border-status-critical/40 bg-status-critical/[0.05]">
+          <SectionHead>
+            <SectionTitle>{t("record.what_broke")}</SectionTitle>
+          </SectionHead>
+          <SectionBody className="flex flex-col gap-2">
             {errors.map((error, index) => (
               <div key={index} className="text-sm">
                 <span className="font-mono text-xs text-muted-foreground">
@@ -108,16 +114,16 @@ export function RecordView({ runId }: { runId: string }) {
                 <p className="mt-0.5 break-words">{error.message}</p>
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </SectionBody>
+        </Section>
       )}
 
       {heroes.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("record.headline")}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <Section>
+          <SectionHead>
+            <SectionTitle>{t("record.headline")}</SectionTitle>
+          </SectionHead>
+          <SectionBody className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {heroes.map((metric) => {
               const entry = measurements[metric.key];
               return (
@@ -132,22 +138,22 @@ export function RecordView({ runId }: { runId: string }) {
                 />
               );
             })}
-          </CardContent>
-        </Card>
+          </SectionBody>
+        </Section>
       )}
 
-      <Card>
-        <CardContent className="px-3 py-2">
+      <Section>
+        <SectionBody className="px-3 py-2">
           <HealthLine stages={stages} timings={timings} status={status} />
-        </CardContent>
-      </Card>
+        </SectionBody>
+      </Section>
 
       {orderedKeys.length > heroes.length && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("record.all_measurements")}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Section>
+          <SectionHead>
+            <SectionTitle>{t("record.all_measurements")}</SectionTitle>
+          </SectionHead>
+          <SectionBody className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {orderedKeys.map((key) => {
               const entry = measurements[key];
               return (
@@ -161,16 +167,16 @@ export function RecordView({ runId }: { runId: string }) {
                 />
               );
             })}
-          </CardContent>
-        </Card>
+          </SectionBody>
+        </Section>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("record.trust")}</CardTitle>
-          <CardDescription>{t("record.trust_blurb")}</CardDescription>
-        </CardHeader>
-        <CardContent>
+      <Section>
+        <SectionHead>
+          <SectionTitle>{t("record.trust")}</SectionTitle>
+          <SectionNote>{t("record.trust_blurb")}</SectionNote>
+        </SectionHead>
+        <SectionBody>
           <dl className="divide-y">
             {provenance.suite_id !== undefined && (
               <Field label={t("record.suite")}>{suiteLabel(provenance.suite_id)}</Field>
@@ -196,16 +202,16 @@ export function RecordView({ runId }: { runId: string }) {
               </Field>
             )}
           </dl>
-        </CardContent>
-      </Card>
+        </SectionBody>
+      </Section>
 
       {artifacts.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("record.artifacts")}</CardTitle>
-            <CardDescription>{t("record.artifacts_blurb")}</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col divide-y">
+        <Section>
+          <SectionHead>
+            <SectionTitle>{t("record.artifacts")}</SectionTitle>
+            <SectionNote>{t("record.artifacts_blurb")}</SectionNote>
+          </SectionHead>
+          <SectionBody className="flex flex-col divide-y">
             {artifacts.map((artifact, index) => (
               <div key={index} className="flex flex-wrap items-baseline gap-x-3 py-2 text-sm">
                 <span className="font-medium">{artifact.kind}</span>
@@ -222,8 +228,8 @@ export function RecordView({ runId }: { runId: string }) {
                 )}
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </SectionBody>
+        </Section>
       )}
 
       <EngineerPanel data={data} />
