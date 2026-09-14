@@ -200,3 +200,34 @@ def test_stage_timings_are_formatted_as_milliseconds() -> None:
                 assert "fmtDur(" not in line or "fmtDurMs(" in line, (
                     f"stage timings must not be passed to the seconds formatter ({path.name}): {line.strip()}"
                 )
+
+
+def test_viewer_bundles_its_own_monospace(dist_files: list[tuple[str, bytes]]) -> None:
+    """Identity lives in the numbers, so the mono is bundled rather than borrowed.
+
+    It must be Latin-only and content-hashed into assets/: only that prefix gets
+    the immutable cache header from viewer/server.py::_cache_for, and a CJK face
+    would cost megabytes against a 908 KB budget for the whole viewer.
+    """
+    fonts = [name for name, _ in dist_files if name.endswith(".woff2")]
+    assert fonts, "no bundled font in dist — the viewer must not depend on a system mono"
+    for name in fonts:
+        assert name.startswith("assets/"), (
+            f"{name} is outside assets/, so it is served no-store instead of immutable"
+        )
+
+    css = (_WEB_SRC / "index.css").read_text(encoding="utf-8")
+    assert "@font-face" in css, "index.css must declare the bundled face"
+    assert "IBM Plex Mono" in css, "index.css must name the bundled family"
+
+    licence = [name for name, _ in dist_files if "LICENSE" in name.upper() and "PLEX" in name.upper()]
+    assert licence, "OFL-1.1 requires the licence text to ship with the font"
+
+
+def test_bundled_font_stays_within_a_latin_subset_budget(dist_files: list[tuple[str, bytes]]) -> None:
+    """Two Latin weights is the whole allowance. A third weight, or any CJK face,
+    is a different decision and must not arrive by accident."""
+    fonts = [(name, data) for name, data in dist_files if name.endswith(".woff2")]
+    assert len(fonts) <= 2, f"more than two bundled weights: {[n for n, _ in fonts]}"
+    total = sum(len(data) for _, data in fonts)
+    assert total < 80 * 1024, f"bundled fonts total {total} bytes — a Latin subset is ~15 KB per weight"
