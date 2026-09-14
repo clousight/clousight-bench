@@ -42,5 +42,7 @@ docs/plans/
 docs/specs/
 docs/runbooks/
 docs/superpowers/
+# Brainstorming mockups — scratch artifacts from the visual companion.
+.superpowers/
 docs/strategy-seed-stage.md
 docs/architecture-decisions.md

@@ -171,6 +171,14 @@ visualization is deferred to the Sub-project C web viewer.
   for hostile code. Until this lands there is no strong isolation against a
   determined adversary — review workloads you do not trust (see
   [SECURITY.md](SECURITY.md)).
+- 📋 **Trace causality (span links)**: the trace records containment
+  (`parent_span_id`) but no causal link across branches, so a viewer can show
+  that one span *enclosed* another but never that one *triggered* another.
+  Emitting OpenTelemetry **span links** at decided points — suite → tool call,
+  disruption → retry, stream → query — would make that relationship explicit,
+  and it survives OTLP export, so a collector gains the same edges. The work is
+  gated on the semantic-convention decision about which relationships are worth
+  linking (it belongs with span schema v3), not on rendering.
 - 💤 Remaining real-cloud adapters (`huawei-agentarts`, `volcengine-agentkit`,
   `aws-agentcore`) — skeletons are in-tree; wiring is gated on cloud accounts and
   deployed benchmark targets.
