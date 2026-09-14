@@ -30,24 +30,21 @@ function offlineGuard(): Plugin {
     ["https://reactjs.org/docs/error-decoder.html", "reactjs.org/docs/error-decoder.html"],
     ["https://react.dev/errors/", "react.dev/errors/"],
   ];
-  // Bundled third-party licence texts that must ship byte-for-byte verbatim
-  // by the terms of their own licence (OFL-1.1 requires the IBM Plex Mono
-  // licence to travel unmodified with the font it covers). They live in
-  // web/public/, so Vite copies them straight to the dist root and this hook
-  // never sees them under normal build behaviour — named here anyway, and
-  // enforced below, as the explicit contract: a licence is exempt from the
-  // offline rewrite because it ships verbatim by obligation, not because it
-  // is an exception to offline-first. The viewer never fetches it; it is a
-  // document sitting in the bundle.
-  const verbatimLicenceFiles = new Set(["IBM-Plex-Mono-LICENSE.txt"]);
+  // The bundled IBM Plex Mono licence (web/public/IBM-Plex-Mono-LICENSE.txt)
+  // must ship byte-for-byte verbatim: OFL-1.1 requires the licence text to
+  // travel unmodified with the font it covers, so it must never be rewritten
+  // by this guard. That is exactly why it lives in web/public/ rather than
+  // being imported from web/src/**: Vite copies public/ straight to the dist
+  // root without ever routing it through Rollup's bundle graph, so this
+  // plugin never sees it and there is nothing to exempt here. The actual
+  // enforcement of "this file's one http:// substring is allowed" lives in
+  // tests/test_viewer_frontend.py::test_no_external_urls_in_dist, which
+  // exempts it by name — see that test for the real contract.
   return {
     name: "csbench-offline-guard",
     generateBundle(_options, bundle) {
       for (const item of Object.values(bundle)) {
         if (item.type === "asset") {
-          if (verbatimLicenceFiles.has(item.fileName)) {
-            continue; // ships byte-for-byte; see comment above
-          }
           if (item.fileName.endsWith(".css") && typeof item.source === "string") {
             // lightningcss preserves /*! ... */ license banners; strip them.
             item.source = item.source.replace(/\/\*![\s\S]*?\*\//g, "");
