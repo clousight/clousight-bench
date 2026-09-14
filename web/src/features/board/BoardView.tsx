@@ -137,7 +137,7 @@ function DomainSuites({ domain }: { domain: BoardDomain }) {
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="rounded-md px-2 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("board.show_more").replace("{n}", String(hidden))}
         </button>
@@ -154,7 +154,7 @@ function SuiteTile({ domain, suite }: { domain: string; suite: BoardSuite }) {
   return (
     <a
       href={suiteHref(domain, suite.suite_id)}
-      className="group flex flex-col gap-2 rounded-md px-2 py-3 transition-colors first:pt-1 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex flex-col gap-2 py-3 transition-colors first:pt-1 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-baseline gap-2">
         <span className="text-sm font-medium">{suiteLabel(suite.suite_id)}</span>
