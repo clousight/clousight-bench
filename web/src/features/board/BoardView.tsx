@@ -64,7 +64,7 @@ export function BoardView() {
 
       {domains.length === 0 ? (
         <Section>
-          <SectionBody className="px-4 py-8 text-center text-sm text-muted-foreground">
+          <SectionBody className="py-8 text-center text-sm text-muted-foreground">
             {t("board.empty")}
           </SectionBody>
         </Section>
@@ -79,9 +79,15 @@ export function BoardView() {
                       ? (DOMAIN_LABELS[domain.domain]?.zh ?? domain.domain)
                       : (DOMAIN_LABELS[domain.domain]?.en ?? domain.domain)}
                   </span>
-                  <span className="font-mono text-[10px] font-normal text-muted-foreground">
-                    {domain.domain}
-                  </span>
+                  {/*
+                    normal-case, not the redundant font-mono/text-[10px]/
+                    font-normal/text-muted-foreground SectionTitle already
+                    supplies: this is a verbatim machine id (matches
+                    SuiteView.tsx and RecordView.tsx), and SectionTitle's
+                    uppercase would otherwise paint "data-warehouse" as
+                    "DATA-WAREHOUSE" beside its own "DATA WAREHOUSE" label.
+                  */}
+                  <span className="normal-case">{domain.domain}</span>
                 </SectionTitle>
               </SectionHead>
               <DomainSuites domain={domain} />
@@ -131,7 +137,7 @@ function DomainSuites({ domain }: { domain: BoardDomain }) {
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="-mx-2 rounded-md px-2 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="rounded-md px-2 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("board.show_more").replace("{n}", String(hidden))}
         </button>
@@ -148,7 +154,7 @@ function SuiteTile({ domain, suite }: { domain: string; suite: BoardSuite }) {
   return (
     <a
       href={suiteHref(domain, suite.suite_id)}
-      className="group -mx-2 flex flex-col gap-2 rounded-md px-2 py-3 transition-colors first:pt-1 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex flex-col gap-2 rounded-md px-2 py-3 transition-colors first:pt-1 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-baseline gap-2">
         <span className="text-sm font-medium">{suiteLabel(suite.suite_id)}</span>
