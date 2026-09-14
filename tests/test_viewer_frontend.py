@@ -254,6 +254,13 @@ _CHROME_TOKENS = (
 
 _OKLCH_RE = re.compile(r"oklch\(\s*[\d.]+%?\s+([\d.]+)\s")
 
+#: The only non-literal form a chrome token is allowed to take: a reference to
+#: another custom property. Whatever it points at is either itself a chrome
+#: token (and so checked in its own right) or a deliberate, reviewed choice —
+#: but a raw hex/rgb/hsl literal is not, since those are exactly the forms
+#: that would smuggle a hue past the oklch-only check below.
+_ALIAS_RE = re.compile(r"^var\(--[\w-]+\)$")
+
 
 def test_chrome_tokens_carry_no_hue() -> None:
     """Colour is the data channel; chrome must not compete with it.
@@ -265,15 +272,24 @@ def test_chrome_tokens_carry_no_hue() -> None:
     """
     css = (_WEB_SRC / "index.css").read_text(encoding="utf-8")
     offenders: list[str] = []
+    matched: set[str] = set()
     for token in _CHROME_TOKENS:
         for match in re.finditer(rf"^\s*--{re.escape(token)}:\s*(.+?);", css, re.MULTILINE):
+            matched.add(token)
             value = match.group(1).strip()
             chroma = _OKLCH_RE.match(value)
-            if chroma is None:
-                continue  # not an oklch literal (e.g. a var() alias or rgb alpha form)
-            if float(chroma.group(1)) > 0.02:
-                offenders.append(f"--{token}: {value}")
+            if chroma is not None:
+                if float(chroma.group(1)) > 0.02:
+                    offenders.append(f"--{token}: {value}")
+                continue
+            if _ALIAS_RE.match(value):
+                continue  # delegates to another custom property, not a new literal
+            offenders.append(f"--{token}: {value} (neither an oklch() literal nor a var() alias)")
     assert not offenders, "chrome tokens with a hue: " + ", ".join(offenders)
+    # A ratchet that never sees its token rename/deletion is not a ratchet: it
+    # would silently pass with zero matches while guarding nothing.
+    unmatched = [token for token in _CHROME_TOKENS if token not in matched]
+    assert not unmatched, f"chrome tokens never declared in index.css (renamed or removed?): {unmatched}"
 
 
 def test_chrome_components_do_not_reuse_chart_series_slots() -> None:
@@ -308,3 +324,19 @@ def test_chrome_components_do_not_reuse_chart_series_slots() -> None:
     for path in chrome:
         text = path.read_text(encoding="utf-8")
         assert "chart-" not in text, f"{path.name} references a chart-* slot or alias"
+
+
+def test_no_rounded_card_surface_in_source() -> None:
+    """The boxed card is the shadcn look, and it is what the redesign removed.
+
+    Kept as a test rather than a convention because the primitive is one npx
+    command away from coming back, and it would come back one view at a time.
+    """
+    card = _WEB_SRC / "components" / "ui" / "card.tsx"
+    assert not card.exists(), "the card primitive is back — sections replaced it deliberately"
+    for path in _web_src_files():
+        if path.suffix not in {".ts", ".tsx"}:
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert "components/ui/card" not in text, f"{path.name} imports the deleted card primitive"
+        assert "<Card" not in text, f"{path.name} still renders a Card"
