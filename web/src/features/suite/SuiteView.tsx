@@ -12,7 +12,13 @@ import { ChevronRight } from "lucide-react";
 import { useJSON, type SuiteCompareData, type SuitePlatform } from "@/api";
 import { Glossed, StatusPill } from "@/components/Glossed";
 import { ErrorView, LoadingView } from "@/components/StateViews";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Section,
+  SectionBody,
+  SectionHead,
+  SectionNote,
+  SectionTitle,
+} from "@/components/ui/section";
 import { TrendLine, type TrendSeries } from "@/charts/TrendLine";
 import { useI18n } from "@/i18n";
 import { fmtRelative } from "@/lib/format";
@@ -66,15 +72,15 @@ export function SuiteView({ domain, suiteId }: { domain: string; suiteId: string
         </h1>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("suite.compare")}</CardTitle>
-          <CardDescription>{t("suite.compare_blurb")}</CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
+      <Section>
+        <SectionHead>
+          <SectionTitle>{t("suite.compare")}</SectionTitle>
+          <SectionNote>{t("suite.compare_blurb")}</SectionNote>
+        </SectionHead>
+        <SectionBody className="overflow-x-auto">
           <ComparisonTable platforms={data.platforms} keys={keys} />
-        </CardContent>
-      </Card>
+        </SectionBody>
+      </Section>
 
       {trendKeys.length > 0 && data.platforms.some((platform) => platform.history.length > 1) && (
         <div className="grid gap-4 md:grid-cols-2">
@@ -139,7 +145,7 @@ function ComparisonTable({ platforms, keys }: { platforms: SuitePlatform[]; keys
                 return (
                   <td key={key} className="px-3 py-2.5">
                     <span
-                      className={cn("tabular-nums", leads && "font-semibold")}
+                      className={cn("font-mono tabular-nums", leads && "font-medium")}
                       title={leads ? t("suite.leads") : undefined}
                     >
                       {formatted.text}
@@ -226,18 +232,18 @@ function TrendCard({ metricKey, platforms }: { metricKey: string; platforms: Sui
   if (series.length === 0) return null;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{metricLabel(spec, locale)}</CardTitle>
-        <CardDescription className="font-mono">{metricKey}</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <Section>
+      <SectionHead>
+        <SectionTitle>{metricLabel(spec, locale)}</SectionTitle>
+        <SectionNote className="font-mono">{metricKey}</SectionNote>
+      </SectionHead>
+      <SectionBody>
         <TrendLine
           series={series}
           format={spec.format}
           ariaLabel={t("suite.trend_of").replace("{metric}", metricLabel(spec, locale))}
         />
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }

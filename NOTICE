@@ -11,3 +11,12 @@ You may obtain a copy of the License at
     http://www.apache.org/licenses/LICENSE-2.0
 
 See the LICENSE file in this repository for the full license text.
+
+--------------------------------------------------------------------------------
+Third-party fonts bundled in the web viewer
+--------------------------------------------------------------------------------
+
+IBM Plex Mono (Latin subset), Copyright 2017 IBM Corp.
+Licensed under the SIL Open Font License, Version 1.1.
+Full licence text: web/public/IBM-Plex-Mono-LICENSE.txt (source);
+installed at clousight_bench/resources/viewer/dist/IBM-Plex-Mono-LICENSE.txt (wheel)

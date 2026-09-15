@@ -12,7 +12,7 @@ import { useJSON, type RecordSummary } from "@/api";
 import { StatusPill } from "@/components/Glossed";
 import { EmptyView, ErrorView, LoadingView } from "@/components/StateViews";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Section, SectionBody } from "@/components/ui/section";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n";
@@ -64,8 +64,8 @@ export function RunsView() {
           className="max-w-64"
         />
       </div>
-      <Card>
-        <CardContent className="p-0">
+      <Section>
+        <SectionBody className="p-0">
           {visible.length === 0 ? (
             records.length > 0 ? (
               // Records exist but the filter matched none — say so, distinctly
@@ -124,7 +124,7 @@ export function RunsView() {
                               className="cursor-help rounded border bg-muted/50 px-1.5 py-0.5 text-[11px] leading-4"
                             >
                               <span className="text-muted-foreground">{metricLabel(spec, locale)}</span>{" "}
-                              <span className="tabular-nums">
+                              <span className="font-mono tabular-nums">
                                 {formatted.text}
                                 {formatted.unit}
                               </span>
@@ -148,8 +148,8 @@ export function RunsView() {
               </TableBody>
             </Table>
           )}
-        </CardContent>
-      </Card>
+        </SectionBody>
+      </Section>
     </div>
   );
 }

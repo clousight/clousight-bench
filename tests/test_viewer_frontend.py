@@ -45,6 +45,14 @@ _I18N_DIR = _WEB_SRC / "i18n"
 #: fetched) that are unavoidable in standalone SVG documents.
 _SVG_NAMESPACE_PREFIX = "http://www.w3.org/"
 
+#: Bundled third-party licence texts that must ship byte-for-byte verbatim by
+#: the terms of their own licence (OFL-1.1 requires the IBM Plex Mono licence
+#: to travel unmodified with the font). Their one `http://` substring is the
+#: licensor's own FAQ pointer, not something this repo authored or fetches —
+#: exempt from the offline rewrite rather than an exception to offline-first.
+#: The viewer never requests these; they are documents sitting in the bundle.
+_VERBATIM_LICENCE_FILES = {"IBM-Plex-Mono-LICENSE.txt"}
+
 
 def _dist_root() -> Traversable:
     return resource_files("clousight_bench.resources").joinpath("viewer").joinpath("dist")
@@ -82,6 +90,8 @@ def index_html(dist_files: list[tuple[str, bytes]]) -> str:
 
 def test_no_external_urls_in_dist(dist_files: list[tuple[str, bytes]]) -> None:
     for name, data in dist_files:
+        if name in _VERBATIM_LICENCE_FILES:
+            continue  # ships byte-for-byte by licence obligation; see comment above
         text = data.decode("utf-8", errors="replace")
         for match in re.finditer(r"https?://[^\s\"'`<)]*", text):
             if name.endswith(".svg") and match.group(0).startswith(_SVG_NAMESPACE_PREFIX):
@@ -200,3 +210,180 @@ def test_stage_timings_are_formatted_as_milliseconds() -> None:
                 assert "fmtDur(" not in line or "fmtDurMs(" in line, (
                     f"stage timings must not be passed to the seconds formatter ({path.name}): {line.strip()}"
                 )
+
+
+def test_viewer_bundles_its_own_monospace(dist_files: list[tuple[str, bytes]]) -> None:
+    """Identity lives in the numbers, so the mono is bundled rather than borrowed.
+
+    It must be Latin-only and content-hashed into assets/: only that prefix gets
+    the immutable cache header from viewer/server.py::_cache_for, and a CJK face
+    would cost megabytes against a 908 KB budget for the whole viewer.
+    """
+    fonts = [name for name, _ in dist_files if name.endswith(".woff2")]
+    assert fonts, "no bundled font in dist — the viewer must not depend on a system mono"
+    for name in fonts:
+        assert name.startswith("assets/"), (
+            f"{name} is outside assets/, so it is served no-store instead of immutable"
+        )
+
+    css = (_WEB_SRC / "index.css").read_text(encoding="utf-8")
+    assert "@font-face" in css, "index.css must declare the bundled face"
+    assert "IBM Plex Mono" in css, "index.css must name the bundled family"
+
+    licence = [name for name, _ in dist_files if "LICENSE" in name.upper() and "PLEX" in name.upper()]
+    assert licence, "OFL-1.1 requires the licence text to ship with the font"
+
+
+def test_bundled_font_stays_within_a_latin_subset_budget(dist_files: list[tuple[str, bytes]]) -> None:
+    """Two Latin weights is the whole allowance. A third weight, or any CJK face,
+    is a different decision and must not arrive by accident."""
+    fonts = [(name, data) for name, data in dist_files if name.endswith(".woff2")]
+    assert len(fonts) <= 2, f"more than two bundled weights: {[n for n, _ in fonts]}"
+    total = sum(len(data) for _, data in fonts)
+    assert total < 80 * 1024, f"bundled fonts total {total} bytes — a Latin subset is ~15 KB per weight"
+
+
+#: Tokens that dress the interface rather than carry a measurement. Chart and
+#: status tokens are deliberately absent: those ARE the data channel.
+_CHROME_TOKENS = (
+    "background",
+    "foreground",
+    "card",
+    "card-foreground",
+    "primary",
+    "primary-foreground",
+    "secondary",
+    "secondary-foreground",
+    "muted",
+    "muted-foreground",
+    "accent",
+    "accent-foreground",
+    "border",
+    "input",
+    "ring",
+)
+
+_OKLCH_RE = re.compile(r"oklch\(\s*[\d.]+%?\s+([\d.]+)\s")
+
+#: The only non-literal form a chrome token is allowed to take: a reference to
+#: another custom property, captured so the target name can be resolved and
+#: checked in its own right (see ``test_chrome_tokens_carry_no_hue``) rather
+#: than merely pattern-matched and waved through.
+_ALIAS_RE = re.compile(r"^var\(--([\w-]+)\)$")
+
+
+def _declared_values(css: str, name: str) -> list[str]:
+    """Every ``--name: value;`` declaration of a custom property, across every
+    scope (``:root``, ``.dark``, ...). The same shape used to find a chrome
+    token's own declaration, reused to resolve one level of ``var()`` alias."""
+    return [m.group(1).strip() for m in re.finditer(rf"^\s*--{re.escape(name)}:\s*(.+?);", css, re.MULTILINE)]
+
+
+def test_chrome_tokens_carry_no_hue() -> None:
+    """Colour is the data channel; chrome must not compete with it.
+
+    A hue in the chrome is how an interface starts arguing with its own charts —
+    the four categorical slots were validated for separation against each other,
+    not against a tinted header. Status colours and chart slots are excluded
+    because carrying meaning is exactly their job.
+
+    A chrome token may alias another custom property with ``var(--other)``,
+    but the alias is only as clean as what it points at: this resolves ONE
+    level of indirection and applies the same chroma test to the target's own
+    declaration, rather than trusting that the shape ``var(...)`` implies a
+    reviewed value. Aliasing a chrome token straight to a chart or status slot
+    (e.g. ``--card: var(--chart-1)``) is exactly the cheap way to smuggle a hue
+    into the chrome, and it is caught here now. Deliberately NOT chased further
+    than one level: a target that is itself an alias fails loudly instead of
+    being silently accepted, since following chains needs real recursion for a
+    case nothing in this file currently needs.
+    """
+    css = (_WEB_SRC / "index.css").read_text(encoding="utf-8")
+    offenders: list[str] = []
+    matched: set[str] = set()
+    for token in _CHROME_TOKENS:
+        for value in _declared_values(css, token):
+            matched.add(token)
+            alias = _ALIAS_RE.match(value)
+            if alias is None:
+                chroma = _OKLCH_RE.match(value)
+                if chroma is None:
+                    offenders.append(f"--{token}: {value} (neither an oklch() literal nor a var() alias)")
+                elif float(chroma.group(1)) > 0.02:
+                    offenders.append(f"--{token}: {value}")
+                continue
+            target = alias.group(1)
+            target_values = _declared_values(css, target)
+            if not target_values:
+                offenders.append(f"--{token}: {value} -> --{target} is not declared anywhere in index.css")
+                continue
+            for target_value in target_values:
+                if _ALIAS_RE.match(target_value):
+                    offenders.append(
+                        f"--{token}: {value} -> --{target}: {target_value} is itself an alias; "
+                        "this test resolves one level of var() only"
+                    )
+                    continue
+                chroma = _OKLCH_RE.match(target_value)
+                if chroma is None:
+                    offenders.append(
+                        f"--{token}: {value} -> --{target}: {target_value} is not an oklch() literal"
+                    )
+                elif float(chroma.group(1)) > 0.02:
+                    offenders.append(f"--{token}: {value} -> --{target}: {target_value}")
+    assert not offenders, "chrome tokens with a hue: " + ", ".join(offenders)
+    # A ratchet that never sees its token rename/deletion is not a ratchet: it
+    # would silently pass with zero matches while guarding nothing.
+    unmatched = [token for token in _CHROME_TOKENS if token not in matched]
+    assert not unmatched, f"chrome tokens never declared in index.css (renamed or removed?): {unmatched}"
+
+
+def test_chrome_components_do_not_reuse_chart_series_slots() -> None:
+    """A chip or a button reaching for a chart slot re-uses a series colour as
+    decoration, which silently breaks the rule that a slot belongs to one series
+    by identity.
+
+    `status-*` is a different channel from `chart-*` and is deliberately NOT
+    banned here: a chrome element (like the header's live-run count) can be a
+    genuine status indicator, and stripping its colour to satisfy this test
+    would violate the rule this whole task exists for — colour carries data
+    AND status, chrome just must not invent a hue of its own. Only the four
+    categorical chart slots, which are validated for separation against each
+    other as an identity-by-series contract, are off limits to decoration.
+
+    The needle is the bare substring "chart-", not "chart-1".."chart-4": the
+    semantic aliases (`--chart-llm`, `--chart-tool`, `--chart-db`,
+    `--chart-stage`) resolve to the same four slots and are the *more* natural
+    thing to reach for since they read by meaning, and `--chart-grid` /
+    `--chart-axis` are the same series-adjacent surface. A narrower needle
+    would leave all six reachable by name. Left consciously unguarded: a
+    chrome element reaching for a `status-*` colour with no real status to
+    report. That is a judgement call ("is this genuinely status?") no grep
+    can make, so it stays a human-review concern rather than a test.
+    """
+    chrome = [
+        _WEB_SRC / "components" / "ui" / "badge.tsx",
+        _WEB_SRC / "components" / "ui" / "button.tsx",
+        _WEB_SRC / "components" / "ui" / "tabs.tsx",
+        _WEB_SRC / "components" / "ui" / "input.tsx",
+        _WEB_SRC / "components" / "Header.tsx",
+    ]
+    for path in chrome:
+        text = path.read_text(encoding="utf-8")
+        assert "chart-" not in text, f"{path.name} references a chart-* slot or alias"
+
+
+def test_no_rounded_card_surface_in_source() -> None:
+    """The boxed card is the shadcn look, and it is what the redesign removed.
+
+    Kept as a test rather than a convention because the primitive is one npx
+    command away from coming back, and it would come back one view at a time.
+    """
+    card = _WEB_SRC / "components" / "ui" / "card.tsx"
+    assert not card.exists(), "the card primitive is back — sections replaced it deliberately"
+    for path in _web_src_files():
+        if path.suffix not in {".ts", ".tsx"}:
+            continue
+        text = path.read_text(encoding="utf-8")
+        assert "components/ui/card" not in text, f"{path.name} imports the deleted card primitive"
+        assert "<Card" not in text, f"{path.name} still renders a Card"

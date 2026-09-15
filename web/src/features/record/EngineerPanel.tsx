@@ -11,7 +11,13 @@
 import type { RecordDetailData } from "@/api";
 import { CopyButton } from "@/components/CopyButton";
 import { Field } from "@/components/Glossed";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Section,
+  SectionBody,
+  SectionHead,
+  SectionNote,
+  SectionTitle,
+} from "@/components/ui/section";
 import { useI18n } from "@/i18n";
 import { useEngineerView } from "@/lib/engineerView";
 
@@ -26,22 +32,22 @@ export function EngineerPanel({ data }: { data: RecordDetailData }) {
   const extensions = data.extensions ?? {};
 
   return (
-    <Card className="border-dashed">
-      <CardHeader>
-        <CardTitle>{t("engineer.title")}</CardTitle>
-        <CardDescription>{t("engineer.blurb")}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        <Section title={t("engineer.fingerprints")} blurb={t("engineer.fingerprints_blurb")}>
+    <Section className="border-dashed">
+      <SectionHead>
+        <SectionTitle>{t("engineer.title")}</SectionTitle>
+        <SectionNote>{t("engineer.blurb")}</SectionNote>
+      </SectionHead>
+      <SectionBody className="flex flex-col gap-5">
+        <Subsection title={t("engineer.fingerprints")} blurb={t("engineer.fingerprints_blurb")}>
           {Object.entries(fingerprints).map(([name, value]) => (
             <Field key={name} label={name}>
               <span className="break-all font-mono text-[11px]">{String(value)}</span>
               <CopyButton value={String(value)} />
             </Field>
           ))}
-        </Section>
+        </Subsection>
 
-        <Section title={t("engineer.identity")} blurb={t("engineer.identity_blurb")}>
+        <Subsection title={t("engineer.identity")} blurb={t("engineer.identity_blurb")}>
           {Object.entries(identity).map(([name, value]) => (
             <Field key={name} label={name}>
               <span className="break-all font-mono text-[11px]">
@@ -49,9 +55,9 @@ export function EngineerPanel({ data }: { data: RecordDetailData }) {
               </span>
             </Field>
           ))}
-        </Section>
+        </Subsection>
 
-        <Section title={t("engineer.environment")} blurb={t("engineer.environment_blurb")}>
+        <Subsection title={t("engineer.environment")} blurb={t("engineer.environment_blurb")}>
           {Object.entries(environment).map(([name, value]) => (
             <Field key={name} label={name}>
               <span className="break-all font-mono text-[11px]">
@@ -59,21 +65,27 @@ export function EngineerPanel({ data }: { data: RecordDetailData }) {
               </span>
             </Field>
           ))}
-        </Section>
+        </Subsection>
 
         {Object.keys(extensions).length > 0 && (
-          <Section title={t("engineer.extensions")} blurb={t("engineer.extensions_blurb")}>
+          <Subsection title={t("engineer.extensions")} blurb={t("engineer.extensions_blurb")}>
             <pre className="overflow-x-auto rounded-md border bg-muted/30 p-2 font-mono text-[11px]">
               {JSON.stringify(extensions, null, 2)}
             </pre>
-          </Section>
+          </Subsection>
         )}
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }
 
-function Section({
+/**
+ * A named group of fields within the engineer panel. Distinct from the
+ * `Section` primitive (which is the panel's own hairline surface) — this is
+ * just a label + blurb + definition list, so it keeps its own name to avoid
+ * colliding with the import above.
+ */
+function Subsection({
   title,
   blurb,
   children,

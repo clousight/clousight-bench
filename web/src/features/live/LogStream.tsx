@@ -13,7 +13,7 @@ import { useI18n } from "@/i18n";
 import { fmtClock } from "@/lib/format";
 import type { LogLine } from "@/lib/progressStream";
 import { cn } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Section, SectionBody, SectionHead, SectionTitle } from "@/components/ui/section";
 
 const LEVELS = ["ALL", "INFO", "WARNING", "ERROR"] as const;
 type LevelFilter = (typeof LEVELS)[number];
@@ -53,10 +53,14 @@ export function LogStream({ lines }: { lines: LogLine[] }) {
   };
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
-        <CardTitle>{t("live.logs")}</CardTitle>
-        <div role="group" aria-label={t("live.log_level")} className="flex items-center gap-1">
+    <Section>
+      <SectionHead className="flex-row items-center justify-between">
+        <SectionTitle>{t("live.logs")}</SectionTitle>
+        <div
+          role="group"
+          aria-label={t("live.log_level")}
+          className="flex items-center gap-1 border-b border-border"
+        >
           {LEVELS.map((level) => (
             <button
               key={level}
@@ -64,18 +68,16 @@ export function LogStream({ lines }: { lines: LogLine[] }) {
               aria-pressed={filter === level}
               onClick={() => setFilter(level)}
               className={cn(
-                "rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
-                filter === level
-                  ? "bg-secondary text-secondary-foreground"
-                  : "text-muted-foreground hover:text-foreground",
+                "border-b-2 border-transparent px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                filter === level && "border-foreground text-foreground",
               )}
             >
               {level === "ALL" ? t("live.log_all") : level}
             </button>
           ))}
         </div>
-      </CardHeader>
-      <CardContent>
+      </SectionHead>
+      <SectionBody>
         {visible.length === 0 ? (
           <p className="py-4 text-center text-xs text-muted-foreground">{t("live.no_logs")}</p>
         ) : (
@@ -92,7 +94,7 @@ export function LogStream({ lines }: { lines: LogLine[] }) {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }

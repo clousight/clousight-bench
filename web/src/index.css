@@ -1,5 +1,27 @@
 @import "tailwindcss";
 
+/* The bundled mono. Identity lives in the numbers, identifiers, stage names and
+ * fingerprints — all of which are Latin regardless of UI language, so a Latin
+ * subset (~15 KB per weight) is the whole cost. Prose deliberately does NOT get
+ * a bundled face: one CJK weight is several megabytes, and this viewer ships
+ * inside the wheel. Vite content-hashes these into assets/, which is the only
+ * prefix viewer/server.py long-caches.
+ * IBM Plex Mono, OFL-1.1 — see IBM-Plex-Mono-LICENSE.txt and NOTICE. */
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+}
+
 /* Dark mode is class-driven (`<html class="dark">`), not media-query driven,
  * so the theme toggle can persist an explicit choice (localStorage csb.theme;
  * the media preference is only the first-visit default, applied in main.tsx
@@ -58,6 +80,9 @@
   /* Recessive chrome for plots. */
   --chart-grid: oklch(0.92 0.004 286.32);
   --chart-axis: oklch(0.8 0.008 286.32);
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
   --radius: 0.5rem;
 }
 
@@ -127,6 +152,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --font-mono: var(--font-mono);
+  --font-sans: var(--font-sans);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -141,9 +168,19 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: var(--font-sans);
     font-feature-settings:
       "rlig" 1,
       "calt" 1;
+  }
+  /* Numbers that stack vertically must align. Applied to the family rather than
+   * per-component so a new table cannot forget it. */
+  code,
+  kbd,
+  samp,
+  pre,
+  .font-mono {
+    font-variant-numeric: tabular-nums;
   }
 }
 

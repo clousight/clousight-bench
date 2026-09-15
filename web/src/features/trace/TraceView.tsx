@@ -18,7 +18,7 @@ import { useJSON, type TrajectoryData } from "@/api";
 import { Waterfall } from "@/charts/Waterfall";
 import { CopyButton } from "@/components/CopyButton";
 import { EmptyView, ErrorView, LoadingView } from "@/components/StateViews";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Section, SectionBody, SectionHead } from "@/components/ui/section";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useI18n } from "@/i18n";
 import { fmtDur } from "@/lib/format";
@@ -62,9 +62,9 @@ function TranscriptCard({
   const name = row.name ?? t('common.unnamed');
   const Icon = row.kind === "llm_call" ? Brain : Wrench;
   return (
-    <Card className={cn(row.isError && "border-l-2 border-l-destructive")}>
+    <Section className={cn(row.isError && "border-l-2 border-l-destructive")}>
       <button type="button" onClick={onToggle} className="block w-full text-left" aria-expanded={selected}>
-        <CardHeader className="flex-row items-center gap-2.5 space-y-0">
+        <SectionHead className="flex-row items-center gap-2.5">
           <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <div className="min-w-0 flex-1">
             {row.ancestors.length > 0 && (
@@ -77,19 +77,19 @@ function TranscriptCard({
           <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
             +{fmtDur(row.startS - t0)} · {fmtDur(row.endS - row.startS)}
           </span>
-        </CardHeader>
+        </SectionHead>
       </button>
       {row.isError && (
-        <div className="px-4 pb-2 text-xs text-destructive">
+        <div className="pb-2 text-xs text-destructive">
           {t('trace.error')}: {row.error ?? row.status}
         </div>
       )}
       {selected && (
-        <CardContent className="border-t pt-3">
+        <SectionBody className="border-t pt-3">
           <AttrsPanel row={row} />
-        </CardContent>
+        </SectionBody>
       )}
-    </Card>
+    </Section>
   );
 }
 
@@ -151,11 +151,11 @@ export function TraceView({ runId }: { runId: string }) {
       </div>
 
       {rows.length === 0 ? (
-        <Card>
-          <CardContent className="pt-4">
+        <Section>
+          <SectionBody className="pt-4">
             <EmptyView />
-          </CardContent>
-        </Card>
+          </SectionBody>
+        </Section>
       ) : (
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
@@ -176,25 +176,25 @@ export function TraceView({ runId }: { runId: string }) {
           </TabsContent>
 
           <TabsContent value="waterfall" className="flex flex-col gap-3">
-            <Card>
-              <CardContent className="pt-4">
+            <Section>
+              <SectionBody className="pt-4">
                 <Waterfall rows={rows} t0={t0} onSelect={toggle} />
-              </CardContent>
-            </Card>
+              </SectionBody>
+            </Section>
             {selectedRow !== null && (
-              <Card className={cn(selectedRow.isError && "border-l-2 border-l-destructive")}>
-                <CardHeader className="flex-row items-center gap-2.5 space-y-0">
+              <Section className={cn(selectedRow.isError && "border-l-2 border-l-destructive")}>
+                <SectionHead className="flex-row items-center gap-2.5">
                   <div className="min-w-0 flex-1 truncate text-sm font-medium">
                     {selectedRow.name ?? t('common.unnamed')}
                   </div>
                   <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
                     +{fmtDur(selectedRow.startS - t0)} · {fmtDur(selectedRow.endS - selectedRow.startS)}
                   </span>
-                </CardHeader>
-                <CardContent>
+                </SectionHead>
+                <SectionBody>
                   <AttrsPanel row={selectedRow} />
-                </CardContent>
-              </Card>
+                </SectionBody>
+              </Section>
             )}
           </TabsContent>
         </Tabs>

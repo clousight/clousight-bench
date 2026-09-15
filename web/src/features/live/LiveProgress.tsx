@@ -8,7 +8,7 @@
 
 import type { ProgressState } from "@/api";
 import { StageStrip } from "@/components/Lifecycle";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Section, SectionBody, SectionHead, SectionTitle } from "@/components/ui/section";
 import { useI18n } from "@/i18n";
 import { estimateRemainingMs, fractionDone } from "@/lib/eta";
 import { fmtClock, fmtDurMs } from "@/lib/format";
@@ -41,11 +41,11 @@ export function LiveProgress({ state, elapsedMs }: LiveProgressProps) {
     state.stage_started_ms === null ? undefined : Math.max(0, elapsedMs - state.stage_started_ms);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("live.progress")}</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+    <Section>
+      <SectionHead>
+        <SectionTitle>{t("live.progress")}</SectionTitle>
+      </SectionHead>
+      <SectionBody className="flex flex-col gap-4">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <span className="text-sm font-medium">
             {stageSpec === undefined
@@ -58,7 +58,7 @@ export function LiveProgress({ state, elapsedMs }: LiveProgressProps) {
             <span className="font-mono text-[10px] text-muted-foreground">{state.stage}</span>
           )}
           {stageElapsedMs !== undefined && (
-            <span className="tabular-nums text-xs text-muted-foreground">{fmtDurMs(stageElapsedMs)}</span>
+            <span className="font-mono tabular-nums text-xs text-muted-foreground">{fmtDurMs(stageElapsedMs)}</span>
           )}
         </div>
 
@@ -66,7 +66,7 @@ export function LiveProgress({ state, elapsedMs }: LiveProgressProps) {
           <div className="flex flex-col gap-1.5">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
               <span className="font-medium">{step.label}</span>
-              <span className="tabular-nums text-xs text-muted-foreground">
+              <span className="font-mono tabular-nums text-xs text-muted-foreground">
                 {!reports && step.total > 0
                   ? t("live.of_total_unreported")
                       .replace("{total}", String(step.total))
@@ -99,11 +99,11 @@ export function LiveProgress({ state, elapsedMs }: LiveProgressProps) {
               />
             </div>
             <div className="flex items-baseline justify-between text-xs text-muted-foreground">
-              <span className="tabular-nums">{fmtClock(elapsedMs)}</span>
+              <span className="font-mono tabular-nums">{fmtClock(elapsedMs)}</span>
               {remainingMs === null ? (
                 <span>{reports ? t("live.eta_unknown") : t("live.no_intermediate_progress")}</span>
               ) : (
-                <span className="tabular-nums">
+                <span className="font-mono tabular-nums">
                   {t("live.eta").replace("{time}", fmtDurMs(remainingMs))}
                 </span>
               )}
@@ -119,7 +119,7 @@ export function LiveProgress({ state, elapsedMs }: LiveProgressProps) {
             activeElapsedMs={stageElapsedMs}
           />
         </div>
-      </CardContent>
-    </Card>
+      </SectionBody>
+    </Section>
   );
 }

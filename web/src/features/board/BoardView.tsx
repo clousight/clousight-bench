@@ -20,7 +20,7 @@ import {
 } from "@/api";
 import { StatusPill } from "@/components/Glossed";
 import { ErrorView, LoadingView } from "@/components/StateViews";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Section, SectionBody, SectionHead, SectionTitle } from "@/components/ui/section";
 import { LiveStrip } from "@/features/live/LiveStrip";
 import { useI18n } from "@/i18n";
 import { fmtRelative } from "@/lib/format";
@@ -63,29 +63,35 @@ export function BoardView() {
       </div>
 
       {domains.length === 0 ? (
-        <Card>
-          <CardContent className="px-4 py-8 text-center text-sm text-muted-foreground">
+        <Section>
+          <SectionBody className="py-8 text-center text-sm text-muted-foreground">
             {t("board.empty")}
-          </CardContent>
-        </Card>
+          </SectionBody>
+        </Section>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {domains.map((domain) => (
-            <Card key={domain.domain}>
-              <CardHeader>
-                <CardTitle className="flex items-baseline gap-2">
+            <Section key={domain.domain}>
+              <SectionHead>
+                <SectionTitle className="flex items-baseline gap-2">
                   <span>
                     {locale === "zh"
                       ? (DOMAIN_LABELS[domain.domain]?.zh ?? domain.domain)
                       : (DOMAIN_LABELS[domain.domain]?.en ?? domain.domain)}
                   </span>
-                  <span className="font-mono text-[10px] font-normal text-muted-foreground">
-                    {domain.domain}
-                  </span>
-                </CardTitle>
-              </CardHeader>
+                  {/*
+                    normal-case, not the redundant font-mono/text-[10px]/
+                    font-normal/text-muted-foreground SectionTitle already
+                    supplies: this is a verbatim machine id (matches
+                    SuiteView.tsx and RecordView.tsx), and SectionTitle's
+                    uppercase would otherwise paint "data-warehouse" as
+                    "DATA-WAREHOUSE" beside its own "DATA WAREHOUSE" label.
+                  */}
+                  <span className="normal-case">{domain.domain}</span>
+                </SectionTitle>
+              </SectionHead>
               <DomainSuites domain={domain} />
-            </Card>
+            </Section>
           ))}
         </div>
       )}
@@ -123,7 +129,7 @@ function DomainSuites({ domain }: { domain: BoardDomain }) {
   const hidden = ordered.length - shown.length;
 
   return (
-    <CardContent className="flex flex-col divide-y">
+    <SectionBody className="flex flex-col divide-y">
       {shown.map((suite) => (
         <SuiteTile key={suite.suite_id} domain={domain.domain} suite={suite} />
       ))}
@@ -131,12 +137,12 @@ function DomainSuites({ domain }: { domain: BoardDomain }) {
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="-mx-2 rounded-md px-2 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t("board.show_more").replace("{n}", String(hidden))}
         </button>
       )}
-    </CardContent>
+    </SectionBody>
   );
 }
 
@@ -148,7 +154,7 @@ function SuiteTile({ domain, suite }: { domain: string; suite: BoardSuite }) {
   return (
     <a
       href={suiteHref(domain, suite.suite_id)}
-      className="group -mx-2 flex flex-col gap-2 rounded-md px-2 py-3 transition-colors first:pt-1 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group flex flex-col gap-2 py-3 transition-colors first:pt-1 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-baseline gap-2">
         <span className="text-sm font-medium">{suiteLabel(suite.suite_id)}</span>
@@ -167,7 +173,7 @@ function SuiteTile({ domain, suite }: { domain: string; suite: BoardSuite }) {
             const formatted = formatMetric(metric.value, metric.spec.format);
             return (
               <span key={metric.key} className="flex items-baseline gap-1.5">
-                <span className="tabular-nums text-base font-semibold">{formatted.text}</span>
+                <span className="font-mono tabular-nums text-base font-medium">{formatted.text}</span>
                 {formatted.unit !== "" && (
                   <span className="text-[11px] text-muted-foreground">{formatted.unit}</span>
                 )}

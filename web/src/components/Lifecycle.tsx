@@ -28,12 +28,20 @@ import {
 } from "@/lib/glossary";
 import { cn } from "@/lib/utils";
 
-const TONE_CARD: Record<StageTone, string> = {
-  ok: "border-status-good/30 bg-status-good/[0.06]",
-  failed: "border-status-critical/40 bg-status-critical/[0.07]",
-  skipped: "border-border bg-muted/40",
-  running: "border-status-running/45 bg-status-running/[0.08]",
-  pending: "border-dashed border-border bg-transparent",
+// A stage tile is a hairline, not a box: the left rule carries the tone (the
+// same status colours the text below already uses), so pass/fail/skipped read
+// at a glance without drawing the rounded, filled chip the chrome rule forbids.
+const TONE_RULE: Record<StageTone, string> = {
+  ok: "border-status-good/70",
+  failed: "border-status-critical/80",
+  // `--border` is close to invisible at a 2px rule (~1.2:1 on white, 10% white
+  // alpha in dark) — skipped and pending would both read as "no mark". Both
+  // get a `muted-foreground` rule instead, which is still achromatic but
+  // actually renders; solid-vs-dashed then tells the two apart rather than
+  // relying on a hue neither of them has.
+  skipped: "border-muted-foreground/45",
+  running: "border-status-running/80",
+  pending: "border-dashed border-muted-foreground/25",
 };
 
 const TONE_TEXT: Record<StageTone, string> = {
@@ -73,7 +81,7 @@ export function StageStrip({ stages, timings = {}, activeStage, activeElapsedMs 
         if (members.length === 0) return null;
         return (
           <div key={phase}>
-            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="mb-1.5 font-mono text-[10px] font-normal uppercase leading-none tracking-[0.1em] text-muted-foreground">
               {locale === "zh" ? PHASE_LABELS[phase].zh : PHASE_LABELS[phase].en}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -87,8 +95,8 @@ export function StageStrip({ stages, timings = {}, activeStage, activeElapsedMs 
                     key={stage}
                     title={spec === undefined ? stage : locale === "zh" ? spec.blurb.zh : spec.blurb.en}
                     className={cn(
-                      "min-w-[7.5rem] cursor-help rounded-md border px-2.5 py-1.5 transition-colors",
-                      TONE_CARD[tone],
+                      "min-w-[7.5rem] cursor-help border-l-2 py-0.5 pl-2.5 transition-colors",
+                      TONE_RULE[tone],
                     )}
                   >
                     <div className="text-xs font-medium">
@@ -98,7 +106,7 @@ export function StageStrip({ stages, timings = {}, activeStage, activeElapsedMs 
                     <div className={cn("mt-0.5 flex items-baseline gap-1.5 text-[11px]", TONE_TEXT[tone])}>
                       <span>{locale === "zh" ? STAGE_STATUS_LABELS[tone].zh : STAGE_STATUS_LABELS[tone].en}</span>
                       {typeof ms === "number" && (
-                        <span className="tabular-nums text-muted-foreground">{fmtDurMs(ms)}</span>
+                        <span className="font-mono tabular-nums text-muted-foreground">{fmtDurMs(ms)}</span>
                       )}
                     </div>
                   </div>
