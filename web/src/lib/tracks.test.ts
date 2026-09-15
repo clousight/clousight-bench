@@ -52,6 +52,19 @@ describe("assignTracks", () => {
     expect(work[0].spanIds).toEqual(["s1", "s2"]);
   });
 
+  it("keeps different parents on separate lanes even when their intervals do not overlap", () => {
+    // Two siblings of "p" would share one lane per the interval-packing rule;
+    // two spans from unrelated parents must not, even though nothing here
+    // overlaps in time. A lane is scoped to one logical actor.
+    const tracks = assignTracks([
+      row({ id: "s1", parentId: "p1", startS: 0, endS: 2 }),
+      row({ id: "s2", parentId: "p2", startS: 3, endS: 5 }),
+    ]);
+    const work = tracks.filter((track) => track.id !== STAGE_TRACK_ID);
+    expect(work).toHaveLength(2);
+    expect(work.map((track) => track.spanIds)).toEqual([["s1"], ["s2"]]);
+  });
+
   it("prefers an explicit stream attribute over interval packing", () => {
     // A suite that knows its own concurrency says so; we believe it.
     const tracks = assignTracks([
