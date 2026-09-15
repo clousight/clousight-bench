@@ -246,10 +246,21 @@ def test_bundled_font_stays_within_a_latin_subset_budget(dist_files: list[tuple[
 #: Tokens that dress the interface rather than carry a measurement. Chart and
 #: status tokens are deliberately absent: those ARE the data channel.
 _CHROME_TOKENS = (
-    "background", "foreground", "card", "card-foreground",
-    "primary", "primary-foreground", "secondary", "secondary-foreground",
-    "muted", "muted-foreground", "accent", "accent-foreground",
-    "border", "input", "ring",
+    "background",
+    "foreground",
+    "card",
+    "card-foreground",
+    "primary",
+    "primary-foreground",
+    "secondary",
+    "secondary-foreground",
+    "muted",
+    "muted-foreground",
+    "accent",
+    "accent-foreground",
+    "border",
+    "input",
+    "ring",
 )
 
 _OKLCH_RE = re.compile(r"oklch\(\s*[\d.]+%?\s+([\d.]+)\s")
