@@ -387,3 +387,80 @@ def test_no_rounded_card_surface_in_source() -> None:
         text = path.read_text(encoding="utf-8")
         assert "components/ui/card" not in text, f"{path.name} imports the deleted card primitive"
         assert "<Card" not in text, f"{path.name} still renders a Card"
+
+
+# ---------------------------------------------------------------------------
+# Visual-system ratchets: the two rules that regressed repeatedly
+# ---------------------------------------------------------------------------
+
+#: `tabular-nums` sites that inherit `font-mono` from an ancestor instead of
+#: declaring it. A regex cannot resolve ancestry, so each one is named here
+#: together with the ancestor that supplies the face. When a line moves this
+#: fails and someone re-confirms the ancestor is still there, which is the
+#: point — the alternative is a blanket skip that stops guarding anything.
+_MONO_BY_INHERITANCE = {
+    "features/live/LogStream.tsx": "the scroll pane in the same component carries font-mono",
+}
+
+
+def test_every_number_is_monospace() -> None:
+    """Rule 1 of the visual system: one monospace carries every number.
+
+    This regressed three times. `Glossed.tsx` and `Lifecycle.tsx` were in no
+    task's file list; then a fix applied to `MetricValue` was believed to be
+    shared and turned out to reach exactly one view, leaving thirteen spans
+    across eight files rendering numbers in the system sans stack. Nothing
+    swept for it, so nothing caught it — each time a human had to render the
+    app and look.
+
+    `tabular-nums` is the marker this codebase puts on number-bearing spans, so
+    it is what we key on. A number rendered without it is out of reach here;
+    that is a known limit, not an oversight.
+    """
+    offenders: list[str] = []
+    seen_exempt: set[str] = set()
+    for path in _web_src_files():
+        if path.suffix != ".tsx":
+            continue
+        rel = path.relative_to(_WEB_SRC).as_posix()
+        text = path.read_text(encoding="utf-8")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if "tabular-nums" not in line or "font-mono" in line:
+                continue
+            if rel in _MONO_BY_INHERITANCE:
+                assert "font-mono" in text, (
+                    f"{rel} is exempt because {_MONO_BY_INHERITANCE[rel]}, "
+                    "but the file no longer declares font-mono anywhere"
+                )
+                seen_exempt.add(rel)
+                continue
+            offenders.append(f"{rel}:{lineno}")
+    assert not offenders, (
+        "tabular-nums without font-mono — numbers render in the sans stack at: " + ", ".join(offenders)
+    )
+    stale = set(_MONO_BY_INHERITANCE) - seen_exempt
+    assert not stale, f"exemptions that no longer match anything (remove them?): {sorted(stale)}"
+
+
+def test_section_bodies_stay_on_the_rail() -> None:
+    """Section content sits on the same left edge as its `SectionTitle`.
+
+    `Card` supplied `px-4` and `Section` supplies none, so every migrated view
+    had a chance to push its content 16px off the rail, and three of them took
+    it. Four fix rounds across three tasks went into converging on this; the
+    cost of losing it again is that the sections which follow the rule start to
+    look like the mistake.
+    """
+    offenders: list[str] = []
+    for path in _web_src_files():
+        if path.suffix != ".tsx":
+            continue
+        rel = path.relative_to(_WEB_SRC).as_posix()
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if "<SectionBody" not in line:
+                continue
+            if re.search(r'className="[^"]*\b(px|pl|pr)-', line):
+                offenders.append(f"{rel}:{lineno}")
+    assert not offenders, (
+        "SectionBody with horizontal padding — content is off the left rail at: " + ", ".join(offenders)
+    )
