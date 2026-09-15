@@ -124,7 +124,7 @@ export function RunsView() {
                               className="cursor-help rounded border bg-muted/50 px-1.5 py-0.5 text-[11px] leading-4"
                             >
                               <span className="text-muted-foreground">{metricLabel(spec, locale)}</span>{" "}
-                              <span className="tabular-nums">
+                              <span className="font-mono tabular-nums">
                                 {formatted.text}
                                 {formatted.unit}
                               </span>

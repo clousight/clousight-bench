@@ -354,6 +354,7 @@ def test_chrome_components_do_not_reuse_chart_series_slots() -> None:
         _WEB_SRC / "components" / "ui" / "badge.tsx",
         _WEB_SRC / "components" / "ui" / "button.tsx",
         _WEB_SRC / "components" / "ui" / "tabs.tsx",
+        _WEB_SRC / "components" / "ui" / "input.tsx",
         _WEB_SRC / "components" / "Header.tsx",
     ]
     for path in chrome:

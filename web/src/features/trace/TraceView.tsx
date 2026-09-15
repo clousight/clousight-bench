@@ -64,7 +64,7 @@ function TranscriptCard({
   return (
     <Section className={cn(row.isError && "border-l-2 border-l-destructive")}>
       <button type="button" onClick={onToggle} className="block w-full text-left" aria-expanded={selected}>
-        <SectionHead className="flex-row items-center gap-2.5 space-y-0">
+        <SectionHead className="flex-row items-center gap-2.5">
           <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           <div className="min-w-0 flex-1">
             {row.ancestors.length > 0 && (
@@ -80,7 +80,7 @@ function TranscriptCard({
         </SectionHead>
       </button>
       {row.isError && (
-        <div className="px-4 pb-2 text-xs text-destructive">
+        <div className="pb-2 text-xs text-destructive">
           {t('trace.error')}: {row.error ?? row.status}
         </div>
       )}
@@ -177,23 +177,13 @@ export function TraceView({ runId }: { runId: string }) {
 
           <TabsContent value="waterfall" className="flex flex-col gap-3">
             <Section>
-              {/*
-                Explicit px-4 pb-4 pt-4 (not just pt-4): the old wrapper's
-                *default* classes (px-4 pb-4) supplied the other three sides,
-                which SectionBody does not replicate (its default is pb-5, no
-                horizontal padding). This box is the ECharts container's
-                parent — a padding change here would resize what the renderer
-                measures — so the full padding set is spelled out to keep the
-                waterfall pixel-identical rather than adopting the new,
-                airier default.
-              */}
-              <SectionBody className="px-4 pb-4 pt-4">
+              <SectionBody className="pt-4">
                 <Waterfall rows={rows} t0={t0} onSelect={toggle} />
               </SectionBody>
             </Section>
             {selectedRow !== null && (
               <Section className={cn(selectedRow.isError && "border-l-2 border-l-destructive")}>
-                <SectionHead className="flex-row items-center gap-2.5 space-y-0">
+                <SectionHead className="flex-row items-center gap-2.5">
                   <div className="min-w-0 flex-1 truncate text-sm font-medium">
                     {selectedRow.name ?? t('common.unnamed')}
                   </div>

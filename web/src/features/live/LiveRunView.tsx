@@ -23,6 +23,7 @@ import { stepsToRows } from "@/features/live/liveRows";
 import { useI18n } from "@/i18n";
 import { fmtClock } from "@/lib/format";
 import { suiteLabel } from "@/lib/headline";
+import { lookupStatus, type StatusTone } from "@/lib/glossary";
 import { useProgressStream } from "@/lib/progressStream";
 import { useNow } from "@/lib/ticker";
 import { boardHref, recordHref } from "@/router";
@@ -62,7 +63,7 @@ export function LiveRunView({ runId }: { runId: string }) {
           <span className="font-mono text-xs font-normal text-muted-foreground">{state.adapter}</span>
         </h1>
         <StatusPill status={state.status} />
-        {running && <span className="tabular-nums text-sm text-muted-foreground">{fmtClock(elapsedMs)}</span>}
+        {running && <span className="font-mono tabular-nums text-sm text-muted-foreground">{fmtClock(elapsedMs)}</span>}
         <div className="ml-auto flex items-center gap-2">
           {running && <CancelButton runId={runId} requested={state.cancel_requested} />}
         </div>
@@ -105,6 +106,17 @@ export function LiveRunView({ runId }: { runId: string }) {
   );
 }
 
+// The band's tone follows the run's actual verdict — a failed run must not
+// render inside a band that asserts "good", the one place on this branch
+// where colour stated something the status beside it contradicted.
+const BAND_STYLES: Record<StatusTone, string> = {
+  good: "border-status-good/30 bg-status-good/[0.05]",
+  warning: "border-status-warning/30 bg-status-warning/[0.05]",
+  critical: "border-status-critical/30 bg-status-critical/[0.05]",
+  running: "border-status-running/30 bg-status-running/[0.05]",
+  neutral: "border-border bg-muted/20",
+};
+
 /** The end of the stream, pointing at the record that replaced it. */
 function Handoff({
   recordPath,
@@ -116,8 +128,9 @@ function Handoff({
   status: string;
 }) {
   const { t } = useI18n();
+  const tone = lookupStatus(status).tone;
   return (
-    <Section className="border-status-good/30 bg-status-good/[0.05]">
+    <Section className={BAND_STYLES[tone]}>
       <SectionBody className="flex flex-wrap items-center gap-3 py-3">
         <StatusPill status={status} />
         <span className="text-sm">{t("live.finished")}</span>

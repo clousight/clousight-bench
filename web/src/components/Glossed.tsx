@@ -68,12 +68,12 @@ export function StatusPill({ status, className }: { status: string; className?: 
     <span
       title={locale === "zh" ? spec.blurb.zh : spec.blurb.en}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1 rounded-sm border border-transparent px-1.5 py-0 font-mono text-[10px] font-normal uppercase tracking-[0.08em]",
         TONE_STYLES[spec.tone],
         className,
       )}
     >
-      <Icon className={cn("size-3.5", spec.tone === "running" && "animate-spin")} aria-hidden />
+      <Icon className={cn("size-3", spec.tone === "running" && "animate-spin")} aria-hidden />
       {locale === "zh" ? spec.label.zh : spec.label.en}
     </span>
   );

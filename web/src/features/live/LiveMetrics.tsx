@@ -114,8 +114,8 @@ function Tile({
         <span
           className={
             tone === "bad"
-              ? "tabular-nums text-xl font-semibold text-status-critical"
-              : "tabular-nums text-xl font-semibold"
+              ? "font-mono tabular-nums text-xl font-medium text-status-critical"
+              : "font-mono tabular-nums text-xl font-medium"
           }
         >
           {text}

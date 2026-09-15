@@ -145,7 +145,7 @@ function ComparisonTable({ platforms, keys }: { platforms: SuitePlatform[]; keys
                 return (
                   <td key={key} className="px-3 py-2.5">
                     <span
-                      className={cn("tabular-nums", leads && "font-semibold")}
+                      className={cn("font-mono tabular-nums", leads && "font-medium")}
                       title={leads ? t("suite.leads") : undefined}
                     >
                       {formatted.text}

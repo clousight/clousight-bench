@@ -124,7 +124,7 @@ function LiveStripRow({ run }: { run: ProgressState }) {
                   style={{ width: `${(fraction * 100).toFixed(1)}%` }}
                 />
               </span>
-              <span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+              <span className="shrink-0 font-mono tabular-nums text-[11px] text-muted-foreground">
                 {step.completed}/{step.total}
               </span>
             </>
@@ -132,7 +132,7 @@ function LiveStripRow({ run }: { run: ProgressState }) {
         </span>
       )}
 
-      <span className={cn("ml-auto shrink-0 tabular-nums text-xs text-muted-foreground")}>
+      <span className={cn("ml-auto shrink-0 font-mono tabular-nums text-xs text-muted-foreground")}>
         {fmtClock(elapsed)}
       </span>
       <ChevronRight

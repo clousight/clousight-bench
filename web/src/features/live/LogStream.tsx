@@ -54,9 +54,13 @@ export function LogStream({ lines }: { lines: LogLine[] }) {
 
   return (
     <Section>
-      <SectionHead className="flex-row items-center justify-between space-y-0">
+      <SectionHead className="flex-row items-center justify-between">
         <SectionTitle>{t("live.logs")}</SectionTitle>
-        <div role="group" aria-label={t("live.log_level")} className="flex items-center gap-1">
+        <div
+          role="group"
+          aria-label={t("live.log_level")}
+          className="flex items-center gap-1 border-b border-border"
+        >
           {LEVELS.map((level) => (
             <button
               key={level}
@@ -64,10 +68,8 @@ export function LogStream({ lines }: { lines: LogLine[] }) {
               aria-pressed={filter === level}
               onClick={() => setFilter(level)}
               className={cn(
-                "rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors",
-                filter === level
-                  ? "bg-secondary text-secondary-foreground"
-                  : "text-muted-foreground hover:text-foreground",
+                "border-b-2 border-transparent px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.06em] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                filter === level && "border-foreground text-foreground",
               )}
             >
               {level === "ALL" ? t("live.log_all") : level}

@@ -81,7 +81,7 @@ export function StageStrip({ stages, timings = {}, activeStage, activeElapsedMs 
         if (members.length === 0) return null;
         return (
           <div key={phase}>
-            <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="mb-1.5 font-mono text-[10px] font-normal uppercase leading-none tracking-[0.1em] text-muted-foreground">
               {locale === "zh" ? PHASE_LABELS[phase].zh : PHASE_LABELS[phase].en}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -106,7 +106,7 @@ export function StageStrip({ stages, timings = {}, activeStage, activeElapsedMs 
                     <div className={cn("mt-0.5 flex items-baseline gap-1.5 text-[11px]", TONE_TEXT[tone])}>
                       <span>{locale === "zh" ? STAGE_STATUS_LABELS[tone].zh : STAGE_STATUS_LABELS[tone].en}</span>
                       {typeof ms === "number" && (
-                        <span className="tabular-nums text-muted-foreground">{fmtDurMs(ms)}</span>
+                        <span className="font-mono tabular-nums text-muted-foreground">{fmtDurMs(ms)}</span>
                       )}
                     </div>
                   </div>

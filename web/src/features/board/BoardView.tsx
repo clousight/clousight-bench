@@ -173,7 +173,7 @@ function SuiteTile({ domain, suite }: { domain: string; suite: BoardSuite }) {
             const formatted = formatMetric(metric.value, metric.spec.format);
             return (
               <span key={metric.key} className="flex items-baseline gap-1.5">
-                <span className="tabular-nums text-base font-semibold">{formatted.text}</span>
+                <span className="font-mono tabular-nums text-base font-medium">{formatted.text}</span>
                 {formatted.unit !== "" && (
                   <span className="text-[11px] text-muted-foreground">{formatted.unit}</span>
                 )}

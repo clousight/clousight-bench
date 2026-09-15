@@ -143,7 +143,7 @@ export function RecordView({ runId }: { runId: string }) {
       )}
 
       <Section>
-        <SectionBody className="px-3 py-2">
+        <SectionBody className="py-2">
           <HealthLine stages={stages} timings={timings} status={status} />
         </SectionBody>
       </Section>
