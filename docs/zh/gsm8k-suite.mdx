@@ -17,5 +17,13 @@ printf 'target:\n  mode: runtime\n  endpoint: "https://.../v1"\n  model: qwen-ma
 csbench run --domain llm --benchmark gsm8k --platform llm-endpoint --config qwen.yaml
 ```
 
+对端点的重试沿用与 [MMLU](/docs/zh/mmlu-suite) 相同的可选 `params.retry` 策略:
+默认关闭,`max_attempts` / `backoff_base_s` / `backoff_max_s` 限定其行为,只有
+429/5xx/超时/连接错误会重试(其他 4xx 不会),且**开启后会改变本次运行的数据集
+digest**,因此重试过的运行永远不能与干净运行比较。
+
 测量:`gsm8k.accuracy`(确定性)+ `gsm8k.{avg_latency_ms,total_tokens,cost_usd}`
-(环境性),全部 `gsm8k.` 命名、`official=True`(溯源)。一小份真实样本作 fixture;全量拉取为后续增强。
+(环境性),全部 `gsm8k.` 命名、`official=True`(溯源)。`gsm8k.avg_latency_ms`
+始终只是成功那次尝试的耗时;开启 `params.retry` 后还会出现
+`gsm8k.retry_count` / `gsm8k.retry_overhead_ms`(`official=False`),单独报告
+重试的代价。一小份真实样本作 fixture;全量拉取为后续增强。

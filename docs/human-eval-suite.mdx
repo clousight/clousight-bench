@@ -43,6 +43,13 @@ csbench run --domain llm --benchmark human-eval --platform llm-endpoint --config
 a single ```` ```python … ``` ```` fence before execution (real endpoints fence
 code despite the prompt), so a fenced-but-correct answer is not mis-scored.
 
+Retries against the endpoint follow the same opt-in `params.retry` policy as
+[MMLU](/docs/mmlu-suite): off by default, `max_attempts` / `backoff_base_s` /
+`backoff_max_s` bound it, only 429/5xx/timeouts/connection errors are retried
+(never other 4xx, since retrying a malformed request only delays a real bug),
+and **enabling it changes the run's dataset digest**, so a retried run is never
+comparable with a clean one.
+
 ## Sandbox & safety
 
 Execution reuses the first-party `core.sandbox` helper: each candidate runs in a
@@ -72,7 +79,10 @@ The `official-humaneval-evaluator` emits `human-eval.*` measurements:
 
 All are `official=True` (a provenance flag — emitted by the suite's recognized
 evaluator, not an audit claim). Token/latency dimensions are omitted when the run
-recorded no usage (e.g. the reference/fixture path).
+recorded no usage (e.g. the reference/fixture path). `human-eval.avg_latency_ms`
+is always the successful attempt alone; with `params.retry` enabled,
+`human-eval.retry_count` / `human-eval.retry_overhead_ms` also appear
+(`official=False`), reporting the retry cost separately.
 
 ## Deliberate scope (slice 1)
 - A small **real HumanEval sample** (openai/openai_humaneval, MIT) ships as a

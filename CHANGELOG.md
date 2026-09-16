@@ -2,6 +2,28 @@
 
 All notable changes to Clousight Bench are recorded here.
 
+## [Unreleased]
+
+### Added
+
+- **Opt-in retry for LLM endpoint calls** (MMLU, GSM8K, HumanEval).
+  `params.retry.max_attempts` (total attempts including the first; absent ⇒ 1)
+  retries a `/chat/completions` call, with `params.retry.backoff_base_s` /
+  `params.retry.backoff_max_s` bounding the exponential backoff between
+  attempts. Retryable: 429, any 5xx, timeouts, connection errors. Not
+  retryable: every other 4xx — a malformed request will not succeed on a
+  retry, and retrying it only delays and obscures a real client-side bug. Off
+  by default: a run without `params.retry` is unchanged in every respect —
+  spans, measurements, dataset digest, byte-for-byte. `<suite>.latency_ms`
+  stays the successful attempt alone; the cost of retrying is reported
+  separately as `<suite>.retry_count` / `<suite>.retry_overhead_ms`
+  (`official=False`, `environmental`, emitted only when retries are enabled).
+  A retried call's trace span becomes a parent span with one child per
+  attempt; a non-retried call is still a single span exactly as before.
+  **Enabling retries changes the run's dataset digest** — the same way a
+  YCSB disruption plan changes what is being measured — so a retried run is
+  never comparable with a clean one.
+
 ## [0.7.0] — 2026-09-13
 
 ### Added

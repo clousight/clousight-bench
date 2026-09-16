@@ -19,6 +19,15 @@ printf 'target:\n  mode: runtime\n  endpoint: "https://.../v1"\n  model: qwen-ma
 csbench run --domain llm --benchmark gsm8k --platform llm-endpoint --config qwen.yaml
 ```
 
+Retries against the endpoint follow the same opt-in `params.retry` policy as
+[MMLU](/docs/mmlu-suite): off by default, `max_attempts` / `backoff_base_s` /
+`backoff_max_s` bound it, only 429/5xx/timeouts/connection errors are retried
+(never other 4xx), and **enabling it changes the run's dataset digest**, so a
+retried run is never comparable with a clean one.
+
 Measurements: `gsm8k.accuracy` (deterministic) + `gsm8k.{avg_latency_ms,total_tokens,cost_usd}`
-(environmental), all `gsm8k.`-namespaced and `official=True` (provenance). A small
+(environmental), all `gsm8k.`-namespaced and `official=True` (provenance).
+`gsm8k.avg_latency_ms` is always the successful attempt alone; with
+`params.retry` enabled, `gsm8k.retry_count` / `gsm8k.retry_overhead_ms` also
+appear (`official=False`), reporting the retry cost separately. A small
 real sample ships as a fixture; full-dataset fetch is a future enhancement.

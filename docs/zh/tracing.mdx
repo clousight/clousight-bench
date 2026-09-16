@@ -17,7 +17,7 @@ Trace 是**证据,不是判定**:evaluator 不读它,基准指纹不含它,expor
 |---|---|---|
 | Harness(每次运行) | 根 `csbench.run` + 每个**计时**生命周期阶段一个 span(PREFLIGHT … SCORE),精确 `stage_timings` | `csbench.*` |
 | TPC-H 官方模式 | Load → Power(RF1、Q1…Q22、RF2)→ Throughput(并发流、逐查询 span、刷新对)——由实测区间重建 | `csbench.phase`/`csbench.stream_id` + `db.*` |
-| LLM endpoint 套件(MMLU/GSM8K/HumanEval) | 每次 `/chat/completions` 调用一个 span:模型、token 用量、finish reason | `gen_ai.*`(GenAI 语义约定) |
+| LLM endpoint 套件(MMLU/GSM8K/HumanEval) | 每次 `/chat/completions` 调用一个 span:模型、token 用量、finish reason——开启 `params.retry` 时,该调用是一个父 span,每次尝试是一个子 span;未开启重试则仍是单个 span,与之前完全一致 | `gen_ai.*`(GenAI 语义约定) |
 | SWE-bench agent | 由 agent 的 OpenInference wire 映射到 schema v3 的 LLM/工具 span(确定性 hex id;legacy v2 记录仍可渲染) | `gen_ai.*` |
 
 所有 span 共享该运行的 W3C `trace_id`(orchestrator 启动时预置),整次评测读作一棵树。

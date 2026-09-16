@@ -35,6 +35,22 @@ csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen.
 
 `params.subjects` filters MMLU subjects; `params.limit` caps the question count.
 
+Retrying a failed endpoint call is opt-in and off by default: absent
+`params.retry`, every question is one attempt, byte-for-byte today's behaviour.
+Set `params.retry.max_attempts` (total attempts including the first) to retry,
+with `params.retry.backoff_base_s` / `params.retry.backoff_max_s` bounding the
+exponential backoff between attempts. Only a 429, a 5xx, a timeout, or a
+connection error is retried — any other 4xx is the request's own fault, and
+retrying it would only delay a bug you need to see, not fix it. **Enabling
+`params.retry` changes the run's dataset digest**, the same way a YCSB
+disruption plan changes what is being measured, so a retried run is never
+comparable with a clean one:
+
+```bash
+printf 'target:\n  mode: runtime\n  endpoint: "https://.../v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  retry:\n    max_attempts: 3\n    backoff_base_s: 0.5\n    backoff_max_s: 5\n' > qwen-retry.yaml
+csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen-retry.yaml
+```
+
 ## What it measures
 
 The `official-mmlu-evaluator` emits `mmlu.*` measurements:
@@ -48,7 +64,12 @@ The `official-mmlu-evaluator` emits `mmlu.*` measurements:
 
 All are `official=True` (a provenance flag — emitted by the suite's recognized
 evaluator, not an audit claim). Token/latency dimensions are omitted if the run
-recorded no usage.
+recorded no usage. `mmlu.avg_latency_ms` is always the successful attempt alone,
+retried or not; with `params.retry` enabled, two more measurements appear —
+`mmlu.retry_count` (attempts beyond the first) and `mmlu.retry_overhead_ms`
+(time spent on failed attempts and backoff) — both `official=False` and
+`environmental`, since they describe this harness against this endpoint on this
+run, not a property of the benchmark.
 
 ## Deliberate scope (slice 1)
 - A small **real MMLU sample** (cais/mmlu, MIT) ships as a fixture so the mock /
