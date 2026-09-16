@@ -111,11 +111,18 @@ export function TraceView({ runId }: { runId: string }) {
   const rows = useMemo(() => (data === null ? [] : buildRows(data)), [data]);
   const tracks = useMemo(() => assignTracks(rows), [rows]);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const effective = selection ?? fullSelection(rows, tracks);
-  const visible = useMemo(
-    () => selectSpans(rows, tracks, effective),
-    [rows, tracks, effective],
+  // Memoised, not computed inline: `fullSelection` builds a fresh object and a
+  // fresh Set every call, so while `selection` is null — the arrival state,
+  // where a reader spends most of their time — an inline call would hand every
+  // consumer a new identity on every render. That churns `visible`, invalidates
+  // TrackList's ~900-element lane memo, and lands in Waterfall's effect
+  // dependencies, which dispose and re-init the ECharts instance. A click on a
+  // bar would have rebuilt the chart.
+  const effective = useMemo(
+    () => selection ?? fullSelection(rows, tracks),
+    [selection, rows, tracks],
   );
+  const visible = useMemo(() => selectSpans(rows, tracks, effective), [rows, tracks, effective]);
   const kinds = useMemo(() => {
     const seen: string[] = [];
     for (const row of rows) if (row.kind !== "" && !seen.includes(row.kind)) seen.push(row.kind);
