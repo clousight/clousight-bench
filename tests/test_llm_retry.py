@@ -728,3 +728,15 @@ def test_clean_digest_matches_the_pre_feature_pin(suite_cls: type) -> None:
     suite = suite_cls()
     handle = suite.resolve({"limit": 2}, None)
     assert handle.digest == _CLEAN_DIGEST_AT_LIMIT_2[suite_cls]
+
+
+@pytest.mark.parametrize("suite_cls", [MmluSuite, Gsm8kSuite, HumanEvalSuite])
+def test_clean_version_carries_no_retry_marker(suite_cls: type) -> None:
+    """Absolute, not relative: a clean run's ``version`` must equal
+    ``suite_version`` exactly, with no ``/retry-N`` suffix — an unconditional
+    fold that always appended the marker would still pass every *relative*
+    check in this file, so this compares directly against the known-good
+    unmarked value rather than against a sibling run's version."""
+    suite = suite_cls()
+    handle = suite.resolve({"limit": 2}, None)
+    assert handle.version == suite.suite_version
