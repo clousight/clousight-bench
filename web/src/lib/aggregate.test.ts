@@ -3,11 +3,18 @@ import { describe, expect, it } from "vitest";
 import { aggregate } from "@/lib/aggregate";
 import type { SpanRow } from "@/lib/trace";
 
-function row(id: string, name: string, startS: number, endS: number, parentId: string | null = null): SpanRow {
+function row(
+  id: string,
+  name: string,
+  startS: number,
+  endS: number,
+  parentId: string | null = null,
+  kind = "query",
+): SpanRow {
   return {
     id,
     name,
-    kind: "query",
+    kind,
     startS,
     endS,
     status: "ok",
@@ -38,12 +45,38 @@ describe("aggregate", () => {
     expect(buckets.map((b) => b.name)).toEqual(["zzz", "aaa"]);
   });
 
+  it("keeps spans with the same name but different kind in separate buckets", () => {
+    const buckets = aggregate([
+      row("1", "q21", 0, 2, null, "query"),
+      row("2", "q21", 0, 2, null, "lifecycle"),
+    ]);
+    expect(buckets).toHaveLength(2);
+    expect(buckets.map((b) => [b.kind, b.name, b.count]).sort()).toEqual([
+      ["lifecycle", "q21", 1],
+      ["query", "q21", 1],
+    ]);
+  });
+
   it("subtracts child time from a parent's self time", () => {
     // parent [0,10] with a child [2,6]: total 10, self 6.
     const buckets = aggregate([row("p", "parent", 0, 10), row("c", "child", 2, 6, "p")]);
     const parent = buckets.find((b) => b.name === "parent");
     expect(parent?.totalS).toBe(10);
     expect(parent?.selfS).toBe(6);
+  });
+
+  it("sums non-overlapping children's time rather than taking the largest one", () => {
+    // parent [0,10] with three non-overlapping children of duration 2 each
+    // (total child time 6): self = 10 - 6 = 4. A max-based accumulator would
+    // instead see the single widest child (2) and report self = 10 - 2 = 8.
+    const buckets = aggregate([
+      row("p", "parent", 0, 10),
+      row("c1", "child", 0, 2, "p"),
+      row("c2", "child", 4, 6, "p"),
+      row("c3", "child", 7, 9, "p"),
+    ]);
+    const parent = buckets.find((b) => b.name === "parent");
+    expect(parent?.selfS).toBe(4);
   });
 
   it("does not let overlapping children drive self time negative", () => {
