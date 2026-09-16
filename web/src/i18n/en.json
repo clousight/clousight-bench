@@ -123,7 +123,7 @@
   "timeline.selection": "Selected",
   "timeline.of": "of",
   "timeline.reset": "Whole run",
-  "timeline.drag_hint": "Drag to select a range",
+  "timeline.drag_hint": "Drag to select a time range; arrow keys move it, shift+arrow resizes it",
   "timeline.tracks": "Tracks",
   "timeline.track_lifecycle": "lifecycle",
   "timeline.include_track": "Include this track in the selection",

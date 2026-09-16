@@ -123,7 +123,7 @@
   "timeline.selection": "已选",
   "timeline.of": "／",
   "timeline.reset": "整轮",
-  "timeline.drag_hint": "拖动选择一段时间",
+  "timeline.drag_hint": "拖动选择一段时间；方向键移动选区，Shift+方向键调整长度",
   "timeline.tracks": "轨道",
   "timeline.track_lifecycle": "生命周期",
   "timeline.include_track": "把这条轨道加入选区",

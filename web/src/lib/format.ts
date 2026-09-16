@@ -25,6 +25,26 @@ export function fmtDurMs(ms: number): string {
   return fmtDur(ms / 1000);
 }
 
+/**
+ * A span-scale duration: milliseconds below a second, seconds above it.
+ *
+ * `fmtDur` spends both of its significant digits on zeroes under one second,
+ * and under one second is exactly where a range selection lives: drag a 100 ms
+ * window out of a 13 s run — the feature's whole point — and every row in both
+ * timeline panes reads "0.00s self · 0.00s total". The threshold is one second
+ * because that is where the seconds form stops being able to say anything;
+ * above it `fmtDur`'s three bands are already right.
+ *
+ * Note the unit switch is per VALUE, not per pane: a window holding one 12 s
+ * span and twenty 3 ms ones has no single honest unit, and rounding the
+ * twenty to "0.00s" to keep the column uniform is the defect, not the
+ * formatting.
+ */
+export function fmtSpanDur(seconds: number): string {
+  if (!Number.isFinite(seconds)) return "";
+  return Math.abs(seconds) < 1 ? fmtDurMs(seconds * 1000) : fmtDur(seconds);
+}
+
 /** ISO timestamp -> locale-formatted date/time; unparseable input verbatim. */
 export function fmtDate(iso: string, locale: Locale): string {
   if (!iso) return "";

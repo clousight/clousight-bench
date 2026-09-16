@@ -53,3 +53,18 @@ export function renderMarkup(node: ReactElement): string {
 export function widthPercents(markup: string): number[] {
   return [...markup.matchAll(/width:([\d.]+)%/g)].map((match) => Number(match[1]));
 }
+
+/**
+ * The opening tag of everything in a markup string a keyboard can land on.
+ *
+ * Focus treatment is a per-element attribute, so `expect(markup).toContain(
+ * "focus-visible:ring-ring")` is satisfied by any ONE element having it —
+ * which is exactly how the overview strip went without a ring while the reset
+ * button six lines above it covered for the assertion. Returning the tags
+ * makes the assertion per element, and the failure message name the element
+ * that is missing it.
+ */
+export function focusableTags(markup: string): string[] {
+  const pattern = /<(?:button|input|select|textarea|a)\b[^>]*>|<[a-z]+\b[^>]*tabindex="0"[^>]*>/g;
+  return [...markup.matchAll(pattern)].map((match) => match[0]);
+}

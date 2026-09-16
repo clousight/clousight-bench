@@ -4,7 +4,7 @@ import { pctOf, toggleTrack, trackLabel, TrackList } from "@/features/timeline/T
 import type { Selection } from "@/lib/selection";
 import type { SpanRow } from "@/lib/trace";
 import { STAGE_TRACK_ID, type Track } from "@/lib/tracks";
-import { renderMarkup } from "@/test/render";
+import { focusableTags, renderMarkup } from "@/test/render";
 
 describe("pctOf", () => {
   it("maps a second to its percentage across [t0, t0+totalS]", () => {
@@ -148,6 +148,50 @@ describe("<TrackList>", () => {
     for (const checkbox of markup.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)) {
       expect(checkbox[0]).toContain("accent-foreground");
     }
+  });
+
+  it("gives each lane a textual summary, since its dashes are all aria-hidden", () => {
+    // The lanes carry the whole concurrency structure and a screen reader got
+    // nothing from them: ~900 absolutely-positioned spans, every one
+    // aria-hidden, and no equivalent. Count and extent are what make one lane
+    // comparable to the next. "spans" is the word the header three rows above
+    // already uses, rather than a second name for the same thing.
+    const selection: Selection = { startS: 0, endS: 10, trackIds: new Set(["lane:0:0"]) };
+    const markup = renderMarkup(
+      <TrackList tracks={tracks} rows={rows} t0={0} totalS={10} selection={selection} onChange={noop} />,
+    );
+    // Lane 1 holds span "a" [0,2]; lane 2 holds span "b" [4,6].
+    expect(markup).toContain("1 spans · 0.00ms–2.00s");
+    expect(markup).toContain("1 spans · 4.00s–6.00s");
+  });
+
+  it("keeps a truncated lane label recoverable from its title", () => {
+    // The label column is 9rem; a declared stream can be named after a long
+    // suite identifier, and the truncation is then the only thing between the
+    // reader and the identity the lane exists to carry.
+    const selection: Selection = { startS: 0, endS: 10, trackIds: new Set(["lane:0:0"]) };
+    const markup = renderMarkup(
+      <TrackList tracks={tracks} rows={rows} t0={0} totalS={10} selection={selection} onChange={noop} />,
+    );
+    expect(markup).toContain('title="lane 1"');
+    expect(markup).toContain('title="lane 2"');
+  });
+
+  it("gives every focusable element the app's focus ring, not the UA outline", () => {
+    // Deferred #9 and #28 were one defect counted twice: the timeline feature
+    // fell through to the user agent's default outline while every other
+    // control in the app used the --ring token. Asserted per element rather
+    // than over the markup, because one ringed element otherwise satisfies
+    // the whole string.
+    const selection: Selection = { startS: 0, endS: 10, trackIds: new Set(["lane:0:0"]) };
+    const markup = renderMarkup(
+      <TrackList tracks={tracks} rows={rows} t0={0} totalS={10} selection={selection} onChange={noop} />,
+    );
+    const tags = focusableTags(markup);
+    // Two checkboxes and the "select all" button, which shows because lane 2
+    // is unchecked.
+    expect(tags).toHaveLength(3);
+    for (const tag of tags) expect(tag, tag).toContain("focus-visible:ring-ring");
   });
 
   it("draws the selected window over each lane at the window's own percentages", () => {

@@ -9,6 +9,7 @@ import { useI18n } from "@/i18n";
 import { aggregate, type Bucket } from "@/lib/aggregate";
 import { fmtDur } from "@/lib/format";
 import type { SpanRow } from "@/lib/trace";
+import { cn } from "@/lib/utils";
 
 export type SortKey = "totalS" | "selfS" | "count";
 
@@ -61,16 +62,26 @@ export function TablePane({
   // The sort control is a button inside the header cell, not a click handler on
   // the `<th>` itself: a bare onClick on a table header is unreachable by
   // keyboard and announces nothing to a screen reader.
+  //
+  // `min-h-6` and the horizontal padding are the target, not decoration: the
+  // button used to be exactly as tall as its 11px text, about 10px of
+  // pointer-reachable height, against WCAG 2.2's 24x24 minimum. The border
+  // that marks the active column now sits at the bottom of a 24px box rather
+  // than under the glyphs, which is also why it reads as a column marker
+  // instead of an underline. `focus-visible:ring-ring` is the app's ring
+  // token — this whole feature was falling through to the UA default outline
+  // while every other control in the app used it.
   const sortButton = (key: SortKey, label: string) => (
     <button
       type="button"
       onClick={() => setSort(key)}
       aria-pressed={sort === key}
-      className={
+      className={cn(
+        "inline-flex min-h-6 items-center px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         sort === key
           ? "border-b-2 border-foreground text-foreground"
-          : "border-b-2 border-transparent transition-colors hover:text-foreground"
-      }
+          : "border-b-2 border-transparent transition-colors hover:text-foreground",
+      )}
     >
       {label}
     </button>
@@ -131,7 +142,7 @@ export function TablePane({
                 // flex item won't shrink below its content's natural width.
                 // `shrink-0` keeps the kind label always legible rather than
                 // fighting the name for space.
-                className="flex w-full items-center gap-2 text-left"
+                className="flex w-full items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {/* Clipped, so the full name has to stay recoverable. */}
                 <span

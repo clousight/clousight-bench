@@ -8,6 +8,7 @@ import { useCallback, useMemo } from "react";
 
 import { laneSpanStyle } from "@/charts/palette";
 import { useI18n } from "@/i18n";
+import { fmtSpanDur } from "@/lib/format";
 import type { Selection } from "@/lib/selection";
 import type { SpanRow } from "@/lib/trace";
 import { STAGE_TRACK_ID, type Track } from "@/lib/tracks";
@@ -73,6 +74,10 @@ export function trackLabel(track: Track, t: (key: string) => string): string {
 
 export function TrackList({ tracks, rows, t0, totalS, selection, onChange }: Props) {
   const { t } = useI18n();
+  // The header directly above these lanes already says "N spans" through this
+  // key; the lane summaries reuse it rather than introducing a second word
+  // for the same thing three rows apart.
+  const spansWord = t("trace.spans");
   const byId = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows]);
 
   const toggle = useCallback((trackId: string) => onChange(toggleTrack(selection, trackId)), [onChange, selection]);
@@ -105,22 +110,35 @@ export function TrackList({ tracks, rows, t0, totalS, selection, onChange }: Pro
     () =>
       tracks.map((track) => {
         const selected = selection.trackIds.has(track.id);
-        const marks = track.spanIds.flatMap((id) => {
+        const laneRows = track.spanIds.flatMap((id) => {
           const row = byId.get(id);
-          if (row === undefined) return [];
+          return row === undefined ? [] : [row];
+        });
+        const marks = laneRows.map((row) => {
           const left = pctOf(row.startS, t0, totalS);
           const width = Math.max(pctOf(row.endS, t0, totalS) - left, 0.2);
           const style = laneSpanStyle(row.kind, row.isError, selected);
-          return [
+          return (
             <span
-              key={id}
+              key={row.id}
               aria-hidden
               className="absolute top-1 h-2 rounded-[1px]"
               style={{ left: `${left}%`, width: `${width}%`, ...style }}
-            />,
-          ];
+            />
+          );
         });
-        return { track, selected, marks };
+        // The lane's extent, for the textual summary below. Numbers, not a
+        // formatted string: `t()` would have to join the memo's dependency
+        // list to build one here, and the composition is per lane rather than
+        // per span, so the render body is the cheaper place for it.
+        return {
+          track,
+          selected,
+          marks,
+          count: laneRows.length,
+          fromS: laneRows.length > 0 ? Math.min(...laneRows.map((row) => row.startS)) : t0,
+          toS: laneRows.length > 0 ? Math.max(...laneRows.map((row) => row.endS)) : t0,
+        };
       }),
     [tracks, byId, t0, totalS, selection.trackIds],
   );
@@ -141,13 +159,13 @@ export function TrackList({ tracks, rows, t0, totalS, selection, onChange }: Pro
           <button
             type="button"
             onClick={selectAll}
-            className="border-b-2 border-transparent uppercase tracking-[0.06em] transition-colors hover:border-foreground hover:text-foreground"
+            className="border-b-2 border-transparent uppercase tracking-[0.06em] transition-colors hover:border-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {t("timeline.select_all")}
           </button>
         )}
       </div>
-      {lanes.map(({ track, selected, marks }) => {
+      {lanes.map(({ track, selected, marks, count, fromS, toS }) => {
         const label = trackLabel(track, t);
         return (
           <div key={track.id} className="flex items-center border-b border-border py-1.5">
@@ -164,11 +182,27 @@ export function TrackList({ tracks, rows, t0, totalS, selection, onChange }: Pro
                 checked={selected}
                 onChange={() => toggle(track.id)}
                 aria-label={`${t("timeline.include_track")}: ${label}`}
-                className="size-3 accent-foreground"
+                className="size-3 accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <span className="truncate">{label}</span>
+              {/* Truncated, so the full name has to stay recoverable — a
+                  declared stream's lane can be named after a long suite
+                  identifier and this column is 9rem wide. Same idiom as the
+                  table's name cell. */}
+              <span className="truncate" title={label}>
+                {label}
+              </span>
             </label>
             <div className="relative h-4 flex-1">
+              {/* Every dash in this lane is aria-hidden — they are absolutely
+                  positioned rectangles, and a screen reader reading 900 of
+                  them would be worse than reading none. But reading none is
+                  what shipped, and the lanes are where the whole concurrency
+                  structure lives: without this a screen-reader user could
+                  toggle a track's checkbox and never learn what was in it.
+                  The count and the extent are the two facts that make a lane
+                  comparable to the one under it, which is the question these
+                  rows exist to answer. */}
+              <span className="sr-only">{`${count} ${spansWord} · ${fmtSpanDur(fromS - t0)}–${fmtSpanDur(toS - t0)}`}</span>
               {marks}
               {/* The selected time window, drawn over the dashes — same
                   idiom as OverviewStrip's own overlay (border + a faint

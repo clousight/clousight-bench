@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { firstIdFor, sortBuckets, TablePane } from "@/features/timeline/TablePane";
 import type { Bucket } from "@/lib/aggregate";
 import type { SpanRow } from "@/lib/trace";
-import { renderMarkup } from "@/test/render";
+import { focusableTags, renderMarkup } from "@/test/render";
 
 function bucket(name: string, kind: string, totalS: number, selfS: number, count: number): Bucket {
   return { name, kind, totalS, selfS, count };
@@ -100,6 +100,35 @@ describe("<TablePane>", () => {
     );
     expect(markup).toContain("table-fixed");
     expect(markup).toContain('title="tpc-h.stream1.q21.a-very-long-operation-name"');
+  });
+
+  it("gives every focusable element the app's focus ring, not the UA outline", () => {
+    // Deferred #9 and #28 were one defect counted twice: the timeline feature
+    // fell through to the user agent's default outline while every other
+    // control in the app used the --ring token. Asserted per element rather
+    // than over the markup, because one ringed element otherwise satisfies
+    // the whole string.
+    const markup = renderMarkup(
+      <TablePane rows={[container]} allRows={[container]} window={WIDE} onSelect={noop} />,
+    );
+    const tags = focusableTags(markup);
+    // Three sort buttons and the name cell's button.
+    expect(tags).toHaveLength(4);
+    for (const tag of tags) expect(tag, tag).toContain("focus-visible:ring-ring");
+  });
+
+  it("gives the sort controls a target a pointer can actually hit", () => {
+    // Deferred #22: the buttons were exactly as tall as their 11px text,
+    // about 10px of reachable height against WCAG 2.2's 24x24 minimum. The
+    // height itself is not observable without a layout engine; that the
+    // control declares a minimum box and padding rather than sitting flush
+    // around its glyphs is.
+    const markup = renderMarkup(
+      <TablePane rows={[container]} allRows={[container]} window={WIDE} onSelect={noop} />,
+    );
+    const sortButtons = focusableTags(markup).filter((tag) => tag.includes("aria-pressed"));
+    expect(sortButtons).toHaveLength(3);
+    for (const tag of sortButtons) expect(tag, tag).toContain("min-h-6");
   });
 
   it("opens on self time, so a pure container does not head the table", () => {
