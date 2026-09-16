@@ -75,16 +75,37 @@ export function TablePane({ rows, onSelect }: { rows: SpanRow[]; onSelect: (id: 
       </TableHeader>
       <TableBody>
         {buckets.map((bucket) => (
-          <TableRow
-            key={`${bucket.kind}:${bucket.name}`}
-            onClick={() => {
-              const id = firstIdFor(rows, bucket);
-              if (id !== null) onSelect(id);
-            }}
-          >
+          // No onClick, no tabIndex on the row itself: a bare click handler on
+          // a `<tr>` is exactly the anti-pattern the header's own sort button
+          // was built to avoid — unreachable by keyboard, silent to a screen
+          // reader. The name cell's content is a real `<button>` instead, the
+          // same shape `RunsView.tsx` uses (an interactive element inside the
+          // cell, not a handler on the row), so the row-to-target path is
+          // reachable and announced like any other control in this feature.
+          <TableRow key={`${bucket.kind}:${bucket.name}`}>
             <TableCell className="font-mono text-xs">
-              {bucket.name === "" ? t("common.unnamed") : bucket.name}
-              <span className="ml-2 text-muted-foreground">{bucket.kind}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const id = firstIdFor(rows, bucket);
+                  if (id !== null) onSelect(id);
+                }}
+                // `text-left`: a bare <button> centres its content in the
+                // user-agent stylesheet, and this cell reads left-to-right
+                // like every other cell in the table. `min-w-0` on the name
+                // span is what lets `truncate` actually clip inside a flex
+                // row — without it a flex item won't shrink below its
+                // content's natural width, so a long name would stretch the
+                // column instead of ellipsizing. `shrink-0` keeps the kind
+                // label always legible rather than fighting the name for
+                // space.
+                className="flex w-full items-center gap-2 text-left"
+              >
+                <span className="min-w-0 flex-1 truncate">
+                  {bucket.name === "" ? t("common.unnamed") : bucket.name}
+                </span>
+                <span className="shrink-0 text-muted-foreground">{bucket.kind}</span>
+              </button>
             </TableCell>
             <TableCell className="font-mono text-xs tabular-nums">{fmtDur(bucket.totalS)}</TableCell>
             <TableCell className="font-mono text-xs tabular-nums">{fmtDur(bucket.selfS)}</TableCell>
