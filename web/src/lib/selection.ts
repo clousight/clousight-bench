@@ -64,6 +64,31 @@ export function selectSpans(rows: SpanRow[], tracks: Track[], selection: Selecti
   return rows.filter((row) => allowed.has(row.id) && overlaps(row, selection));
 }
 
+/**
+ * Do two filtered row lists hold the same rows, in the same order?
+ *
+ * `selectSpans` allocates a fresh array every call, and a drag calls it on
+ * every `pointermove` — but the rows it returns only change when a span
+ * enters or leaves the window, a handful of times per drag rather than a few
+ * hundred. Consumers key expensive work on the array's *identity*
+ * (`Waterfall` holds it in an effect dependency list and disposes its ECharts
+ * instance when it changes), so the caller collapses an equal result back to
+ * the previous array using this.
+ *
+ * Element identity, not deep equality: rows come from one memoised
+ * `buildRows` call, so two lists holding the same spans hold the same
+ * objects. Order is part of the answer because the waterfall draws rows in
+ * the order it is given.
+ */
+export function sameRows(a: readonly SpanRow[], b: readonly SpanRow[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
+}
+
 export function clampSelection(selection: Selection, minS: number, maxS: number): Selection {
   const lo = Math.min(minS, maxS);
   const hi = Math.max(minS, maxS);

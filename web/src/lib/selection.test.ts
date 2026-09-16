@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clampSelection, fullSelection, selectSpans } from "@/lib/selection";
+import { clampSelection, fullSelection, sameRows, selectSpans } from "@/lib/selection";
 import type { Track } from "@/lib/tracks";
 import type { SpanRow } from "@/lib/trace";
 
@@ -147,5 +147,41 @@ describe("selectSpans and zero width", () => {
     // A drag clamped to a single instant is a playhead, not an empty pane.
     const sel = { startS: 4, endS: 4, trackIds: new Set(["t1", "t2"]) };
     expect(selectSpans(rows, tracks, sel).map((r) => r.id)).toEqual(["b"]);
+  });
+});
+
+describe("sameRows", () => {
+  it("sees two fresh results of the same filter as the same rows", () => {
+    // The case that matters: two adjacent pointermoves during a drag. The
+    // windows differ, the arrays are different objects, and the rows inside
+    // are identical — so the caller can keep the first array and leave
+    // Waterfall's ECharts instance alone.
+    const wide = { startS: 0, endS: 10, trackIds: new Set(["t1", "t2"]) };
+    const narrower = { startS: 0.1, endS: 9.9, trackIds: new Set(["t1", "t2"]) };
+    const first = selectSpans(rows, tracks, wide);
+    const second = selectSpans(rows, tracks, narrower);
+    expect(second).not.toBe(first);
+    expect(sameRows(first, second)).toBe(true);
+  });
+
+  it("sees a crossed edge as a change", () => {
+    const before = { startS: 0, endS: 10, trackIds: new Set(["t1", "t2"]) };
+    const after = { startS: 0, endS: 7, trackIds: new Set(["t1", "t2"]) };
+    expect(sameRows(selectSpans(rows, tracks, before), selectSpans(rows, tracks, after))).toBe(false);
+  });
+
+  it("sees an unchecked track as a change even when the window did not move", () => {
+    const both = { startS: 0, endS: 10, trackIds: new Set(["t1", "t2"]) };
+    const one = { startS: 0, endS: 10, trackIds: new Set(["t1"]) };
+    expect(sameRows(selectSpans(rows, tracks, both), selectSpans(rows, tracks, one))).toBe(false);
+  });
+
+  it("compares by element identity and order, not by length or content", () => {
+    // Same rows, same length, different order: the waterfall draws in the
+    // order it is handed, so this is a different list.
+    expect(sameRows([rows[0], rows[1]], [rows[1], rows[0]])).toBe(false);
+    // A copy of a row is a different object, and a consumer keying on
+    // identity would not see the substitution if this returned true.
+    expect(sameRows([rows[0]], [{ ...rows[0] }])).toBe(false);
   });
 });
