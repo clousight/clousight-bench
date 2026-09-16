@@ -384,6 +384,16 @@ region already took — the per-query spans above are literally the intervals
 `latency_ms` was computed from — but nothing may be *written* inside a window
 whose own wall clock is the measurement.
 
+MMLU and GSM8K are the one documented exception to the first half of that rule.
+Their *live* item step is drawn from the item loop's own marks, around the whole
+call, while the *sealed* `latency_ms` is a separate reading `chat_once` takes
+from just before the HTTP request to just after the response is parsed. The two
+differ on every run by the per-call setup between them, and under an enabled
+`params.retry` by the failed attempts and backoff sleeps as well — so the live
+number is always the larger of the two. That is deliberate: the live sample
+answers "how long is this item taking", the sealed one answers "how fast is the
+endpoint".
+
 ### Span shape
 
 The primary span shape is the **v3 OTel-native** span (`core/sut_span.py`):

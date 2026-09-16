@@ -58,7 +58,15 @@ class RetryPolicy:
     already defaults to 3, so sharing it would have turned retries on for every
     existing run in silence.
 
-    Absent config means exactly one attempt: today's behaviour, byte for byte.
+    Absent config means exactly one attempt per item, the same spans, and the
+    same dataset digest as before this class existed. (Not *byte for byte*: the
+    suites' ``summary.json`` also gained ``retry_enabled`` / ``retry_count`` /
+    ``retry_overhead_ms``, which are false/0 there but do change that artifact's
+    sha256 against a pre-feature run.)
+
+    Confusable with ``target.retries``, which spells the same three key names
+    with a ``max_attempts`` default of 3 and reaches ``ClientPolicy``, never the
+    measured call.
     """
 
     max_attempts: int = 1
@@ -120,14 +128,18 @@ class ItemProgress:
     item's timer has not started, so nothing that reaches ``avg_latency_ms``
     can move.
 
-    Under an enabled retry policy (MMLU, GSM8K) the live ``<suite>.latency_ms``
-    sample DOES disagree with the sealed row: ``start``/``end`` are wall-clock
-    marks that span every retried attempt and backoff sleep, while the sealed
-    row's ``latency_ms`` is the successful attempt alone (``chat_once``'s
-    ``success_ms``). That is deliberate, not a bug to converge — the live
-    sample is a progress indicator, and "how long did this item take to clear
-    the loop" is the honest wall-clock reading for that purpose, even though it
-    is a different number from the one that gets published.
+    For MMLU and GSM8K the live ``<suite>.latency_ms`` sample ALWAYS disagrees
+    with the sealed row, retried or not: ``start``/``end`` are wall-clock marks
+    around the whole call, while the sealed row's ``latency_ms`` is a separate
+    reading ``chat_once`` takes inside itself (``success_ms``) from just before
+    the HTTP request to just after the response body is parsed. On a clean run
+    the gap is the per-call setup those marks include and ``success_ms`` does
+    not — sub-millisecond, except on the first item, which also pays for a lazy
+    ``import requests``. Under an enabled retry policy the gap widens to every
+    failed attempt and backoff sleep. That is deliberate, not a bug to converge
+    — the live sample is a progress indicator, and "how long did this item take
+    to clear the loop" is the honest wall-clock reading for that purpose, even
+    though it is a different number from the one that gets published.
 
     Steps are named ``<suite_id>.<item_id>``. This is another place the live and
     the sealed waterfall deliberately differ: the trajectory's spans are

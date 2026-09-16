@@ -33,17 +33,28 @@ csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen.
 `params.subjects` 过滤学科;`params.limit` 限题数。
 
 对端点调用的重试是可选项,默认关闭:不设 `params.retry` 时,每题都只尝试一次,
-与今天的行为逐字节一致。设置 `params.retry.max_attempts`(总尝试次数,含首次)
-即可开启重试,`params.retry.backoff_base_s` / `params.retry.backoff_max_s` 限定
-两次尝试之间的指数退避。只有 429、5xx、超时或连接错误才会重试——其他 4xx 是请求
-自身的问题,重试只会拖延你本该看到的 bug,而不会修好它。**开启 `params.retry`
-会改变本次运行的数据集 digest**,正如 YCSB 的 disruption plan 会改变被测量的东西
-一样,因此重试过的运行永远不能与干净运行比较:
+与本功能出现之前完全一致。设置 `params.retry.max_attempts`(总尝试次数,含首次)
+即可开启重试,`params.retry.backoff_base_s`(默认 `0.2`)/
+`params.retry.backoff_max_s`(默认 `5.0`)限定两次尝试之间的指数退避——第 *n* 次
+失败后等待 `backoff_base_s × 2ⁿ⁻¹` 秒,以 `backoff_max_s` 封顶。三者都在数据集
+resolve 时校验:`max_attempts` 小于 1、或退避为负数,都会以一个点名该 key 的
+`ValueError` 让运行失败,而不是被悄悄夹紧。只有 429、5xx、超时或连接错误才会
+重试——其他 4xx 是请求自身的问题,重试只会拖延你本该看到的 bug,而不会修好它。
+**开启 `params.retry` 会改变本次运行的数据集 digest**,并把数据集版本从
+`cais-mmlu/sample-v1` 改标为 `cais-mmlu/sample-v1/retry-<max_attempts>`,正如
+YCSB 的 disruption plan 会改变被测量的东西一样,因此重试过的运行永远不能与干净
+运行比较:
 
 ```bash
 printf 'target:\n  mode: runtime\n  endpoint: "https://.../v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  retry:\n    max_attempts: 3\n    backoff_base_s: 0.5\n    backoff_max_s: 5\n' > qwen-retry.yaml
 csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen-retry.yaml
 ```
+
+`params.retry` **不是** `target.retries`。两个块写的是同样的三个 key 名,但
+`target.retries`(其 `max_attempts` 默认为 `3`)约束的是*控制面*——创建运行时、
+轮询其状态——从来不会重试被测量的 `/chat/completions` 调用。指望靠它让 LLM 调用
+重试,换来的是没有重试、没有 digest 变化、也没有任何警告:只有 `params.retry`
+能抵达被测量的路径。
 
 ## 测量什么
 

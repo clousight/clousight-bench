@@ -8,21 +8,50 @@ All notable changes to Clousight Bench are recorded here.
 
 - **Opt-in retry for LLM endpoint calls** (MMLU, GSM8K, HumanEval).
   `params.retry.max_attempts` (total attempts including the first; absent ⇒ 1)
-  retries a `/chat/completions` call, with `params.retry.backoff_base_s` /
-  `params.retry.backoff_max_s` bounding the exponential backoff between
-  attempts. Retryable: 429, any 5xx, timeouts, connection errors. Not
-  retryable: every other 4xx — a malformed request will not succeed on a
-  retry, and retrying it only delays and obscures a real client-side bug. Off
-  by default: a run without `params.retry` is unchanged in every respect —
-  spans, measurements, dataset digest, byte-for-byte. `<suite>.avg_latency_ms`
-  stays the successful attempt alone; the cost of retrying is reported
-  separately as `<suite>.retry_count` / `<suite>.retry_overhead_ms`
-  (`official=False`, `environmental`, emitted only when retries are enabled).
-  A retried call's trace span becomes a parent span with one child per
-  attempt; a non-retried call is still a single span exactly as before.
-  **Enabling retries changes the run's dataset digest** — the same way a
+  retries a `/chat/completions` call, with `params.retry.backoff_base_s`
+  (default `0.2`) / `params.retry.backoff_max_s` (default `5.0`) bounding the
+  exponential backoff between attempts. All three are validated at `resolve()`
+  time: `max_attempts` below 1, or a negative backoff, is a `ValueError` naming
+  the key, never a silent clamp. Note the near-collision: **`params.retry` is
+  not `target.retries`** — the latter has the same three key names and a
+  `max_attempts` default of 3, but it governs the control plane (creating a
+  runtime, polling its status) and has never touched a measured call.
+  Retryable: 429, any 5xx, timeouts, connection errors. Not retryable: every
+  other 4xx — a malformed request will not succeed on a retry, and retrying it
+  only delays and obscures a real client-side bug. Off by default: a run
+  without `params.retry` makes exactly one attempt per item, emits exactly the
+  spans it did before, and resolves the same dataset digest and version.
+  `mmlu.avg_latency_ms` / `gsm8k.avg_latency_ms` are the successful attempt
+  alone; `human-eval.avg_latency_ms` is unaffected by retries because it never
+  was a generation time at all — it is the sandboxed execution of the model's
+  code. The cost of retrying is reported separately as
+  `<suite>.retry_count` / `<suite>.retry_overhead_ms` (`official=False`,
+  `environmental`, emitted only when retries are enabled). Under an enabled
+  policy every call's trace span is a parent span with one child per attempt —
+  including a call that succeeds first try, which is one parent and one child;
+  only a run with no retry policy is the single span it always was. The parent
+  carries `csbench.retry.attempts` and deliberately no `gen_ai.usage.*`, so a
+  backend summing that namespace over the trace cannot double-count tokens.
+  **Enabling retries changes the run's dataset digest**, and relabels the
+  dataset version to `<suite-version>/retry-<max_attempts>` — the same way a
   YCSB disruption plan changes what is being measured — so a retried run is
   never comparable with a clean one.
+
+### Changed
+
+- **MMLU / GSM8K `avg_latency_ms` is now timed inside the call, on every run.**
+  It used to be a wall clock around the whole of `chat_once`; it is now the
+  interval `chat_once` measures from just before the HTTP request to just after
+  the response body is parsed. The new number is a strict subset of the old —
+  it excludes per-call setup (header/body construction, span-id allocation,
+  and on the first item of a run the lazy `import requests`, which is tens of
+  milliseconds). Expect `<suite>.avg_latency_ms` to read slightly lower than on
+  ≤ 0.7.0, by more on short runs than long ones. This happens with or without
+  `params.retry`; retries only widen the gap between it and the live progress
+  plane's wall-clock sample, which still spans every attempt and backoff.
+- **`summary.json` gains `retry_enabled` / `retry_count` / `retry_overhead_ms`**
+  on every real MMLU / GSM8K / HumanEval run, so that artifact's `sha256` in the
+  manifest differs from a ≤ 0.7.0 run's. All three are 0/false on a default run.
 
 ## [0.7.0] — 2026-09-13
 

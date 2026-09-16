@@ -36,20 +36,33 @@ csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen.
 `params.subjects` filters MMLU subjects; `params.limit` caps the question count.
 
 Retrying a failed endpoint call is opt-in and off by default: absent
-`params.retry`, every question is one attempt, byte-for-byte today's behaviour.
-Set `params.retry.max_attempts` (total attempts including the first) to retry,
-with `params.retry.backoff_base_s` / `params.retry.backoff_max_s` bounding the
-exponential backoff between attempts. Only a 429, a 5xx, a timeout, or a
-connection error is retried — any other 4xx is the request's own fault, and
-retrying it would only delay a bug you need to see, not fix it. **Enabling
-`params.retry` changes the run's dataset digest**, the same way a YCSB
-disruption plan changes what is being measured, so a retried run is never
-comparable with a clean one:
+`params.retry`, every question is one attempt, exactly as before this feature
+existed. Set `params.retry.max_attempts` (total attempts including the first) to
+retry, with `params.retry.backoff_base_s` (default `0.2`) /
+`params.retry.backoff_max_s` (default `5.0`) bounding the exponential backoff
+between attempts — the wait after the *n*-th failure is
+`backoff_base_s × 2ⁿ⁻¹` seconds, capped at `backoff_max_s`. All three are
+validated when the dataset resolves: a `max_attempts` below 1, or a negative
+backoff, fails the run with a `ValueError` naming the key rather than being
+silently clamped. Only a 429, a 5xx, a timeout, or a connection error is
+retried — any other 4xx is the request's own fault, and retrying it would only
+delay a bug you need to see, not fix it. **Enabling `params.retry` changes the
+run's dataset digest**, and relabels the dataset version from
+`cais-mmlu/sample-v1` to `cais-mmlu/sample-v1/retry-<max_attempts>`, the same
+way a YCSB disruption plan changes what is being measured — so a retried run is
+never comparable with a clean one:
 
 ```bash
 printf 'target:\n  mode: runtime\n  endpoint: "https://.../v1"\n  model: qwen-max\n  credentials_ref: env:DASHSCOPE_API_KEY\nparams:\n  retry:\n    max_attempts: 3\n    backoff_base_s: 0.5\n    backoff_max_s: 5\n' > qwen-retry.yaml
 csbench run --domain llm --benchmark mmlu --platform llm-endpoint --config qwen-retry.yaml
 ```
+
+`params.retry` is **not** `target.retries`. The two blocks spell the same three
+key names, but `target.retries` (whose `max_attempts` defaults to `3`) bounds the
+*control plane* — creating a runtime, polling its status — and has never retried
+a measured `/chat/completions` call. Setting it in the hope of retrying your LLM
+calls gets you no retries, no digest change and no warning: only `params.retry`
+reaches the measured path.
 
 ## What it measures
 
