@@ -60,8 +60,17 @@ describe("secondsAtX", () => {
     expect(secondsAtX(150, { left: 100, width: 0 }, 10, 40)).toBe(10);
   });
 
-  it("degrades to t0 instead of NaN when totalS is 0 (empty trace)", () => {
+  it("resolves every pixel of a zero-length trace to t0", () => {
+    // This is arithmetic, not a guard: scaling any ratio by a zero-length
+    // domain lands on t0. It is stated as a test because `resolveDrag`'s
+    // degenerate branch depends on it — on such a trace press and release
+    // must produce `from === to` however far the pointer travelled — and NOT
+    // as a guard, because `secondsAtX` used to carry a `totalS <= 0` branch
+    // returning exactly this same answer. A test cannot distinguish the two,
+    // which is why the branch is gone and this comment says which one is
+    // being checked.
     expect(secondsAtX(150, { left: 100, width: 200 }, 10, 0)).toBe(10);
+    expect(secondsAtX(9999, { left: 100, width: 200 }, 10, 0)).toBe(10);
   });
 });
 
@@ -200,6 +209,18 @@ describe("<OverviewStrip>", () => {
     expect(markup).toMatch(/class="[^"]*select-none[^"]*"/);
   });
 
+
+  it("places the window at exactly the percentages the lanes use", () => {
+    // 2.5 -> 7.5 s of a 10 s trace is left 25%, width 50%. TrackList's own
+    // test asserts the same two numbers for the same window, from the same
+    // `pctOf` — which is the point: the strip used to carry two private
+    // copies of that arithmetic (one inside its marks memo, one at module
+    // scope) under a comment claiming it and TrackList "cannot disagree by
+    // construction". Span "a" [0,2] is the 20% mark that proves the marks
+    // read the same function as the overlay.
+    expect(markup).toContain("left:0%;width:20%");
+    expect(markup).toContain("left:25%;width:50%");
+  });
 
   it("gives every focusable element the app's focus ring, not the UA outline", () => {
     // Deferred #9 and #28 were one defect counted twice: the strip's reset

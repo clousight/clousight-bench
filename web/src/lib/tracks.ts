@@ -54,7 +54,29 @@ const ROOT_GROUP = " root";
 
 export interface Track {
   id: string;
+  /**
+   * The lane's English identity — NOT a display string.
+   *
+   * Nothing renders this verbatim. `TrackList.trackLabel` translates the noun
+   * and re-composes it with whatever identifies the lane (`stream 2.2` ->
+   * "数据流 2.2"), so for the lifecycle lanes the word `lifecycle` never
+   * reaches a reader at all and only the number after it survives. It is kept
+   * as English text rather than split into (noun, suffix) fields because
+   * `tracks.ts` is the layer that names groups and `TrackList` is the layer
+   * that speaks a language; a structured field here would put half a sentence
+   * in the wrong module.
+   */
   label: string;
+  /**
+   * Which grouping rule produced the lane: `lifecycle`, `stream` or `work`.
+   *
+   * Not the same vocabulary as `SpanRow.kind`, despite the name. A span's
+   * kind is what it *is* (`query`, `llm_call`, …); a track's is how its spans
+   * were gathered. They coincide for `lifecycle` and nowhere else — a
+   * `stream` lane holds `query` spans, a `work` lane holds anything. Read
+   * `track.kind` and `row.kind` as two different questions that happen to
+   * share a spelling.
+   */
   kind: string;
   spanIds: string[];
 }
@@ -139,8 +161,13 @@ export function assignTracks(rows: SpanRow[]): Track[] {
   // and TrackList's `trackLabel` carries whatever follows "stream " through to
   // the reader untouched. A stream that packs into a single lane keeps the
   // plain `stream 2`, so the common case is not dressed up as a split.
-  for (const stream of [...declared.keys()].sort((a, b) => a.localeCompare(b, "en"))) {
-    const laneSpans = packGroup(declared.get(stream) ?? []);
+  const declaredStreams = [...declared.entries()].sort(([a], [b]) => a.localeCompare(b, "en"));
+  for (const [stream, streamRows] of declaredStreams) {
+    // Iterated as entries rather than keys-then-get: the previous form ended
+    // `declared.get(stream) ?? []`, an empty-array fallback for a key that
+    // came out of `declared.keys()` one line above and therefore always
+    // resolves. Nothing could ever take that branch, and nothing could test it.
+    const laneSpans = packGroup(streamRows);
     for (const [laneIndex, spanIds] of laneSpans.entries()) {
       tracks.push({
         id: `stream:${stream}:${laneIndex}`,

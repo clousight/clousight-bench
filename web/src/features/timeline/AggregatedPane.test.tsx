@@ -1,22 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import { AggregatedPane, barWidthPct, grandSelfS, sharePct } from "@/features/timeline/AggregatedPane";
+import { AggregatedPane, barWidthPct, fmtShare, grandSelfS } from "@/features/timeline/AggregatedPane";
 import type { Bucket } from "@/lib/aggregate";
 import type { SpanRow } from "@/lib/trace";
 import { renderMarkup, widthPercents } from "@/test/render";
 
 describe("barWidthPct", () => {
-  it("scales proportionally to the heaviest bucket, capped at 60%", () => {
-    // The heaviest bucket itself must land exactly on the 60% cap.
-    expect(barWidthPct(10, 10)).toBe(60);
-    expect(barWidthPct(5, 10)).toBe(30);
+  it("fills the bar's track for the heaviest bucket and scales the rest to it", () => {
+    // The heaviest bucket is its own denominator, so it always lands on the
+    // maximum — which is why the old "<= 60" assertion could not tell a cap
+    // from a scale factor and the docstring claiming a cap went unchallenged.
+    // Stated as the full width of the track instead: the cap is the track's
+    // own `w-24 shrink-0`, not arithmetic in this function.
+    expect(barWidthPct(10, 10)).toBe(100);
+    expect(barWidthPct(5, 10)).toBe(50);
+    expect(barWidthPct(1, 8)).toBe(12.5);
   });
 
   it("degrades to 0 instead of dividing by zero when there is no heaviest bucket", () => {
     // heaviestS <= 0 is the guard on the FIRST argument's denominator, not the
     // numerator: totalS is nonzero here, so a guard that checked totalS
     // instead of heaviestS would let this fall through to a divide-by-zero
-    // (Infinity * 60) instead of 0.
+    // (Infinity) instead of 0. Reachable, too: `aggregate` ranks by self time
+    // and a window can hold nothing but pure containers, whose self time is
+    // legitimately zero.
     expect(barWidthPct(5, 0)).toBe(0);
   });
 });
@@ -38,7 +45,7 @@ describe("grandSelfS", () => {
 
   it("gives shares that partition the work rather than summing past 100%", () => {
     const grand = grandSelfS(nested);
-    expect(nested.map((b) => sharePct(b.selfS, grand))).toEqual([60, 40]);
+    expect(nested.map((b) => fmtShare(b.selfS, grand))).toEqual(["60%", "40%"]);
   });
 
   it("is 0 for no buckets, which sharePct then degenerates on", () => {
@@ -46,16 +53,36 @@ describe("grandSelfS", () => {
   });
 });
 
-describe("sharePct", () => {
-  it("rounds a bucket's share of the grand total to a whole percent", () => {
-    expect(sharePct(25, 100)).toBe(25);
-    expect(sharePct(1, 3)).toBe(33);
+describe("fmtShare", () => {
+  it("rounds rather than floors", () => {
+    // 2/3 is 66.67%. The previous test used 1/3 — round(33.33) and
+    // floor(33.33) are both 33, so it could not tell the two apart and would
+    // have stayed green through the change it existed to catch. 2/3 is the
+    // nearest input that can: 67 vs 66.
+    expect(fmtShare(2, 3)).toBe("67%");
+    expect(fmtShare(25, 100)).toBe("25%");
   });
 
-  it("degrades to 0 instead of dividing by zero when the grand total is 0", () => {
+  it("says <1% rather than 0% for a bucket that did measurable work", () => {
+    // A wide window holds hundreds of buckets, most of them under half a
+    // percent. Rounding them all to "0%" is a row that measured something
+    // claiming it measured nothing.
+    expect(fmtShare(1, 1000)).toBe("<1%");
+    expect(fmtShare(4.9, 1000)).toBe("<1%");
+    // The boundary belongs to the whole percent: 1% is a number, not a tail.
+    expect(fmtShare(10, 1000)).toBe("1%");
+  });
+
+  it("keeps 0% for a bucket that genuinely did no work of its own", () => {
+    // A pure container's self time really is zero, and "<1%" would imply it
+    // had done something too small to name.
+    expect(fmtShare(0, 10)).toBe("0%");
+  });
+
+  it("degrades to 0% instead of dividing by zero when the grand total is 0", () => {
     // grandS <= 0 guards the denominator; totalS is nonzero here, so a guard
     // on the wrong argument would let this compute Infinity/NaN instead.
-    expect(sharePct(5, 0)).toBe(0);
+    expect(fmtShare(5, 0)).toBe("0%");
   });
 });
 
@@ -108,14 +135,34 @@ describe("<AggregatedPane>", () => {
     expect(childLaneOff).not.toContain(">child<");
   });
 
-  it("draws each bar in proportion to the heaviest, with the heaviest on the 60% cap", () => {
-    // Self times are leaf 4s and container 2s, so the bars are 60% and 30% —
-    // the only geometry a string render can see, and the thing that would
-    // silently break if the bar stopped reading `barWidthPct(bucket.selfS, …)`.
+  it("draws each bar in proportion to the heaviest, which fills its track", () => {
+    // Self times are leaf 4s and container 2s, so the bars are 100% and 50% of
+    // their own tracks — the only geometry a string render can see, and the
+    // thing that would silently break if the bar stopped reading
+    // `barWidthPct(bucket.selfS, …)`. The tracks themselves carry a Tailwind
+    // width class, not an inline one, so they do not appear here: these two
+    // numbers are the bars.
     const markup = renderMarkup(
       <AggregatedPane rows={[container, leaf]} allRows={[container, child, leaf]} window={WIDE} />,
     );
-    expect(widthPercents(markup)).toEqual([60, 30]);
+    expect(widthPercents(markup)).toEqual([100, 50]);
+  });
+
+  it("keeps a sub-second bucket readable instead of rounding it to 0.00s", () => {
+    // The feature's own premise: drag out a narrow window and every row read
+    // "0.00s self · 0.00s total · 0% of work". Both the durations and the
+    // share have to survive down there.
+    const fast = span("f", "fast", 0, 0.004);
+    const slow = span("s", "slow", 0, 4);
+    const markup = renderMarkup(
+      <AggregatedPane rows={[fast, slow]} allRows={[fast, slow]} window={WIDE} />,
+    );
+    expect(markup).toContain("4.00ms");
+    // Escaped by the renderer, which is what a browser would receive.
+    expect(markup).toContain("&lt;1%");
+    expect(markup).not.toContain("0.00s");
+    // ...and a value that genuinely belongs in seconds still reads in seconds.
+    expect(markup).toContain("4.00s");
   });
 
   it("says so rather than rendering an empty list when the selection holds nothing", () => {

@@ -9,14 +9,25 @@
  * word. Exclude test files from content scanning so the CSS tracks what the
  * app actually uses, not what its test descriptions happen to say.
  *
- * Neither exclusion is theoretical. The component tests are `.test.tsx`, so
- * the first pattern alone stopped covering them — dropping a bare `grayscale`
- * into one puts `.grayscale{filter:…}` in the shipped CSS, verified by
- * building with and without the second pattern. And the vitest config's own
- * docstring names `renderToStaticMarkup`, which shipped a `.static` rule
- * until it was excluded here. */
+ * The first two are not theoretical: the component tests are `.test.tsx`, so
+ * the `.test.ts` pattern alone stopped covering them, and the vitest config's
+ * own docstring names `renderToStaticMarkup`, which shipped a `.static` rule
+ * until it was excluded here.
+ *
+ * The last three are insurance, and worth being exact about. `*.spec.*` is
+ * not reached by anything today — vitest only includes `.test.ts`/`.test.tsx`
+ * — and `src/test/` holds the render harness, which is test-only prose that
+ * is not named `*.test.*`. Adding a `sepia`/`grayscale` word to a file of
+ * each kind and building with and without these three lines produced no rule
+ * either way on the current toolchain, so they are not demonstrated to be
+ * load-bearing right now; they cover the file shapes the two demonstrated
+ * ones already cover, at three lines, against a scanner whose extraction
+ * rules have changed under this file before. */
 @source not "**/*.test.ts";
 @source not "**/*.test.tsx";
+@source not "**/*.spec.ts";
+@source not "**/*.spec.tsx";
+@source not "**/src/test/*";
 @source not "../vitest.config.ts";
 
 /* The bundled mono. Identity lives in the numbers, identifiers, stage names and

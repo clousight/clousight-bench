@@ -23,10 +23,13 @@ interface Props {
 }
 
 /** Absolute seconds -> percent across [t0, t0+totalS]. Degenerates to 0 for a
- * zero-length or empty trace rather than dividing by zero into NaN — the same
- * guard OverviewStrip's `pct()` applies, kept here as one function shared by
- * every lane instead of the two identical inline copies that component
- * carries (a gap Task 4 flagged and deferred). */
+ * zero-length or empty trace rather than dividing by zero into NaN.
+ *
+ * Exported because `OverviewStrip` draws the same geometry over the same
+ * domain directly above these lanes, and used to do it with two private copies
+ * of this arithmetic — one inside its marks memo, one at module scope — under
+ * a comment claiming the two panes "cannot disagree by construction". They
+ * call this now, so they cannot. */
 export function pctOf(seconds: number, t0: number, totalS: number): number {
   if (totalS <= 0) return 0;
   return ((seconds - t0) / totalS) * 100;

@@ -1,13 +1,19 @@
 /**
- * Per-span self and total time. Self time is what tells you whether a span is
- * slow itself or merely contains something slow.
+ * Self and total time per BUCKET — one row per (kind, name) pair, not one row
+ * per span. `aggregate()` merges identical span shapes, so the `count` column
+ * is how many spans a row stands for; a trace with 900 `query` spans across 22
+ * statements is 22 rows here, which is the whole reason this pane exists
+ * beside the waterfall.
+ *
+ * Self time is what tells you whether a span is slow itself or merely contains
+ * something slow.
  */
 import { useMemo, useState } from "react";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useI18n } from "@/i18n";
 import { aggregate, type Bucket } from "@/lib/aggregate";
-import { fmtDur } from "@/lib/format";
+import { fmtSpanDur } from "@/lib/format";
 import type { SpanRow } from "@/lib/trace";
 import { cn } from "@/lib/utils";
 
@@ -21,11 +27,22 @@ export function sortBuckets(buckets: Bucket[], key: SortKey): Bucket[] {
   return [...buckets].sort((a, b) => b[key] - a[key]);
 }
 
-/** The first row's id that matches a bucket, or null if the selection that
- * produced these rows has since emptied. Matches on the (kind, name) pair,
- * never on name alone: a bucket is one kind by construction (see
- * `lib/aggregate.ts`), so resolving by name alone could hand back a span from
- * a different bucket entirely. */
+/**
+ * The first row's id that matches a bucket, or null if none does.
+ *
+ * Matches on the (kind, name) pair, never on name alone: a bucket is one kind
+ * by construction (see `lib/aggregate.ts`), so resolving by name alone could
+ * hand back a span from a different bucket entirely.
+ *
+ * The null is deliberately kept even though this pane's only call site cannot
+ * produce it — the buckets it passes were aggregated from the very `rows` it
+ * passes, in the same render, so a match always exists. It is kept because the
+ * alternative is not "delete a dead branch", it is a non-null assertion that
+ * turns a lookup miss into a runtime TypeError, and this is a general
+ * bucket -> row lookup that the next caller may not satisfy so neatly. The
+ * test below pins the returned value, which is what a caller depends on; it
+ * does not claim to exercise a path this component can reach.
+ */
 export function firstIdFor(rows: SpanRow[], bucket: Bucket): string | null {
   const match = rows.find((row) => (row.name ?? "") === bucket.name && row.kind === bucket.kind);
   return match?.id ?? null;
@@ -154,8 +171,8 @@ export function TablePane({
                 <span className="shrink-0 text-muted-foreground">{bucket.kind}</span>
               </button>
             </TableCell>
-            <TableCell className="font-mono text-xs tabular-nums">{fmtDur(bucket.totalS)}</TableCell>
-            <TableCell className="font-mono text-xs tabular-nums">{fmtDur(bucket.selfS)}</TableCell>
+            <TableCell className="font-mono text-xs tabular-nums">{fmtSpanDur(bucket.totalS)}</TableCell>
+            <TableCell className="font-mono text-xs tabular-nums">{fmtSpanDur(bucket.selfS)}</TableCell>
             <TableCell className="font-mono text-xs tabular-nums">{bucket.count}</TableCell>
           </TableRow>
         ))}

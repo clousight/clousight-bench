@@ -89,10 +89,22 @@ export function sameRows(a: readonly SpanRow[], b: readonly SpanRow[]): boolean 
   return true;
 }
 
+/**
+ * Pull a window inside `[minS, maxS]`, keeping its edges in order.
+ *
+ * The bounds are REQUIRED in order; this no longer swaps them. Every caller
+ * passes `(t0, t0 + totalS)` and `totalSeconds` cannot return a negative, so
+ * the swap was unreachable and — unlike the edge ordering below it — no test
+ * ever named it. It was two lines asserting that the function's callers might
+ * be wrong in a way they cannot be.
+ *
+ * The edge ordering stays. It is the function's stated contract and its test
+ * exercises it directly; no caller currently hands it an inverted window
+ * either, but "clamp" that could return `end < start` would be a trap for the
+ * next one.
+ */
 export function clampSelection(selection: Selection, minS: number, maxS: number): Selection {
-  const lo = Math.min(minS, maxS);
-  const hi = Math.max(minS, maxS);
-  const a = Math.min(Math.max(selection.startS, lo), hi);
-  const b = Math.min(Math.max(selection.endS, lo), hi);
+  const a = Math.min(Math.max(selection.startS, minS), maxS);
+  const b = Math.min(Math.max(selection.endS, minS), maxS);
   return { startS: Math.min(a, b), endS: Math.max(a, b), trackIds: selection.trackIds };
 }

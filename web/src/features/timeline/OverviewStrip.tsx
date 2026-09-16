@@ -6,6 +6,11 @@
 import { useCallback, useMemo, useRef } from "react";
 
 import { laneSpanStyle } from "@/charts/palette";
+// `pctOf` lives with the lanes because every lane needs it; the strip is its
+// second caller. It used to be copied here twice over — once inside the
+// `spanMarks` memo and once at module scope — in a component whose own
+// comment claimed it and `TrackList` "cannot disagree by construction".
+import { pctOf } from "@/features/timeline/TrackList";
 import { useI18n } from "@/i18n";
 import { fmtSpanDur } from "@/lib/format";
 import { clampSelection, type Selection } from "@/lib/selection";
@@ -31,12 +36,20 @@ export interface StripRect {
   width: number;
 }
 
-/** Pixel position -> trace second, given a (possibly stale-free, cached)
- * strip rect. Degenerates to `t0` when there is nothing to place a ratio
- * against — an empty trace, or a not-yet-laid-out strip — rather than
- * dividing by zero into `NaN`. */
+/**
+ * Pixel position -> trace second, given a cached strip rect.
+ *
+ * The one guard is on the rect: a strip that has not been laid out yet has
+ * width 0, and the ratio would be a division by zero. A zero-length trace
+ * needs no guard and used to have one — `totalS <= 0` was unreachable as a
+ * *distinct* answer, because `t0 + ratio * 0` is `t0` for every ratio, which
+ * is exactly what the guard returned. Its test passed identically with the
+ * guard and without it. Removed rather than kept as reassurance: an inert
+ * branch that a test appears to cover is worse than no branch, because the
+ * green test is then evidence of nothing.
+ */
 export function secondsAtX(clientX: number, rect: StripRect, t0: number, totalS: number): number {
-  if (totalS <= 0 || rect.width <= 0) return t0;
+  if (rect.width <= 0) return t0;
   const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
   return t0 + ratio * totalS;
 }
@@ -205,16 +218,16 @@ export function OverviewStrip({ rows, t0, totalS, selection, onChange }: Props) 
     selection.endS - t0,
   )} ${t("timeline.of")} ${fmtSpanDur(totalS)}`;
 
-  // Colour comes from `laneSpanStyle`, the exact same function `TrackList`
-  // uses for its lane dashes (with `selected` pinned to `true` -- the strip
-  // has no per-track checkbox, it always shows everything at the "included"
-  // strength). Importing the one function rather than re-deriving matching
-  // constants here means the two panes cannot drift apart the way
-  // `Waterfall.tsx`'s hand-duplicated kind swatch already has: a `query` span
-  // is now colour-identical in the strip and in the lane directly beneath it,
-  // by construction, not by two people tuning two numbers to agree today.
+  // Colour comes from `laneSpanStyle` and geometry from `pctOf` — the same two
+  // functions `TrackList` uses for its lane dashes (the strip calls the first
+  // with `selected` pinned to `true`: it has no per-track checkbox, so it
+  // always shows everything at the "included" strength). Importing both rather
+  // than re-deriving matching constants here is what makes "the strip and the
+  // lane cannot disagree" a fact rather than a claim: a `query` span is
+  // colour-identical AND position-identical in the strip and in the lane
+  // directly beneath it, by construction, not by two people tuning two numbers
+  // to agree today.
   const spanMarks = useMemo(() => {
-    const pct = (seconds: number) => (totalS <= 0 ? 0 : ((seconds - t0) / totalS) * 100);
     return rows.map((row) => {
       const style = laneSpanStyle(row.kind, row.isError, true);
       return (
@@ -223,16 +236,14 @@ export function OverviewStrip({ rows, t0, totalS, selection, onChange }: Props) 
           aria-hidden
           className="absolute top-1 h-1.5 rounded-[1px]"
           style={{
-            left: `${pct(row.startS)}%`,
-            width: `${Math.max(pct(row.endS) - pct(row.startS), 0.15)}%`,
+            left: `${pctOf(row.startS, t0, totalS)}%`,
+            width: `${Math.max(pctOf(row.endS, t0, totalS) - pctOf(row.startS, t0, totalS), 0.15)}%`,
             ...style,
           }}
         />
       );
     });
   }, [rows, t0, totalS]);
-
-  const pct = (seconds: number) => (totalS <= 0 ? 0 : ((seconds - t0) / totalS) * 100);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -290,7 +301,10 @@ export function OverviewStrip({ rows, t0, totalS, selection, onChange }: Props) 
         <span
           aria-hidden
           className="absolute inset-y-0 border-x border-foreground bg-foreground/[0.06]"
-          style={{ left: `${pct(selection.startS)}%`, width: `${Math.max(pct(selection.endS) - pct(selection.startS), 0.2)}%` }}
+          style={{
+            left: `${pctOf(selection.startS, t0, totalS)}%`,
+            width: `${Math.max(pctOf(selection.endS, t0, totalS) - pctOf(selection.startS, t0, totalS), 0.2)}%`,
+          }}
         />
       </div>
 
