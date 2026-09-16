@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 
 from clousight_bench.core.suite import DriverContext, EnvHandle, Target
+from clousight_bench.core.sut_span import validate_span
 from clousight_bench.suites import llm_common
 from clousight_bench.suites.gsm8k.suite import Gsm8kSuite
 from clousight_bench.suites.human_eval.suite import HumanEvalSuite
@@ -344,6 +345,49 @@ def test_retried_call_nests_attempts_under_one_parent(monkeypatch: Any) -> None:
     assert [c["status"] for c in children] == ["ERROR", "OK"]
 
 
+def test_every_span_a_retried_call_emits_is_schema_valid(monkeypatch: Any) -> None:
+    """An invalid span does not degrade a run — it ABORTS one.
+
+    ``suite_runner.execute()`` runs ``validate_span`` over every line of
+    ``trajectory.jsonl`` and raises ``ValueError`` on a failure, so a shape bug
+    in the attempt or parent spans kills a real enabled run at seal time, after
+    the endpoint has already been paid for. Nothing else in the suite would
+    catch it first: the only other ``chat_once`` × ``validate_span`` test is
+    ``importorskip("requests")``-gated — it is skipped by the very gate command
+    this repo runs — and it covers the single-span path anyway. This file needs
+    no extras, so this guard runs on every floor.
+
+    Both wrapper shapes are driven, because they are built at different call
+    sites with different attributes: the OK parent over a call that eventually
+    succeeded, and the ERROR parent over one that exhausted its attempts (whose
+    children additionally carry ``http.response.status_code``).
+    """
+    sleeps: list[float] = []
+    _fake_requests([429, 500, 200], monkeypatch, sleeps)
+    won: list[dict[str, Any]] = []
+    _call(
+        trace_id="a" * 32,
+        span_sink=won,
+        retry=RetryPolicy(max_attempts=3, backoff_base_s=0.001),
+        retry_sink={},
+    )
+
+    _fake_requests([429, 429], monkeypatch, sleeps)
+    lost: list[dict[str, Any]] = []
+    with pytest.raises(_FakeHTTPError):
+        _call(
+            trace_id="a" * 32,
+            span_sink=lost,
+            retry=RetryPolicy(max_attempts=2, backoff_base_s=0.001),
+            retry_sink={},
+        )
+
+    assert [s["status"] for s in won] == ["ERROR", "ERROR", "OK", "OK"]
+    assert [s["status"] for s in lost] == ["ERROR", "ERROR", "ERROR"]
+    for span in (*won, *lost):
+        validate_span(span)
+
+
 @pytest.mark.parametrize("error", [_FakeTimeout("timed out"), _FakeConnectionError("connection reset")])
 def test_responseless_transport_failures_are_retried(error: Exception, monkeypatch: Any) -> None:
     """A timeout and a dropped connection are the failures a retry exists for.
@@ -437,6 +481,63 @@ def test_a_failed_span_carries_its_status_only_once_retries_are_on(monkeypatch: 
         )
     children = [s for s in enabled if s["parent_span_id"] != ""]
     assert [c["attributes"]["http.response.status_code"] for c in children] == [429, 429]
+
+
+def test_the_default_success_span_carries_exactly_the_attributes_it_always_has(
+    monkeypatch: Any,
+) -> None:
+    """The ERROR span's attribute set is pinned exactly above; the OK span's was not.
+
+    Every existing run's trace is an OK span, so this is the larger half of the
+    same invariant: a key added here — the retry attempt count, the HTTP status,
+    anything — changes the trace of every run that never asked for this feature.
+    """
+    sleeps: list[float] = []
+    _fake_requests([200], monkeypatch, sleeps)
+    spans: list[dict[str, Any]] = []
+    _call(trace_id="a" * 32, span_sink=spans)
+    assert len(spans) == 1
+    assert spans[0]["attributes"] == {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.request.model": "m",
+        "gen_ai.usage.input_tokens": 1,
+        "gen_ai.usage.output_tokens": 1,
+        "gen_ai.response.finish_reasons": ["stop"],
+    }
+
+
+def test_the_retry_parent_never_repeats_the_winning_attempt_s_token_usage(
+    monkeypatch: Any,
+) -> None:
+    """The one invariant a code comment claims and nothing enforced.
+
+    An OTel backend sums ``gen_ai.usage.*`` over a trace. The parent span covers
+    the same call its winning child does, so usage on both would double-count
+    every token of every retried run — silently, in someone else's dashboard,
+    which is why no assertion in this file or any other would have noticed. The
+    parent's attribute set is therefore pinned EXACTLY: it may say what it is
+    (``chat``, the model) and how many attempts it took, and nothing else.
+    """
+    sleeps: list[float] = []
+    _fake_requests([429, 200], monkeypatch, sleeps)
+    spans: list[dict[str, Any]] = []
+    _call(
+        trace_id="a" * 32,
+        span_sink=spans,
+        retry=RetryPolicy(max_attempts=2, backoff_base_s=0.01),
+        retry_sink={},
+    )
+    parent = next(s for s in spans if s["parent_span_id"] == "")
+    winner = next(s for s in spans if s["parent_span_id"] != "" and s["status"] == "OK")
+    assert parent["attributes"] == {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.request.model": "m",
+        "csbench.retry.attempts": 2,
+    }
+    # ...and the usage is not simply missing everywhere: it is on the attempt
+    # that reported it, which is where a per-call consumer has to find it.
+    assert winner["attributes"]["gen_ai.usage.input_tokens"] == 1
+    assert winner["attributes"]["gen_ai.usage.output_tokens"] == 1
 
 
 def test_the_sink_is_filled_when_a_200_body_cannot_be_read(monkeypatch: Any) -> None:
