@@ -5,6 +5,7 @@
  */
 import { useCallback, useMemo, useRef } from "react";
 
+import { laneSpanStyle } from "@/features/timeline/TrackList";
 import { useI18n } from "@/i18n";
 import { fmtDur } from "@/lib/format";
 import { clampSelection, type Selection } from "@/lib/selection";
@@ -135,23 +136,31 @@ export function OverviewStrip({ rows, t0, totalS, selection, onChange }: Props) 
   const selectedS = Math.max(selection.endS - selection.startS, 0);
   const whole = selectedS >= totalS - 1e-9;
 
+  // Colour comes from `laneSpanStyle`, the exact same function `TrackList`
+  // uses for its lane dashes (with `selected` pinned to `true` -- the strip
+  // has no per-track checkbox, it always shows everything at the "included"
+  // strength). Importing the one function rather than re-deriving matching
+  // constants here means the two panes cannot drift apart the way
+  // `Waterfall.tsx`'s hand-duplicated kind swatch already has: a `query` span
+  // is now colour-identical in the strip and in the lane directly beneath it,
+  // by construction, not by two people tuning two numbers to agree today.
   const spanMarks = useMemo(() => {
     const pct = (seconds: number) => (totalS <= 0 ? 0 : ((seconds - t0) / totalS) * 100);
-    return rows.map((row) => (
-      <span
-        key={row.id}
-        aria-hidden
-        className={
-          row.isError
-            ? "absolute top-1 h-1.5 rounded-[1px] bg-status-critical/70"
-            : "absolute top-1 h-1.5 rounded-[1px] bg-chart-1/40"
-        }
-        style={{
-          left: `${pct(row.startS)}%`,
-          width: `${Math.max(pct(row.endS) - pct(row.startS), 0.15)}%`,
-        }}
-      />
-    ));
+    return rows.map((row) => {
+      const style = laneSpanStyle(row.kind, row.isError, true);
+      return (
+        <span
+          key={row.id}
+          aria-hidden
+          className="absolute top-1 h-1.5 rounded-[1px]"
+          style={{
+            left: `${pct(row.startS)}%`,
+            width: `${Math.max(pct(row.endS) - pct(row.startS), 0.15)}%`,
+            ...style,
+          }}
+        />
+      );
+    });
   }, [rows, t0, totalS]);
 
   const pct = (seconds: number) => (totalS <= 0 ? 0 : ((seconds - t0) / totalS) * 100);
