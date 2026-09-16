@@ -35,7 +35,16 @@ function Routed() {
     case "record":
       return <RecordView runId={route.runId} />;
     case "trace":
-      return <TraceView runId={route.runId} />;
+      // Keyed on the run, so navigating from one trace to another mounts a
+      // new component instead of reusing the old one's state. `TraceView`
+      // holds a `Selection` of absolute epoch seconds and track ids from the
+      // trace it was built for; neither means anything in a different run,
+      // and carrying them over rendered every pane as "No spans in this
+      // selection" with nothing on screen to say why. A key resets all of it
+      // at once — including the open span id and the active tab — and cannot
+      // be forgotten by whatever state the view grows next, which a
+      // reset-on-change effect inside the component could.
+      return <TraceView key={route.runId} runId={route.runId} />;
     case "runs":
       return <RunsView />;
     case "live":

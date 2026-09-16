@@ -27,12 +27,11 @@ import type {
 } from "echarts/types/dist/shared";
 import { useEffect, useMemo, useRef } from "react";
 
-import { escapeHtml, kindColor, readChrome, readKindColors, readSeriesColors } from "@/charts/palette";
+import { escapeHtml, laneSpanPaint, laneSpanStyle, readChrome, readLaneColors } from "@/charts/palette";
 import { useI18n } from "@/i18n";
 import { fmtDur } from "@/lib/format";
 import { useThemeVersion } from "@/lib/theme";
 import type { SpanRow } from "@/lib/trace";
-import { cn } from "@/lib/utils";
 
 echarts.use([CustomChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
@@ -47,9 +46,19 @@ export interface WaterfallProps {
   onSelect: (id: string) => void;
   /** Pin the axis to this many ms so a live chart's scale stops jumping. */
   axisMaxMs?: number;
+  /**
+   * Suppress the built-in legend when the host already shows one.
+   *
+   * The timeline's legend lives in the chrome above the tabs, because it has
+   * to be co-visible with the overview strip and the lanes on every tab, not
+   * just this one — so on the time-order tab both legends rendered. The live
+   * view mounts this chart with no chrome around it, so the built-in legend
+   * is still load-bearing there and stays on by default.
+   */
+  hideLegend?: boolean;
 }
 
-export function Waterfall({ rows, t0, onSelect, axisMaxMs }: WaterfallProps) {
+export function Waterfall({ rows, t0, onSelect, axisMaxMs, hideLegend = false }: WaterfallProps) {
   const { locale, t } = useI18n();
   const themeVersion = useThemeVersion();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -67,8 +76,7 @@ export function Waterfall({ rows, t0, onSelect, axisMaxMs }: WaterfallProps) {
     if (container === null || rows.length === 0) return;
 
     const chrome = readChrome();
-    const kindColors = readKindColors();
-    const [fallback] = readSeriesColors();
+    const laneColors = readLaneColors();
 
     const spanMax = Math.max(...rows.map((row) => (row.endS - t0) * 1000), 0);
     const totalMs = Math.max(spanMax, axisMaxMs ?? 0);
@@ -88,9 +96,12 @@ export function Waterfall({ rows, t0, onSelect, axisMaxMs }: WaterfallProps) {
       return {
         type: "rect",
         shape: { x: start[0], y: start[1] - BAR_HEIGHT / 2, width, height: BAR_HEIGHT, r: 4 },
-        style: row.isError
-          ? { fill: chrome.error, stroke: chrome.error, lineWidth: 1.5 }
-          : { fill: kindColor(kindColors, row.kind, fallback) },
+        // The whole paint in one call, hue and opacity together. Splitting
+        // them is what made the legend swatch (drawn through `laneSpanStyle`
+        // at 0.85) a lighter version of the bar it named: this used to take a
+        // fill from a second colour table and leave the opacity at the
+        // canvas default of 1.
+        style: laneSpanPaint(laneColors, row.kind, row.isError, true),
       };
     };
 
@@ -157,31 +168,30 @@ export function Waterfall({ rows, t0, onSelect, axisMaxMs }: WaterfallProps) {
 
   return (
     <div>
-      {kinds.length > 1 && <KindLegend kinds={kinds} />}
+      {!hideLegend && kinds.length > 1 && <KindLegend kinds={kinds} />}
       <div ref={containerRef} style={{ height }} role="img" aria-label={t("trace.waterfall")} />
     </div>
   );
 }
 
 /** Present whenever more than one kind is on screen, so hue is never the only cue. */
-function KindLegend({ kinds }: { kinds: string[] }) {
+export function KindLegend({ kinds }: { kinds: string[] }) {
   const { t } = useI18n();
-  // Kept in step with KIND_VARS in charts/palette.ts by
-  // charts/palette.test.ts — a legend that disagrees with its chart is worse
-  // than no legend.
-  const swatch: Record<string, string> = {
-    lifecycle: "bg-[var(--chart-axis)]",
-    phase: "bg-chart-1",
-    query: "bg-chart-2",
-    llm_call: "bg-chart-3",
-    tool_call: "bg-chart-4",
-    span: "bg-chart-1",
-  };
+  // No swatch table here. This legend used to keep its own kind -> class map,
+  // with a comment claiming a test held it in step with the palette; no test
+  // did, and it had already drifted — the legend read one grey for `lifecycle`
+  // and every bar on screen painted another. Both channels now come from the
+  // same place the marks do: `laneSpanStyle` for this swatch and
+  // `laneSpanPaint` — the same function, translated for a canvas — for the
+  // bars, so the swatch and the bar it names share a hue AND an opacity.
+  // Nothing in this module derives a kind colour any other way, which is the
+  // invariant `palette.test.ts` asserts over the whole file rather than over
+  // this function alone.
   return (
     <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
       {kinds.map((kind) => (
         <span key={kind} className="inline-flex items-center gap-1.5">
-          <span aria-hidden className={cn("size-2.5 rounded-[3px]", swatch[kind] ?? "bg-chart-1")} />
+          <span aria-hidden className="size-2.5 rounded-[3px]" style={laneSpanStyle(kind, false, true)} />
           {t(`trace.kind.${kind}`) === `trace.kind.${kind}` ? kind : t(`trace.kind.${kind}`)}
         </span>
       ))}

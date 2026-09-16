@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fmtClock, fmtDur, fmtDurMs, fmtRelative } from "@/lib/format";
+import { fmtClock, fmtDur, fmtDurMs, fmtRelative, fmtSpanDur } from "@/lib/format";
 
 describe("fmtDurMs", () => {
   it("does not read milliseconds as seconds", () => {
@@ -12,6 +12,37 @@ describe("fmtDurMs", () => {
   it("crosses into seconds above 1000ms", () => {
     expect(fmtDurMs(6604.913)).toBe("6.60s");
     expect(fmtDurMs(0.025)).toBe("0.03ms");
+  });
+});
+
+describe("fmtSpanDur", () => {
+  it("keeps a sub-second span readable instead of rounding it to 0.00s", () => {
+    // The whole reason it exists: inside a 100 ms selection window `fmtDur`
+    // renders every one of these as "0.00s", so a pane of them says nothing.
+    expect(fmtDur(0.0032)).toBe("0.00s");
+    expect(fmtSpanDur(0.0032)).toBe("3.20ms");
+    expect(fmtSpanDur(0.412)).toBe("412ms");
+  });
+
+  it("hands anything from one second up straight to fmtDur", () => {
+    // The boundary is inclusive on the seconds side: 1s is a second, and
+    // "1000ms" would be a worse rendering of it than "1.00s".
+    expect(fmtSpanDur(0.999)).toBe("999ms");
+    expect(fmtSpanDur(1)).toBe("1.00s");
+    expect(fmtSpanDur(1)).toBe(fmtDur(1));
+    expect(fmtSpanDur(6.6049)).toBe(fmtDur(6.6049));
+    expect(fmtSpanDur(180)).toBe("3.0m");
+  });
+
+  it("renders a genuine zero as a zero, in the finer unit", () => {
+    // A bucket can legitimately have no self time (a pure container), and
+    // that is a fact about the span, not a rounding artefact.
+    expect(fmtSpanDur(0)).toBe("0.00ms");
+  });
+
+  it("is empty for a non-finite duration, like the two formatters under it", () => {
+    expect(fmtSpanDur(Number.NaN)).toBe("");
+    expect(fmtSpanDur(Number.POSITIVE_INFINITY)).toBe("");
   });
 });
 

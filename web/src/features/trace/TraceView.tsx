@@ -12,18 +12,24 @@
  */
 
 import { ArrowLeft, Brain, Wrench } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 import { useJSON, type TrajectoryData } from "@/api";
-import { Waterfall } from "@/charts/Waterfall";
+import { KindLegend, Waterfall } from "@/charts/Waterfall";
 import { CopyButton } from "@/components/CopyButton";
 import { EmptyView, ErrorView, LoadingView } from "@/components/StateViews";
 import { Section, SectionBody, SectionHead } from "@/components/ui/section";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AggregatedPane } from "@/features/timeline/AggregatedPane";
+import { OverviewStrip } from "@/features/timeline/OverviewStrip";
+import { TablePane } from "@/features/timeline/TablePane";
+import { TrackList } from "@/features/timeline/TrackList";
 import { useI18n } from "@/i18n";
 import { fmtDur } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { fullSelection, sameRows, selectSpans, type Selection } from "@/lib/selection";
 import { buildRows, totalSeconds, type SpanRow } from "@/lib/trace";
+import { assignTracks } from "@/lib/tracks";
+import { cn } from "@/lib/utils";
 import { recordHref } from "@/router";
 
 function attrsJson(row: SpanRow): string {
@@ -103,6 +109,50 @@ export function TraceView({ runId }: { runId: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const rows = useMemo(() => (data === null ? [] : buildRows(data)), [data]);
+  const tracks = useMemo(() => assignTracks(rows), [rows]);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  // Memoised, not computed inline: `fullSelection` builds a fresh object and a
+  // fresh Set every call, so while `selection` is null — the arrival state,
+  // where a reader spends most of their time — an inline call would hand every
+  // consumer a new identity on every render, invalidating TrackList's
+  // ~900-element lane memo on a render that changed nothing.
+  //
+  // This memo alone does NOT stabilise what `effective` produces. A drag
+  // genuinely moves the window, so `effective` genuinely changes on every
+  // pointermove, and `selectSpans` allocates a fresh array each time — which
+  // is the identity `Waterfall` holds in its effect dependency list. That is
+  // handled directly below, not here; the earlier version of this comment
+  // claimed this memo prevented a chart rebuild, and it prevented one only
+  // for a re-render that left the selection alone.
+  const effective = useMemo(
+    () => selection ?? fullSelection(rows, tracks),
+    [selection, rows, tracks],
+  );
+  const filtered = useMemo(() => selectSpans(rows, tracks, effective), [rows, tracks, effective]);
+  // Collapse an identical result back onto the previous array. The window
+  // moves continuously during a drag; the rows inside it change a handful of
+  // times, when a span crosses an edge. Without this, dragging the strip
+  // disposed and re-created the ECharts instance on every pointermove, and
+  // re-ran both panes' aggregation with it. A ref rather than a memo because
+  // the answer must survive for as long as the component does — a dropped
+  // memo cache would silently restore the churn — and it is safe to write
+  // during render because the value is derived from this render's own inputs:
+  // a discarded render leaves behind an array the next one either matches or
+  // replaces.
+  const stableVisible = useRef(filtered);
+  if (!sameRows(stableVisible.current, filtered)) stableVisible.current = filtered;
+  const visible = stableVisible.current;
+  // Derived from `visible`, not from `rows`: the legend sits directly above a
+  // strip and a set of lanes that are both selection-aware, so naming a kind
+  // the window contains none of makes it the one element in that group
+  // describing a different trace than the two below it. `visible` is the
+  // collapsed array above, so this memo recomputes when the window's contents
+  // change and not on every pointermove.
+  const kinds = useMemo(() => {
+    const seen: string[] = [];
+    for (const row of visible) if (row.kind !== "" && !seen.includes(row.kind)) seen.push(row.kind);
+    return seen;
+  }, [visible]);
   const toggle = useCallback(
     (id: string) => setSelectedId((current) => (current === id ? null : id)),
     [],
@@ -157,47 +207,110 @@ export function TraceView({ runId }: { runId: string }) {
           </SectionBody>
         </Section>
       ) : (
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="transcript">{t('trace.transcript')}</TabsTrigger>
-            <TabsTrigger value="waterfall">{t('trace.waterfall')}</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="transcript" className="flex flex-col gap-2">
-            {rows.map((row) => (
-              <TranscriptCard
-                key={row.id}
-                row={row}
+        <>
+          <Section>
+            <SectionBody className="pt-3">
+              {kinds.length > 1 && <KindLegend kinds={kinds} />}
+              <OverviewStrip
+                rows={rows}
                 t0={t0}
-                selected={selectedId === row.id}
-                onToggle={() => toggle(row.id)}
+                totalS={total}
+                selection={effective}
+                onChange={setSelection}
               />
-            ))}
-          </TabsContent>
+              <div className="mt-3">
+                <TrackList
+                  tracks={tracks}
+                  rows={rows}
+                  t0={t0}
+                  totalS={total}
+                  selection={effective}
+                  onChange={setSelection}
+                />
+              </div>
+            </SectionBody>
+          </Section>
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList>
+              <TabsTrigger value="transcript">{t('trace.transcript')}</TabsTrigger>
+              <TabsTrigger value="waterfall">{t('timeline.time_order')}</TabsTrigger>
+              <TabsTrigger value="aggregated">{t('timeline.aggregated')}</TabsTrigger>
+              <TabsTrigger value="table">{t('timeline.table')}</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="waterfall" className="flex flex-col gap-3">
-            <Section>
-              <SectionBody className="pt-4">
-                <Waterfall rows={rows} t0={t0} onSelect={toggle} />
-              </SectionBody>
-            </Section>
-            {selectedRow !== null && (
-              <Section className={cn(selectedRow.isError && "border-l-2 border-l-destructive")}>
-                <SectionHead className="flex-row items-center gap-2.5">
-                  <div className="min-w-0 flex-1 truncate text-sm font-medium">
-                    {selectedRow.name ?? t('common.unnamed')}
-                  </div>
-                  <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
-                    +{fmtDur(selectedRow.startS - t0)} · {fmtDur(selectedRow.endS - selectedRow.startS)}
-                  </span>
-                </SectionHead>
-                <SectionBody>
-                  <AttrsPanel row={selectedRow} />
+            <TabsContent value="transcript" className="flex flex-col gap-2">
+              {rows.map((row) => (
+                <TranscriptCard
+                  key={row.id}
+                  row={row}
+                  t0={t0}
+                  selected={selectedId === row.id}
+                  onToggle={() => toggle(row.id)}
+                />
+              ))}
+            </TabsContent>
+
+            <TabsContent value="waterfall" className="flex flex-col gap-3">
+              <Section>
+                <SectionBody className="pt-4">
+                  {/* The legend is in the chrome above the tabs, where it is
+                      co-visible with the strip and the lanes on every tab. */}
+                  <Waterfall rows={visible} t0={t0} onSelect={toggle} hideLegend />
                 </SectionBody>
               </Section>
-            )}
-          </TabsContent>
-        </Tabs>
+              {selectedRow !== null && (
+                <Section className={cn(selectedRow.isError && "border-l-2 border-l-destructive")}>
+                  <SectionHead className="flex-row items-center gap-2.5">
+                    <div className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {selectedRow.name ?? t('common.unnamed')}
+                    </div>
+                    <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                      +{fmtDur(selectedRow.startS - t0)} · {fmtDur(selectedRow.endS - selectedRow.startS)}
+                    </span>
+                  </SectionHead>
+                  <SectionBody>
+                    <AttrsPanel row={selectedRow} />
+                  </SectionBody>
+                </Section>
+              )}
+            </TabsContent>
+
+            <TabsContent value="aggregated">
+              <Section>
+                <SectionBody className="pt-4">
+                  {/* The window travels with the rows because `aggregate`
+                      clips to it: `visible` is an overlap filter, so a span
+                      straddling an edge arrives whole and would be counted
+                      whole. Passed as the memoised `effective` object rather
+                      than as two numbers or a fresh `{startS, endS}` literal —
+                      each pane memoises on prop identity, and a literal built
+                      in this JSX would be a new object on every render, which
+                      during a brush drag means re-aggregating every pointermove
+                      instead of once per window.
+
+                      `allRows` is the whole trace and is not a duplicate of
+                      `visible`: self time is a property of the span, so the
+                      children subtracted from a parent must not disappear
+                      when the reader unchecks the lane that holds them. It is
+                      the same memoised `rows` array both panes already see
+                      through `visible`, so it adds no instability. */}
+                  <AggregatedPane rows={visible} allRows={rows} window={effective} />
+                </SectionBody>
+              </Section>
+            </TabsContent>
+
+            <TabsContent value="table">
+              <Section>
+                <SectionBody className="pt-4">
+                  {/* `allRows` for the same reason as the pane above: the
+                      self column must not change meaning when a lane is
+                      unchecked. */}
+                  <TablePane rows={visible} allRows={rows} window={effective} onSelect={toggle} />
+                </SectionBody>
+              </Section>
+            </TabsContent>
+          </Tabs>
+        </>
       )}
     </div>
   );

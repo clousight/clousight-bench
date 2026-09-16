@@ -60,10 +60,12 @@ def test_keys_are_namespaced(en: dict[str, object]) -> None:
 
     The namespace list is the app's page map, so it grows when the app does:
     `nav`/`board`/`suite`/`record`/`live`/`metric`/`health`/`engineer` arrived
-    with the two-entry navigation and the results board.
+    with the two-entry navigation and the results board, and `timeline` with
+    the selection window, the lanes and the two panes that read them.
     """
     namespaces = {
         "header",
+        "timeline",
         "nav",
         "common",
         "board",

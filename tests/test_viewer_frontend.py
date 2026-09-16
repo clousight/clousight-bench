@@ -24,6 +24,7 @@ contract at the artifact level instead:
 
 from __future__ import annotations
 
+import ast
 import gzip
 import json
 import re
@@ -168,6 +169,136 @@ def test_no_dangerously_set_inner_html_in_source() -> None:
 #: (split(, parseInt(, ...) out of scope.
 _T_CALL_RE = re.compile(r"(?<![\w$])t\(\s*(['\"])([^'\"]+)\1")
 
+#: ``tracks.ts``'s stream attribute, as declared there.
+_STREAM_ATTR_RE = re.compile(r'const STREAM_ATTR = "([^"]+)"')
+
+#: Any ``csbench.*`` attribute key written from Python, for the failure message.
+_CSBENCH_ATTR_RE = re.compile(r'"(csbench\.[\w.]+)"')
+
+
+def test_track_stream_attribute_matches_the_emitter() -> None:
+    """The viewer's lane grouping must key on an attribute the emitter writes.
+
+    ``tracks.ts`` read ``csbench.stream`` while
+    ``suites/_tpc_official/trace.py`` wrote ``csbench.stream_id``, so the
+    declared-stream path was dead for the only workload in this repo that
+    declares streams: every throughput query fell through to ``parentId``
+    packing and the browser drew ten anonymous lanes instead of three named
+    ones. The TypeScript suite could not catch it because its own fixtures used
+    the invented key — the bug and the test agreed with each other.
+
+    Nothing inside one language can check this. Here the constant is read out
+    of the TypeScript and looked for in the Python that produces the traces,
+    which is the only place the two spellings meet.
+    """
+    tracks = (_WEB_SRC / "lib" / "tracks.ts").read_text(encoding="utf-8")
+    match = _STREAM_ATTR_RE.search(tracks)
+    assert match is not None, (
+        "tracks.ts no longer declares STREAM_ATTR as a one-line string literal, so this test"
+        " cannot see which attribute the lanes group by — keep it greppable or update the regex"
+    )
+    attr = match.group(1)
+
+    emitted: set[str] = set()
+    writers: list[str] = []
+    for path in sorted((_REPO_ROOT / "src" / "clousight_bench").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        emitted.update(_CSBENCH_ATTR_RE.findall(text))
+        if f'"{attr}"' in text:
+            writers.append(path.relative_to(_REPO_ROOT).as_posix())
+    # Without this the test would pass on an empty scan — exactly what it would
+    # do if the emitters moved and the glob stopped finding them.
+    assert emitted, "no csbench.* span attribute found under src/clousight_bench (did the emitters move?)"
+    assert writers, (
+        f"tracks.ts groups lanes by {attr!r}, which no Python source writes."
+        f" Attributes actually emitted: {sorted(emitted)}"
+    )
+
+
+#: One ``name: "--token",`` entry of ``palette.ts``'s KIND_SLOTS table.
+_KIND_SLOT_RE = re.compile(r'^\s*(\w+):\s*"(--[\w-]+)",\s*$', re.MULTILINE)
+
+#: ``palette.test.ts``'s hand-copied list of the kinds the backend can emit.
+_KINDS_FROM_BACKEND_RE = re.compile(r"const KINDS_FROM_BACKEND = \[([^\]]*)\]")
+
+
+def _v3_kind_returns() -> set[str]:
+    """Every string ``viewer/data.py::_v3_kind`` can return, read from its AST.
+
+    Parsed rather than grepped so a ``return`` that stops being a plain string
+    literal — a variable, an f-string, a lookup — fails loudly here instead of
+    quietly narrowing what this test believes the backend produces.
+    """
+    source = (_REPO_ROOT / "src" / "clousight_bench" / "viewer" / "data.py").read_text(encoding="utf-8")
+    functions = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef) and node.name == "_v3_kind"
+    ]
+    assert len(functions) == 1, (
+        f"expected exactly one _v3_kind in viewer/data.py, found {len(functions)} —"
+        " the viewer's span kinds are derived there and this pin reads it by name"
+    )
+    kinds: set[str] = set()
+    for node in ast.walk(functions[0]):
+        if not isinstance(node, ast.Return):
+            continue
+        assert isinstance(node.value, ast.Constant) and isinstance(node.value.value, str), (
+            "_v3_kind has a return that is not a plain string literal"
+            f" (line {node.lineno}); this cross-language pin can no longer enumerate its kinds"
+        )
+        kinds.add(node.value.value)
+    return kinds
+
+
+def test_kind_slots_match_the_backend() -> None:
+    """The palette's kind table must be exactly what ``_v3_kind`` can return.
+
+    A kind with no slot paints in the fallback, so colour silently stops
+    carrying identity; a slot for a kind that no longer exists is how
+    ``db_query`` and ``stage`` survived a rename with every bar the same blue.
+
+    The TypeScript suite asserts both directions already — against
+    ``KINDS_FROM_BACKEND``, a list hand-copied out of Python inside
+    ``palette.test.ts``. That list is not evidence: the day ``_v3_kind`` grows
+    a case, the list and the palette stay in step with each other and out of
+    step with the backend, and the suite goes green. It is the same shape as
+    the defect this branch already shipped — ``tracks.ts`` grouped lanes by
+    ``csbench.stream`` while the emitter wrote ``csbench.stream_id``, and the
+    unit tests used the invented key too, so nothing could see it for seven
+    tasks (see ``test_track_stream_attribute_matches_the_emitter``).
+
+    Nothing inside one language can check this. Here the Python function is
+    parsed for its returns and held against both the palette table and the
+    hand-copied list, which is the only place the two spellings meet.
+    """
+    backend = _v3_kind_returns()
+    assert backend, "no string returns found in _v3_kind — has it been rewritten?"
+
+    palette = (_WEB_SRC / "charts" / "palette.ts").read_text(encoding="utf-8")
+    start = palette.find("export const KIND_SLOTS")
+    assert start != -1, "palette.ts no longer declares KIND_SLOTS — update this pin with it"
+    table = palette[start : palette.index("};", start)]
+    slots = {match.group(1) for match in _KIND_SLOT_RE.finditer(table)}
+    assert slots, 'KIND_SLOTS is no longer a literal `kind: "--token",` table; this pin cannot read it'
+
+    assert slots == backend, (
+        f"KIND_SLOTS and viewer/data.py::_v3_kind disagree — slots without a kind:"
+        f" {sorted(slots - backend)}; kinds without a slot: {sorted(backend - slots)}"
+    )
+
+    spec = (_WEB_SRC / "charts" / "palette.test.ts").read_text(encoding="utf-8")
+    match = _KINDS_FROM_BACKEND_RE.search(spec)
+    assert match is not None, (
+        "palette.test.ts no longer declares KINDS_FROM_BACKEND as a one-line array literal,"
+        " so the list it asserts the palette against is unpinned — keep it greppable"
+    )
+    copied = set(re.findall(r'"([^"]+)"', match.group(1)))
+    assert copied == backend, (
+        f"palette.test.ts's KINDS_FROM_BACKEND is stale — it lists {sorted(copied)},"
+        f" _v3_kind returns {sorted(backend)}"
+    )
+
 
 def test_all_t_referenced_keys_exist_in_both_locales() -> None:
     en = json.loads((_I18N_DIR / "en.json").read_text(encoding="utf-8"))
@@ -210,6 +341,38 @@ def test_stage_timings_are_formatted_as_milliseconds() -> None:
                 assert "fmtDur(" not in line or "fmtDurMs(" in line, (
                     f"stage timings must not be passed to the seconds formatter ({path.name}): {line.strip()}"
                 )
+
+
+#: The route switch's trace arm, with whatever props it passes.
+_TRACE_ROUTE_RE = re.compile(r'case "trace":.*?<TraceView([^/>]*)/>', re.DOTALL)
+
+
+def test_trace_view_is_keyed_on_the_run() -> None:
+    """A trace -> trace navigation must not carry the old run's selection over.
+
+    ``TraceView`` holds a ``Selection``: absolute epoch seconds and track ids
+    belonging to the trace it was built for. Rendered without a ``key``, React
+    reuses the instance across a run change, and neither number means anything
+    in the new run — every pane read "No spans in this selection" with nothing
+    on screen to explain it.
+
+    This is a source-text guard, and it is worth being clear about what it can
+    see: a React key's effect is that the component instance is torn down and
+    remounted, which no static render can observe, so what is checked here is
+    that the key is passed at all. It fails if the prop is dropped, which is
+    the regression it exists for.
+    """
+    app = (_WEB_SRC / "App.tsx").read_text(encoding="utf-8")
+    match = _TRACE_ROUTE_RE.search(app)
+    assert match is not None, (
+        'App.tsx no longer renders <TraceView .../> from a `case "trace":` arm, so this test'
+        " cannot see how it is mounted — update the regex along with the routing"
+    )
+    assert "key=" in match.group(1), (
+        "<TraceView> must be keyed on the run id, or React reuses one instance — and its"
+        " selection, in the previous trace's epoch seconds and track ids — across a"
+        f" trace-to-trace navigation. Props found: {match.group(1).strip()!r}"
+    )
 
 
 def test_viewer_bundles_its_own_monospace(dist_files: list[tuple[str, bytes]]) -> None:
@@ -463,4 +626,70 @@ def test_section_bodies_stay_on_the_rail() -> None:
                 offenders.append(f"{rel}:{lineno}")
     assert not offenders, (
         "SectionBody with horizontal padding — content is off the left rail at: " + ", ".join(offenders)
+    )
+
+
+#: Any ``api/...`` string literal, in any of JS's three quote characters.
+_API_LITERAL = re.compile(r"""["'`](api/[^"'`]*)["'`]""")
+
+#: ``${...}`` inside a template literal, normalised away before comparison so
+#: the run id's spelling is not part of the contract.
+_TEMPLATE_HOLE = re.compile(r"\$\{[^}]*\}")
+
+#: The only endpoint the timeline may fetch. It returns spans.
+_TRAJECTORY_ENDPOINT = "api/record/{}/trajectory"
+
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+_LINE_COMMENT = re.compile(r"//.*$", re.MULTILINE)
+
+
+def _code_only(text: str) -> str:
+    """Drop comments so a prose mention cannot pass for a fetch, or fail as one.
+
+    These files are documented in prose that names the very things the test
+    forbids — the point of the invariant is what the code does.
+    """
+    return _LINE_COMMENT.sub("", _BLOCK_COMMENT.sub("", text))
+
+
+def test_selection_never_reaches_a_measurement() -> None:
+    """Selecting a sub-range moves the observation, never the verdict.
+
+    Measurements come from an `Evaluator`, offline, over sealed evidence, after
+    the run ends — they are what `record_digest` covers. A number that grew as
+    a range was dragged would imply it had been measured progressively, which
+    is the one thing this tool must never imply. The lifecycle enforces it in
+    `task.score()`'s signature; this keeps the interface honest about it.
+
+    So the invariant is narrow and checkable: these files reach for spans and
+    nothing else. Every ``api/...`` literal in their *code* — comments are
+    stripped first, since the prose here names what the code may not do — is
+    extracted and compared against the trajectory endpoint. A second fetch,
+    ``api/record/<id>`` for the digest or a scored field off it, fails here no
+    matter what else the file happens to say. The version this replaces looked
+    for substrings anywhere in the file and skipped its only real needle for
+    any file containing the word "trajectory", so that second fetch passed it.
+    """
+    timeline = _WEB_SRC / "features" / "timeline"
+    assert timeline.is_dir(), "the timeline feature directory is missing"
+    sources = sorted(timeline.rglob("*.tsx")) + [_WEB_SRC / "features" / "trace" / "TraceView.tsx"]
+    endpoints: list[tuple[str, str]] = []
+    for path in sources:
+        code = _code_only(path.read_text(encoding="utf-8"))
+        assert not re.search(r"\bmeasurements\b", code), (
+            f"{path.name} reaches for 'measurements': a selection must not be able to recompute a measurement"
+        )
+        for literal in _API_LITERAL.findall(code):
+            endpoint = _TEMPLATE_HOLE.sub("{}", literal)
+            endpoints.append((path.name, endpoint))
+            assert endpoint == _TRAJECTORY_ENDPOINT, (
+                f"{path.name} fetches {literal!r}, not the trajectory: the timeline reads spans,"
+                " never a scored record"
+            )
+    # Without this the test passes on zero matches — which is exactly what it
+    # would do if the extraction ever stopped matching, or if the fetch moved
+    # into a helper these files no longer name.
+    assert ("TraceView.tsx", _TRAJECTORY_ENDPOINT) in endpoints, (
+        f"no {_TRAJECTORY_ENDPOINT!r} literal found in TraceView.tsx; found {endpoints!r}."
+        " The extraction is no longer looking at the code that fetches."
     )

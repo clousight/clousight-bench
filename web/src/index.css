@@ -1,4 +1,34 @@
 @import "tailwindcss";
+/* Tailwind v4 scans raw text in every file under web/, not the JS import
+ * graph, so an ordinary English word in a test title or a comment becomes a
+ * utility class in the shipped bundle. Case in point: main already shipped a
+ * `.shadow` rule sourced from the word "shadow" in a prose comment in
+ * glossary.test.ts ("must not shadow a suite-specific accuracy spec") — the
+ * last real `shadow-sm` usage was removed from input.tsx in slice 1, but the
+ * scanner kept emitting the rule because test prose kept referencing the
+ * word. Exclude test files from content scanning so the CSS tracks what the
+ * app actually uses, not what its test descriptions happen to say.
+ *
+ * The first two are not theoretical: the component tests are `.test.tsx`, so
+ * the `.test.ts` pattern alone stopped covering them, and the vitest config's
+ * own docstring names `renderToStaticMarkup`, which shipped a `.static` rule
+ * until it was excluded here.
+ *
+ * The last three are insurance, and worth being exact about. `*.spec.*` is
+ * not reached by anything today — vitest only includes `.test.ts`/`.test.tsx`
+ * — and `src/test/` holds the render harness, which is test-only prose that
+ * is not named `*.test.*`. Adding a `sepia`/`grayscale` word to a file of
+ * each kind and building with and without these three lines produced no rule
+ * either way on the current toolchain, so they are not demonstrated to be
+ * load-bearing right now; they cover the file shapes the two demonstrated
+ * ones already cover, at three lines, against a scanner whose extraction
+ * rules have changed under this file before. */
+@source not "**/*.test.ts";
+@source not "**/*.test.tsx";
+@source not "**/*.spec.ts";
+@source not "**/*.spec.tsx";
+@source not "**/src/test/*";
+@source not "../vitest.config.ts";
 
 /* The bundled mono. Identity lives in the numbers, identifiers, stage names and
  * fingerprints — all of which are Latin regardless of UI language, so a Latin

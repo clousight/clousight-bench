@@ -1,0 +1,153 @@
+import { describe, expect, it } from "vitest";
+
+import { firstIdFor, sortBuckets, TablePane } from "@/features/timeline/TablePane";
+import type { Bucket } from "@/lib/aggregate";
+import type { SpanRow } from "@/lib/trace";
+import { focusableTags, renderMarkup } from "@/test/render";
+
+function bucket(name: string, kind: string, totalS: number, selfS: number, count: number): Bucket {
+  return { name, kind, totalS, selfS, count };
+}
+
+function row(id: string, name: string | null, kind: string): SpanRow {
+  return {
+    id,
+    name,
+    kind,
+    startS: 0,
+    endS: 1,
+    status: "ok",
+    isError: false,
+    error: null,
+    attrs: {},
+    parentId: null,
+    depth: 0,
+    ancestors: [],
+  };
+}
+
+describe("sortBuckets", () => {
+  // Each field produces a distinct permutation of these three buckets, so a
+  // comparator that ignored `key` (e.g. always sorted by totalS) would fail
+  // at least two of the three assertions below.
+  const buckets = [
+    bucket("b", "query", 1, 9, 5),
+    bucket("a", "query", 5, 1, 9),
+    bucket("c", "query", 9, 5, 1),
+  ];
+
+  it("sorts by totalS, heaviest first", () => {
+    expect(sortBuckets(buckets, "totalS").map((b) => b.name)).toEqual(["c", "a", "b"]);
+  });
+
+  it("sorts by selfS, not totalS, when selfS is requested", () => {
+    expect(sortBuckets(buckets, "selfS").map((b) => b.name)).toEqual(["b", "c", "a"]);
+  });
+
+  it("sorts by count, not totalS or selfS, when count is requested", () => {
+    expect(sortBuckets(buckets, "count").map((b) => b.name)).toEqual(["a", "b", "c"]);
+  });
+
+  it("does not mutate the input array", () => {
+    // The array literal above is declared in insertion order b, a, c — none
+    // of totalS/selfS/count order. If sortBuckets sorted in place (e.g. via
+    // Array.prototype.sort on the argument itself instead of a copy), this
+    // would now read one of the three permutations asserted above instead of
+    // the original insertion order.
+    sortBuckets(buckets, "totalS");
+    expect(buckets.map((b) => b.name)).toEqual(["b", "a", "c"]);
+  });
+});
+
+describe("firstIdFor", () => {
+  it("matches on the (kind, name) pair, not name alone", () => {
+    const rows = [row("1", "q21", "phase"), row("2", "q21", "query")];
+    // Both rows share the name "q21"; only the second has kind "query". If
+    // matching ignored kind, this would return "1" instead of "2".
+    expect(firstIdFor(rows, bucket("q21", "query", 1, 1, 1))).toBe("2");
+  });
+
+  it("matches a null-named row against the empty-string bucket name", () => {
+    const rows = [row("1", null, "phase")];
+    expect(firstIdFor(rows, bucket("", "phase", 1, 1, 1))).toBe("1");
+  });
+
+  it("returns null when no row matches the pair", () => {
+    const rows = [row("1", "q21", "query")];
+    expect(firstIdFor(rows, bucket("q21", "phase", 1, 1, 1))).toBeNull();
+  });
+});
+
+describe("<TablePane>", () => {
+  const WIDE = { startS: -100, endS: 100 };
+  function timed(id: string, name: string, startS: number, endS: number, parentId: string | null = null) {
+    return { ...row(id, name, "query"), startS, endS, parentId };
+  }
+  const container = timed("p", "container", 0, 10);
+  const child = timed("c", "child", 0, 8, "p");
+  const noop = () => {};
+
+  it("lays the table out fixed and keeps the full name recoverable from the cell", () => {
+    // `table-fixed` is what lets the name column truncate at all (auto layout
+    // sizes the column BY the name, so the class did nothing and a long name
+    // pushed total/self/count off screen behind a scrollbar). Truncation then
+    // makes the `title` load-bearing: it is the only way back to the whole
+    // name. Neither the truncation nor the overflow is observable without a
+    // layout engine — that the two attributes are emitted is.
+    const long = timed("q", "tpc-h.stream1.q21.a-very-long-operation-name", 0, 3);
+    const markup = renderMarkup(
+      <TablePane rows={[long]} allRows={[long]} window={WIDE} onSelect={noop} />,
+    );
+    expect(markup).toContain("table-fixed");
+    expect(markup).toContain('title="tpc-h.stream1.q21.a-very-long-operation-name"');
+  });
+
+  it("gives every focusable element the app's focus ring, not the UA outline", () => {
+    // Deferred #9 and #28 were one defect counted twice: the timeline feature
+    // fell through to the user agent's default outline while every other
+    // control in the app used the --ring token. Asserted per element rather
+    // than over the markup, because one ringed element otherwise satisfies
+    // the whole string.
+    const markup = renderMarkup(
+      <TablePane rows={[container]} allRows={[container]} window={WIDE} onSelect={noop} />,
+    );
+    const tags = focusableTags(markup);
+    // Three sort buttons and the name cell's button.
+    expect(tags).toHaveLength(4);
+    for (const tag of tags) expect(tag, tag).toContain("focus-visible:ring-ring");
+  });
+
+  it("gives the sort controls a target a pointer can actually hit", () => {
+    // Deferred #22: the buttons were exactly as tall as their 11px text,
+    // about 10px of reachable height against WCAG 2.2's 24x24 minimum. The
+    // height itself is not observable without a layout engine; that the
+    // control declares a minimum box and padding rather than sitting flush
+    // around its glyphs is.
+    const markup = renderMarkup(
+      <TablePane rows={[container]} allRows={[container]} window={WIDE} onSelect={noop} />,
+    );
+    const sortButtons = focusableTags(markup).filter((tag) => tag.includes("aria-pressed"));
+    expect(sortButtons).toHaveLength(3);
+    for (const tag of sortButtons) expect(tag, tag).toContain("min-h-6");
+  });
+
+  it("opens on self time, so a pure container does not head the table", () => {
+    // Row order is the assertion: by total the container (10s) leads, by self
+    // the child (8s) does and the container falls to 2s at the bottom. The
+    // initial sort key is the only thing that decides which.
+    const markup = renderMarkup(
+      <TablePane rows={[container, child]} allRows={[container, child]} window={WIDE} onSelect={noop} />,
+    );
+    expect(markup.indexOf(">child<")).toBeLessThan(markup.indexOf(">container<"));
+  });
+
+  it("keeps a parent's self time when the lane holding its children is unchecked", () => {
+    // Same defect as the aggregated pane, second call site: the self column
+    // must not change meaning because a checkbox changed.
+    const markup = renderMarkup(
+      <TablePane rows={[container]} allRows={[container, child]} window={WIDE} onSelect={noop} />,
+    );
+    expect(markup).toContain("2.00s");
+    expect(markup).not.toContain("10.00s");
+  });
+});
