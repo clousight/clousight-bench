@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { KIND_SLOTS } from "@/charts/palette";
+import { KIND_SLOTS, laneSpanStyle } from "@/charts/palette";
 import en from "@/i18n/en.json";
 import zh from "@/i18n/zh.json";
 
@@ -43,5 +43,59 @@ describe("span-kind colours", () => {
       expect(Object.hasOwn(en, `trace.kind.${kind}`), kind).toBe(true);
       expect(Object.hasOwn(zh, `trace.kind.${kind}`), kind).toBe(true);
     }
+  });
+});
+
+describe("laneSpanStyle", () => {
+  it("colours by kind when there is no error", () => {
+    const style = laneSpanStyle("query", false, true);
+    expect(style.backgroundColor).toBe(`var(${KIND_SLOTS.query})`);
+  });
+
+  it("gives two different kinds two different colours", () => {
+    // Would not fail if both kinds silently fell back to the same slot.
+    const a = laneSpanStyle("phase", false, true);
+    const b = laneSpanStyle("query", false, true);
+    expect(a.backgroundColor).not.toBe(b.backgroundColor);
+  });
+
+  it("an error overrides hue regardless of kind", () => {
+    const query = laneSpanStyle("query", true, true);
+    const tool = laneSpanStyle("tool_call", true, true);
+    expect(query.backgroundColor).toBe("var(--status-critical)");
+    expect(tool.backgroundColor).toBe("var(--status-critical)");
+  });
+
+  it("falls back to the span slot for an unrecognised kind", () => {
+    expect(laneSpanStyle("mystery-kind", false, true).backgroundColor).toBe(`var(${KIND_SLOTS.span})`);
+  });
+
+  it("gives the lifecycle kind a muted-foreground grey, not --chart-axis", () => {
+    // --chart-axis already carries a baked-in alpha in dark mode, which this
+    // function's own opacity would multiply into an unreadably faint dash.
+    // If this regressed to KIND_SLOTS.lifecycle directly, this test fails.
+    expect(laneSpanStyle("lifecycle", false, true).backgroundColor).toBe("var(--muted-foreground)");
+    expect(laneSpanStyle("lifecycle", false, true).backgroundColor).not.toBe(`var(${KIND_SLOTS.lifecycle})`);
+  });
+
+  it("selection state changes opacity, never hue", () => {
+    const on = laneSpanStyle("query", false, true);
+    const off = laneSpanStyle("query", false, false);
+    expect(on.backgroundColor).toBe(off.backgroundColor);
+    expect(on.opacity).toBeGreaterThan(off.opacity);
+  });
+
+  it("keeps the deselected floor at 0.4, not low enough to read as an empty lane", () => {
+    expect(laneSpanStyle("query", false, false).opacity).toBe(0.4);
+  });
+
+  it("an error is more opaque than a normal span in the same selection state", () => {
+    // The strip and the lane must agree that an error pops above the
+    // surrounding spans, not recede below them, in both the selected and the
+    // deselected state.
+    expect(laneSpanStyle("query", true, true).opacity).toBeGreaterThan(laneSpanStyle("query", false, true).opacity);
+    expect(laneSpanStyle("query", true, false).opacity).toBeGreaterThan(
+      laneSpanStyle("query", false, false).opacity,
+    );
   });
 });

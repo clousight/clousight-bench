@@ -5,7 +5,7 @@
  */
 import { useCallback, useMemo, useRef } from "react";
 
-import { laneSpanStyle } from "@/features/timeline/TrackList";
+import { laneSpanStyle } from "@/charts/palette";
 import { useI18n } from "@/i18n";
 import { fmtDur } from "@/lib/format";
 import { clampSelection, type Selection } from "@/lib/selection";
