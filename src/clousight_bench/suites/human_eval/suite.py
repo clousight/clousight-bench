@@ -95,9 +95,18 @@ class HumanEvalSuite(BenchmarkSuite):
         limit = int(cfg.get("limit", len(sample)))
         selected = sample[:limit]
         ids = [p["task_id"] for p in selected]
-        canonical = json.dumps({"ids": ids, "version": self.suite_version}, sort_keys=True)
+        retry = RetryPolicy.from_params(cfg).canonical()
+        fields: dict[str, Any] = {"ids": ids, "version": self.suite_version}
+        if retry is not None:
+            # folded only when present — the clean-run digest stays stable;
+            # a retry policy makes it a different benchmark
+            fields["retry"] = retry
+        canonical = json.dumps(fields, sort_keys=True)
+        version = (
+            self.suite_version if retry is None else f"{self.suite_version}/retry-{retry['max_attempts']}"
+        )
         return DatasetHandle(
-            version=self.suite_version,
+            version=version,
             digest=sha256_bytes(canonical.encode()),
             payload={
                 "problems": selected,
@@ -106,7 +115,7 @@ class HumanEvalSuite(BenchmarkSuite):
                 # ``cfg`` reaches no other lifecycle method, so the retry policy is
                 # read here and travels as its CANONICAL DICT (or None) — plain
                 # JSON-able data — through prepare() into run().
-                "retry": RetryPolicy.from_params(cfg).canonical(),
+                "retry": retry,
             },
         )
 

@@ -81,16 +81,23 @@ class Gsm8kSuite(BenchmarkSuite):
         sample = _load_sample()
         limit = int(cfg.get("limit", len(sample)))
         selected = sample[:limit]
-        canonical = json.dumps(
-            {"ids": [q["id"] for q in selected], "version": self.suite_version}, sort_keys=True
+        retry = RetryPolicy.from_params(cfg).canonical()
+        fields: dict[str, Any] = {"ids": [q["id"] for q in selected], "version": self.suite_version}
+        if retry is not None:
+            # folded only when present — the clean-run digest stays stable;
+            # a retry policy makes it a different benchmark
+            fields["retry"] = retry
+        canonical = json.dumps(fields, sort_keys=True)
+        version = (
+            self.suite_version if retry is None else f"{self.suite_version}/retry-{retry['max_attempts']}"
         )
         return DatasetHandle(
-            version=self.suite_version,
+            version=version,
             digest=sha256_bytes(canonical.encode()),
             # ``cfg`` reaches no other lifecycle method, so the retry policy is read
             # here and travels as its CANONICAL DICT (or None) — plain JSON-able
             # data, like everything else in a payload — through prepare() into run().
-            payload={"questions": selected, "retry": RetryPolicy.from_params(cfg).canonical()},
+            payload={"questions": selected, "retry": retry},
         )
 
     def prepare(self, target: Target, dataset: DatasetHandle, driver: DriverContext) -> EnvHandle:  # noqa: ARG002

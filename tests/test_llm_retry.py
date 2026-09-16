@@ -11,7 +11,10 @@ import pytest
 
 from clousight_bench.core.suite import DriverContext, EnvHandle, Target
 from clousight_bench.suites import llm_common
+from clousight_bench.suites.gsm8k.suite import Gsm8kSuite
+from clousight_bench.suites.human_eval.suite import HumanEvalSuite
 from clousight_bench.suites.llm_common import RetryPolicy, serving_measurements
+from clousight_bench.suites.mmlu.suite import MmluSuite
 
 
 def test_absent_config_is_one_attempt() -> None:
@@ -684,3 +687,44 @@ def test_zero_retries_still_reported_when_enabled() -> None:
     summary = {"retry_enabled": True, "retry_count": 0, "retry_overhead_ms": 0.0}
     out = serving_measurements("mmlu", [{"latency_ms": 10.0}], summary)
     assert out["mmlu.retry_count"].value == 0
+
+
+# ---------------------------------------------------------------------------
+# resolve(): a retry policy is a different dataset, but a clean run's digest
+# must be bit-identical to every run recorded before this feature existed.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("suite_cls", [MmluSuite, Gsm8kSuite, HumanEvalSuite])
+def test_clean_digest_is_unchanged_and_retry_digest_differs(suite_cls: type) -> None:
+    """The clean-run digest must stay bit-identical to every run recorded before
+    this feature existed; an enabled policy must make it a different dataset."""
+    suite = suite_cls()
+    clean_a = suite.resolve({"limit": 2}, None)
+    clean_b = suite.resolve({"limit": 2, "retry": {"max_attempts": 1}}, None)
+    retried = suite.resolve({"limit": 2, "retry": {"max_attempts": 3}}, None)
+    assert clean_a.digest == clean_b.digest, "an absent or 1-attempt policy must not move the digest"
+    assert retried.digest != clean_a.digest, "an enabled policy makes it a different dataset"
+    assert "retry" in retried.version, "the version string must say so too, as YCSB's does"
+
+
+# These pins are deliberately brittle: measured on this branch at 47d82af,
+# immediately before this feature's digest change landed. A future
+# suite_version bump legitimately changes them, and having to update the
+# literal here is the point — it forces the change to be a decision rather
+# than a silent drift.
+_CLEAN_DIGEST_AT_LIMIT_2 = {
+    MmluSuite: "sha256:6dd790727b5fea405ffbad3b3755056ce6754c598051d078be689342142c5465",
+    Gsm8kSuite: "sha256:b884f646a04766f1812419364c7edfca893e1df1e66028cbc3d908ab1a70d19c",
+    HumanEvalSuite: "sha256:b5a6dc541f4827c3cbfd63f7f536e40742579120703023fb853acdbc23952c73",
+}
+
+
+@pytest.mark.parametrize("suite_cls", [MmluSuite, Gsm8kSuite, HumanEvalSuite])
+def test_clean_digest_matches_the_pre_feature_pin(suite_cls: type) -> None:
+    """Absolute pin, not merely relative: a change that moved EVERY digest would
+    still pass a `d_lim.digest != d_all.digest`-style relative check, so this
+    pins the literal value recorded before this feature existed."""
+    suite = suite_cls()
+    handle = suite.resolve({"limit": 2}, None)
+    assert handle.digest == _CLEAN_DIGEST_AT_LIMIT_2[suite_cls]
