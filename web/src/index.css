@@ -1,4 +1,14 @@
 @import "tailwindcss";
+/* Tailwind v4 scans raw text in every file under web/, not the JS import
+ * graph, so an ordinary English word in a test title or a comment becomes a
+ * utility class in the shipped bundle. Case in point: main already shipped a
+ * `.shadow` rule sourced from the word "shadow" in a prose comment in
+ * glossary.test.ts ("must not shadow a suite-specific accuracy spec") — the
+ * last real `shadow-sm` usage was removed from input.tsx in slice 1, but the
+ * scanner kept emitting the rule because test prose kept referencing the
+ * word. Exclude test files from content scanning so the CSS tracks what the
+ * app actually uses, not what its test descriptions happen to say. */
+@source not "**/*.test.ts";
 
 /* The bundled mono. Identity lives in the numbers, identifiers, stage names and
  * fingerprints — all of which are Latin regardless of UI language, so a Latin
