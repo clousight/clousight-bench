@@ -85,3 +85,67 @@ describe("clampSelection", () => {
     expect(sel.startS).toBeLessThanOrEqual(sel.endS);
   });
 });
+
+describe("selectSpans over fullSelection", () => {
+  /**
+   * The arrival state: `selection` is null, so every pane renders through
+   * `fullSelection`. That window is the min start and max end over the rows,
+   * so by construction nothing lies outside it — and if `selectSpans` drops a
+   * row anyway, the reader lands on an empty pane with no narrower window to
+   * widen back out of. Stated as a property over several shapes rather than
+   * one example, because the shape that broke it (every timestamp collapsed
+   * onto t0, which `trace.ts` explicitly supports) is not the shape anybody
+   * writes an example for.
+   */
+  const shapes: Record<string, SpanRow[]> = {
+    "a normal trace": rows,
+    "a single span": [row("only", 4, 9)],
+    "a single degenerate span": [row("only", 4, 4)],
+    "an all-degenerate trace": [row("a", 7, 7), row("b", 7, 7), row("c", 7, 7)],
+    "degenerate spans on both edges of a real window": [
+      row("a", 0, 0),
+      row("b", 0, 5),
+      row("c", 5, 5),
+    ],
+    "a trace of zero-length work at the origin": [row("a", 0, 0), row("b", 0, 0)],
+    "an empty trace": [],
+  };
+
+  for (const [name, shape] of Object.entries(shapes)) {
+    it(`is the identity over ${name}`, () => {
+      const oneTrack: Track[] = [
+        { id: "all", label: "all", kind: "work", spanIds: shape.map((r) => r.id) },
+      ];
+      const sel = fullSelection(shape, oneTrack);
+      expect(selectSpans(shape, oneTrack, sel).map((r) => r.id)).toEqual(shape.map((r) => r.id));
+    });
+  }
+});
+
+describe("selectSpans and zero width", () => {
+  it("keeps a degenerate span sitting exactly on a window edge", () => {
+    // A point has no width to overlap *with*, so a strict comparison rejects
+    // it against every window there is — including one drawn around it.
+    const point = [row("p", 3, 3)];
+    const oneTrack: Track[] = [{ id: "all", label: "all", kind: "work", spanIds: ["p"] }];
+    const atStart = { startS: 3, endS: 9, trackIds: new Set(["all"]) };
+    const atEnd = { startS: 0, endS: 3, trackIds: new Set(["all"]) };
+    expect(selectSpans(point, oneTrack, atStart).map((r) => r.id)).toEqual(["p"]);
+    expect(selectSpans(point, oneTrack, atEnd).map((r) => r.id)).toEqual(["p"]);
+  });
+
+  it("still drops a real span touching a real window's edge", () => {
+    // The degenerate allowance must not leak into the case with real widths:
+    // dragging a window up to b's start must not pull b in.
+    const mixed = [row("point", 3, 3), row("b", 3, 6)];
+    const oneTrack: Track[] = [{ id: "all", label: "all", kind: "work", spanIds: ["point", "b"] }];
+    const sel = { startS: 0, endS: 3, trackIds: new Set(["all"]) };
+    expect(selectSpans(mixed, oneTrack, sel).map((r) => r.id)).toEqual(["point"]);
+  });
+
+  it("a zero-width window still reports what was running across it", () => {
+    // A drag clamped to a single instant is a playhead, not an empty pane.
+    const sel = { startS: 4, endS: 4, trackIds: new Set(["t1", "t2"]) };
+    expect(selectSpans(rows, tracks, sel).map((r) => r.id)).toEqual(["b"]);
+  });
+});
