@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
+from clousight_bench.suites import llm_common
 from clousight_bench.suites.llm_common import RetryPolicy
 
 
@@ -53,3 +56,265 @@ def test_canonical_is_none_when_disabled_and_stable_when_enabled() -> None:
     second = RetryPolicy.from_params({"retry": {"max_attempts": 3}}).canonical()
     assert first == second
     assert first == {"backoff_base_s": 0.2, "backoff_max_s": 5.0, "max_attempts": 3}
+
+
+class _FakeResponse:
+    def __init__(self, status: int, payload: dict[str, Any] | None = None) -> None:
+        self.status_code = status
+        self._payload = payload or {}
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise _FakeHTTPError(self)
+
+    def json(self) -> dict[str, Any]:
+        return self._payload
+
+
+class _FakeHTTPError(Exception):
+    def __init__(self, response: _FakeResponse) -> None:
+        super().__init__(f"HTTP {response.status_code}")
+        self.response = response
+
+
+_OK_BODY = {
+    "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
+    "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+}
+
+
+class _FakeTimeout(Exception):
+    """Stands in for ``requests.exceptions.Timeout``."""
+
+
+class _FakeConnectionError(Exception):
+    """Stands in for ``requests.exceptions.ConnectionError``."""
+
+
+def _fake_requests(statuses: list[int], monkeypatch: Any, sleeps: list[float]) -> list[int]:
+    """Serve ``statuses`` in order; record every backoff sleep. Returns the call log.
+
+    The sleep stub records the requested delay **and still sleeps it**. Recording
+    alone would make `overhead_ms` measure a clock that never advanced, so the
+    one test that discriminates success time from overhead could never pass.
+    Every test but that one uses a millisecond-scale backoff, so the cost is
+    negligible.
+
+    The fake module carries `exceptions.Timeout` / `exceptions.ConnectionError`
+    as well as `HTTPError`, because the retry classifier has to recognise a
+    timeout and a dropped connection, not only an HTTP status — and an
+    attribute the implementation reaches for and the fake lacks is an
+    `AttributeError` masquerading as a test failure.
+    """
+    return _fake_transport(list(statuses), monkeypatch, sleeps)
+
+
+def _fake_transport(
+    outcomes: list[Any],
+    monkeypatch: Any,
+    sleeps: list[float],
+    *,
+    traceparents: list[str] | None = None,
+) -> list[Any]:
+    """The double behind `_fake_requests`, one notch more general.
+
+    Each element of ``outcomes`` is either an HTTP status to answer with or an
+    exception INSTANCE to raise — a timeout or a dropped connection never
+    produces a response, so those failures cannot be expressed as a status and
+    the classifier has to reach them by type. Outcomes run out at 200.
+    ``traceparents``, when passed, collects the header each request actually
+    carried, which is the only way to observe which span id reached the server.
+    """
+    import time as _real_time
+
+    # Bind the REAL sleep before the patch lands: llm_common.time IS the stdlib
+    # time module, so patching its .sleep would otherwise make this stub call
+    # itself (RecursionError, not a slept backoff).
+    _real_sleep = _real_time.sleep
+
+    calls: list[Any] = []
+
+    def post(*_args: Any, **kwargs: Any) -> _FakeResponse:
+        outcome = outcomes[len(calls)] if len(calls) < len(outcomes) else 200
+        calls.append(outcome)
+        if traceparents is not None:
+            traceparents.append(str((kwargs.get("headers") or {}).get("traceparent", "")))
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return _FakeResponse(outcome, _OK_BODY if outcome < 400 else None)
+
+    exceptions = type(
+        "exceptions",
+        (),
+        {
+            "HTTPError": _FakeHTTPError,
+            "Timeout": _FakeTimeout,
+            "ConnectionError": _FakeConnectionError,
+        },
+    )
+    module = type(
+        "requests",
+        (),
+        {
+            "post": staticmethod(post),
+            "HTTPError": _FakeHTTPError,
+            "Timeout": _FakeTimeout,
+            "ConnectionError": _FakeConnectionError,
+            "exceptions": exceptions,
+        },
+    )
+    monkeypatch.setitem(__import__("sys").modules, "requests", module)
+
+    def _sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+        _real_sleep(seconds)
+
+    monkeypatch.setattr(llm_common.time, "sleep", _sleep)
+    return calls
+
+
+def _call(**kwargs: Any) -> tuple[str, dict[str, Any], str]:
+    base = dict(endpoint="http://127.0.0.1:1/v1", model="m", api_key="", prompt="p", max_tokens=8)
+    base.update(kwargs)
+    return llm_common.chat_once(**base)
+
+
+def test_default_does_not_retry(monkeypatch: Any) -> None:
+    """The headline guarantee: no policy means one request, and the failure stands."""
+    sleeps: list[float] = []
+    calls = _fake_requests([429, 200], monkeypatch, sleeps)
+    with pytest.raises(_FakeHTTPError):
+        _call()
+    assert calls == [429]
+    assert sleeps == []
+
+
+def test_opt_in_retries_until_success(monkeypatch: Any) -> None:
+    sleeps: list[float] = []
+    calls = _fake_requests([429, 503, 200], monkeypatch, sleeps)
+    sink: dict[str, Any] = {}
+    content, _usage, _finish = _call(
+        retry=RetryPolicy(max_attempts=3, backoff_base_s=0.01, backoff_max_s=0.04),
+        retry_sink=sink,
+    )
+    assert content == "hi"
+    assert calls == [429, 503, 200]
+    assert sink["attempts"] == 3
+    assert len(sleeps) == 2  # one per failed attempt, none after the success
+
+
+def test_attempts_are_bounded(monkeypatch: Any) -> None:
+    sleeps: list[float] = []
+    calls = _fake_requests([429, 429, 429, 429], monkeypatch, sleeps)
+    with pytest.raises(_FakeHTTPError):
+        _call(retry=RetryPolicy(max_attempts=2, backoff_base_s=0.01), retry_sink={})
+    assert calls == [429, 429]
+    assert len(sleeps) == 1  # no sleep after the final, giving-up attempt
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
+def test_client_errors_are_never_retried(status: int, monkeypatch: Any) -> None:
+    """A malformed request will not succeed on a second try; retrying only hides it."""
+    sleeps: list[float] = []
+    calls = _fake_requests([status, 200], monkeypatch, sleeps)
+    with pytest.raises(_FakeHTTPError):
+        _call(retry=RetryPolicy(max_attempts=4, backoff_base_s=0.01), retry_sink={})
+    assert calls == [status]
+    assert sleeps == []
+
+
+def test_sink_separates_success_from_overhead(monkeypatch: Any) -> None:
+    """latency_ms must be the successful attempt alone; the cost is reported beside it.
+
+    The backoff is the discriminator. A 200ms sleep between the failed attempt
+    and the successful one means overhead_ms must clear 200ms while success_ms
+    stays far below it — an implementation that folded the whole ordeal into
+    success_ms, or that reported a single total in both fields, fails here.
+    Asserting `>= 0.0` on either field would not: that passes for every
+    implementation, including a broken one.
+    """
+    sleeps: list[float] = []
+    _fake_requests([429, 200], monkeypatch, sleeps)
+    sink: dict[str, Any] = {}
+    _call(retry=RetryPolicy(max_attempts=2, backoff_base_s=0.2), retry_sink=sink)
+    assert sink["attempts"] == 2
+    assert sink["overhead_ms"] >= 200.0, "the backoff sleep belongs in overhead"
+    assert sink["success_ms"] < 200.0, "the successful attempt did not wait"
+    assert sink["success_ms"] != sink["overhead_ms"]
+
+
+def test_one_attempt_emits_exactly_one_span(monkeypatch: Any) -> None:
+    """The default trace shape must not move because a disabled feature exists."""
+    sleeps: list[float] = []
+    _fake_requests([200], monkeypatch, sleeps)
+    spans: list[dict[str, Any]] = []
+    _call(trace_id="a" * 32, span_sink=spans)
+    assert len(spans) == 1
+    assert spans[0]["name"] == "chat /chat/completions"
+    assert spans[0]["parent_span_id"] == ""
+
+
+def test_retried_call_nests_attempts_under_one_parent(monkeypatch: Any) -> None:
+    sleeps: list[float] = []
+    _fake_requests([429, 200], monkeypatch, sleeps)
+    spans: list[dict[str, Any]] = []
+    _call(
+        trace_id="a" * 32,
+        span_sink=spans,
+        retry=RetryPolicy(max_attempts=2, backoff_base_s=0.01),
+        retry_sink={},
+    )
+    parents = [s for s in spans if s["parent_span_id"] == ""]
+    children = [s for s in spans if s["parent_span_id"] != ""]
+    assert len(parents) == 1
+    assert len(children) == 2
+    assert {c["parent_span_id"] for c in children} == {parents[0]["span_id"]}
+    assert [c["status"] for c in children] == ["ERROR", "OK"]
+
+
+@pytest.mark.parametrize("error", [_FakeTimeout("timed out"), _FakeConnectionError("connection reset")])
+def test_responseless_transport_failures_are_retried(error: Exception, monkeypatch: Any) -> None:
+    """A timeout and a dropped connection are the failures a retry exists for.
+
+    Neither carries a response, so neither can be classified by status — only by
+    exception type. Nothing above exercises that branch: the status-driven tests
+    would pass just as well against a classifier that only ever looked at
+    `status_code` and gave up on everything else.
+    """
+    sleeps: list[float] = []
+    calls = _fake_transport([error, 200], monkeypatch, sleeps)
+    content, _usage, _finish = _call(retry=RetryPolicy(max_attempts=2, backoff_base_s=0.01))
+    assert content == "hi"
+    assert calls == [error, 200]
+    assert sleeps == [0.01]
+
+
+def test_each_attempt_sends_its_own_traceparent(monkeypatch: Any) -> None:
+    """One HTTP request is one span, so each attempt must put ITS OWN id in the
+    header — an OTel-instrumented endpoint nests its server-side spans under the
+    attempt that actually reached it, not under the parent that wraps them all."""
+    sleeps: list[float] = []
+    sent: list[str] = []
+    spans: list[dict[str, Any]] = []
+    _fake_transport([429, 200], monkeypatch, sleeps, traceparents=sent)
+    _call(
+        trace_id="a" * 32,
+        span_sink=spans,
+        retry=RetryPolicy(max_attempts=2, backoff_base_s=0.01),
+        retry_sink={},
+    )
+    parent = next(s for s in spans if s["parent_span_id"] == "")
+    children = [s for s in spans if s["parent_span_id"] != ""]
+    ids_sent = [tp.split("-")[2] for tp in sent]
+    assert ids_sent == [c["span_id"] for c in children]
+    assert parent["span_id"] not in ids_sent
+
+
+def test_the_lone_attempt_still_sends_the_id_of_its_own_span(monkeypatch: Any) -> None:
+    """Disabled, the header id and the span id are one id — as they are today."""
+    sleeps: list[float] = []
+    sent: list[str] = []
+    spans: list[dict[str, Any]] = []
+    _fake_transport([200], monkeypatch, sleeps, traceparents=sent)
+    _call(trace_id="a" * 32, span_sink=spans)
+    assert [tp.split("-")[2] for tp in sent] == [spans[0]["span_id"]]

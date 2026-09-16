@@ -16,6 +16,7 @@ import contextlib
 import ipaddress
 import json
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -346,6 +347,44 @@ def resolve_endpoint(target: Any, *, suite_id: str) -> tuple[str, str, str]:
     return endpoint.rstrip("/"), model, api_key
 
 
+def _retry_summary(model: str, attempts: int) -> dict[str, Any]:
+    """Attributes for the wrapper span over a retried call. No ``gen_ai.usage.*``:
+    those belong to the one attempt that reported them."""
+    return {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.request.model": model,
+        "csbench.retry.attempts": attempts,
+    }
+
+
+def _retryable_status(status_code: int | None) -> bool:
+    """429 (rate limited) and 5xx (the server is having a moment) are worth
+    another attempt; every other 4xx is the request's own fault and retrying it
+    only hides a bug behind three identical failures."""
+    if status_code is None:
+        return False
+    return status_code == 429 or 500 <= status_code < 600
+
+
+def _retryable_error(exc: BaseException, requests_mod: Any) -> bool:
+    """A timeout or a dropped connection has no response to read a status off,
+    so those two are classified by exception type.
+
+    The classes are looked up on ``requests.exceptions`` with a fallback to the
+    top-level names, and anything missing is simply skipped: a transport double
+    that spells them either way works, and one that spells them neither way is
+    "nothing is retryable", not an ``AttributeError`` thrown from inside the
+    failure handler.
+    """
+    source = getattr(requests_mod, "exceptions", None) or requests_mod
+    classes: list[type[BaseException]] = []
+    for name in ("Timeout", "ConnectionError"):
+        cls = getattr(source, name, None) or getattr(requests_mod, name, None)
+        if isinstance(cls, type) and issubclass(cls, BaseException):
+            classes.append(cls)
+    return bool(classes) and isinstance(exc, tuple(classes))
+
+
 def chat_once(
     *,
     endpoint: str,
@@ -356,6 +395,8 @@ def chat_once(
     timeout: float = 120.0,
     trace_id: str = "",
     span_sink: list[dict[str, Any]] | None = None,
+    retry: RetryPolicy | None = None,
+    retry_sink: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any], str]:
     """One OpenAI-compatible ``/chat/completions`` call at ``temperature=0``.
 
@@ -366,22 +407,39 @@ def chat_once(
     header — an OTel-instrumented endpoint continues the run's trace inside the
     operator's own APM — and, when ``span_sink`` is also given, a schema-v3
     ``gen_ai.*`` span for the call is appended to it (status ERROR on failure).
+
+    ``retry`` is opt-in and defaults to a one-attempt :class:`RetryPolicy`, i.e.
+    exactly today's behaviour: one request, no sleeping, and one span named
+    ``chat /chat/completions`` with ``parent_span_id=""`` carrying the same
+    ``span_id`` that went into the ``traceparent`` header. Ask for more than one
+    attempt and that span becomes the PARENT: each attempt appends a child
+    (``chat /chat/completions attempt N``) with its own id, its own status and,
+    on an HTTP failure, ``http.response.status_code``. Each attempt's request
+    carries ITS OWN span id in ``traceparent``, not the parent's — one HTTP
+    request is one span, so an instrumented endpoint nests its server-side spans
+    under the attempt that actually reached it.
+
+    ``retry_sink``, when given, is filled with ``{"attempts", "success_ms",
+    "overhead_ms"}``: an out-parameter mirroring ``span_sink`` rather than a
+    widened return tuple, so every existing caller keeps unpacking three values.
+    The suites time ``latency_ms`` at the call site, so they need the successful
+    attempt's own duration back — folding failed attempts and backoff sleeps
+    into the measured latency would corrupt the very number being benchmarked.
     """
     import requests  # noqa: PLC0415 - lazy; only the real path needs it
 
+    policy = retry or RetryPolicy()
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     span_id = ""
     start_ns = 0
     if trace_id:
-        from time import time_ns  # noqa: PLC0415
-
         from clousight_bench.core.tracing import new_span_id  # noqa: PLC0415
 
         span_id = new_span_id()
         headers["traceparent"] = f"00-{trace_id}-{span_id}-01"
-        start_ns = time_ns()
+        start_ns = time.time_ns()
     body: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -389,13 +447,7 @@ def chat_once(
         "max_tokens": max_tokens,
     }
 
-    # allow_redirects=False: a validated endpoint that 302s to a metadata/other
-    # host must not carry the Bearer key there (redirect / DNS-rebind SSRF guard).
-    def _record_span(status: str, usage: dict[str, Any], finish_reason: str) -> None:
-        if not (trace_id and span_sink is not None):
-            return
-        from time import time_ns  # noqa: PLC0415
-
+    def _gen_ai_attributes(usage: dict[str, Any], finish_reason: str) -> dict[str, Any]:
         attributes: dict[str, Any] = {
             "gen_ai.operation.name": "chat",
             "gen_ai.request.model": model,
@@ -406,38 +458,103 @@ def chat_once(
             attributes["gen_ai.usage.output_tokens"] = int(usage.get("completion_tokens") or 0)
         if finish_reason:
             attributes["gen_ai.response.finish_reasons"] = [finish_reason]
+        return attributes
+
+    def _record_span(
+        sid: str, parent: str, name: str, status: str, begin_ns: int, attributes: dict[str, Any]
+    ) -> None:
+        if not (trace_id and span_sink is not None):
+            return
         span_sink.append(
             {
                 "trace_id": trace_id,
-                "span_id": span_id,
-                "parent_span_id": "",
-                "name": "chat /chat/completions",
-                "start_unix_nano": start_ns,
-                "end_unix_nano": time_ns(),
+                "span_id": sid,
+                "parent_span_id": parent,
+                "name": name,
+                "start_unix_nano": begin_ns,
+                "end_unix_nano": time.time_ns(),
                 "status": status,
                 "attributes": attributes,
             }
         )
 
-    try:
-        resp = requests.post(
-            f"{endpoint}/chat/completions",
-            json=body,
-            headers=headers,
-            timeout=timeout,
-            allow_redirects=False,
+    def _fill_retry_sink(attempts: int, ok_ms: float, began: float) -> None:
+        if retry_sink is None:
+            return
+        total_ms = (time.perf_counter() - began) * 1000.0
+        retry_sink["attempts"] = attempts
+        retry_sink["success_ms"] = ok_ms
+        retry_sink["overhead_ms"] = max(0.0, total_ms - ok_ms)
+
+    call_t0 = time.perf_counter()
+    for attempt in range(1, policy.max_attempts + 1):
+        attempt_span_id, attempt_parent, attempt_start_ns = span_id, "", start_ns
+        attempt_name = "chat /chat/completions"
+        if policy.enabled:
+            attempt_parent = span_id
+            attempt_name = f"{attempt_name} attempt {attempt}"
+            if trace_id:
+                # Each attempt is its own HTTP request, so it gets its own span
+                # id and its own traceparent -- the endpoint's server-side spans
+                # must hang off the attempt that reached it, not off the parent.
+                attempt_span_id = new_span_id()
+                headers["traceparent"] = f"00-{trace_id}-{attempt_span_id}-01"
+                attempt_start_ns = time.time_ns()
+        attempt_t0 = time.perf_counter()
+        status_code: int | None = None
+        # allow_redirects=False: a validated endpoint that 302s to a metadata/other
+        # host must not carry the Bearer key there (redirect / DNS-rebind SSRF guard).
+        try:
+            resp = requests.post(
+                f"{endpoint}/chat/completions",
+                json=body,
+                headers=headers,
+                timeout=timeout,
+                allow_redirects=False,
+            )
+            status_code = getattr(resp, "status_code", None)
+            resp.raise_for_status()
+        except Exception as exc:
+            attributes = _gen_ai_attributes({}, "")
+            if policy.enabled and status_code is not None:
+                attributes["http.response.status_code"] = int(status_code)
+            _record_span(attempt_span_id, attempt_parent, attempt_name, "ERROR", attempt_start_ns, attributes)
+            # Read the status off the response where there is one: it is the same
+            # information without depending on which exception raise_for_status
+            # happens to throw. Only responseless failures need exception types.
+            retryable = (
+                _retryable_status(status_code) if status_code is not None else _retryable_error(exc, requests)
+            )
+            if retryable and attempt < policy.max_attempts:
+                time.sleep(policy.backoff_for(attempt))
+                continue
+            if policy.enabled:
+                summary = _retry_summary(model, attempt)
+                _record_span(span_id, "", "chat /chat/completions", "ERROR", start_ns, summary)
+            _fill_retry_sink(attempt, 0.0, call_t0)
+            raise
+        data = resp.json()
+        choice = (data.get("choices") or [{}])[0]
+        content = choice.get("message", {}).get("content", "")
+        usage = data.get("usage", {}) or {}
+        finish = str(choice.get("finish_reason") or "")
+        success_ms = (time.perf_counter() - attempt_t0) * 1000.0
+        _record_span(
+            attempt_span_id,
+            attempt_parent,
+            attempt_name,
+            "OK",
+            attempt_start_ns,
+            _gen_ai_attributes(usage, finish),
         )
-        resp.raise_for_status()
-    except Exception:
-        _record_span("ERROR", {}, "")
-        raise
-    data = resp.json()
-    choice = (data.get("choices") or [{}])[0]
-    content = choice.get("message", {}).get("content", "")
-    usage = data.get("usage", {}) or {}
-    finish = str(choice.get("finish_reason") or "")
-    _record_span("OK", usage, finish)
-    return content, usage, finish
+        if policy.enabled:
+            # The usage attributes stay on the attempt that reported them, so a
+            # backend summing gen_ai.usage.* over the trace cannot double-count.
+            summary = _retry_summary(model, attempt)
+            _record_span(span_id, "", "chat /chat/completions", "OK", start_ns, summary)
+        _fill_retry_sink(attempt, success_ms, call_t0)
+        return content, usage, finish
+    raise RuntimeError("unreachable: max_attempts >= 1, so the loop returns or raises")
 
 
 class EndpointJudge(JudgeModel):
