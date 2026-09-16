@@ -34,6 +34,18 @@ describe("fullSelection", () => {
     expect(sel.endS).toBe(10);
     expect([...sel.trackIds].sort()).toEqual(["t1", "t2"]);
   });
+
+  it("collapses to a zero-length window when there are no rows, but keeps the tracks", () => {
+    // With no rows, startS/endS never turn finite, so the function must fall
+    // back to 0,0 rather than leaking the +/-Infinity seeds. The fallback
+    // only touches the time fields — trackIds still comes from the tracks
+    // argument, so a caller with real tracks but no spans gets its track set
+    // back, not an empty one.
+    const sel = fullSelection([], tracks);
+    expect(sel.startS).toBe(0);
+    expect(sel.endS).toBe(0);
+    expect([...sel.trackIds].sort()).toEqual(["t1", "t2"]);
+  });
 });
 
 describe("selectSpans", () => {
