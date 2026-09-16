@@ -39,6 +39,14 @@ csbench run --domain llm --benchmark human-eval --platform llm-endpoint --config
 `params.limit` 限制题目数量。执行前会剥离模型补全外层的单个 ```` ```python … ``` ````
 代码围栏(真实 endpoint 常无视"不要围栏"的提示),因此"带围栏但正确"的答案不会被误判。
 
+对端点的重试沿用与 [MMLU](/docs/zh/mmlu-suite) 相同的可选 `params.retry` 策略:
+默认关闭,`max_attempts` / `backoff_base_s`(默认 `0.2`)/ `backoff_max_s`
+(默认 `5.0`)限定其行为,只有 429/5xx/超时/连接错误会重试(其他 4xx 不会——重试
+一个格式有误的请求只会拖延一个真实的客户端 bug),且**开启后会改变本次运行的
+数据集 digest** 与数据集版本标签,因此重试过的运行永远不能与干净运行比较。
+`params.retry` 不是 `target.retries`——后者 key 名相同,但只约束控制面。重试针对的
+是*生成*调用;下文的沙箱执行从不重试。
+
 ## 沙箱与安全
 
 执行复用第一方 `core.sandbox` helper:每个候选在**全新子进程**中运行,带
@@ -59,12 +67,19 @@ link-local 主机)。正如 `core.sandbox` 所声明,这是纵深防御,**不是
 | 度量 | 含义 | 类别 |
 | --- | --- | --- |
 | `human-eval.pass_at_1` | 通过题数 / 总题数(HumanEval 经典指标) | `deterministic` |
-| `human-eval.avg_latency_ms` | 每题平均墙钟耗时 | `environmental` |
+| `human-eval.avg_latency_ms` | 每题**沙箱执行**的平均墙钟耗时——不是生成延迟 | `environmental` |
 | `human-eval.total_tokens` | prompt + completion token | `environmental` |
 | `human-eval.cost_usd` | token × seed 单价 | `environmental` |
 
 均为 `official=True`(provenance 标记——由套件的公认 evaluator 发出,不是审计
 断言)。当运行未记录用量时(如参考/fixture 路径),token/延迟维度会省略。
+
+**`human-eval.avg_latency_ms` 不是 LLM 延迟。** 与 `mmlu.avg_latency_ms` /
+`gsm8k.avg_latency_ms`(生成调用自身的耗时)不同,这一项是每道题的生成代码在
+沙箱中执行的平均墙钟耗时——另一个循环,完全不含任何端点时间。因此重试无论如何
+都不会改变它,把它与其他套件的 `avg_latency_ms` 相比,比较的是两个毫不相干的量。
+*生成*调用的重试代价另行报告:开启 `params.retry` 后会出现
+`human-eval.retry_count` / `human-eval.retry_overhead_ms`(`official=False`)。
 
 ## 有意的范围(切片 1)
 - 一个小的**真实 HumanEval 样本**(openai/openai_humaneval,MIT)以 fixture 形式

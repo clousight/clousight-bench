@@ -20,7 +20,6 @@ import json
 import re
 import tempfile
 from pathlib import Path
-from time import perf_counter
 from typing import Any
 
 from clousight_bench.core.suite import (
@@ -33,6 +32,7 @@ from clousight_bench.core.suite import (
 )
 from clousight_bench.suites.llm_common import (
     ItemProgress,
+    RetryPolicy,
     chat_once,
     resolve_endpoint,
     sha256_bytes,
@@ -98,11 +98,23 @@ class MmluSuite(BenchmarkSuite):
         limit = int(cfg.get("limit", len(sample)))
         selected = sample[:limit]
         ids = [q["id"] for q in selected]
-        canonical = json.dumps({"ids": ids, "version": self.suite_version}, sort_keys=True)
+        retry = RetryPolicy.from_params(cfg).canonical()
+        fields: dict[str, Any] = {"ids": ids, "version": self.suite_version}
+        if retry is not None:
+            # folded only when present — the clean-run digest stays stable;
+            # a retry policy makes it a different benchmark
+            fields["retry"] = retry
+        canonical = json.dumps(fields, sort_keys=True)
+        version = (
+            self.suite_version if retry is None else f"{self.suite_version}/retry-{retry['max_attempts']}"
+        )
         return DatasetHandle(
-            version=self.suite_version,
+            version=version,
             digest=sha256_bytes(canonical.encode()),
-            payload={"questions": selected},
+            # ``cfg`` reaches no other lifecycle method, so the retry policy is read
+            # here and travels as its CANONICAL DICT (or None) — plain JSON-able
+            # data, like everything else in a payload — through prepare() into run().
+            payload={"questions": selected, "retry": retry},
         )
 
     # ------------------------------------------------------------------ prepare
@@ -118,6 +130,7 @@ class MmluSuite(BenchmarkSuite):
                 "model": model,
                 "api_key": api_key,
                 "questions": list(dataset.payload["questions"]),
+                "retry": dataset.payload.get("retry"),
             }
         )
 
@@ -127,9 +140,13 @@ class MmluSuite(BenchmarkSuite):
         if target.mock or env.payload.get("mock"):
             return self.mock_artifacts(dict(env.payload))
         p = env.payload
+        # A missing key is the disabled policy — one attempt, today's behaviour.
+        policy = RetryPolicy.from_params({"retry": p.get("retry")})
         spans: list[dict[str, Any]] = []
         answers: list[dict[str, Any]] = []
         prompt_tokens = completion_tokens = 0
+        retried_attempts = 0
+        retry_overhead_ms = 0.0
         items = ItemProgress(
             driver.progress,
             suite_id=self.suite_id,
@@ -138,7 +155,8 @@ class MmluSuite(BenchmarkSuite):
             unit="question",
         )
         for q in p["questions"]:
-            t = perf_counter()
+            t = items.now()
+            sink: dict[str, Any] = {}
             content, usage, _ = chat_once(
                 trace_id=getattr(driver, "trace_id", "") or "",
                 span_sink=spans,
@@ -147,9 +165,17 @@ class MmluSuite(BenchmarkSuite):
                 api_key=p["api_key"],
                 prompt=format_prompt(q),
                 max_tokens=8,
+                retry=policy,
+                retry_sink=sink,
             )
-            end = perf_counter()
-            latency_ms = (end - t) * 1000.0
+            end = items.now()
+            # The SUCCESSFUL attempt, not the wall clock around the call: a
+            # retried call's failed attempts and backoff sleeps are the retry's
+            # own cost, reported separately below. Folding them in here would
+            # corrupt the very latency being benchmarked.
+            latency_ms = float(sink["success_ms"])
+            retried_attempts += max(int(sink["attempts"]) - 1, 0)
+            retry_overhead_ms += float(sink["overhead_ms"])
             prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
             completion_tokens += int(usage.get("completion_tokens", 0) or 0)
             predicted = parse_letter(content)
@@ -171,6 +197,14 @@ class MmluSuite(BenchmarkSuite):
             "question_count": len(answers),
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
+            "retry_enabled": policy.enabled,
+            "retry_count": retried_attempts,
+            # Zero when disabled, never the raw total: chat_once computes
+            # overhead as total-minus-success, which is a few stray
+            # microseconds even for one unretried attempt. Left raw it would
+            # report a retry cost for a run that cannot retry, and make this
+            # sealed artifact's sha256 differ between two identical runs.
+            "retry_overhead_ms": retry_overhead_ms if policy.enabled else 0.0,
         }
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-mmlu-art-"))
         return write_artifacts(tmp_dir, answers, summary, rows_key="answers", spans=spans)

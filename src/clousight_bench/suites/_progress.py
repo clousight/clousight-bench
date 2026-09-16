@@ -55,7 +55,14 @@ class StepClock:
 
     Reads the same ``perf_counter`` the suites already time with, so a step can be
     built from the very marks a measured interval used — no second, disagreeing
-    timing is ever taken.
+    timing is ever taken, with one scoped exception: MMLU's and GSM8K's live item
+    span is built from ``ItemProgress``'s own ``perf_counter`` marks, while
+    ``chat_once`` ALWAYS takes a *separate* ``perf_counter`` reading for the
+    sealed row's ``latency_ms`` — the successful attempt, timed from just before
+    the HTTP request to just after the response body is parsed. The two disagree
+    on every run of those two suites, by the per-call setup between the marks,
+    and under an enabled retry policy by the retry overhead as well. A real
+    second timing, taken deliberately, not a bug in this clock.
 
     One wall-clock reading is taken next to that origin (:meth:`unix_ns`), which
     is what a sealed trajectory span needs: OTel timestamps are absolute, while

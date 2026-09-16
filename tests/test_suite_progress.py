@@ -397,12 +397,22 @@ def _mmlu_env(suite, count: int) -> EnvHandle:
     )
 
 
+def _answer(**kwargs):
+    """A ``chat_once`` double that honours the retry-sink contract.
+
+    ``chat_once`` guarantees the sink is filled before it returns OR raises, and
+    the suite reads ``sink["success_ms"]`` unguarded because of that guarantee. A
+    double that skipped it would fail with a ``KeyError`` that says nothing about
+    progress reporting, which is what these tests are here to check.
+    """
+    kwargs["retry_sink"].update({"attempts": 1, "success_ms": 1.0, "overhead_ms": 0.0})
+    return "A", {"prompt_tokens": 1, "completion_tokens": 1}, "stop"
+
+
 def test_mmlu_reports_one_step_and_one_sample_per_question(monkeypatch) -> None:
     from clousight_bench.suites.mmlu import suite as mmlu_suite
 
-    monkeypatch.setattr(
-        mmlu_suite, "chat_once", lambda **kwargs: ("A", {"prompt_tokens": 1, "completion_tokens": 1}, "stop")
-    )
+    monkeypatch.setattr(mmlu_suite, "chat_once", _answer)
     suite = mmlu_suite.MmluSuite()
     env = _mmlu_env(suite, 3)
     rec = RecordingProgress()
@@ -420,9 +430,9 @@ def test_mmlu_cancel_stops_after_the_first_question(monkeypatch) -> None:
 
     asked: list[int] = []
 
-    def fake_chat(**kwargs):  # noqa: ARG001
+    def fake_chat(**kwargs):
         asked.append(1)
-        return "A", {}, "stop"
+        return _answer(**kwargs)
 
     monkeypatch.setattr(mmlu_suite, "chat_once", fake_chat)
     suite = mmlu_suite.MmluSuite()

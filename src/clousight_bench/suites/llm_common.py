@@ -16,6 +16,8 @@ import contextlib
 import ipaddress
 import json
 import re
+import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -39,7 +41,81 @@ __all__ = [
     "chat_once",
     "EndpointJudge",
     "ItemProgress",
+    "RetryPolicy",
 ]
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """Retry bounds for the MEASURED path — deliberately not ``ClientPolicy``.
+
+    ``core/clients.py::ClientPolicy`` is the control-plane policy: creating a
+    runtime or polling its status should retry by default, because retrying
+    those changes no measurement. A measured ``/chat/completions`` call is the
+    opposite — an endpoint that rate-limits you *is* worse, and silently
+    retrying past that flatters the thing under test. Two correct-but-opposite
+    defaults do not belong in one object, and ``ClientPolicy.max_attempts``
+    already defaults to 3, so sharing it would have turned retries on for every
+    existing run in silence.
+
+    Absent config means exactly one attempt per item, the same spans, and the
+    same dataset digest as before this class existed. (Not *byte for byte*: the
+    suites' ``summary.json`` also gained ``retry_enabled`` / ``retry_count`` /
+    ``retry_overhead_ms``, which are false/0 there but do change that artifact's
+    sha256 against a pre-feature run.)
+
+    Confusable with ``target.retries``, which spells the same three key names
+    with a ``max_attempts`` default of 3 and reaches ``ClientPolicy``, never the
+    measured call.
+    """
+
+    max_attempts: int = 1
+    backoff_base_s: float = 0.2
+    backoff_max_s: float = 5.0
+
+    @classmethod
+    def from_params(cls, params: dict[str, Any] | None) -> RetryPolicy:
+        retry = (params or {}).get("retry") or {}
+        base = cls()
+        max_attempts = int(retry.get("max_attempts", base.max_attempts))
+        if max_attempts < 1:
+            raise ValueError(f"params.retry.max_attempts must be >= 1, got {max_attempts}")
+        backoff_base_s = float(retry.get("backoff_base_s", base.backoff_base_s))
+        backoff_max_s = float(retry.get("backoff_max_s", base.backoff_max_s))
+        # A negative backoff is not "retry faster" — it is a ``time.sleep``
+        # that raises ``ValueError`` two attempts into a measured run, long
+        # after the config could have been fixed. Validated here, beside
+        # ``max_attempts``, so every way of mis-spelling this block fails at
+        # ``resolve()`` time with a message naming the key.
+        for name, value in (("backoff_base_s", backoff_base_s), ("backoff_max_s", backoff_max_s)):
+            if value < 0:
+                raise ValueError(f"params.retry.{name} must be >= 0, got {value}")
+        return cls(
+            max_attempts=max_attempts,
+            backoff_base_s=backoff_base_s,
+            backoff_max_s=backoff_max_s,
+        )
+
+    @property
+    def enabled(self) -> bool:
+        return self.max_attempts > 1
+
+    def backoff_for(self, attempt: int) -> float:
+        """Seconds to wait after 1-based ``attempt`` failed, exponential and capped."""
+        delay = self.backoff_base_s * (2 ** max(0, attempt - 1))
+        return min(delay, self.backoff_max_s)
+
+    def canonical(self) -> dict[str, Any] | None:
+        """The digest contribution — ``None`` when disabled, so a clean run's
+        dataset digest stays bit-identical to every run recorded before this
+        feature existed."""
+        if not self.enabled:
+            return None
+        return {
+            "backoff_base_s": self.backoff_base_s,
+            "backoff_max_s": self.backoff_max_s,
+            "max_attempts": self.max_attempts,
+        }
 
 
 class ItemProgress:
@@ -48,11 +124,24 @@ class ItemProgress:
     One of these announces the loop's size up front, then draws one step per
     finished item, publishes that item's latency as a sample, advances the
     counter and polls for a cancel. It is built from the marks the suite already
-    timed the item with, so it never takes a second, disagreeing measurement, and
-    it reports strictly BETWEEN items — the next item's timer has not started, so
-    nothing that reaches ``avg_latency_ms`` can move.
+    timed the item with, and it reports strictly BETWEEN items — the next
+    item's timer has not started, so nothing that reaches ``avg_latency_ms``
+    can move.
 
-    Steps are named ``<suite_id>.<item_id>``. This is the one place the live and
+    For MMLU and GSM8K the live ``<suite>.latency_ms`` sample ALWAYS disagrees
+    with the sealed row, retried or not: ``start``/``end`` are wall-clock marks
+    around the whole call, while the sealed row's ``latency_ms`` is a separate
+    reading ``chat_once`` takes inside itself (``success_ms``) from just before
+    the HTTP request to just after the response body is parsed. On a clean run
+    the gap is the per-call setup those marks include and ``success_ms`` does
+    not — sub-millisecond, except on the first item, which also pays for a lazy
+    ``import requests``. Under an enabled retry policy the gap widens to every
+    failed attempt and backoff sleep. That is deliberate, not a bug to converge
+    — the live sample is a progress indicator, and "how long did this item take
+    to clear the loop" is the honest wall-clock reading for that purpose, even
+    though it is a different number from the one that gets published.
+
+    Steps are named ``<suite_id>.<item_id>``. This is another place the live and
     the sealed waterfall deliberately differ: the trajectory's spans are
     ``gen_ai`` call spans all named ``chat /chat/completions``, which is exactly
     right for an OTel consumer and useless as a row label — the live view needs a
@@ -176,7 +265,18 @@ def serving_measurements(
 ) -> dict[str, Measurement]:
     """The ``avg_latency_ms`` / ``total_tokens`` / ``cost_usd`` block shared by the
     llm suites' official evaluators. Every key is ``<prefix>.``-namespaced and
-    ``official=True``; a dimension is omitted when its data is absent."""
+    ``official=True``; a dimension is omitted when its data is absent.
+
+    ``retry_count`` / ``retry_overhead_ms`` are a second, unofficial pair,
+    published only when ``summary["retry_enabled"]`` is truthy. They describe
+    this harness against this endpoint on this run, not a property of the
+    benchmark, so they are ``official=False``. The gate is ``retry_enabled``,
+    never ``retry_overhead_ms > 0``: ``chat_once`` computes overhead as
+    ``total_ms - success_ms``, which is a few stray microseconds even on a
+    single, non-retried attempt, so gating on ">0" would emit these for every
+    default run — exactly the drift this feature must not cause. Both keys are
+    read with ``.get`` because mock/offline paths carry no retry keys at all.
+    """
     out: dict[str, Measurement] = {}
     latencies = [float(r[latency_key]) for r in rows if isinstance(r.get(latency_key), (int, float))]
     if latencies:
@@ -202,6 +302,21 @@ def serving_measurements(
             reproducibility_class="environmental",
             official=True,
             notes=f"tokens_1k price {price_1k} ({source})",
+        )
+    if summary.get("retry_enabled"):
+        out[f"{prefix}.retry_count"] = Measurement(
+            value=int(summary.get("retry_count", 0) or 0),
+            unit="count",
+            reproducibility_class="environmental",
+            official=False,
+            notes="this harness's retries against this endpoint on this run, not a benchmark property",
+        )
+        out[f"{prefix}.retry_overhead_ms"] = Measurement(
+            value=float(summary.get("retry_overhead_ms", 0.0) or 0.0),
+            unit="ms",
+            reproducibility_class="environmental",
+            official=False,
+            notes="time spent on failed attempts and backoff, not the successful attempt's latency",
         )
     return out
 
@@ -289,6 +404,44 @@ def resolve_endpoint(target: Any, *, suite_id: str) -> tuple[str, str, str]:
     return endpoint.rstrip("/"), model, api_key
 
 
+def _retry_summary(model: str, attempts: int) -> dict[str, Any]:
+    """Attributes for the wrapper span over a retried call. No ``gen_ai.usage.*``:
+    those belong to the one attempt that reported them."""
+    return {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.request.model": model,
+        "csbench.retry.attempts": attempts,
+    }
+
+
+def _retryable_status(status_code: int | None) -> bool:
+    """429 (rate limited) and 5xx (the server is having a moment) are worth
+    another attempt; every other 4xx is the request's own fault and retrying it
+    only hides a bug behind three identical failures."""
+    if status_code is None:
+        return False
+    return status_code == 429 or 500 <= status_code < 600
+
+
+def _retryable_error(exc: BaseException, requests_mod: Any) -> bool:
+    """A timeout or a dropped connection has no response to read a status off,
+    so those two are classified by exception type.
+
+    The classes are looked up on ``requests.exceptions`` with a fallback to the
+    top-level names, and anything missing is simply skipped: a transport double
+    that spells them either way works, and one that spells them neither way is
+    "nothing is retryable", not an ``AttributeError`` thrown from inside the
+    failure handler.
+    """
+    source = getattr(requests_mod, "exceptions", None) or requests_mod
+    classes: list[type[BaseException]] = []
+    for name in ("Timeout", "ConnectionError"):
+        cls = getattr(source, name, None) or getattr(requests_mod, name, None)
+        if isinstance(cls, type) and issubclass(cls, BaseException):
+            classes.append(cls)
+    return bool(classes) and isinstance(exc, tuple(classes))
+
+
 def chat_once(
     *,
     endpoint: str,
@@ -299,6 +452,8 @@ def chat_once(
     timeout: float = 120.0,
     trace_id: str = "",
     span_sink: list[dict[str, Any]] | None = None,
+    retry: RetryPolicy | None = None,
+    retry_sink: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any], str]:
     """One OpenAI-compatible ``/chat/completions`` call at ``temperature=0``.
 
@@ -309,22 +464,41 @@ def chat_once(
     header — an OTel-instrumented endpoint continues the run's trace inside the
     operator's own APM — and, when ``span_sink`` is also given, a schema-v3
     ``gen_ai.*`` span for the call is appended to it (status ERROR on failure).
+
+    ``retry`` is opt-in and defaults to a one-attempt :class:`RetryPolicy`, i.e.
+    exactly today's behaviour: one request, no sleeping, and one span named
+    ``chat /chat/completions`` with ``parent_span_id=""`` carrying the same
+    ``span_id`` that went into the ``traceparent`` header. Ask for more than one
+    attempt and that span becomes the PARENT: each attempt appends a child
+    (``chat /chat/completions attempt N``) with its own id, its own status and,
+    on an HTTP failure, ``http.response.status_code``. Each attempt's request
+    carries ITS OWN span id in ``traceparent``, not the parent's — one HTTP
+    request is one span, so an instrumented endpoint nests its server-side spans
+    under the attempt that actually reached it.
+
+    ``retry_sink``, when given, is always filled with ``{"attempts",
+    "success_ms", "overhead_ms"}`` before this function returns OR raises --
+    ``success_ms`` is 0.0 on a call that never succeeded — so a caller may read
+    its keys unguarded. It is an out-parameter mirroring ``span_sink`` rather
+    than a widened return tuple, so every caller keeps unpacking three values.
+    The suites time ``latency_ms`` at the call site, so they need the successful
+    attempt's own duration back — folding failed attempts and backoff sleeps
+    into the measured latency would corrupt the very number being benchmarked.
     """
     import requests  # noqa: PLC0415 - lazy; only the real path needs it
 
+    policy = retry or RetryPolicy()
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     span_id = ""
     start_ns = 0
     if trace_id:
-        from time import time_ns  # noqa: PLC0415
-
         from clousight_bench.core.tracing import new_span_id  # noqa: PLC0415
 
         span_id = new_span_id()
         headers["traceparent"] = f"00-{trace_id}-{span_id}-01"
-        start_ns = time_ns()
+        start_ns = time.time_ns()
     body: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -332,13 +506,7 @@ def chat_once(
         "max_tokens": max_tokens,
     }
 
-    # allow_redirects=False: a validated endpoint that 302s to a metadata/other
-    # host must not carry the Bearer key there (redirect / DNS-rebind SSRF guard).
-    def _record_span(status: str, usage: dict[str, Any], finish_reason: str) -> None:
-        if not (trace_id and span_sink is not None):
-            return
-        from time import time_ns  # noqa: PLC0415
-
+    def _gen_ai_attributes(usage: dict[str, Any], finish_reason: str) -> dict[str, Any]:
         attributes: dict[str, Any] = {
             "gen_ai.operation.name": "chat",
             "gen_ai.request.model": model,
@@ -349,38 +517,114 @@ def chat_once(
             attributes["gen_ai.usage.output_tokens"] = int(usage.get("completion_tokens") or 0)
         if finish_reason:
             attributes["gen_ai.response.finish_reasons"] = [finish_reason]
+        return attributes
+
+    def _record_span(
+        sid: str, parent: str, name: str, status: str, begin_ns: int, attributes: dict[str, Any]
+    ) -> None:
+        if not (trace_id and span_sink is not None):
+            return
         span_sink.append(
             {
                 "trace_id": trace_id,
-                "span_id": span_id,
-                "parent_span_id": "",
-                "name": "chat /chat/completions",
-                "start_unix_nano": start_ns,
-                "end_unix_nano": time_ns(),
+                "span_id": sid,
+                "parent_span_id": parent,
+                "name": name,
+                "start_unix_nano": begin_ns,
+                "end_unix_nano": time.time_ns(),
                 "status": status,
                 "attributes": attributes,
             }
         )
 
-    try:
-        resp = requests.post(
-            f"{endpoint}/chat/completions",
-            json=body,
-            headers=headers,
-            timeout=timeout,
-            allow_redirects=False,
+    def _fill_retry_sink(attempts: int, ok_ms: float, began: float) -> None:
+        if retry_sink is None:
+            return
+        total_ms = (time.perf_counter() - began) * 1000.0
+        retry_sink["attempts"] = attempts
+        retry_sink["success_ms"] = ok_ms
+        retry_sink["overhead_ms"] = max(0.0, total_ms - ok_ms)
+
+    call_t0 = time.perf_counter()
+    for attempt in range(1, policy.max_attempts + 1):
+        attempt_span_id, attempt_parent, attempt_start_ns = span_id, "", start_ns
+        attempt_name = "chat /chat/completions"
+        if policy.enabled:
+            attempt_parent = span_id
+            attempt_name = f"{attempt_name} attempt {attempt}"
+            if trace_id:
+                # Each attempt is its own HTTP request, so it gets its own span
+                # id and its own traceparent -- the endpoint's server-side spans
+                # must hang off the attempt that reached it, not off the parent.
+                attempt_span_id = new_span_id()
+                headers["traceparent"] = f"00-{trace_id}-{attempt_span_id}-01"
+                attempt_start_ns = time.time_ns()
+        attempt_t0 = time.perf_counter()
+        status_code: int | None = None
+        # allow_redirects=False: a validated endpoint that 302s to a metadata/other
+        # host must not carry the Bearer key there (redirect / DNS-rebind SSRF guard).
+        try:
+            resp = requests.post(
+                f"{endpoint}/chat/completions",
+                json=body,
+                headers=headers,
+                timeout=timeout,
+                allow_redirects=False,
+            )
+            status_code = getattr(resp, "status_code", None)
+            resp.raise_for_status()
+        except Exception as exc:
+            attributes = _gen_ai_attributes({}, "")
+            if policy.enabled and status_code is not None:
+                attributes["http.response.status_code"] = int(status_code)
+            _record_span(attempt_span_id, attempt_parent, attempt_name, "ERROR", attempt_start_ns, attributes)
+            # Read the status off the response where there is one: it is the same
+            # information without depending on which exception raise_for_status
+            # happens to throw. Only responseless failures need exception types.
+            retryable = (
+                _retryable_status(status_code) if status_code is not None else _retryable_error(exc, requests)
+            )
+            if retryable and attempt < policy.max_attempts:
+                time.sleep(policy.backoff_for(attempt))
+                continue
+            if policy.enabled:
+                summary = _retry_summary(model, attempt)
+                _record_span(span_id, "", "chat /chat/completions", "ERROR", start_ns, summary)
+            _fill_retry_sink(attempt, 0.0, call_t0)
+            raise
+        try:
+            data = resp.json()
+            choice = (data.get("choices") or [{}])[0]
+            content = choice.get("message", {}).get("content", "")
+            usage = data.get("usage", {}) or {}
+            finish = str(choice.get("finish_reason") or "")
+        except Exception:
+            # A 200 whose body cannot be read is NOT retried: the endpoint
+            # answered, it just answered nonsense, and a second identical
+            # request will get the same nonsense. But the sink's contract is
+            # that a call which never succeeds still fills it, so a caller can
+            # read sink["attempts"] unguarded -- leaving it {} here would make
+            # that a KeyError. No span is recorded, matching the pre-retry
+            # behaviour of this path exactly.
+            _fill_retry_sink(attempt, 0.0, call_t0)
+            raise
+        success_ms = (time.perf_counter() - attempt_t0) * 1000.0
+        _record_span(
+            attempt_span_id,
+            attempt_parent,
+            attempt_name,
+            "OK",
+            attempt_start_ns,
+            _gen_ai_attributes(usage, finish),
         )
-        resp.raise_for_status()
-    except Exception:
-        _record_span("ERROR", {}, "")
-        raise
-    data = resp.json()
-    choice = (data.get("choices") or [{}])[0]
-    content = choice.get("message", {}).get("content", "")
-    usage = data.get("usage", {}) or {}
-    finish = str(choice.get("finish_reason") or "")
-    _record_span("OK", usage, finish)
-    return content, usage, finish
+        if policy.enabled:
+            # The usage attributes stay on the attempt that reported them, so a
+            # backend summing gen_ai.usage.* over the trace cannot double-count.
+            summary = _retry_summary(model, attempt)
+            _record_span(span_id, "", "chat /chat/completions", "OK", start_ns, summary)
+        _fill_retry_sink(attempt, success_ms, call_t0)
+        return content, usage, finish
+    raise RuntimeError("unreachable: max_attempts >= 1, so the loop returns or raises")
 
 
 class EndpointJudge(JudgeModel):

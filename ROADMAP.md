@@ -171,14 +171,22 @@ visualization is deferred to the Sub-project C web viewer.
   for hostile code. Until this lands there is no strong isolation against a
   determined adversary — review workloads you do not trust (see
   [SECURITY.md](SECURITY.md)).
-- 📋 **Trace causality (span links)**: the trace records containment
-  (`parent_span_id`) but no causal link across branches, so a viewer can show
-  that one span *enclosed* another but never that one *triggered* another.
-  Emitting OpenTelemetry **span links** at decided points — suite → tool call,
-  disruption → retry, stream → query — would make that relationship explicit,
-  and it survives OTLP export, so a collector gains the same edges. The work is
-  gated on the semantic-convention decision about which relationships are worth
-  linking (it belongs with span schema v3), not on rendering.
+- 📋 **Trace causality (span links)**: each candidate relationship was checked
+  against the code; all fail. `stream → query` is already containment — in a
+  real TPC-H trace `tpc-h.stream1` is the parent of its 22 query spans. The
+  disruption's victim end cannot be a span: a 60-second YCSB run performs
+  hundreds of thousands of operations, so YCSB emits exactly two phase spans,
+  and falling back to phase granularity returns nothing because
+  `ycsb.disruption.reset`'s parent already *is* `ycsb.run`. `disruption →
+  retry` had no retry to link — `chat_once` issued one request and
+  `ClientPolicy` had zero consumers; once a retry policy exists, containment
+  plus time order already expresses the relationship, so no link is needed
+  even then. `LLM → tool call` is the one real cross-branch edge, but
+  `adapters/local_sim.py` emits no trajectory, so it can't be verified
+  without a live agent path. The trace has almost no cross-branch causality
+  to express: the orchestrator is sequential, workloads are external tools
+  reporting aggregates, and agent loops can't be exercised locally. **L4
+  tracing or a live agent path unlocks this, not a semconv decision.**
 - 💤 Remaining real-cloud adapters (`huawei-agentarts`, `volcengine-agentkit`,
   `aws-agentcore`) — skeletons are in-tree; wiring is gated on cloud accounts and
   deployed benchmark targets.

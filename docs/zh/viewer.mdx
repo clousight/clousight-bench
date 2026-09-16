@@ -206,6 +206,8 @@ cd web && npm run dev      # Vite 开发服务器（API 指向一个运行中的
 
 如何写一个，参见[上报进度](/docs/zh/adding-a-suite#上报进度)。两者受同一条规则约束：span 可以**记录**自一段被测量区域已经取过的标记——上表里的每条查询 span 就是 `latency_ms` 所依据的那个区间本身——但绝不能在"自身墙钟就是测量值"的窗口里**写**任何东西。
 
+MMLU 与 GSM8K 是这条规则前半句唯一有案可查的例外。它们的**实时**条目步骤取自条目循环自己的标记（覆盖整次调用），而**封存**的 `latency_ms` 是 `chat_once` 内部另取的一次读数——从发出 HTTP 请求之前到解析完响应之后。两者在每次运行中都会相差「调用前后的准备开销」，在开启 `params.retry` 时还会再相差失败尝试与退避睡眠——所以实时数字总是两者中较大的那个。这是有意为之：实时样本回答"这道题跑了多久"，封存值回答"端点有多快"。
+
 ### span 形态
 
 主要的 span 形态是 **v3 OTel 原生** span（`core/sut_span.py`）：`span_id / trace_id / parent_span_id / name / start_unix_nano / end_unix_nano / status / attributes`，其中 `status` 为 OTel 的 `OK` / `ERROR` / `UNSET`，且 `attributes` 必须至少包含一个语义约定命名空间的键作为 kind 判别键——`gen_ai.*`（模型与工具调用）、`db.*`（查询）或 `csbench.*`（阶段、流，以及运行自身的生命周期）。旧版 **v2** span（`parent_id`、`t_start` / `t_end`、`attrs`、字面 `kind`）仍被查看器接受并归一化。

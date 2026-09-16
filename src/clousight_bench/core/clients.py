@@ -47,7 +47,7 @@ def register_builder(provider: str, builder: Callable[[ClientContext], Any]) -> 
 
 @dataclass
 class ClientPolicy:
-    """Timeout + retry bounds every real-cloud SDK call inherits.
+    """Timeout + retry bounds every real-cloud SDK call inherits (control-plane).
 
     Centralised so all four clouds share one policy instead of the first wired
     adapter inventing its own. The per-request ``read_timeout_s`` is the real
@@ -55,6 +55,8 @@ class ClientPolicy:
     main-thread-only and does NOT interrupt a threaded load probe, so a wired
     transport must bound each call itself -- and by the run's remaining deadline
     (``bounded_read_timeout``) so it never runs past the stage's own budget.
+
+    For the measured path, see ``suites/llm_common.py::RetryPolicy`` instead.
     """
 
     connect_timeout_s: float = 10.0

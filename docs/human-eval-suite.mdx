@@ -43,6 +43,16 @@ csbench run --domain llm --benchmark human-eval --platform llm-endpoint --config
 a single ```` ```python … ``` ```` fence before execution (real endpoints fence
 code despite the prompt), so a fenced-but-correct answer is not mis-scored.
 
+Retries against the endpoint follow the same opt-in `params.retry` policy as
+[MMLU](/docs/mmlu-suite): off by default, `max_attempts` / `backoff_base_s`
+(default `0.2`) / `backoff_max_s` (default `5.0`) bound it, only
+429/5xx/timeouts/connection errors are retried (never other 4xx, since retrying
+a malformed request only delays a real bug), and **enabling it changes the run's
+dataset digest** and the dataset version label, so a retried run is never
+comparable with a clean one. `params.retry` is not `target.retries`, which
+spells the same keys but bounds the control plane only. Retries apply to the
+*generation* call; the sandboxed execution below is never retried.
+
 ## Sandbox & safety
 
 Execution reuses the first-party `core.sandbox` helper: each candidate runs in a
@@ -66,13 +76,23 @@ The `official-humaneval-evaluator` emits `human-eval.*` measurements:
 | Measurement | Meaning | class |
 | --- | --- | --- |
 | `human-eval.pass_at_1` | problems_passed / total (canonical HumanEval metric) | `deterministic` |
-| `human-eval.avg_latency_ms` | mean per-problem wall time | `environmental` |
+| `human-eval.avg_latency_ms` | mean per-problem **sandbox execution** wall time — not a generation latency | `environmental` |
 | `human-eval.total_tokens` | prompt + completion tokens | `environmental` |
 | `human-eval.cost_usd` | tokens × seed price | `environmental` |
 
 All are `official=True` (a provenance flag — emitted by the suite's recognized
 evaluator, not an audit claim). Token/latency dimensions are omitted when the run
 recorded no usage (e.g. the reference/fixture path).
+
+**`human-eval.avg_latency_ms` is not an LLM latency.** Unlike
+`mmlu.avg_latency_ms` / `gsm8k.avg_latency_ms`, which are the generation call's
+own duration, this one is the mean wall time of running each generated solution
+in the sandbox — a different loop, containing no endpoint time at all. Retries
+therefore cannot move it in either direction, and comparing it against another
+suite's `avg_latency_ms` compares two unrelated quantities. What the retries of
+the *generation* calls cost is reported separately: with `params.retry` enabled,
+`human-eval.retry_count` / `human-eval.retry_overhead_ms` also appear
+(`official=False`).
 
 ## Deliberate scope (slice 1)
 - A small **real HumanEval sample** (openai/openai_humaneval, MIT) ships as a
