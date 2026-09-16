@@ -135,6 +135,7 @@
   "timeline.total_time": "合计",
   "timeline.span": "跨度",
   "timeline.empty_selection": "这个选区里没有跨度。",
+  "timeline.time_order": "时序",
   "timeline.select_all": "全选",
   "timeline.track_stream": "数据流",
   "timeline.track_lane": "泳道",

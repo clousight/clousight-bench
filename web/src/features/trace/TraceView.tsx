@@ -15,15 +15,21 @@ import { ArrowLeft, Brain, Wrench } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 
 import { useJSON, type TrajectoryData } from "@/api";
-import { Waterfall } from "@/charts/Waterfall";
+import { KindLegend, Waterfall } from "@/charts/Waterfall";
 import { CopyButton } from "@/components/CopyButton";
 import { EmptyView, ErrorView, LoadingView } from "@/components/StateViews";
 import { Section, SectionBody, SectionHead } from "@/components/ui/section";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AggregatedPane } from "@/features/timeline/AggregatedPane";
+import { OverviewStrip } from "@/features/timeline/OverviewStrip";
+import { TablePane } from "@/features/timeline/TablePane";
+import { TrackList } from "@/features/timeline/TrackList";
 import { useI18n } from "@/i18n";
 import { fmtDur } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { fullSelection, selectSpans, type Selection } from "@/lib/selection";
 import { buildRows, totalSeconds, type SpanRow } from "@/lib/trace";
+import { assignTracks } from "@/lib/tracks";
+import { cn } from "@/lib/utils";
 import { recordHref } from "@/router";
 
 function attrsJson(row: SpanRow): string {
@@ -103,6 +109,18 @@ export function TraceView({ runId }: { runId: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const rows = useMemo(() => (data === null ? [] : buildRows(data)), [data]);
+  const tracks = useMemo(() => assignTracks(rows), [rows]);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const effective = selection ?? fullSelection(rows, tracks);
+  const visible = useMemo(
+    () => selectSpans(rows, tracks, effective),
+    [rows, tracks, effective],
+  );
+  const kinds = useMemo(() => {
+    const seen: string[] = [];
+    for (const row of rows) if (row.kind !== "" && !seen.includes(row.kind)) seen.push(row.kind);
+    return seen;
+  }, [rows]);
   const toggle = useCallback(
     (id: string) => setSelectedId((current) => (current === id ? null : id)),
     [],
@@ -157,47 +175,89 @@ export function TraceView({ runId }: { runId: string }) {
           </SectionBody>
         </Section>
       ) : (
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList>
-            <TabsTrigger value="transcript">{t('trace.transcript')}</TabsTrigger>
-            <TabsTrigger value="waterfall">{t('trace.waterfall')}</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="transcript" className="flex flex-col gap-2">
-            {rows.map((row) => (
-              <TranscriptCard
-                key={row.id}
-                row={row}
+        <>
+          <Section>
+            <SectionBody className="pt-3">
+              {kinds.length > 1 && <KindLegend kinds={kinds} />}
+              <OverviewStrip
+                rows={rows}
                 t0={t0}
-                selected={selectedId === row.id}
-                onToggle={() => toggle(row.id)}
+                totalS={total}
+                selection={effective}
+                onChange={setSelection}
               />
-            ))}
-          </TabsContent>
+              <div className="mt-3">
+                <TrackList
+                  tracks={tracks}
+                  rows={rows}
+                  t0={t0}
+                  totalS={total}
+                  selection={effective}
+                  onChange={setSelection}
+                />
+              </div>
+            </SectionBody>
+          </Section>
+          <Tabs value={tab} onValueChange={setTab}>
+            <TabsList>
+              <TabsTrigger value="transcript">{t('trace.transcript')}</TabsTrigger>
+              <TabsTrigger value="waterfall">{t('timeline.time_order')}</TabsTrigger>
+              <TabsTrigger value="aggregated">{t('timeline.aggregated')}</TabsTrigger>
+              <TabsTrigger value="table">{t('timeline.table')}</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="waterfall" className="flex flex-col gap-3">
-            <Section>
-              <SectionBody className="pt-4">
-                <Waterfall rows={rows} t0={t0} onSelect={toggle} />
-              </SectionBody>
-            </Section>
-            {selectedRow !== null && (
-              <Section className={cn(selectedRow.isError && "border-l-2 border-l-destructive")}>
-                <SectionHead className="flex-row items-center gap-2.5">
-                  <div className="min-w-0 flex-1 truncate text-sm font-medium">
-                    {selectedRow.name ?? t('common.unnamed')}
-                  </div>
-                  <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
-                    +{fmtDur(selectedRow.startS - t0)} · {fmtDur(selectedRow.endS - selectedRow.startS)}
-                  </span>
-                </SectionHead>
-                <SectionBody>
-                  <AttrsPanel row={selectedRow} />
+            <TabsContent value="transcript" className="flex flex-col gap-2">
+              {rows.map((row) => (
+                <TranscriptCard
+                  key={row.id}
+                  row={row}
+                  t0={t0}
+                  selected={selectedId === row.id}
+                  onToggle={() => toggle(row.id)}
+                />
+              ))}
+            </TabsContent>
+
+            <TabsContent value="waterfall" className="flex flex-col gap-3">
+              <Section>
+                <SectionBody className="pt-4">
+                  <Waterfall rows={visible} t0={t0} onSelect={toggle} />
                 </SectionBody>
               </Section>
-            )}
-          </TabsContent>
-        </Tabs>
+              {selectedRow !== null && (
+                <Section className={cn(selectedRow.isError && "border-l-2 border-l-destructive")}>
+                  <SectionHead className="flex-row items-center gap-2.5">
+                    <div className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {selectedRow.name ?? t('common.unnamed')}
+                    </div>
+                    <span className="shrink-0 whitespace-nowrap font-mono text-xs text-muted-foreground">
+                      +{fmtDur(selectedRow.startS - t0)} · {fmtDur(selectedRow.endS - selectedRow.startS)}
+                    </span>
+                  </SectionHead>
+                  <SectionBody>
+                    <AttrsPanel row={selectedRow} />
+                  </SectionBody>
+                </Section>
+              )}
+            </TabsContent>
+
+            <TabsContent value="aggregated">
+              <Section>
+                <SectionBody className="pt-4">
+                  <AggregatedPane rows={visible} />
+                </SectionBody>
+              </Section>
+            </TabsContent>
+
+            <TabsContent value="table">
+              <Section>
+                <SectionBody className="pt-4">
+                  <TablePane rows={visible} onSelect={toggle} />
+                </SectionBody>
+              </Section>
+            </TabsContent>
+          </Tabs>
+        </>
       )}
     </div>
   );

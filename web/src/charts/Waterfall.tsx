@@ -164,7 +164,7 @@ export function Waterfall({ rows, t0, onSelect, axisMaxMs }: WaterfallProps) {
 }
 
 /** Present whenever more than one kind is on screen, so hue is never the only cue. */
-function KindLegend({ kinds }: { kinds: string[] }) {
+export function KindLegend({ kinds }: { kinds: string[] }) {
   const { t } = useI18n();
   // Kept in step with KIND_VARS in charts/palette.ts by
   // charts/palette.test.ts — a legend that disagrees with its chart is worse

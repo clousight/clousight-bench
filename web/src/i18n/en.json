@@ -135,6 +135,7 @@
   "timeline.total_time": "total",
   "timeline.span": "span",
   "timeline.empty_selection": "No spans in this selection.",
+  "timeline.time_order": "Time order",
   "timeline.select_all": "Select all",
   "timeline.track_stream": "stream",
   "timeline.track_lane": "lane",

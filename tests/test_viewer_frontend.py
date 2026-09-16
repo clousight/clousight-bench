@@ -464,3 +464,25 @@ def test_section_bodies_stay_on_the_rail() -> None:
     assert not offenders, (
         "SectionBody with horizontal padding — content is off the left rail at: " + ", ".join(offenders)
     )
+
+
+def test_selection_never_reaches_a_measurement() -> None:
+    """Selecting a sub-range moves the observation, never the verdict.
+
+    Measurements come from an `Evaluator`, offline, over sealed evidence, after
+    the run ends — they are what `record_digest` covers. A number that grew as
+    a range was dragged would imply it had been measured progressively, which
+    is the one thing this tool must never imply. The lifecycle enforces it in
+    `task.score()`'s signature; this keeps the interface honest about it.
+    """
+    timeline = _WEB_SRC / "features" / "timeline"
+    assert timeline.is_dir(), "the timeline feature directory is missing"
+    sources = [p for p in timeline.rglob("*.tsx")] + [_WEB_SRC / "features" / "trace" / "TraceView.tsx"]
+    for path in sources:
+        text = path.read_text(encoding="utf-8")
+        for needle in ("measurements", "useRecord", "api/record/"):
+            if needle == "api/record/" and "trajectory" in text:
+                continue  # the trajectory endpoint is spans, not measurements
+            assert needle not in text, (
+                f"{path.name} reaches for {needle!r}: a selection must not be able to recompute a measurement"
+            )
