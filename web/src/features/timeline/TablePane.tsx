@@ -69,10 +69,22 @@ export function TablePane({
   );
 
   return (
-    <Table>
+    // `table-fixed`, and a width on the name column, are what make the
+    // `truncate` below able to fire at all. Auto table layout sizes a column
+    // BY its content, so the cell was never width-constrained and the class
+    // did nothing: a 176-character span name measured 1340 px, pushed the
+    // table to 1495 px inside a 1400 px viewport, and the parent's
+    // `overflow-x: auto` turned that into a horizontal scrollbar that shoved
+    // total/self/count off screen. Under fixed layout the columns are settled
+    // from this header row before any cell content is looked at, so the table
+    // is exactly as wide as its container at any name length and the name is
+    // the thing that gives way. Same reason `AggregatedPane` pins its label
+    // column to `w-40`; a fraction rather than a fixed 160 px because this
+    // table is full-width and has three more columns to feed.
+    <Table className="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead>{t("timeline.span")}</TableHead>
+          <TableHead className="w-1/2">{t("timeline.span")}</TableHead>
           <TableHead aria-sort={sort === "totalS" ? "descending" : "none"}>
             {sortButton("totalS", t("timeline.total_time"))}
           </TableHead>
@@ -103,16 +115,21 @@ export function TablePane({
                 }}
                 // `text-left`: a bare <button> centres its content in the
                 // user-agent stylesheet, and this cell reads left-to-right
-                // like every other cell in the table. `min-w-0` on the name
-                // span is what lets `truncate` actually clip inside a flex
-                // row — without it a flex item won't shrink below its
-                // content's natural width, so a long name would stretch the
-                // column instead of ellipsizing. `shrink-0` keeps the kind
-                // label always legible rather than fighting the name for
-                // space.
+                // like every other cell in the table. `w-full` is now a
+                // definite width, because the fixed layout above settled the
+                // column — under auto layout it resolved against a column
+                // being sized by this very content. `min-w-0` on the name span
+                // is what lets `truncate` clip inside a flex row: without it a
+                // flex item won't shrink below its content's natural width.
+                // `shrink-0` keeps the kind label always legible rather than
+                // fighting the name for space.
                 className="flex w-full items-center gap-2 text-left"
               >
-                <span className="min-w-0 flex-1 truncate">
+                {/* Clipped, so the full name has to stay recoverable. */}
+                <span
+                  className="min-w-0 flex-1 truncate"
+                  title={bucket.name === "" ? t("common.unnamed") : bucket.name}
+                >
                   {bucket.name === "" ? t("common.unnamed") : bucket.name}
                 </span>
                 <span className="shrink-0 text-muted-foreground">{bucket.kind}</span>
