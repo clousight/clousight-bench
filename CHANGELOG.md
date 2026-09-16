@@ -14,7 +14,7 @@ All notable changes to Clousight Bench are recorded here.
   retryable: every other 4xx — a malformed request will not succeed on a
   retry, and retrying it only delays and obscures a real client-side bug. Off
   by default: a run without `params.retry` is unchanged in every respect —
-  spans, measurements, dataset digest, byte-for-byte. `<suite>.latency_ms`
+  spans, measurements, dataset digest, byte-for-byte. `<suite>.avg_latency_ms`
   stays the successful attempt alone; the cost of retrying is reported
   separately as `<suite>.retry_count` / `<suite>.retry_overhead_ms`
   (`official=False`, `environmental`, emitted only when retries are enabled).
