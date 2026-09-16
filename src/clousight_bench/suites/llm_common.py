@@ -16,6 +16,7 @@ import contextlib
 import ipaddress
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -39,7 +40,63 @@ __all__ = [
     "chat_once",
     "EndpointJudge",
     "ItemProgress",
+    "RetryPolicy",
 ]
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    """Retry bounds for the MEASURED path — deliberately not ``ClientPolicy``.
+
+    ``core/clients.py::ClientPolicy`` is the control-plane policy: creating a
+    runtime or polling its status should retry by default, because retrying
+    those changes no measurement. A measured ``/chat/completions`` call is the
+    opposite — an endpoint that rate-limits you *is* worse, and silently
+    retrying past that flatters the thing under test. Two correct-but-opposite
+    defaults do not belong in one object, and ``ClientPolicy.max_attempts``
+    already defaults to 3, so sharing it would have turned retries on for every
+    existing run in silence.
+
+    Absent config means exactly one attempt: today's behaviour, byte for byte.
+    """
+
+    max_attempts: int = 1
+    backoff_base_s: float = 0.2
+    backoff_max_s: float = 5.0
+
+    @classmethod
+    def from_params(cls, params: dict[str, Any] | None) -> RetryPolicy:
+        retry = (params or {}).get("retry") or {}
+        base = cls()
+        max_attempts = int(retry.get("max_attempts", base.max_attempts))
+        if max_attempts < 1:
+            raise ValueError(f"params.retry.max_attempts must be >= 1, got {max_attempts}")
+        return cls(
+            max_attempts=max_attempts,
+            backoff_base_s=float(retry.get("backoff_base_s", base.backoff_base_s)),
+            backoff_max_s=float(retry.get("backoff_max_s", base.backoff_max_s)),
+        )
+
+    @property
+    def enabled(self) -> bool:
+        return self.max_attempts > 1
+
+    def backoff_for(self, attempt: int) -> float:
+        """Seconds to wait after 1-based ``attempt`` failed, exponential and capped."""
+        delay = self.backoff_base_s * (2 ** max(0, attempt - 1))
+        return min(delay, self.backoff_max_s)
+
+    def canonical(self) -> dict[str, Any] | None:
+        """The digest contribution — ``None`` when disabled, so a clean run's
+        dataset digest stays bit-identical to every run recorded before this
+        feature existed."""
+        if not self.enabled:
+            return None
+        return {
+            "backoff_base_s": self.backoff_base_s,
+            "backoff_max_s": self.backoff_max_s,
+            "max_attempts": self.max_attempts,
+        }
 
 
 class ItemProgress:
