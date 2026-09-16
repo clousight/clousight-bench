@@ -466,6 +466,29 @@ def test_section_bodies_stay_on_the_rail() -> None:
     )
 
 
+#: Any ``api/...`` string literal, in any of JS's three quote characters.
+_API_LITERAL = re.compile(r"""["'`](api/[^"'`]*)["'`]""")
+
+#: ``${...}`` inside a template literal, normalised away before comparison so
+#: the run id's spelling is not part of the contract.
+_TEMPLATE_HOLE = re.compile(r"\$\{[^}]*\}")
+
+#: The only endpoint the timeline may fetch. It returns spans.
+_TRAJECTORY_ENDPOINT = "api/record/{}/trajectory"
+
+_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
+_LINE_COMMENT = re.compile(r"//.*$", re.MULTILINE)
+
+
+def _code_only(text: str) -> str:
+    """Drop comments so a prose mention cannot pass for a fetch, or fail as one.
+
+    These files are documented in prose that names the very things the test
+    forbids — the point of the invariant is what the code does.
+    """
+    return _LINE_COMMENT.sub("", _BLOCK_COMMENT.sub("", text))
+
+
 def test_selection_never_reaches_a_measurement() -> None:
     """Selecting a sub-range moves the observation, never the verdict.
 
@@ -474,15 +497,36 @@ def test_selection_never_reaches_a_measurement() -> None:
     a range was dragged would imply it had been measured progressively, which
     is the one thing this tool must never imply. The lifecycle enforces it in
     `task.score()`'s signature; this keeps the interface honest about it.
+
+    So the invariant is narrow and checkable: these files reach for spans and
+    nothing else. Every ``api/...`` literal in their *code* — comments are
+    stripped first, since the prose here names what the code may not do — is
+    extracted and compared against the trajectory endpoint. A second fetch,
+    ``api/record/<id>`` for the digest or a scored field off it, fails here no
+    matter what else the file happens to say. The version this replaces looked
+    for substrings anywhere in the file and skipped its only real needle for
+    any file containing the word "trajectory", so that second fetch passed it.
     """
     timeline = _WEB_SRC / "features" / "timeline"
     assert timeline.is_dir(), "the timeline feature directory is missing"
-    sources = [p for p in timeline.rglob("*.tsx")] + [_WEB_SRC / "features" / "trace" / "TraceView.tsx"]
+    sources = sorted(timeline.rglob("*.tsx")) + [_WEB_SRC / "features" / "trace" / "TraceView.tsx"]
+    endpoints: list[tuple[str, str]] = []
     for path in sources:
-        text = path.read_text(encoding="utf-8")
-        for needle in ("measurements", "useRecord", "api/record/"):
-            if needle == "api/record/" and "trajectory" in text:
-                continue  # the trajectory endpoint is spans, not measurements
-            assert needle not in text, (
-                f"{path.name} reaches for {needle!r}: a selection must not be able to recompute a measurement"
+        code = _code_only(path.read_text(encoding="utf-8"))
+        assert not re.search(r"\bmeasurements\b", code), (
+            f"{path.name} reaches for 'measurements': a selection must not be able to recompute a measurement"
+        )
+        for literal in _API_LITERAL.findall(code):
+            endpoint = _TEMPLATE_HOLE.sub("{}", literal)
+            endpoints.append((path.name, endpoint))
+            assert endpoint == _TRAJECTORY_ENDPOINT, (
+                f"{path.name} fetches {literal!r}, not the trajectory: the timeline reads spans,"
+                " never a scored record"
             )
+    # Without this the test passes on zero matches — which is exactly what it
+    # would do if the extraction ever stopped matching, or if the fetch moved
+    # into a helper these files no longer name.
+    assert ("TraceView.tsx", _TRAJECTORY_ENDPOINT) in endpoints, (
+        f"no {_TRAJECTORY_ENDPOINT!r} literal found in TraceView.tsx; found {endpoints!r}."
+        " The extraction is no longer looking at the code that fetches."
+    )
