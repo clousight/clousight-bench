@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { pctOf, toggleTrack, trackLabel } from "@/features/timeline/TrackList";
+import { pctOf, toggleTrack, trackLabel, TrackList } from "@/features/timeline/TrackList";
 import type { Selection } from "@/lib/selection";
+import type { SpanRow } from "@/lib/trace";
 import { STAGE_TRACK_ID, type Track } from "@/lib/tracks";
+import { renderMarkup } from "@/test/render";
 
 describe("pctOf", () => {
   it("maps a second to its percentage across [t0, t0+totalS]", () => {
@@ -82,5 +84,61 @@ describe("trackLabel", () => {
   it("translates the word but keeps the lane's identifying number", () => {
     const track: Track = { id: "lane:0:1", label: "lane 3", kind: "work", spanIds: [] };
     expect(trackLabel(track, t)).toBe("[timeline.track_lane] 3");
+  });
+});
+
+describe("<TrackList>", () => {
+  function span(id: string, startS: number, endS: number): SpanRow {
+    return {
+      id,
+      name: id,
+      kind: "query",
+      startS,
+      endS,
+      status: "ok",
+      isError: false,
+      error: null,
+      attrs: {},
+      parentId: null,
+      depth: 0,
+      ancestors: [],
+    };
+  }
+  const rows = [span("a", 0, 2), span("b", 4, 6)];
+  const tracks: Track[] = [
+    { id: "lane:0:0", label: "lane 1", kind: "work", spanIds: ["a"] },
+    { id: "lane:1:0", label: "lane 2", kind: "work", spanIds: ["b"] },
+  ];
+  const noop = () => {};
+
+  it("gives every track a row whose checkbox reports whether it is included", () => {
+    // The second lane is unchecked. Both lanes still render — an excluded
+    // track keeps its dashes (dimmed) so "not selected" reads differently
+    // from "nothing happened here".
+    const selection: Selection = { startS: 0, endS: 10, trackIds: new Set(["lane:0:0"]) };
+    const markup = renderMarkup(
+      <TrackList tracks={tracks} rows={rows} t0={0} totalS={10} selection={selection} onChange={noop} />,
+    );
+    expect(markup).toMatch(/selection: lane 1"[^>]*checked=""/);
+    expect(markup).not.toMatch(/selection: lane 2"[^>]*checked=""/);
+    // Both rows exist; only one is checked.
+    expect([...markup.matchAll(/type="checkbox"/g)]).toHaveLength(2);
+  });
+
+  it("draws the selected window over each lane at the window's own percentages", () => {
+    // 2.5 -> 7.5 s of a 10 s trace is left 25%, width 50%; span "a" [0,2] is
+    // the 20% mark ahead of it. The overlay is how a reader sees which part of
+    // a lane the numbers below are about, and it is pure arithmetic on
+    // absolute seconds, so it is observable without a layout engine.
+    const selection: Selection = {
+      startS: 2.5,
+      endS: 7.5,
+      trackIds: new Set(["lane:0:0", "lane:1:0"]),
+    };
+    const markup = renderMarkup(
+      <TrackList tracks={tracks} rows={rows} t0={0} totalS={10} selection={selection} onChange={noop} />,
+    );
+    expect(markup).toContain("left:0%;width:20%");
+    expect([...markup.matchAll(/left:25%;width:50%/g)]).toHaveLength(tracks.length);
   });
 });

@@ -7,8 +7,17 @@
  * last real `shadow-sm` usage was removed from input.tsx in slice 1, but the
  * scanner kept emitting the rule because test prose kept referencing the
  * word. Exclude test files from content scanning so the CSS tracks what the
- * app actually uses, not what its test descriptions happen to say. */
+ * app actually uses, not what its test descriptions happen to say.
+ *
+ * Neither exclusion is theoretical. The component tests are `.test.tsx`, so
+ * the first pattern alone stopped covering them — dropping a bare `grayscale`
+ * into one puts `.grayscale{filter:…}` in the shipped CSS, verified by
+ * building with and without the second pattern. And the vitest config's own
+ * docstring names `renderToStaticMarkup`, which shipped a `.static` rule
+ * until it was excluded here. */
 @source not "**/*.test.ts";
+@source not "**/*.test.tsx";
+@source not "../vitest.config.ts";
 
 /* The bundled mono. Identity lives in the numbers, identifiers, stage names and
  * fingerprints — all of which are Latin regardless of UI language, so a Latin
