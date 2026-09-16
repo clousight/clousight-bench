@@ -67,8 +67,16 @@ describe("trackLabel", () => {
   });
 
   it("translates the word but keeps the stream's identifying suffix", () => {
-    const track: Track = { id: "stream:2", label: "stream 2", kind: "stream", spanIds: [] };
+    const track: Track = { id: "stream:2:0", label: "stream 2", kind: "stream", spanIds: [] };
     expect(trackLabel(track, t)).toBe("[timeline.track_stream] 2");
+  });
+
+  it("keeps the whole suffix when a stream packed into more than one lane", () => {
+    // `tracks.ts` labels a split stream "stream 2.2". The stream number is the
+    // identity a reader needs; a prefix slice that took a fixed number of
+    // characters, or stopped at the first token, would drop the lane it names.
+    const track: Track = { id: "stream:2:1", label: "stream 2.2", kind: "stream", spanIds: [] };
+    expect(trackLabel(track, t)).toBe("[timeline.track_stream] 2.2");
   });
 
   it("translates the word but keeps the lane's identifying number", () => {

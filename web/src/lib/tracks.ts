@@ -8,9 +8,14 @@
  * not a series. Work spans are grouped by an explicit stream attribute when
  * the suite declares one; otherwise they are grouped by `parentId` (siblings
  * under the same parent are the same actor; unrelated subtrees never share a
- * lane just because their timestamps happen not to collide), and packed
- * greedily within that group: siblings that do not overlap in time can share
- * a lane, siblings that do cannot.
+ * lane just because their timestamps happen not to collide).
+ *
+ * Both groupings then go through the same greedy packing: spans that do not
+ * overlap in time can share a lane, spans that do cannot. A declared stream
+ * is a group like any other in that respect — TPC-H's 23 spans per stream are
+ * one `tpc-h.streamN` container plus the 22 queries it contains, which
+ * overlap it by definition, so dropped into a single-height lane they would
+ * draw on top of each other.
  */
 
 import type { SpanRow } from "@/lib/trace";
@@ -18,8 +23,20 @@ import type { SpanRow } from "@/lib/trace";
 /** The reserved lane for the run's own stages. */
 export const STAGE_TRACK_ID = "lifecycle";
 
-/** Attribute a suite sets when it knows its own concurrency. */
-const STREAM_ATTR = "csbench.stream";
+/**
+ * Attribute a suite sets when it knows its own concurrency.
+ *
+ * This must be the key the emitter actually writes. It read `csbench.stream`
+ * for the whole life of this feature while `_tpc_official/trace.py` wrote
+ * `csbench.stream_id`, so `streamOf` returned null for every span on the only
+ * workload in the repo that declares streams, all 69 throughput queries fell
+ * through to `parentId` packing, and the browser showed ten anonymous lanes.
+ * Nothing caught it because the unit tests asserted against the invented key.
+ * `test_track_stream_attribute_matches_the_emitter` in
+ * tests/test_viewer_frontend.py now holds this constant against the Python
+ * that produces it; keep the literal on one line so it stays greppable.
+ */
+const STREAM_ATTR = "csbench.stream_id";
 
 /** Groups spans whose `parentId` is null — they are siblings of each other,
  * not of every other orphaned span, but null is not a comparable key on its
@@ -69,7 +86,7 @@ export function assignTracks(rows: SpanRow[]): Track[] {
   const ordered = [...rows].sort((a, b) => a.startS - b.startS);
 
   const stage: string[] = [];
-  const declared = new Map<string, string[]>();
+  const declared = new Map<string, SpanRow[]>();
   const packable: SpanRow[] = [];
 
   for (const row of ordered) {
@@ -80,8 +97,8 @@ export function assignTracks(rows: SpanRow[]): Track[] {
     const stream = streamOf(row);
     if (stream !== null) {
       const bucket = declared.get(stream);
-      if (bucket === undefined) declared.set(stream, [row.id]);
-      else bucket.push(row.id);
+      if (bucket === undefined) declared.set(stream, [row]);
+      else bucket.push(row);
       continue;
     }
     packable.push(row);
@@ -93,13 +110,24 @@ export function assignTracks(rows: SpanRow[]): Track[] {
   }
 
   // Declared streams sort by their label so lane order is stable across runs.
+  // Each one is packed like any other group: a stream's container span covers
+  // every query it holds, so an unpacked stream lane would stack a bar on top
+  // of 22 others at one lane's height. A stream that needs more than one lane
+  // numbers them after the stream (`stream 2.1`, `stream 2.2`) rather than
+  // falling back to an anonymous running number — the identity is the point,
+  // and TrackList's `trackLabel` carries whatever follows "stream " through to
+  // the reader untouched. A stream that packs into a single lane keeps the
+  // plain `stream 2`, so the common case is not dressed up as a split.
   for (const stream of [...declared.keys()].sort((a, b) => a.localeCompare(b, "en"))) {
-    tracks.push({
-      id: `stream:${stream}`,
-      label: `stream ${stream}`,
-      kind: "stream",
-      spanIds: declared.get(stream) ?? [],
-    });
+    const laneSpans = packGroup(declared.get(stream) ?? []);
+    for (const [laneIndex, spanIds] of laneSpans.entries()) {
+      tracks.push({
+        id: `stream:${stream}:${laneIndex}`,
+        label: laneSpans.length === 1 ? `stream ${stream}` : `stream ${stream}.${laneIndex + 1}`,
+        kind: "stream",
+        spanIds,
+      });
+    }
   }
 
   // Partition the remaining spans by parentId: siblings under the same

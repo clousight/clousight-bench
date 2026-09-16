@@ -66,15 +66,70 @@ describe("assignTracks", () => {
   });
 
   it("prefers an explicit stream attribute over interval packing", () => {
-    // A suite that knows its own concurrency says so; we believe it.
+    // A suite that knows its own concurrency says so; we believe it. The
+    // attribute key is `csbench.stream_id` because that is what the emitter
+    // writes (`_tpc_official/trace.py`); with the key this test used to
+    // invent, every row here falls through to parentId packing and comes back
+    // as "lane 1"/"lane 2" holding [a, c] and [b] — a and b overlap, c does
+    // not — so the two groupings are distinguishable by both label and
+    // membership, not just by count.
     const tracks = assignTracks([
-      row({ id: "a", parentId: "p", startS: 0, endS: 9, attrs: { "csbench.stream": 2 } }),
-      row({ id: "b", parentId: "p", startS: 0, endS: 9, attrs: { "csbench.stream": 1 } }),
-      row({ id: "c", parentId: "p", startS: 5, endS: 9, attrs: { "csbench.stream": 1 } }),
+      row({ id: "a", parentId: "p", startS: 0, endS: 9, attrs: { "csbench.stream_id": 2 } }),
+      row({ id: "b", parentId: "p", startS: 0, endS: 9, attrs: { "csbench.stream_id": 1 } }),
+      row({ id: "c", parentId: "p", startS: 9, endS: 12, attrs: { "csbench.stream_id": 1 } }),
     ]);
     const work = tracks.filter((track) => track.id !== STAGE_TRACK_ID);
     expect(work.map((track) => track.label)).toEqual(["stream 1", "stream 2"]);
-    expect(work[0].spanIds).toEqual(["b", "c"]);
+    expect(work.map((track) => track.spanIds)).toEqual([["b", "c"], ["a"]]);
+  });
+
+  it("packs a stream's container apart from the queries it contains", () => {
+    // A TPC-H throughput stream is one `tpc-h.streamN` span covering 22
+    // queries. Dropped into one lane unpacked — which is what the declared
+    // path used to do — the container draws on top of every query in it at a
+    // single lane's height, so this must come back as two lanes.
+    //
+    // All three rows share a parentId deliberately: with distinct parents the
+    // fallback path would split them the same way for an unrelated reason, and
+    // this test would pass under a broken stream key. The labels are asserted
+    // for the same reason — they are what says which path produced the split.
+    const tracks = assignTracks([
+      row({ id: "container", parentId: "block", startS: 0, endS: 9, attrs: { "csbench.stream_id": 1 } }),
+      row({ id: "q1", parentId: "block", startS: 0, endS: 4, attrs: { "csbench.stream_id": 1 } }),
+      row({ id: "q2", parentId: "block", startS: 4, endS: 9, attrs: { "csbench.stream_id": 1 } }),
+    ]);
+    const work = tracks.filter((track) => track.id !== STAGE_TRACK_ID);
+    expect(work.map((track) => [track.label, track.spanIds])).toEqual([
+      ["stream 1.1", ["container"]],
+      ["stream 1.2", ["q1", "q2"]],
+    ]);
+  });
+
+  it("keeps the stream's identity in every lane it needs, not an anonymous number", () => {
+    // Two streams that each need two lanes. The point of the whole declared
+    // path is that "did the streams stagger or collide?" is answerable, which
+    // it is not if stream 2's second lane is called "lane 4".
+    const overlapping = (stream: number, id: string, startS: number, endS: number) =>
+      row({ id, startS, endS, attrs: { "csbench.stream_id": stream } });
+    const tracks = assignTracks([
+      overlapping(1, "a1", 0, 9),
+      overlapping(1, "a2", 1, 8),
+      overlapping(2, "b1", 0, 9),
+      overlapping(2, "b2", 1, 8),
+    ]);
+    const work = tracks.filter((track) => track.id !== STAGE_TRACK_ID);
+    expect(work.map((track) => track.label)).toEqual([
+      "stream 1.1",
+      "stream 1.2",
+      "stream 2.1",
+      "stream 2.2",
+    ]);
+    expect(work.map((track) => track.id)).toEqual([
+      "stream:1:0",
+      "stream:1:1",
+      "stream:2:0",
+      "stream:2:1",
+    ]);
   });
 
   it("returns no tracks for no spans", () => {

@@ -168,6 +168,51 @@ def test_no_dangerously_set_inner_html_in_source() -> None:
 #: (split(, parseInt(, ...) out of scope.
 _T_CALL_RE = re.compile(r"(?<![\w$])t\(\s*(['\"])([^'\"]+)\1")
 
+#: ``tracks.ts``'s stream attribute, as declared there.
+_STREAM_ATTR_RE = re.compile(r'const STREAM_ATTR = "([^"]+)"')
+
+#: Any ``csbench.*`` attribute key written from Python, for the failure message.
+_CSBENCH_ATTR_RE = re.compile(r'"(csbench\.[\w.]+)"')
+
+
+def test_track_stream_attribute_matches_the_emitter() -> None:
+    """The viewer's lane grouping must key on an attribute the emitter writes.
+
+    ``tracks.ts`` read ``csbench.stream`` while
+    ``suites/_tpc_official/trace.py`` wrote ``csbench.stream_id``, so the
+    declared-stream path was dead for the only workload in this repo that
+    declares streams: every throughput query fell through to ``parentId``
+    packing and the browser drew ten anonymous lanes instead of three named
+    ones. The TypeScript suite could not catch it because its own fixtures used
+    the invented key — the bug and the test agreed with each other.
+
+    Nothing inside one language can check this. Here the constant is read out
+    of the TypeScript and looked for in the Python that produces the traces,
+    which is the only place the two spellings meet.
+    """
+    tracks = (_WEB_SRC / "lib" / "tracks.ts").read_text(encoding="utf-8")
+    match = _STREAM_ATTR_RE.search(tracks)
+    assert match is not None, (
+        "tracks.ts no longer declares STREAM_ATTR as a one-line string literal, so this test"
+        " cannot see which attribute the lanes group by — keep it greppable or update the regex"
+    )
+    attr = match.group(1)
+
+    emitted: set[str] = set()
+    writers: list[str] = []
+    for path in sorted((_REPO_ROOT / "src" / "clousight_bench").rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        emitted.update(_CSBENCH_ATTR_RE.findall(text))
+        if f'"{attr}"' in text:
+            writers.append(path.relative_to(_REPO_ROOT).as_posix())
+    # Without this the test would pass on an empty scan — exactly what it would
+    # do if the emitters moved and the glob stopped finding them.
+    assert emitted, "no csbench.* span attribute found under src/clousight_bench (did the emitters move?)"
+    assert writers, (
+        f"tracks.ts groups lanes by {attr!r}, which no Python source writes."
+        f" Attributes actually emitted: {sorted(emitted)}"
+    )
+
 
 def test_all_t_referenced_keys_exist_in_both_locales() -> None:
     en = json.loads((_I18N_DIR / "en.json").read_text(encoding="utf-8"))
