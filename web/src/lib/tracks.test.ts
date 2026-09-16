@@ -21,14 +21,34 @@ function row(over: Partial<SpanRow> & Pick<SpanRow, "id">): SpanRow {
 }
 
 describe("assignTracks", () => {
-  it("puts lifecycle spans on one reserved track", () => {
+  it("puts lifecycle spans that do not overlap on one reserved track", () => {
     const tracks = assignTracks([
-      row({ id: "a", kind: "lifecycle", name: "csbench.stage.EXECUTE" }),
-      row({ id: "b", kind: "lifecycle", name: "csbench.stage.SEAL" }),
+      row({ id: "a", kind: "lifecycle", name: "csbench.stage.EXECUTE", startS: 0, endS: 1 }),
+      row({ id: "b", kind: "lifecycle", name: "csbench.stage.SEAL", startS: 1, endS: 2 }),
     ]);
     expect(tracks).toHaveLength(1);
-    expect(tracks[0].id).toBe(STAGE_TRACK_ID);
+    expect(tracks[0].id).toBe(`${STAGE_TRACK_ID}:0`);
+    // One lane keeps the plain label, exactly as a stream that needs one lane
+    // does — the common case is not dressed up as a split.
+    expect(tracks[0].label).toBe(STAGE_TRACK_ID);
     expect(tracks[0].spanIds).toEqual(["a", "b"]);
+  });
+
+  it("packs the run root apart from the stages it contains", () => {
+    // `csbench.run` is a lifecycle span and it is the parent of all eleven
+    // stages, so it overlaps every one of them. Emitted unpacked — which is
+    // what the reserved lane used to do, alone among the groupings — twelve
+    // bars drew on top of each other in one `h-2` lane, the exact failure
+    // the file's own docstring says packing exists to prevent.
+    const tracks = assignTracks([
+      row({ id: "run", kind: "lifecycle", name: "csbench.run", startS: 0, endS: 10 }),
+      row({ id: "s1", kind: "lifecycle", name: "csbench.stage.EXECUTE", startS: 0, endS: 4, parentId: "run" }),
+      row({ id: "s2", kind: "lifecycle", name: "csbench.stage.SEAL", startS: 4, endS: 9, parentId: "run" }),
+    ]);
+    expect(tracks.map((track) => [track.id, track.label, track.spanIds])).toEqual([
+      [`${STAGE_TRACK_ID}:0`, "lifecycle 1", ["run"]],
+      [`${STAGE_TRACK_ID}:1`, "lifecycle 2", ["s1", "s2"]],
+    ]);
   });
 
   it("splits concurrent siblings into separate tracks", () => {

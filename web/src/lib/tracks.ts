@@ -20,7 +20,16 @@
 
 import type { SpanRow } from "@/lib/trace";
 
-/** The reserved lane for the run's own stages. */
+/**
+ * The reserved lane for the run's own stages, and the prefix of its lane ids.
+ *
+ * Reserved does not mean unpacked. `csbench.run` is itself a lifecycle span
+ * and is the parent of all eleven stages, so it overlaps every one of them;
+ * emitted as a single lane, twelve bars drew on top of each other at one
+ * lane's height. It goes through `packGroup` like every other group, and the
+ * lanes that come out are `lifecycle:0`, `lifecycle:1`, … — `TrackList`
+ * recognises them by `kind`, not by an id equal to this constant.
+ */
 export const STAGE_TRACK_ID = "lifecycle";
 
 /**
@@ -85,13 +94,13 @@ export function assignTracks(rows: SpanRow[]): Track[] {
   // packing below instead of just working.
   const ordered = [...rows].sort((a, b) => a.startS - b.startS);
 
-  const stage: string[] = [];
+  const stage: SpanRow[] = [];
   const declared = new Map<string, SpanRow[]>();
   const packable: SpanRow[] = [];
 
   for (const row of ordered) {
     if (row.kind === "lifecycle") {
-      stage.push(row.id);
+      stage.push(row);
       continue;
     }
     const stream = streamOf(row);
@@ -105,8 +114,20 @@ export function assignTracks(rows: SpanRow[]): Track[] {
   }
 
   const tracks: Track[] = [];
-  if (stage.length > 0) {
-    tracks.push({ id: STAGE_TRACK_ID, label: STAGE_TRACK_ID, kind: "lifecycle", spanIds: stage });
+  // The reserved group, packed like every other one. A run root that contains
+  // eleven stages overlaps all of them, so this is typically two lanes: the
+  // root on its own and the sequential stages beneath it. The naming follows
+  // the streams' — one lane keeps the plain word, several are numbered after
+  // it — so `TrackList.trackLabel` can translate the word and keep whatever
+  // identifies the lane.
+  const stageLanes = packGroup(stage);
+  for (const [laneIndex, spanIds] of stageLanes.entries()) {
+    tracks.push({
+      id: `${STAGE_TRACK_ID}:${laneIndex}`,
+      label: stageLanes.length === 1 ? STAGE_TRACK_ID : `${STAGE_TRACK_ID} ${laneIndex + 1}`,
+      kind: "lifecycle",
+      spanIds,
+    });
   }
 
   // Declared streams sort by their label so lane order is stable across runs.

@@ -55,7 +55,13 @@ export function toggleTrack(selection: Selection, trackId: string): Selection {
  * prefix that kind always uses, and recompose with the translated word.
  */
 export function trackLabel(track: Track, t: (key: string) => string): string {
-  if (track.id === STAGE_TRACK_ID) return t("timeline.track_lifecycle");
+  if (track.kind === "lifecycle") {
+    // The reserved group packs like any other, so it can be more than one
+    // lane (`lifecycle 1`, `lifecycle 2`). Matched on `kind` rather than on
+    // an id equal to STAGE_TRACK_ID, which only the first lane would be.
+    if (track.label === STAGE_TRACK_ID) return t("timeline.track_lifecycle");
+    return `${t("timeline.track_lifecycle")} ${track.label.slice(`${STAGE_TRACK_ID} `.length)}`;
+  }
   if (track.kind === "stream") {
     return `${t("timeline.track_stream")} ${track.label.slice("stream ".length)}`;
   }

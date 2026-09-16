@@ -64,8 +64,18 @@ describe("trackLabel", () => {
   const t = (key: string) => `[${key}]`;
 
   it("uses the lifecycle key for the reserved lane, ignoring its raw label", () => {
-    const track: Track = { id: STAGE_TRACK_ID, label: STAGE_TRACK_ID, kind: "lifecycle", spanIds: [] };
+    // The id is `lifecycle:0`, not `lifecycle`: the reserved group is packed
+    // like every other one, so its lanes are numbered. Matching on the id
+    // against STAGE_TRACK_ID would fall through to the raw English label.
+    const track: Track = { id: `${STAGE_TRACK_ID}:0`, label: STAGE_TRACK_ID, kind: "lifecycle", spanIds: [] };
     expect(trackLabel(track, t)).toBe("[timeline.track_lifecycle]");
+  });
+
+  it("keeps the lane number when the lifecycle group needed more than one lane", () => {
+    // The usual shape: `csbench.run` on one lane, the stages it contains on
+    // the next. Both must be distinguishable in the checkbox list.
+    const track: Track = { id: `${STAGE_TRACK_ID}:1`, label: "lifecycle 2", kind: "lifecycle", spanIds: [] };
+    expect(trackLabel(track, t)).toBe("[timeline.track_lifecycle] 2");
   });
 
   it("translates the word but keeps the stream's identifying suffix", () => {
