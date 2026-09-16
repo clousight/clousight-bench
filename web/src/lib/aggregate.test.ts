@@ -186,3 +186,42 @@ describe("aggregate clipping", () => {
     expect(aggregate(rows, { startS: 7, endS: 7 })).toEqual([]);
   });
 });
+
+describe("aggregate under a track filter", () => {
+  // What a reader can see is filtered by the track checkboxes; what a span
+  // spent on itself is not. Unchecking the lane holding a parent's children
+  // used to drop them from the child-time map as well, so the parent's self
+  // time jumped to its full duration: in the browser `tpc-h.stream1`, a pure
+  // container that did essentially no work of its own, went from absent to
+  // third in a ranking that exists to answer "what is expensive".
+  const parent = row("p", "container", 0, 10);
+  const child = row("c", "child", 2, 6, "p");
+
+  it("subtracts children the track filter has hidden", () => {
+    const filtered = aggregate([parent], WIDE, [parent, child]);
+    expect(filtered.find((b) => b.name === "container")?.selfS).toBe(6);
+  });
+
+  it("gives a parent the same self time whether or not its children are shown", () => {
+    const all = aggregate([parent, child], WIDE, [parent, child]);
+    const filtered = aggregate([parent], WIDE, [parent, child]);
+    expect(filtered.find((b) => b.name === "container")?.selfS).toBe(
+      all.find((b) => b.name === "container")?.selfS,
+    );
+  });
+
+  it("still keeps hidden rows out of the buckets themselves", () => {
+    // Child time comes from the whole trace; the rows on screen do not. A fix
+    // that simply aggregated `allRows` would put the unchecked lane's spans
+    // back into the table the reader just unchecked them out of.
+    const filtered = aggregate([parent], WIDE, [parent, child]);
+    expect(filtered.map((b) => b.name)).toEqual(["container"]);
+  });
+
+  it("defaults the child-time source to the rows it was given", () => {
+    // The two-argument form is the no-filter case, where the sets coincide.
+    expect(aggregate([parent, child], WIDE)).toEqual(
+      aggregate([parent, child], WIDE, [parent, child]),
+    );
+  });
+});

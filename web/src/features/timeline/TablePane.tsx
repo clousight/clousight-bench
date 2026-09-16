@@ -32,10 +32,15 @@ export function firstIdFor(rows: SpanRow[], bucket: Bucket): string | null {
 
 export function TablePane({
   rows,
+  allRows,
   window,
   onSelect,
 }: {
+  /** The spans the track filter left visible — what this table lists. */
   rows: SpanRow[];
+  /** Every span in the trace, so a parent's self time stays the same number
+   * whether or not the lane holding its children is checked. */
+  allRows: SpanRow[];
   window: { startS: number; endS: number };
   onSelect: (id: string) => void;
 }) {
@@ -44,7 +49,10 @@ export function TablePane({
   // opening on it puts the spans that spent nothing at the top. The column
   // headers stay user-controllable; only where the table opens changed.
   const [sort, setSort] = useState<SortKey>("selfS");
-  const buckets = useMemo(() => sortBuckets(aggregate(rows, window), sort), [rows, window, sort]);
+  const buckets = useMemo(
+    () => sortBuckets(aggregate(rows, window, allRows), sort),
+    [rows, window, allRows, sort],
+  );
 
   if (buckets.length === 0) {
     return <p className="text-sm text-muted-foreground">{t("timeline.empty_selection")}</p>;

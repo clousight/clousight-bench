@@ -48,13 +48,18 @@ export function grandSelfS(buckets: Bucket[]): number {
 
 export function AggregatedPane({
   rows,
+  allRows,
   window,
 }: {
+  /** The spans the track filter left visible — what this pane lists. */
   rows: SpanRow[];
+  /** Every span in the trace, so a parent's self time stays the same number
+   * whether or not the lane holding its children is checked. */
+  allRows: SpanRow[];
   window: { startS: number; endS: number };
 }) {
   const { t } = useI18n();
-  const buckets = useMemo(() => aggregate(rows, window), [rows, window]);
+  const buckets = useMemo(() => aggregate(rows, window, allRows), [rows, window, allRows]);
 
   if (buckets.length === 0) {
     return <p className="text-sm text-muted-foreground">{t("timeline.empty_selection")}</p>;

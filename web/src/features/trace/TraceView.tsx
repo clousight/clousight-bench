@@ -261,8 +261,15 @@ export function TraceView({ runId }: { runId: string }) {
                       each pane memoises on prop identity, and a literal built
                       in this JSX would be a new object on every render, which
                       during a brush drag means re-aggregating every pointermove
-                      instead of once per window. */}
-                  <AggregatedPane rows={visible} window={effective} />
+                      instead of once per window.
+
+                      `allRows` is the whole trace and is not a duplicate of
+                      `visible`: self time is a property of the span, so the
+                      children subtracted from a parent must not disappear
+                      when the reader unchecks the lane that holds them. It is
+                      the same memoised `rows` array both panes already see
+                      through `visible`, so it adds no instability. */}
+                  <AggregatedPane rows={visible} allRows={rows} window={effective} />
                 </SectionBody>
               </Section>
             </TabsContent>
@@ -270,7 +277,10 @@ export function TraceView({ runId }: { runId: string }) {
             <TabsContent value="table">
               <Section>
                 <SectionBody className="pt-4">
-                  <TablePane rows={visible} window={effective} onSelect={toggle} />
+                  {/* `allRows` for the same reason as the pane above: the
+                      self column must not change meaning when a lane is
+                      unchecked. */}
+                  <TablePane rows={visible} allRows={rows} window={effective} onSelect={toggle} />
                 </SectionBody>
               </Section>
             </TabsContent>

@@ -9,7 +9,11 @@
  *
  * Self time is total minus the time spent inside children — the same
  * distinction a profiler draws, and the one that tells you whether a span is
- * slow itself or merely contains something slow.
+ * slow itself or merely contains something slow. It is a property of the span
+ * and of the window, never of the track filter: children subtracted from a
+ * parent come from the whole trace (`allRows`), because unchecking the lane
+ * that holds them put a pure container third in this ranking the moment they
+ * stopped being subtracted.
  *
  * Buckets are keyed on (kind, name), not name alone. `kind` is already
  * semantic identity elsewhere in this codebase — tracks.ts branches on
@@ -47,13 +51,29 @@ function clipped(startS: number, endS: number, window: { startS: number; endS: n
   return Math.max(Math.min(endS, window.endS) - Math.max(startS, window.startS), 0);
 }
 
-export function aggregate(rows: SpanRow[], window: { startS: number; endS: number }): Bucket[] {
+/**
+ * @param rows the spans to bucket — what the reader has chosen to look at.
+ * @param window the selection window; every duration below is clipped to it.
+ * @param allRows every span in the trace, filtered or not. Only the child-time
+ *   map is built from this. Defaults to `rows`, which is exactly the no-filter
+ *   case: with every track checked the two sets are the same set, so the
+ *   two-argument form stays honest rather than merely convenient.
+ */
+export function aggregate(
+  rows: SpanRow[],
+  window: { startS: number; endS: number },
+  allRows: SpanRow[] = rows,
+): Bucket[] {
   // Child time is clipped too, not only the parent's own span. Subtracting a
   // child's full duration from a clipped parent can only under-report self
   // time, and for a window narrower than the child it pins every parent to
   // the zero clamp — the pane would read 0.00s everywhere it mattered most.
+  //
+  // It is also taken over `allRows`, not over `rows`: the track filter decides
+  // which buckets are *shown*, and must not decide what a shown bucket's
+  // number *means*.
   const childTime = new Map<string, number>();
-  for (const row of rows) {
+  for (const row of allRows) {
     if (row.parentId === null) continue;
     const span = clipped(row.startS, row.endS, window);
     childTime.set(row.parentId, (childTime.get(row.parentId) ?? 0) + span);
