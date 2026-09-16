@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import pytest
@@ -91,6 +92,10 @@ class _FakeConnectionError(Exception):
     """Stands in for ``requests.exceptions.ConnectionError``."""
 
 
+class _FakeUnknownError(Exception):
+    """A failure the classifier has never heard of, and must therefore not retry."""
+
+
 def _fake_requests(statuses: list[int], monkeypatch: Any, sleeps: list[float]) -> list[int]:
     """Serve ``statuses`` in order; record every backoff sleep. Returns the call log.
 
@@ -115,15 +120,24 @@ def _fake_transport(
     sleeps: list[float],
     *,
     traceparents: list[str] | None = None,
+    per_call_s: float = 0.0,
 ) -> list[Any]:
     """The double behind `_fake_requests`, one notch more general.
 
-    Each element of ``outcomes`` is either an HTTP status to answer with or an
-    exception INSTANCE to raise — a timeout or a dropped connection never
+    Each element of ``outcomes`` is an HTTP status to answer with, an exception
+    INSTANCE to raise, or a ready-made `_FakeResponse` (the way to serve a 200
+    whose body cannot be parsed). A timeout or a dropped connection never
     produces a response, so those failures cannot be expressed as a status and
     the classifier has to reach them by type. Outcomes run out at 200.
+
     ``traceparents``, when passed, collects the header each request actually
     carried, which is the only way to observe which span id reached the server.
+
+    ``per_call_s`` makes the request itself take real wall time, slept off the
+    REAL clock so it is never recorded as a backoff. Without it every attempt
+    costs ~0ms, and a test cannot tell `success_ms` measured per-attempt from
+    `success_ms` measured over the whole call — the difference between them is
+    exactly the time an attempt takes.
     """
     import time as _real_time
 
@@ -139,8 +153,12 @@ def _fake_transport(
         calls.append(outcome)
         if traceparents is not None:
             traceparents.append(str((kwargs.get("headers") or {}).get("traceparent", "")))
+        if per_call_s:
+            _real_sleep(per_call_s)
         if isinstance(outcome, BaseException):
             raise outcome
+        if isinstance(outcome, _FakeResponse):
+            return outcome
         return _FakeResponse(outcome, _OK_BODY if outcome < 400 else None)
 
     exceptions = type(
@@ -232,15 +250,28 @@ def test_sink_separates_success_from_overhead(monkeypatch: Any) -> None:
     success_ms, or that reported a single total in both fields, fails here.
     Asserting `>= 0.0` on either field would not: that passes for every
     implementation, including a broken one.
+
+    Those bounds alone are still not enough, which is why the request itself now
+    costs 100ms and the last assertion exists. An implementation that reported
+    the GRAND TOTAL as overhead_ms clears 200ms too, and still differs from
+    success_ms, so every bound above holds for it. What it cannot do is
+    PARTITION: the two fields have to add up to the wall time the caller
+    measured, and a total-plus-a-part adds up to one attempt too much.
     """
     sleeps: list[float] = []
-    _fake_requests([429, 200], monkeypatch, sleeps)
+    _fake_transport([429, 200], monkeypatch, sleeps, per_call_s=0.1)
     sink: dict[str, Any] = {}
+    began = time.perf_counter()
     _call(retry=RetryPolicy(max_attempts=2, backoff_base_s=0.2), retry_sink=sink)
+    measured_ms = (time.perf_counter() - began) * 1000.0
     assert sink["attempts"] == 2
     assert sink["overhead_ms"] >= 200.0, "the backoff sleep belongs in overhead"
     assert sink["success_ms"] < 200.0, "the successful attempt did not wait"
     assert sink["success_ms"] != sink["overhead_ms"]
+    assert sink["success_ms"] >= 100.0, "the winning attempt's own 100ms is in success_ms"
+    assert abs((sink["success_ms"] + sink["overhead_ms"]) - measured_ms) < 50.0, (
+        "success_ms and overhead_ms must partition the call, not both report the total"
+    )
 
 
 def test_one_attempt_emits_exactly_one_span(monkeypatch: Any) -> None:
@@ -318,3 +349,82 @@ def test_the_lone_attempt_still_sends_the_id_of_its_own_span(monkeypatch: Any) -
     _fake_transport([200], monkeypatch, sleeps, traceparents=sent)
     _call(trace_id="a" * 32, span_sink=spans)
     assert [tp.split("-")[2] for tp in sent] == [spans[0]["span_id"]]
+
+
+def test_an_unrecognised_failure_is_not_retried(monkeypatch: Any) -> None:
+    """The permissive direction is the dangerous one.
+
+    Every other classifier test drives a failure that SHOULD be retried, so a
+    classifier that simply said "yes" to everything would pass them all. This
+    one drives a failure type the classifier has never heard of — the shape a
+    client-side bug takes — and a benchmark that retried past it would publish a
+    number the endpoint never earned.
+    """
+    sleeps: list[float] = []
+    calls = _fake_transport([_FakeUnknownError("a bug, not a blip"), 200], monkeypatch, sleeps)
+    with pytest.raises(_FakeUnknownError):
+        _call(retry=RetryPolicy(max_attempts=4, backoff_base_s=0.01), retry_sink={})
+    assert calls == [calls[0]]  # exactly one request: the 200 was never reached
+    assert sleeps == []
+
+
+def test_a_failed_span_carries_its_status_only_once_retries_are_on(monkeypatch: Any) -> None:
+    """`http.response.status_code` is new information, and new information on the
+    DEFAULT path is a changed trace for every existing run.
+
+    Attaching it unconditionally reads like a pure improvement, which is exactly
+    why it needs pinning: today's ERROR span carries two attributes and must go
+    on carrying two. An attempt span, which never existed before, is free to say
+    more.
+    """
+    sleeps: list[float] = []
+    _fake_requests([429, 429], monkeypatch, sleeps)
+    disabled: list[dict[str, Any]] = []
+    with pytest.raises(_FakeHTTPError):
+        _call(trace_id="a" * 32, span_sink=disabled)
+    assert len(disabled) == 1
+    assert disabled[0]["attributes"] == {"gen_ai.operation.name": "chat", "gen_ai.request.model": "m"}
+
+    _fake_requests([429, 429], monkeypatch, sleeps)
+    enabled: list[dict[str, Any]] = []
+    with pytest.raises(_FakeHTTPError):
+        _call(
+            trace_id="a" * 32,
+            span_sink=enabled,
+            retry=RetryPolicy(max_attempts=2, backoff_base_s=0.01),
+            retry_sink={},
+        )
+    children = [s for s in enabled if s["parent_span_id"] != ""]
+    assert [c["attributes"]["http.response.status_code"] for c in children] == [429, 429]
+
+
+def test_the_sink_is_filled_when_a_200_body_cannot_be_read(monkeypatch: Any) -> None:
+    """The sink's contract is "always filled", and a caller reads it unguarded.
+
+    A 200 carrying a body that cannot be parsed is the one failure that does not
+    come through the transport's error path, so it is the one that would leave
+    the sink empty and turn a caller's `sink["attempts"]` into a KeyError. It is
+    also not retryable: the endpoint answered, it just answered nonsense, and
+    asking again gets the same nonsense.
+    """
+    sleeps: list[float] = []
+    sink: dict[str, Any] = {}
+    _fake_transport([_FakeResponse(200, {"choices": 5})], monkeypatch, sleeps)
+    with pytest.raises(TypeError):
+        _call(retry=RetryPolicy(max_attempts=3, backoff_base_s=0.01), retry_sink=sink)
+    assert sink == {"attempts": 1, "success_ms": 0.0, "overhead_ms": sink["overhead_ms"]}
+    assert sink["overhead_ms"] >= 0.0
+    assert sleeps == []
+
+
+def test_an_unreadable_body_records_no_span_on_the_default_path(monkeypatch: Any) -> None:
+    """...and filling the sink must not have bought that at the cost of a span
+    this path has never emitted. The default trace shape is the invariant."""
+    sleeps: list[float] = []
+    spans: list[dict[str, Any]] = []
+    sink: dict[str, Any] = {}
+    _fake_transport([_FakeResponse(200, {"choices": 5})], monkeypatch, sleeps)
+    with pytest.raises(TypeError):
+        _call(trace_id="a" * 32, span_sink=spans, retry_sink=sink)
+    assert spans == []
+    assert sink["attempts"] == 1

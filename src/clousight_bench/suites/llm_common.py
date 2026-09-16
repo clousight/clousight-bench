@@ -419,9 +419,11 @@ def chat_once(
     request is one span, so an instrumented endpoint nests its server-side spans
     under the attempt that actually reached it.
 
-    ``retry_sink``, when given, is filled with ``{"attempts", "success_ms",
-    "overhead_ms"}``: an out-parameter mirroring ``span_sink`` rather than a
-    widened return tuple, so every existing caller keeps unpacking three values.
+    ``retry_sink``, when given, is always filled with ``{"attempts",
+    "success_ms", "overhead_ms"}`` before this function returns OR raises --
+    ``success_ms`` is 0.0 on a call that never succeeded — so a caller may read
+    its keys unguarded. It is an out-parameter mirroring ``span_sink`` rather
+    than a widened return tuple, so every caller keeps unpacking three values.
     The suites time ``latency_ms`` at the call site, so they need the successful
     attempt's own duration back — folding failed attempts and backoff sleeps
     into the measured latency would corrupt the very number being benchmarked.
@@ -533,11 +535,22 @@ def chat_once(
                 _record_span(span_id, "", "chat /chat/completions", "ERROR", start_ns, summary)
             _fill_retry_sink(attempt, 0.0, call_t0)
             raise
-        data = resp.json()
-        choice = (data.get("choices") or [{}])[0]
-        content = choice.get("message", {}).get("content", "")
-        usage = data.get("usage", {}) or {}
-        finish = str(choice.get("finish_reason") or "")
+        try:
+            data = resp.json()
+            choice = (data.get("choices") or [{}])[0]
+            content = choice.get("message", {}).get("content", "")
+            usage = data.get("usage", {}) or {}
+            finish = str(choice.get("finish_reason") or "")
+        except Exception:
+            # A 200 whose body cannot be read is NOT retried: the endpoint
+            # answered, it just answered nonsense, and a second identical
+            # request will get the same nonsense. But the sink's contract is
+            # that a call which never succeeds still fills it, so a caller can
+            # read sink["attempts"] unguarded -- leaving it {} here would make
+            # that a KeyError. No span is recorded, matching the pre-retry
+            # behaviour of this path exactly.
+            _fill_retry_sink(attempt, 0.0, call_t0)
+            raise
         success_ms = (time.perf_counter() - attempt_t0) * 1000.0
         _record_span(
             attempt_span_id,
