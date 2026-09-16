@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { KIND_SLOTS, laneSpanStyle } from "@/charts/palette";
@@ -87,6 +90,21 @@ describe("laneSpanStyle", () => {
 
   it("keeps the deselected floor at 0.4, not low enough to read as an empty lane", () => {
     expect(laneSpanStyle("query", false, false).opacity).toBe(0.4);
+  });
+
+  it("gives a kind exactly one answer, whoever asks", () => {
+    // The lifecycle override is the whole reason this matters: KIND_SLOTS says
+    // --chart-axis, laneSpanStyle says --muted-foreground, and for a while the
+    // legend read the first while every mark on screen painted the second. A
+    // legend that disagrees with its chart is worse than no legend, so the
+    // legend is not allowed a colour table of its own — it has to ask this
+    // function. Comments are stripped first; they are allowed to name tokens.
+    const source = readFileSync(fileURLToPath(new URL("./Waterfall.tsx", import.meta.url)), "utf-8");
+    const legend = source.slice(source.indexOf("export function KindLegend"));
+    expect(legend, "KindLegend not found in Waterfall.tsx").not.toBe("");
+    const code = legend.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    expect(code).toContain("laneSpanStyle(");
+    expect(code).not.toMatch(/bg-chart-|bg-\[|--chart-|--muted-foreground|oklch\(|rgba?\(|#[0-9a-f]{3}/i);
   });
 
   it("an error is more opaque than a normal span in the same selection state", () => {

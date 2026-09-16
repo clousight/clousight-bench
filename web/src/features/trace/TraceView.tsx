@@ -228,7 +228,9 @@ export function TraceView({ runId }: { runId: string }) {
             <TabsContent value="waterfall" className="flex flex-col gap-3">
               <Section>
                 <SectionBody className="pt-4">
-                  <Waterfall rows={visible} t0={t0} onSelect={toggle} />
+                  {/* The legend is in the chrome above the tabs, where it is
+                      co-visible with the strip and the lanes on every tab. */}
+                  <Waterfall rows={visible} t0={t0} onSelect={toggle} hideLegend />
                 </SectionBody>
               </Section>
               {selectedRow !== null && (
