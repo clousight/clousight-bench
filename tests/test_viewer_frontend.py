@@ -257,6 +257,38 @@ def test_stage_timings_are_formatted_as_milliseconds() -> None:
                 )
 
 
+#: The route switch's trace arm, with whatever props it passes.
+_TRACE_ROUTE_RE = re.compile(r'case "trace":.*?<TraceView([^/>]*)/>', re.DOTALL)
+
+
+def test_trace_view_is_keyed_on_the_run() -> None:
+    """A trace -> trace navigation must not carry the old run's selection over.
+
+    ``TraceView`` holds a ``Selection``: absolute epoch seconds and track ids
+    belonging to the trace it was built for. Rendered without a ``key``, React
+    reuses the instance across a run change, and neither number means anything
+    in the new run — every pane read "No spans in this selection" with nothing
+    on screen to explain it.
+
+    This is a source-text guard, and it is worth being clear about what it can
+    see: a React key's effect is that the component instance is torn down and
+    remounted, which no static render can observe, so what is checked here is
+    that the key is passed at all. It fails if the prop is dropped, which is
+    the regression it exists for.
+    """
+    app = (_WEB_SRC / "App.tsx").read_text(encoding="utf-8")
+    match = _TRACE_ROUTE_RE.search(app)
+    assert match is not None, (
+        'App.tsx no longer renders <TraceView .../> from a `case "trace":` arm, so this test'
+        " cannot see how it is mounted — update the regex along with the routing"
+    )
+    assert "key=" in match.group(1), (
+        "<TraceView> must be keyed on the run id, or React reuses one instance — and its"
+        " selection, in the previous trace's epoch seconds and track ids — across a"
+        f" trace-to-trace navigation. Props found: {match.group(1).strip()!r}"
+    )
+
+
 def test_viewer_bundles_its_own_monospace(dist_files: list[tuple[str, bytes]]) -> None:
     """Identity lives in the numbers, so the mono is bundled rather than borrowed.
 
