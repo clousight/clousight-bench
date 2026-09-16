@@ -56,10 +56,16 @@ describe("aggregate", () => {
     expect(parent?.selfS).toBe(0);
   });
 
-  it("names an unnamed span once rather than merging all of them", () => {
-    const anon = row("1", "", 0, 1);
-    anon.name = null;
-    expect(aggregate([anon])[0].name).toBe("");
+  it("merges unnamed spans into a single bucket rather than one each", () => {
+    const anon1 = row("1", "", 0, 1);
+    anon1.name = null;
+    const anon2 = row("2", "", 10, 13);
+    anon2.name = null;
+    const buckets = aggregate([anon1, anon2]);
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0].name).toBe("");
+    expect(buckets[0].count).toBe(2);
+    expect(buckets[0].totalS).toBe(4);
   });
 
   it("returns nothing for no spans", () => {
