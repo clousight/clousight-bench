@@ -1,12 +1,15 @@
-"""The measured-path retry policy: opt-in, validated, and digest-visible."""
+"""The measured-path retry policy: opt-in, validated, digest-visible — and wired
+through the three llm suites to the call it was built for."""
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
 import pytest
 
+from clousight_bench.core.suite import DriverContext, EnvHandle, Target
 from clousight_bench.suites import llm_common
 from clousight_bench.suites.llm_common import RetryPolicy
 
@@ -274,6 +277,19 @@ def test_sink_separates_success_from_overhead(monkeypatch: Any) -> None:
     )
 
 
+def test_latency_excludes_failed_attempts(monkeypatch: Any) -> None:
+    """A retried item's latency_ms is the successful attempt, not the whole ordeal."""
+    sleeps: list[float] = []
+    _fake_requests([429, 200], monkeypatch, sleeps)
+    sink: dict[str, Any] = {}
+    _call(
+        retry=RetryPolicy(max_attempts=2, backoff_base_s=0.05),
+        retry_sink=sink,
+    )
+    # The backoff alone is 50ms; a call-site wall clock would have included it.
+    assert sink["success_ms"] < sink["overhead_ms"]
+
+
 def test_one_attempt_emits_exactly_one_span(monkeypatch: Any) -> None:
     """The default trace shape must not move because a disabled feature exists."""
     sleeps: list[float] = []
@@ -428,3 +444,211 @@ def test_an_unreadable_body_records_no_span_on_the_default_path(monkeypatch: Any
         _call(trace_id="a" * 32, span_sink=spans, retry_sink=sink)
     assert spans == []
     assert sink["attempts"] == 1
+
+
+# ---------------------------------------------------------------------------
+# the call sites: mmlu / gsm8k / human-eval
+#
+# ``cfg`` reaches only resolve(). prepare() never sees it and run() reads only
+# env.payload, so a policy that is not deliberately carried across two payload
+# hops silently disappears and every suite goes on calling chat_once single-shot.
+# ---------------------------------------------------------------------------
+
+_LLM_SUITES = ("mmlu", "gsm8k", "human-eval")
+_RETRY_CFG = {"retry": {"max_attempts": 3, "backoff_base_s": 0.01}}
+_CANONICAL_RETRY = {"backoff_base_s": 0.01, "backoff_max_s": 5.0, "max_attempts": 3}
+
+
+class _ChatSpy:
+    """Stands in for ``chat_once`` at a suite's call site.
+
+    Fills the sink exactly as the real function contracts to, and records the
+    policy every call was handed — which is the only way to observe that a
+    configured policy survived the trip from ``resolve``'s ``cfg`` to the
+    measured call. ``kwargs["retry_sink"]`` is indexed, not ``.get``-ed, so a
+    call site that forgot to pass a sink fails here rather than reporting zeros.
+    """
+
+    def __init__(
+        self,
+        *,
+        contents: list[str],
+        attempts: int = 1,
+        success_ms: float = 1.0,
+        overhead_ms: float = 0.0,
+    ) -> None:
+        self._contents = contents
+        self._attempts = attempts
+        self._success_ms = success_ms
+        self._overhead_ms = overhead_ms
+        self.policies: list[RetryPolicy | None] = []
+
+    def __call__(self, **kwargs: Any) -> tuple[str, dict[str, Any], str]:
+        index = len(self.policies)
+        self.policies.append(kwargs.get("retry"))
+        sink = kwargs["retry_sink"]
+        sink.update(
+            {
+                "attempts": self._attempts,
+                "success_ms": self._success_ms,
+                "overhead_ms": self._overhead_ms,
+            }
+        )
+        content = self._contents[min(index, len(self._contents) - 1)]
+        return content, {"prompt_tokens": 1, "completion_tokens": 1}, "stop"
+
+
+class _Handle:
+    """The credential handle ``resolve_endpoint`` reads the model + key off."""
+
+    def model(self) -> str:
+        return "test-model"
+
+    def api_key(self) -> str:
+        return "k"
+
+
+def _endpoint_target() -> Target:
+    return Target(mode="endpoint", mock=False, handle=_Handle(), endpoint="https://llm.example.com/v1")
+
+
+def _suite_case(suite_id: str) -> tuple[Any, Any, dict[str, Any], str, list[str]]:
+    """``(module, suite, cfg, rows_key, per-item completions)`` for one llm suite."""
+    if suite_id == "mmlu":
+        from clousight_bench.suites.mmlu import suite as mod
+
+        return mod, mod.MmluSuite(), {"limit": 2}, "answers", ["A"]
+    if suite_id == "gsm8k":
+        from clousight_bench.suites.gsm8k import suite as mod
+
+        return mod, mod.Gsm8kSuite(), {"limit": 2}, "answers", ["#### 4"]
+    from clousight_bench.suites.human_eval import suite as mod
+
+    suite = mod.HumanEvalSuite()
+    cfg: dict[str, Any] = {"limit": 2, "allow_code_execution": True}
+    # The real canonical solutions, so the sandbox really executes and really
+    # passes — which is what makes this suite's latency_ms an execution time.
+    contents = [p["canonical_solution"] for p in suite.resolve(cfg, None).payload["problems"]]
+    return mod, suite, cfg, "results", contents
+
+
+def _drive(
+    module: Any, suite: Any, cfg: dict[str, Any], spy: _ChatSpy, monkeypatch: Any
+) -> tuple[Any, Any, Any]:
+    """The whole lifecycle a real run drives: resolve → prepare → run."""
+    monkeypatch.setattr(module, "chat_once", spy)
+    driver = DriverContext("local")
+    dataset = suite.resolve(cfg, None)
+    env = suite.prepare(_endpoint_target(), dataset, driver)
+    return dataset, env, suite.run(_endpoint_target(), env, driver)
+
+
+@pytest.mark.parametrize("suite_id", _LLM_SUITES)
+def test_the_configured_policy_reaches_the_measured_call(suite_id: str, monkeypatch: Any) -> None:
+    """``params.retry`` is plugin-reachable only until the suites carry it.
+
+    The payloads must carry the CANONICAL DICT, not the dataclass, so they stay
+    plain JSON-able data like everything else in them.
+    """
+    module, suite, cfg, _rows_key, contents = _suite_case(suite_id)
+    spy = _ChatSpy(contents=contents)
+    dataset, env, _raw = _drive(module, suite, {**cfg, **_RETRY_CFG}, spy, monkeypatch)
+
+    assert isinstance(dataset.payload["retry"], dict)
+    assert dataset.payload["retry"] == _CANONICAL_RETRY
+    assert env.payload["retry"] == _CANONICAL_RETRY
+    assert len(spy.policies) == 2
+    assert all(isinstance(p, RetryPolicy) and p.max_attempts == 3 for p in spy.policies)
+
+
+@pytest.mark.parametrize("suite_id", _LLM_SUITES)
+def test_absent_retry_config_keeps_the_call_single_shot(suite_id: str, monkeypatch: Any) -> None:
+    """Wiring a feature in must not turn it on: no ``params.retry`` is one attempt."""
+    module, suite, cfg, _rows_key, contents = _suite_case(suite_id)
+    spy = _ChatSpy(contents=contents)
+    dataset, env, raw = _drive(module, suite, cfg, spy, monkeypatch)
+
+    assert dataset.payload["retry"] is None
+    assert env.payload["retry"] is None
+    assert spy.policies and all(p is not None and p.enabled is False for p in spy.policies)
+    summary = json.loads(raw.path("summary").read_text())
+    assert summary["retry_enabled"] is False
+    assert summary["retry_count"] == 0
+
+
+def test_a_payload_without_the_key_is_the_disabled_policy(monkeypatch: Any) -> None:
+    """An EnvHandle built before this key existed must still run — disabled, not
+    ``KeyError``."""
+    from clousight_bench.suites.mmlu import suite as mod
+
+    suite = mod.MmluSuite()
+    spy = _ChatSpy(contents=["A"])
+    monkeypatch.setattr(mod, "chat_once", spy)
+    env = EnvHandle(
+        {
+            "mock": False,
+            "endpoint": "https://llm.example.com/v1",
+            "model": "m",
+            "api_key": "",
+            "questions": suite.resolve({"limit": 1}, None).payload["questions"],
+        }
+    )
+    raw = suite.run(_endpoint_target(), env, DriverContext("local"))
+    assert [p.enabled for p in spy.policies] == [False]
+    assert json.loads(raw.path("summary").read_text())["retry_enabled"] is False
+
+
+@pytest.mark.parametrize("suite_id", ["mmlu", "gsm8k"])
+def test_latency_is_the_successful_attempt_not_the_wall_clock(suite_id: str, monkeypatch: Any) -> None:
+    """These two suites time the LLM call, and that wall clock now spans retries.
+
+    The sink reports a successful attempt of 123.5ms against 400ms of overhead;
+    a call-site ``perf_counter()`` delta around a stubbed call is a fraction of a
+    millisecond, so only an implementation that reads ``success_ms`` can produce
+    this number.
+    """
+    module, suite, cfg, rows_key, contents = _suite_case(suite_id)
+    spy = _ChatSpy(contents=contents, attempts=3, success_ms=123.5, overhead_ms=400.0)
+    _dataset, _env, raw = _drive(module, suite, {**cfg, **_RETRY_CFG}, spy, monkeypatch)
+
+    rows = json.loads(raw.path(rows_key).read_text())
+    assert [r["latency_ms"] for r in rows] == [123.5, 123.5]
+
+
+def test_human_eval_latency_stays_the_sandboxed_execution(monkeypatch: Any) -> None:
+    """The one suite that must NOT take its latency from the sink.
+
+    HumanEval's ``latency_ms`` is set in ``_execute_run`` around
+    ``run_candidate`` — the sandboxed execution of the generated code, a
+    different loop from the chat call. Reading ``success_ms`` into it would swap
+    an execution time for an LLM time while every other test went on passing, so
+    this pins that the number is the sandbox's: the canonical solutions really
+    ran, really passed, and took a time that is not the sink's.
+    """
+    module, suite, cfg, rows_key, contents = _suite_case("human-eval")
+    spy = _ChatSpy(contents=contents, attempts=3, success_ms=123.5, overhead_ms=400.0)
+    _dataset, _env, raw = _drive(module, suite, {**cfg, **_RETRY_CFG}, spy, monkeypatch)
+
+    rows = json.loads(raw.path(rows_key).read_text())
+    assert len(rows) == 2
+    assert all(r["passed"] for r in rows), "the sandbox did not actually execute the completions"
+    assert all(r["latency_ms"] != 123.5 for r in rows), "latency_ms became the LLM call"
+    assert all(r["latency_ms"] > 0.0 for r in rows)
+
+
+@pytest.mark.parametrize("suite_id", _LLM_SUITES)
+def test_the_summary_publishes_what_the_retries_cost(suite_id: str, monkeypatch: Any) -> None:
+    """Retries that nobody can see are retries that flatter the endpoint.
+
+    Two items, three attempts each: four of the six attempts were retries. A
+    total that counted attempts (6) or retried ITEMS (2) fails here.
+    """
+    module, suite, cfg, _rows_key, contents = _suite_case(suite_id)
+    spy = _ChatSpy(contents=contents, attempts=3, success_ms=10.0, overhead_ms=7.5)
+    _dataset, _env, raw = _drive(module, suite, {**cfg, **_RETRY_CFG}, spy, monkeypatch)
+
+    summary = json.loads(raw.path("summary").read_text())
+    assert len(spy.policies) == 2
+    assert summary["retry_enabled"] is True
+    assert summary["retry_count"] == 4
+    assert summary["retry_overhead_ms"] == pytest.approx(15.0)

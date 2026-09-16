@@ -45,6 +45,7 @@ from clousight_bench.core.suite import (
 from clousight_bench.suites.human_eval.executor import run_candidate
 from clousight_bench.suites.llm_common import (
     ItemProgress,
+    RetryPolicy,
     chat_once,
     extract_code,
     resolve_endpoint,
@@ -102,6 +103,10 @@ class HumanEvalSuite(BenchmarkSuite):
                 "problems": selected,
                 "execute": bool(cfg.get("execute", False)),
                 "allow_code_execution": bool(cfg.get("allow_code_execution", False)),
+                # ``cfg`` reaches no other lifecycle method, so the retry policy is
+                # read here and travels as its CANONICAL DICT (or None) — plain
+                # JSON-able data — through prepare() into run().
+                "retry": RetryPolicy.from_params(cfg).canonical(),
             },
         )
 
@@ -122,6 +127,7 @@ class HumanEvalSuite(BenchmarkSuite):
                 "api_key": api_key,
                 "problems": problems,
                 "allow_code_execution": allow_exec,
+                "retry": dataset.payload.get("retry"),
             }
         )
 
@@ -148,9 +154,13 @@ class HumanEvalSuite(BenchmarkSuite):
                 "environment (the sandbox bounds CPU/mem/output but not filesystem/network)."
             )
 
+        # A missing key is the disabled policy — one attempt, today's behaviour.
+        policy = RetryPolicy.from_params({"retry": p.get("retry")})
         completions: list[str] = []
         spans: list[dict[str, Any]] = []
         prompt_tokens = completion_tokens = truncated = 0
+        retried_attempts = 0
+        retry_overhead_ms = 0.0
         # Generation is not a measured region here — only the sandboxed execution
         # below produces `latency_ms` — so these marks exist purely to draw the
         # step and feed nothing scored.
@@ -163,6 +173,7 @@ class HumanEvalSuite(BenchmarkSuite):
         )
         for prob in p["problems"]:
             started = gen.now()
+            sink: dict[str, Any] = {}
             content, usage, finish_reason = chat_once(
                 trace_id=getattr(driver, "trace_id", "") or "",
                 span_sink=spans,
@@ -171,7 +182,16 @@ class HumanEvalSuite(BenchmarkSuite):
                 api_key=p["api_key"],
                 prompt=format_prompt(prob),
                 max_tokens=1024,
+                retry=policy,
+                retry_sink=sink,
             )
+            # Only the retry TOTALS are read here. `sink["success_ms"]` is the
+            # generation call's own duration, and this suite's `latency_ms` is
+            # not that number — it is the sandboxed execution of the generated
+            # code, measured in _execute_run below. Assigning success_ms there
+            # would swap an execution time for an LLM time in silence.
+            retried_attempts += max(int(sink["attempts"]) - 1, 0)
+            retry_overhead_ms += float(sink["overhead_ms"])
             completions.append(extract_code(content))
             if finish_reason == "length":
                 truncated += 1  # completion was cut at max_tokens — visible in summary
@@ -186,7 +206,12 @@ class HumanEvalSuite(BenchmarkSuite):
             model=p["model"],
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            extra_summary={"truncated": truncated},
+            extra_summary={
+                "truncated": truncated,
+                "retry_enabled": policy.enabled,
+                "retry_count": retried_attempts,
+                "retry_overhead_ms": retry_overhead_ms,
+            },
             spans=spans,
         )
 
