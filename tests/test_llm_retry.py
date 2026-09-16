@@ -11,7 +11,7 @@ import pytest
 
 from clousight_bench.core.suite import DriverContext, EnvHandle, Target
 from clousight_bench.suites import llm_common
-from clousight_bench.suites.llm_common import RetryPolicy
+from clousight_bench.suites.llm_common import RetryPolicy, serving_measurements
 
 
 def test_absent_config_is_one_attempt() -> None:
@@ -652,3 +652,35 @@ def test_the_summary_publishes_what_the_retries_cost(suite_id: str, monkeypatch:
     assert summary["retry_enabled"] is True
     assert summary["retry_count"] == 4
     assert summary["retry_overhead_ms"] == pytest.approx(15.0)
+
+
+# ---------------------------------------------------------------------------
+# serving_measurements: publishing what the retries cost
+# ---------------------------------------------------------------------------
+
+
+def test_no_retry_measurements_when_retries_were_not_enabled() -> None:
+    """A run that cannot retry must not report a retry count of zero —
+    absence of evidence would read as evidence of absence."""
+    out = serving_measurements("mmlu", [{"latency_ms": 10.0}], {})
+    assert "mmlu.retry_count" not in out
+    assert "mmlu.retry_overhead_ms" not in out
+
+
+def test_retry_measurements_when_enabled() -> None:
+    summary = {"retry_enabled": True, "retry_count": 3, "retry_overhead_ms": 1234.5}
+    out = serving_measurements("mmlu", [{"latency_ms": 10.0}], summary)
+    assert out["mmlu.retry_count"].value == 3
+    assert out["mmlu.retry_count"].unit == "count"
+    assert out["mmlu.retry_overhead_ms"].value == pytest.approx(1234.5)
+    assert out["mmlu.retry_overhead_ms"].unit == "ms"
+    for key in ("mmlu.retry_count", "mmlu.retry_overhead_ms"):
+        assert out[key].official is False
+        assert out[key].reproducibility_class == "environmental"
+
+
+def test_zero_retries_still_reported_when_enabled() -> None:
+    """Enabled-and-zero is a real result: the endpoint never needed a retry."""
+    summary = {"retry_enabled": True, "retry_count": 0, "retry_overhead_ms": 0.0}
+    out = serving_measurements("mmlu", [{"latency_ms": 10.0}], summary)
+    assert out["mmlu.retry_count"].value == 0

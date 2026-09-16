@@ -106,11 +106,20 @@ class ItemProgress:
     One of these announces the loop's size up front, then draws one step per
     finished item, publishes that item's latency as a sample, advances the
     counter and polls for a cancel. It is built from the marks the suite already
-    timed the item with, so it never takes a second, disagreeing measurement, and
-    it reports strictly BETWEEN items — the next item's timer has not started, so
-    nothing that reaches ``avg_latency_ms`` can move.
+    timed the item with, and it reports strictly BETWEEN items — the next
+    item's timer has not started, so nothing that reaches ``avg_latency_ms``
+    can move.
 
-    Steps are named ``<suite_id>.<item_id>``. This is the one place the live and
+    Under an enabled retry policy (MMLU, GSM8K) the live ``<suite>.latency_ms``
+    sample DOES disagree with the sealed row: ``start``/``end`` are wall-clock
+    marks that span every retried attempt and backoff sleep, while the sealed
+    row's ``latency_ms`` is the successful attempt alone (``chat_once``'s
+    ``success_ms``). That is deliberate, not a bug to converge — the live
+    sample is a progress indicator, and "how long did this item take to clear
+    the loop" is the honest wall-clock reading for that purpose, even though it
+    is a different number from the one that gets published.
+
+    Steps are named ``<suite_id>.<item_id>``. This is another place the live and
     the sealed waterfall deliberately differ: the trajectory's spans are
     ``gen_ai`` call spans all named ``chat /chat/completions``, which is exactly
     right for an OTel consumer and useless as a row label — the live view needs a
@@ -234,7 +243,18 @@ def serving_measurements(
 ) -> dict[str, Measurement]:
     """The ``avg_latency_ms`` / ``total_tokens`` / ``cost_usd`` block shared by the
     llm suites' official evaluators. Every key is ``<prefix>.``-namespaced and
-    ``official=True``; a dimension is omitted when its data is absent."""
+    ``official=True``; a dimension is omitted when its data is absent.
+
+    ``retry_count`` / ``retry_overhead_ms`` are a second, unofficial pair,
+    published only when ``summary["retry_enabled"]`` is truthy. They describe
+    this harness against this endpoint on this run, not a property of the
+    benchmark, so they are ``official=False``. The gate is ``retry_enabled``,
+    never ``retry_overhead_ms > 0``: ``chat_once`` computes overhead as
+    ``total_ms - success_ms``, which is a few stray microseconds even on a
+    single, non-retried attempt, so gating on ">0" would emit these for every
+    default run — exactly the drift this feature must not cause. Both keys are
+    read with ``.get`` because mock/offline paths carry no retry keys at all.
+    """
     out: dict[str, Measurement] = {}
     latencies = [float(r[latency_key]) for r in rows if isinstance(r.get(latency_key), (int, float))]
     if latencies:
@@ -260,6 +280,21 @@ def serving_measurements(
             reproducibility_class="environmental",
             official=True,
             notes=f"tokens_1k price {price_1k} ({source})",
+        )
+    if summary.get("retry_enabled"):
+        out[f"{prefix}.retry_count"] = Measurement(
+            value=int(summary.get("retry_count", 0) or 0),
+            unit="count",
+            reproducibility_class="environmental",
+            official=False,
+            notes="this harness's retries against this endpoint on this run, not a benchmark property",
+        )
+        out[f"{prefix}.retry_overhead_ms"] = Measurement(
+            value=float(summary.get("retry_overhead_ms", 0.0) or 0.0),
+            unit="ms",
+            reproducibility_class="environmental",
+            official=False,
+            notes="time spent on failed attempts and backoff, not the successful attempt's latency",
         )
     return out
 
