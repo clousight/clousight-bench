@@ -125,6 +125,13 @@ export function TrackList({ tracks, rows, t0, totalS, selection, onChange }: Pro
             <span
               key={row.id}
               aria-hidden
+              data-mark="true"
+              // The kind a dash is drawn for, in the DOM rather than only in
+              // its fill. The redesign's acceptance gate is a measurement of
+              // the *rendered* marks — "the narrowest query mark exceeds
+              // 6px" — and reading that back off a colour is not a
+              // measurement of anything a reader can name.
+              data-kind={row.kind}
               className="absolute top-1 h-2 rounded-[1px]"
               style={{ left: `${left}%`, width: `${width}%`, ...style }}
             />
@@ -195,7 +202,13 @@ export function TrackList({ tracks, rows, t0, totalS, selection, onChange }: Pro
                 {label}
               </span>
             </label>
-            <div className="relative h-4 flex-1">
+            {/* `overflow-hidden` because `t0`/`totalS` are now the WINDOW's,
+                not the run's: a dash outside the window resolves to a
+                negative or >100% left, and an absolutely positioned child
+                paints outside its box quite happily — over the checkbox
+                column and the lane below. Clipping is also what makes a
+                span that straddles an edge read as cut off. */}
+            <div className="relative h-4 flex-1 overflow-hidden">
               {/* Every dash in this lane is aria-hidden — they are absolutely
                   positioned rectangles, and a screen reader reading 900 of
                   them would be worse than reading none. But reading none is

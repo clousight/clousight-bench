@@ -1,33 +1,73 @@
 /**
- * The whole run at a glance, with a draggable window over it. Dragging is
- * pointer-based rather than a library: the strip is one div, the geometry is
- * one division, and a brush library would be more code than the thing it draws.
+ * The whole run at a glance, with the current window drawn over it.
+ *
+ * This is a **minimap**, and that is the deliberate part: the strip always
+ * renders `bounds` — every span of the run, at the same place, at every zoom
+ * level — and draws `view` as a rectangle over it. What zooms is everything
+ * *below* the strip. A minimap that zoomed with the view would be a second
+ * copy of the rows, and the reader would lose the only element on the page
+ * that says where in the run they currently are. Chrome DevTools and Perfetto
+ * both work this way.
+ *
+ * The consequence for the arithmetic: every gesture here resolves against
+ * `bounds`, never against `view`. `zoomTo`/`nudge`/`scale` clamp into the
+ * viewport they are handed, so passing `view` would mean a reader who zoomed
+ * into one second could never drag back out to a wider window — the strip
+ * would be drawing the whole run while refusing to select any of it. That
+ * failure is invisible in a unit test of `viewport.ts`, so the pure helpers
+ * below take `bounds` explicitly and the tests name the mistake.
+ *
+ * Dragging is pointer-based rather than a library: the strip is one div, the
+ * geometry is one division, and a brush library would be more code than the
+ * thing it draws.
  */
 import { useCallback, useMemo, useRef } from "react";
 
 import { laneSpanStyle } from "@/charts/palette";
-// `pctOf` lives with the lanes because every lane needs it; the strip is its
-// second caller. It used to be copied here twice over — once inside the
-// `spanMarks` memo and once at module scope — in a component whose own
-// comment claimed it and `TrackList` "cannot disagree by construction".
-import { pctOf } from "@/features/timeline/TrackList";
 import { useI18n } from "@/i18n";
 import { fmtSpanDur } from "@/lib/format";
-import { clampSelection, type Selection } from "@/lib/selection";
 import type { SpanRow } from "@/lib/trace";
+import {
+  nudge,
+  place,
+  scale,
+  spanS,
+  zoomStackPop,
+  zoomStackPush,
+  zoomTo,
+  type Viewport,
+} from "@/lib/viewport";
 
 interface Props {
   rows: SpanRow[];
-  t0: number;
-  totalS: number;
-  selection: Selection;
-  onChange: (next: Selection) => void;
+  /** The whole run: what the strip draws, and what every gesture clamps into. */
+  bounds: Viewport;
+  /** The window the rest of the page is showing, drawn as a rectangle. */
+  view: Viewport;
+  onView: (next: Viewport) => void;
 }
 
 /** Pixels of press-to-release travel that still counts as a click, not a
  * drag — the platform convention for the click/drag boundary, not a value we
  * invented for this component. */
 export const CLICK_SLOP_PX = 3;
+
+/** How far `A`/`D` pan, as a fraction of the window's own width. A fraction
+ * rather than a number of seconds so the gesture means the same thing on a
+ * 400ms trace and on a two-hour one: four presses cross the window either
+ * way, which is Perfetto's pitch for the same keys. */
+export const KEY_PAN_FRACTION = 0.25;
+
+/** How far `W`/`S` zoom per press. Halving and doubling is the one ratio a
+ * reader can undo by eye — "one press back" is exactly the window they left. */
+export const KEY_ZOOM_FACTOR = 2;
+
+/** The narrowest a mark may be drawn, in pixels. At full-run zoom a 2ms query
+ * in a 7s run is 0.03% of the strip, which rounds to nothing: the throughput
+ * phase would render as empty space rather than as the dense block it is.
+ * Enforced in pixels rather than as a percentage floor because the honest
+ * unit here is "can be seen", and that is not a fraction of the run. */
+export const MARK_MIN_PX = 2;
 
 /** A cheap stand-in for the one field of DOMRect the geometry needs, so the
  * resolution logic below can be exercised without a DOM. */
@@ -39,145 +79,135 @@ export interface StripRect {
 /**
  * Pixel position -> trace second, given a cached strip rect.
  *
+ * `bounds`, because the strip draws the whole run: the second under the
+ * pointer is a fact about the run, not about the window currently zoomed to.
+ *
  * The one guard is on the rect: a strip that has not been laid out yet has
- * width 0, and the ratio would be a division by zero. A zero-length trace
- * needs no guard and used to have one — `totalS <= 0` was unreachable as a
- * *distinct* answer, because `t0 + ratio * 0` is `t0` for every ratio, which
- * is exactly what the guard returned. Its test passed identically with the
- * guard and without it. Removed rather than kept as reassurance: an inert
- * branch that a test appears to cover is worse than no branch, because the
- * green test is then evidence of nothing.
+ * width 0, and the ratio would be a division by zero.
  */
-export function secondsAtX(clientX: number, rect: StripRect, t0: number, totalS: number): number {
-  if (rect.width <= 0) return t0;
+export function secondsAtX(clientX: number, rect: StripRect, bounds: Viewport): number {
+  if (rect.width <= 0) return bounds.startS;
   const ratio = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
-  return t0 + ratio * totalS;
+  return bounds.startS + ratio * spanS(bounds);
 }
 
 /**
- * What a completed drag gesture should commit.
+ * The window a completed drag should commit.
  *
- * Two independent reasons collapse to the same answer, "select the whole
- * run": (1) the release is within `CLICK_SLOP_PX` of the press — a click,
- * however far `from`/`to` wandered on tremor alone, since on a long trace a
- * single pixel of unintentional movement is already a visible sliver of a
- * window; (2) `from === to` in seconds regardless of pixel travel — an empty
- * or not-yet-measured strip where every position resolves to the same
- * instant, so "keep what the drag built" would keep a point.
+ * Two independent reasons collapse to the same answer, "show the whole run":
+ * (1) the release is within `CLICK_SLOP_PX` of the press — a click, however
+ * far `fromS`/`toS` wandered on tremor alone, since on a long trace a single
+ * pixel of unintentional movement is already a visible sliver of a window;
+ * (2) `fromS === toS` regardless of pixel travel — an empty or not-yet-measured
+ * strip where every position resolves to the same instant, so "keep what the
+ * drag built" would zoom to a point and blank the page.
  *
- * A real drag returns null: the continuous updates already applied during
- * pointermove are the answer, and recomputing them here would just be the
- * same arithmetic twice.
+ * Otherwise it is a zoom, ordered and clamped by `zoomTo`. Note what this
+ * signature does NOT take: the current view. A drag selects out of the run,
+ * so there is no way to write the "clamp into the window you are already in"
+ * bug here without adding a parameter.
  */
 export function resolveDrag(
   pressX: number,
   releaseX: number,
-  from: number,
-  to: number,
-  t0: number,
-  totalS: number,
-): { startS: number; endS: number } | null {
+  fromS: number,
+  toS: number,
+  bounds: Viewport,
+): Viewport {
   const isClick = Math.abs(releaseX - pressX) <= CLICK_SLOP_PX;
-  const isDegenerate = from === to;
-  if (isClick || isDegenerate) return { startS: t0, endS: t0 + totalS };
-  return null;
+  if (isClick || fromS === toS) return bounds;
+  return zoomTo(bounds, fromS, toS);
 }
 
 /**
- * How far one arrow press moves or grows the window, as a fraction of the
- * whole run.
+ * The window a key press should commit, or null for a key this strip does not
+ * handle — so the caller leaves the event alone rather than swallowing Tab.
  *
- * A fraction rather than a number of seconds so the gesture means the same
- * thing on a 400 ms trace and on a two-hour one: twenty presses cross the run
- * either way. Twenty is the number a reader can actually hold — at 1% it is a
- * hundred presses to the other end, and at 10% the window jumps past anything
- * worth looking at.
+ * `W`/`S` zoom and `A`/`D` pan: Perfetto's bindings, borrowed rather than
+ * invented, and reachable with one hand while the other is on the pointer.
+ * The arrow keys are deliberately not taken — they scroll the page, and this
+ * strip sits at the top of a long one.
+ *
+ * `Backspace` is not here either. Popping the zoom stack is history, not
+ * arithmetic: it needs the windows this strip has already committed, which
+ * the component holds. A null answer for it is correct and the component
+ * still calls `preventDefault`, or the browser navigates back.
  */
-export const KEY_STEP_FRACTION = 0.05;
-
-/**
- * What an arrow key should commit, or null for a key this strip does not
- * handle (so the caller leaves the event alone rather than swallowing Tab).
- *
- * Two gestures, because "choose a window" is two decisions: plain Left/Right
- * slides the window at its current width — the reader has the span they want
- * and is walking it along — and Shift+Left/Right moves the far edge only,
- * which is how the width gets chosen in the first place. Slide clamps so the
- * window keeps its width against either end instead of being squashed by the
- * boundary; extend refuses to cross its own start, which would invert the
- * window rather than reverse it.
- *
- * `trackIds` is passed through by identity: it is a `ReadonlySet` every pane
- * memoises on, and rebuilding it here would invalidate ~900 lane marks on a
- * keystroke that did not touch the track filter.
- */
-export function nudgeSelection(
-  selection: Selection,
-  key: string,
-  shift: boolean,
-  t0: number,
-  totalS: number,
-): Selection | null {
-  const direction = key === "ArrowLeft" ? -1 : key === "ArrowRight" ? 1 : 0;
-  if (direction === 0) return null;
-  const step = direction * totalS * KEY_STEP_FRACTION;
-  if (shift) {
-    return {
-      startS: selection.startS,
-      endS: Math.max(selection.endS + step, selection.startS),
-      trackIds: selection.trackIds,
-    };
+export function keyView(view: Viewport, bounds: Viewport, key: string): Viewport | null {
+  switch (key.toLowerCase()) {
+    case "w":
+      return scale(view, 1 / KEY_ZOOM_FACTOR, bounds);
+    case "s":
+      return scale(view, KEY_ZOOM_FACTOR, bounds);
+    case "a":
+      return nudge(view, -1, KEY_PAN_FRACTION, bounds);
+    case "d":
+      return nudge(view, 1, KEY_PAN_FRACTION, bounds);
+    default:
+      return null;
   }
-  const width = selection.endS - selection.startS;
-  const startS = Math.min(Math.max(selection.startS + step, t0), t0 + totalS - width);
-  return { startS, endS: startS + width, trackIds: selection.trackIds };
 }
 
 interface DragState {
   pressX: number;
   fromS: number;
   rect: StripRect;
+  /** The window in force when the press landed — what `Backspace` returns to,
+   * rather than whichever intermediate window the drag was passing through. */
+  fromView: Viewport;
 }
 
-export function OverviewStrip({ rows, t0, totalS, selection, onChange }: Props) {
+export function OverviewStrip({ rows, bounds, view, onView }: Props) {
   const { t } = useI18n();
   const stripRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  // The zoom history. The *stack* operations are pure and live in
+  // `viewport.ts`; what lives here is only the ref holding one, because the
+  // gesture that pops it (`Backspace`) is bound here and the component's
+  // props carry no way to ask for a pop. Every entry is a window this strip
+  // committed — never an intermediate window a drag passed through — and the
+  // current `view` is pushed on the way past, so a window set from outside
+  // (the reset button, a future breadcrumb) is still somewhere to come back
+  // to rather than a hole in the history.
+  const historyRef = useRef<Viewport[]>([bounds]);
+
+  const commit = useCallback(
+    (from: Viewport, next: Viewport) => {
+      historyRef.current = zoomStackPush(zoomStackPush(historyRef.current, from), next);
+      onView(next);
+    },
+    [onView],
+  );
 
   const onPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return;
       const el = stripRef.current;
       if (el === null) return;
+      // Cached once: reading it per pointermove would lay out the page on
+      // every frame of a drag, and the strip cannot move mid-gesture.
       const rect = el.getBoundingClientRect();
       event.currentTarget.setPointerCapture(event.pointerId);
       dragRef.current = {
         pressX: event.clientX,
-        fromS: secondsAtX(event.clientX, rect, t0, totalS),
+        fromS: secondsAtX(event.clientX, rect, bounds),
         rect,
+        fromView: view,
       };
     },
-    [t0, totalS],
+    [bounds, view],
   );
 
   const onPointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const drag = dragRef.current;
       if (drag === null) return;
-      const to = secondsAtX(event.clientX, drag.rect, t0, totalS);
-      onChange(
-        clampSelection(
-          {
-            startS: Math.min(drag.fromS, to),
-            endS: Math.max(drag.fromS, to),
-            trackIds: selection.trackIds,
-          },
-          t0,
-          t0 + totalS,
-        ),
-      );
+      // Under the slop the gesture is still a click, and zooming to the
+      // sliver a tremor drew would make a click flash the page.
+      if (Math.abs(event.clientX - drag.pressX) <= CLICK_SLOP_PX) return;
+      onView(zoomTo(bounds, drag.fromS, secondsAtX(event.clientX, drag.rect, bounds)));
     },
-    [onChange, selection.trackIds, t0, totalS],
+    [bounds, onView],
   );
 
   const endDrag = useCallback(
@@ -185,82 +215,98 @@ export function OverviewStrip({ rows, t0, totalS, selection, onChange }: Props) 
       const drag = dragRef.current;
       dragRef.current = null;
       if (drag === null) return;
-      const to = secondsAtX(event.clientX, drag.rect, t0, totalS);
-      const override = resolveDrag(drag.pressX, event.clientX, drag.fromS, to, t0, totalS);
-      if (override !== null) onChange({ ...override, trackIds: selection.trackIds });
+      const toS = secondsAtX(event.clientX, drag.rect, bounds);
+      commit(drag.fromView, resolveDrag(drag.pressX, event.clientX, drag.fromS, toS, bounds));
     },
-    [onChange, selection.trackIds, t0, totalS],
+    [bounds, commit],
   );
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const next = nudgeSelection(selection, event.key, event.shiftKey, t0, totalS);
+      // Leave anything modified to the OS and the browser: Cmd+S saves the
+      // page, Ctrl+W closes the tab, and a single letter is not worth either.
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "Backspace") {
+        // Always ours, even when there is nowhere to go back to: unhandled
+        // Backspace on a non-input element still means "back" in some
+        // browsers, which would leave the page entirely.
+        event.preventDefault();
+        const popped = zoomStackPop(zoomStackPush(historyRef.current, view));
+        historyRef.current = popped.stack;
+        if (popped.view !== null) onView(popped.view);
+        return;
+      }
+      const next = keyView(view, bounds, event.key);
       if (next === null) return;
-      // Only once a key was ours: Left/Right would otherwise scroll the page
-      // under the strip, and Tab/Escape must stay the browser's.
+      // Only once a key was ours: Tab and Escape must stay the browser's.
       event.preventDefault();
-      onChange(clampSelection(next, t0, t0 + totalS));
+      commit(view, next);
     },
-    [onChange, selection, t0, totalS],
+    [bounds, commit, onView, view],
   );
 
-  const reset = useCallback(() => {
-    onChange({ startS: t0, endS: t0 + totalS, trackIds: selection.trackIds });
-  }, [onChange, selection.trackIds, t0, totalS]);
+  const reset = useCallback(() => commit(view, bounds), [bounds, commit, view]);
 
-  const selectedS = Math.max(selection.endS - selection.startS, 0);
-  const whole = selectedS >= totalS - 1e-9;
+  const windowS = spanS(view);
+  const totalS = spanS(bounds);
+  const zoomed = windowS < totalS - 1e-9;
+  const windowRect = place(bounds, view.startS, view.endS);
   // Where the window is, not just how to move it: a screen reader landing on
-  // the strip gets the current range in run-relative seconds. Composed here
+  // the strip gets the current window in run-relative seconds. Composed here
   // rather than through an interpolated message because `t()` has no
   // interpolation, so the alternative is a dictionary of sentence fragments.
-  const rangeLabel = `${t("timeline.drag_hint")}: ${fmtSpanDur(selection.startS - t0)} – ${fmtSpanDur(
-    selection.endS - t0,
+  const rangeLabel = `${t("timeline.zoom_hint")}: ${fmtSpanDur(view.startS - bounds.startS)} – ${fmtSpanDur(
+    view.endS - bounds.startS,
   )} ${t("timeline.of")} ${fmtSpanDur(totalS)}`;
 
-  // Colour comes from `laneSpanStyle` and geometry from `pctOf` — the same two
-  // functions `TrackList` uses for its lane dashes (the strip calls the first
-  // with `selected` pinned to `true`: it has no per-track checkbox, so it
-  // always shows everything at the "included" strength). Importing both rather
-  // than re-deriving matching constants here is what makes "the strip and the
-  // lane cannot disagree" a fact rather than a claim: a `query` span is
-  // colour-identical AND position-identical in the strip and in the lane
-  // directly beneath it, by construction, not by two people tuning two numbers
-  // to agree today.
+  // Colour comes from `laneSpanStyle` and geometry from `place` — the same two
+  // functions every row below uses (the strip calls the first with `selected`
+  // pinned to `true`: it has no per-track checkbox, so it always shows
+  // everything at the "included" strength). Importing both rather than
+  // re-deriving matching constants here is what makes "the strip and the rows
+  // cannot disagree" a fact rather than a claim.
+  //
+  // Memoised on `bounds`, not on `view`: these marks are the run, and the run
+  // does not move when the window does. That is what makes dragging cheap —
+  // a pointermove rebuilds one rectangle, not every mark.
   const spanMarks = useMemo(() => {
     return rows.map((row) => {
-      const style = laneSpanStyle(row.kind, row.isError, true);
+      const placed = place(bounds, row.startS, row.endS);
+      if (!placed.visible) return null;
       return (
         <span
           key={row.id}
           aria-hidden
+          data-mark="true"
+          data-kind={row.kind}
           className="absolute top-1 h-1.5 rounded-[1px]"
           style={{
-            left: `${pctOf(row.startS, t0, totalS)}%`,
-            width: `${Math.max(pctOf(row.endS, t0, totalS) - pctOf(row.startS, t0, totalS), 0.15)}%`,
-            ...style,
+            left: `${placed.leftPct}%`,
+            width: `${placed.widthPct}%`,
+            minWidth: MARK_MIN_PX,
+            ...laneSpanStyle(row.kind, row.isError, true),
           }}
         />
       );
     });
-  }, [rows, t0, totalS]);
+  }, [rows, bounds]);
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-baseline gap-2 font-mono text-[11px] text-muted-foreground">
-        <span className="uppercase tracking-[0.1em]">{t("timeline.selection")}</span>
+        <span className="uppercase tracking-[0.1em]">{t("timeline.window")}</span>
         {/* This line is already the window stated in words, so it is also the
-            announcement: a keyboard user moving the window hears the new
-            duration from the element that was going to change anyway, rather
-            than from a second live region duplicating it. `aria-live` sits on
-            the value alone — wrapping the row would re-announce the reset
-            button's label every time the window moved. */}
-        <span aria-live="polite" className="tabular-nums font-mono text-foreground">
-          {fmtSpanDur(selectedS)}
+            announcement: a keyboard user zooming hears the new duration from
+            the element that was going to change anyway, rather than from a
+            second live region duplicating it. `aria-live` sits on the value
+            alone — wrapping the row would re-announce the reset button's
+            label every time the window moved. */}
+        <span aria-live="polite" className="font-mono tabular-nums text-foreground">
+          {fmtSpanDur(windowS)}
         </span>
         <span>{t("timeline.of")}</span>
-        <span className="tabular-nums font-mono">{fmtSpanDur(totalS)}</span>
-        {!whole && (
+        <span className="font-mono tabular-nums">{fmtSpanDur(totalS)}</span>
+        {zoomed && (
           <button
             type="button"
             onClick={reset}
@@ -274,13 +320,8 @@ export function OverviewStrip({ rows, t0, totalS, selection, onChange }: Props) 
       {/* `role="img"` stays. It was chosen over `role="slider"` deliberately:
           a slider has one value and this has two, and lying about the role
           buys a promise of slider keys that a two-ended control cannot keep.
-          What was missing was not honesty, it was a way in — no tabIndex, no
-          key handler, and every mark inside aria-hidden, which made choosing
-          a window (the feature's primary interaction, and the largest control
-          on the page) mouse-only. The same round of fixes that put a real
-          <button> inside the table's header and its name cell skipped this.
-          So: focusable, arrow keys bound, and an aria-label that states the
-          window rather than only how to drag it.
+          What it needs instead is a way in — tabIndex, a key handler, and an
+          aria-label that states the window rather than only how to drag it.
 
           `select-none` because a drag across the strip otherwise starts a
           native text selection over the labels around it. A CDP-driven drag
@@ -295,15 +336,17 @@ export function OverviewStrip({ rows, t0, totalS, selection, onChange }: Props) 
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        className="relative h-7 cursor-col-resize touch-none select-none border-y border-border bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="relative h-7 cursor-col-resize touch-none select-none overflow-hidden border-y border-border bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {spanMarks}
         <span
           aria-hidden
+          data-window="true"
           className="absolute inset-y-0 border-x border-foreground bg-foreground/[0.06]"
           style={{
-            left: `${pctOf(selection.startS, t0, totalS)}%`,
-            width: `${Math.max(pctOf(selection.endS, t0, totalS) - pctOf(selection.startS, t0, totalS), 0.2)}%`,
+            left: `${windowRect.leftPct}%`,
+            width: `${windowRect.widthPct}%`,
+            minWidth: 3,
           }}
         />
       </div>

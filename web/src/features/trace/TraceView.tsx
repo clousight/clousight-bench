@@ -30,6 +30,7 @@ import { fullSelection, sameRows, selectSpans, type Selection } from "@/lib/sele
 import { buildRows, totalSeconds, type SpanRow } from "@/lib/trace";
 import { assignTracks } from "@/lib/tracks";
 import { cn } from "@/lib/utils";
+import { fullViewport, spanS, type Viewport } from "@/lib/viewport";
 import { recordHref } from "@/router";
 
 function attrsJson(row: SpanRow): string {
@@ -110,24 +111,36 @@ export function TraceView({ runId }: { runId: string }) {
 
   const rows = useMemo(() => (data === null ? [] : buildRows(data)), [data]);
   const tracks = useMemo(() => assignTracks(rows), [rows]);
-  const [selection, setSelection] = useState<Selection | null>(null);
+  // Read before the loading/error returns below, so the viewport hooks can
+  // run unconditionally: `fullViewport` already answers for zero rows.
+  const t0 = data === null ? 0 : data.t0;
+
+  // The window and the tracks are two independent choices, and used to be one
+  // `Selection` object. Zooming replaces the time domain every row renders
+  // through — that is what makes the strip's drag a zoom rather than a filter
+  // — while checking a lane changes which rows exist at all. Keeping them
+  // apart is what lets the strip take a `Viewport` and nothing else.
+  const bounds = useMemo(() => fullViewport(rows, t0), [rows, t0]);
+  const [zoom, setZoom] = useState<Viewport | null>(null);
+  const view = zoom ?? bounds;
+  const [trackIds, setTrackIds] = useState<ReadonlySet<string> | null>(null);
   // Memoised, not computed inline: `fullSelection` builds a fresh object and a
-  // fresh Set every call, so while `selection` is null — the arrival state,
+  // fresh Set every call, so while nothing is unchecked — the arrival state,
   // where a reader spends most of their time — an inline call would hand every
   // consumer a new identity on every render, invalidating TrackList's
   // ~900-element lane memo on a render that changed nothing.
-  //
-  // This memo alone does NOT stabilise what `effective` produces. A drag
-  // genuinely moves the window, so `effective` genuinely changes on every
-  // pointermove, and `selectSpans` allocates a fresh array each time — which
-  // is the identity `Waterfall` holds in its effect dependency list. That is
-  // handled directly below, not here; the earlier version of this comment
-  // claimed this memo prevented a chart rebuild, and it prevented one only
-  // for a re-render that left the selection alone.
+  const allTrackIds = useMemo(() => fullSelection(rows, tracks).trackIds, [rows, tracks]);
+  // The window, restated as the `Selection` the panes still take. This memo
+  // alone does NOT stabilise what it produces: a drag genuinely moves the
+  // window, so this object genuinely changes on every pointermove, and
+  // `selectSpans` allocates a fresh array each time — which is the identity
+  // `Waterfall` holds in its effect dependency list. That is handled directly
+  // below, not here.
   const effective = useMemo(
-    () => selection ?? fullSelection(rows, tracks),
-    [selection, rows, tracks],
+    () => ({ startS: view.startS, endS: view.endS, trackIds: trackIds ?? allTrackIds }),
+    [view, trackIds, allTrackIds],
   );
+  const onTracks = useCallback((next: Selection) => setTrackIds(next.trackIds), []);
   const filtered = useMemo(() => selectSpans(rows, tracks, effective), [rows, tracks, effective]);
   // Collapse an identical result back onto the previous array. The window
   // moves continuously during a drag; the rows inside it change a handful of
@@ -161,7 +174,6 @@ export function TraceView({ runId }: { runId: string }) {
   if (error !== null) return <ErrorView message={error} />;
   if (data === null) return <LoadingView />;
 
-  const t0 = data.t0;
   const total = totalSeconds(rows, t0);
   const selectedRow = rows.find((row) => row.id === selectedId) ?? null;
 
@@ -211,21 +223,22 @@ export function TraceView({ runId }: { runId: string }) {
           <Section>
             <SectionBody className="pt-3">
               {kinds.length > 1 && <KindLegend kinds={kinds} />}
-              <OverviewStrip
-                rows={rows}
-                t0={t0}
-                totalS={total}
-                selection={effective}
-                onChange={setSelection}
-              />
+              <OverviewStrip rows={rows} bounds={bounds} view={view} onView={setZoom} />
               <div className="mt-3">
+                {/* The lanes render through the WINDOW, not the run: `pctOf`'s
+                    two arguments are an origin and a width, so handing it the
+                    window's makes every dash a fraction of what is on screen.
+                    That is the zoom — a 2ms query in a 662ms window is 0.4%
+                    of the lane, where in the 7.4s run it was 0.03% and
+                    invisible. (Task 4's tree replaces this component; until
+                    then this is the view the zoom has to reach.) */}
                 <TrackList
                   tracks={tracks}
                   rows={rows}
-                  t0={t0}
-                  totalS={total}
+                  t0={view.startS}
+                  totalS={spanS(view)}
                   selection={effective}
-                  onChange={setSelection}
+                  onChange={onTracks}
                 />
               </div>
             </SectionBody>
