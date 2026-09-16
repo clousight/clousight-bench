@@ -135,6 +135,21 @@ describe("<TrackList>", () => {
     expect([...markup.matchAll(/type="checkbox"/g)]).toHaveLength(2);
   });
 
+  it("keeps the lane checkbox achromatic instead of painting the OS accent", () => {
+    // Chrome is achromatic on this branch and hue carries span kind — and
+    // these checkboxes sit in the one component where the dashes beside them
+    // already use hue that way, so an OS-blue checkbox is a hue competing
+    // with data at a distance of 8px. A class-presence assertion is exactly
+    // what a string render can see; the colour it resolves to is not.
+    const selection: Selection = { startS: 0, endS: 10, trackIds: new Set(["lane:0:0"]) };
+    const markup = renderMarkup(
+      <TrackList tracks={tracks} rows={rows} t0={0} totalS={10} selection={selection} onChange={noop} />,
+    );
+    for (const checkbox of markup.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)) {
+      expect(checkbox[0]).toContain("accent-foreground");
+    }
+  });
+
   it("draws the selected window over each lane at the window's own percentages", () => {
     // 2.5 -> 7.5 s of a 10 s trace is left 25%, width 50%; span "a" [0,2] is
     // the 20% mark ahead of it. The overlay is how a reader sees which part of

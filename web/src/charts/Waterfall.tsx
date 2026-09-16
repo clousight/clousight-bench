@@ -27,14 +27,7 @@ import type {
 } from "echarts/types/dist/shared";
 import { useEffect, useMemo, useRef } from "react";
 
-import {
-  escapeHtml,
-  kindColor,
-  laneSpanStyle,
-  readChrome,
-  readKindColors,
-  readSeriesColors,
-} from "@/charts/palette";
+import { escapeHtml, laneSpanPaint, laneSpanStyle, readChrome, readLaneColors } from "@/charts/palette";
 import { useI18n } from "@/i18n";
 import { fmtDur } from "@/lib/format";
 import { useThemeVersion } from "@/lib/theme";
@@ -83,8 +76,7 @@ export function Waterfall({ rows, t0, onSelect, axisMaxMs, hideLegend = false }:
     if (container === null || rows.length === 0) return;
 
     const chrome = readChrome();
-    const kindColors = readKindColors();
-    const [fallback] = readSeriesColors();
+    const laneColors = readLaneColors();
 
     const spanMax = Math.max(...rows.map((row) => (row.endS - t0) * 1000), 0);
     const totalMs = Math.max(spanMax, axisMaxMs ?? 0);
@@ -104,9 +96,12 @@ export function Waterfall({ rows, t0, onSelect, axisMaxMs, hideLegend = false }:
       return {
         type: "rect",
         shape: { x: start[0], y: start[1] - BAR_HEIGHT / 2, width, height: BAR_HEIGHT, r: 4 },
-        style: row.isError
-          ? { fill: chrome.error, stroke: chrome.error, lineWidth: 1.5 }
-          : { fill: kindColor(kindColors, row.kind, fallback) },
+        // The whole paint in one call, hue and opacity together. Splitting
+        // them is what made the legend swatch (drawn through `laneSpanStyle`
+        // at 0.85) a lighter version of the bar it named: this used to take a
+        // fill from a second colour table and leave the opacity at the
+        // canvas default of 1.
+        style: laneSpanPaint(laneColors, row.kind, row.isError, true),
       };
     };
 
@@ -184,11 +179,14 @@ export function KindLegend({ kinds }: { kinds: string[] }) {
   const { t } = useI18n();
   // No swatch table here. This legend used to keep its own kind -> class map,
   // with a comment claiming a test held it in step with the palette; no test
-  // did, and it had already drifted — `lifecycle` read --chart-axis in the
-  // legend while every bar on screen painted --muted-foreground, which
-  // laneSpanStyle special-cases for exactly the reason documented there. Since
-  // the swatch now comes from the same call the marks do, the two cannot
-  // disagree: there is only one answer to give.
+  // did, and it had already drifted — the legend read one grey for `lifecycle`
+  // and every bar on screen painted another. Both channels now come from the
+  // same place the marks do: `laneSpanStyle` for this swatch and
+  // `laneSpanPaint` — the same function, translated for a canvas — for the
+  // bars, so the swatch and the bar it names share a hue AND an opacity.
+  // Nothing in this module derives a kind colour any other way, which is the
+  // invariant `palette.test.ts` asserts over the whole file rather than over
+  // this function alone.
   return (
     <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
       {kinds.map((kind) => (

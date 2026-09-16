@@ -152,12 +152,19 @@ export function TrackList({ tracks, rows, t0, totalS, selection, onChange }: Pro
         return (
           <div key={track.id} className="flex items-center border-b border-border py-1.5">
             <label className="flex w-36 shrink-0 items-center gap-2 font-mono text-[11px] text-muted-foreground">
+              {/* `accent-foreground`: left to itself a native checkbox paints
+                  the OS accent colour, which on this page is the only hue in
+                  the chrome — and it sits in the one component where hue
+                  already means something (a lane's dashes carry span kind).
+                  Pointing `accent-color` at the existing foreground token
+                  keeps the control achromatic in both themes without
+                  replacing it with a div that only looks like a checkbox. */}
               <input
                 type="checkbox"
                 checked={selected}
                 onChange={() => toggle(track.id)}
                 aria-label={`${t("timeline.include_track")}: ${label}`}
-                className="size-3"
+                className="size-3 accent-foreground"
               />
               <span className="truncate">{label}</span>
             </label>

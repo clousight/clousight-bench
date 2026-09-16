@@ -142,11 +142,17 @@ export function TraceView({ runId }: { runId: string }) {
   const stableVisible = useRef(filtered);
   if (!sameRows(stableVisible.current, filtered)) stableVisible.current = filtered;
   const visible = stableVisible.current;
+  // Derived from `visible`, not from `rows`: the legend sits directly above a
+  // strip and a set of lanes that are both selection-aware, so naming a kind
+  // the window contains none of makes it the one element in that group
+  // describing a different trace than the two below it. `visible` is the
+  // collapsed array above, so this memo recomputes when the window's contents
+  // change and not on every pointermove.
   const kinds = useMemo(() => {
     const seen: string[] = [];
-    for (const row of rows) if (row.kind !== "" && !seen.includes(row.kind)) seen.push(row.kind);
+    for (const row of visible) if (row.kind !== "" && !seen.includes(row.kind)) seen.push(row.kind);
     return seen;
-  }, [rows]);
+  }, [visible]);
   const toggle = useCallback(
     (id: string) => setSelectedId((current) => (current === id ? null : id)),
     [],

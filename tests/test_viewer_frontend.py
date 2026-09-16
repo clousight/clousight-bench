@@ -24,6 +24,7 @@ contract at the artifact level instead:
 
 from __future__ import annotations
 
+import ast
 import gzip
 import json
 import re
@@ -211,6 +212,91 @@ def test_track_stream_attribute_matches_the_emitter() -> None:
     assert writers, (
         f"tracks.ts groups lanes by {attr!r}, which no Python source writes."
         f" Attributes actually emitted: {sorted(emitted)}"
+    )
+
+
+#: One ``name: "--token",`` entry of ``palette.ts``'s KIND_SLOTS table.
+_KIND_SLOT_RE = re.compile(r'^\s*(\w+):\s*"(--[\w-]+)",\s*$', re.MULTILINE)
+
+#: ``palette.test.ts``'s hand-copied list of the kinds the backend can emit.
+_KINDS_FROM_BACKEND_RE = re.compile(r"const KINDS_FROM_BACKEND = \[([^\]]*)\]")
+
+
+def _v3_kind_returns() -> set[str]:
+    """Every string ``viewer/data.py::_v3_kind`` can return, read from its AST.
+
+    Parsed rather than grepped so a ``return`` that stops being a plain string
+    literal — a variable, an f-string, a lookup — fails loudly here instead of
+    quietly narrowing what this test believes the backend produces.
+    """
+    source = (_REPO_ROOT / "src" / "clousight_bench" / "viewer" / "data.py").read_text(encoding="utf-8")
+    functions = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.FunctionDef) and node.name == "_v3_kind"
+    ]
+    assert len(functions) == 1, (
+        f"expected exactly one _v3_kind in viewer/data.py, found {len(functions)} —"
+        " the viewer's span kinds are derived there and this pin reads it by name"
+    )
+    kinds: set[str] = set()
+    for node in ast.walk(functions[0]):
+        if not isinstance(node, ast.Return):
+            continue
+        assert isinstance(node.value, ast.Constant) and isinstance(node.value.value, str), (
+            "_v3_kind has a return that is not a plain string literal"
+            f" (line {node.lineno}); this cross-language pin can no longer enumerate its kinds"
+        )
+        kinds.add(node.value.value)
+    return kinds
+
+
+def test_kind_slots_match_the_backend() -> None:
+    """The palette's kind table must be exactly what ``_v3_kind`` can return.
+
+    A kind with no slot paints in the fallback, so colour silently stops
+    carrying identity; a slot for a kind that no longer exists is how
+    ``db_query`` and ``stage`` survived a rename with every bar the same blue.
+
+    The TypeScript suite asserts both directions already — against
+    ``KINDS_FROM_BACKEND``, a list hand-copied out of Python inside
+    ``palette.test.ts``. That list is not evidence: the day ``_v3_kind`` grows
+    a case, the list and the palette stay in step with each other and out of
+    step with the backend, and the suite goes green. It is the same shape as
+    the defect this branch already shipped — ``tracks.ts`` grouped lanes by
+    ``csbench.stream`` while the emitter wrote ``csbench.stream_id``, and the
+    unit tests used the invented key too, so nothing could see it for seven
+    tasks (see ``test_track_stream_attribute_matches_the_emitter``).
+
+    Nothing inside one language can check this. Here the Python function is
+    parsed for its returns and held against both the palette table and the
+    hand-copied list, which is the only place the two spellings meet.
+    """
+    backend = _v3_kind_returns()
+    assert backend, "no string returns found in _v3_kind — has it been rewritten?"
+
+    palette = (_WEB_SRC / "charts" / "palette.ts").read_text(encoding="utf-8")
+    start = palette.find("export const KIND_SLOTS")
+    assert start != -1, "palette.ts no longer declares KIND_SLOTS — update this pin with it"
+    table = palette[start : palette.index("};", start)]
+    slots = {match.group(1) for match in _KIND_SLOT_RE.finditer(table)}
+    assert slots, 'KIND_SLOTS is no longer a literal `kind: "--token",` table; this pin cannot read it'
+
+    assert slots == backend, (
+        f"KIND_SLOTS and viewer/data.py::_v3_kind disagree — slots without a kind:"
+        f" {sorted(slots - backend)}; kinds without a slot: {sorted(backend - slots)}"
+    )
+
+    spec = (_WEB_SRC / "charts" / "palette.test.ts").read_text(encoding="utf-8")
+    match = _KINDS_FROM_BACKEND_RE.search(spec)
+    assert match is not None, (
+        "palette.test.ts no longer declares KINDS_FROM_BACKEND as a one-line array literal,"
+        " so the list it asserts the palette against is unpinned — keep it greppable"
+    )
+    copied = set(re.findall(r'"([^"]+)"', match.group(1)))
+    assert copied == backend, (
+        f"palette.test.ts's KINDS_FROM_BACKEND is stale — it lists {sorted(copied)},"
+        f" _v3_kind returns {sorted(backend)}"
     )
 
 
