@@ -48,6 +48,28 @@ def test_max_attempts_below_one_is_an_error_not_a_clamp(bad: int) -> None:
         RetryPolicy.from_params({"retry": {"max_attempts": bad}})
 
 
+@pytest.mark.parametrize("key", ["backoff_base_s", "backoff_max_s"])
+def test_negative_backoff_is_rejected_where_it_is_configured(key: str) -> None:
+    """The other two keys must fail the same way ``max_attempts`` does.
+
+    Unvalidated, a negative backoff is accepted by ``from_params``, survives
+    ``resolve()``, reaches the digest, and only then raises a bare
+    ``ValueError: sleep length must be non-negative`` from inside ``time.sleep``
+    — two attempts into a measured run, with no key named.
+    """
+    with pytest.raises(ValueError, match=f"params.retry.{key}"):
+        RetryPolicy.from_params({"retry": {"max_attempts": 3, key: -0.5}})
+
+
+def test_zero_backoff_is_legal() -> None:
+    """Retrying with no wait is a deliberate choice, not a typo — only NEGATIVE
+    is the error, so the validation must not over-reach into a clamp of its own."""
+    policy = RetryPolicy.from_params(
+        {"retry": {"max_attempts": 3, "backoff_base_s": 0.0, "backoff_max_s": 0.0}}
+    )
+    assert policy.backoff_for(1) == 0.0
+
+
 def test_backoff_is_exponential_and_capped() -> None:
     policy = RetryPolicy.from_params(
         {"retry": {"max_attempts": 9, "backoff_base_s": 1.0, "backoff_max_s": 4.0}}
@@ -577,6 +599,27 @@ def test_absent_retry_config_keeps_the_call_single_shot(suite_id: str, monkeypat
     summary = json.loads(raw.path("summary").read_text())
     assert summary["retry_enabled"] is False
     assert summary["retry_count"] == 0
+
+
+@pytest.mark.parametrize("suite_id", _LLM_SUITES)
+def test_a_default_run_seals_no_retry_overhead_at_all(suite_id: str, monkeypatch: Any) -> None:
+    """A run that cannot retry must seal a flat ``0.0``, not a small true number.
+
+    ``chat_once`` computes overhead as total-minus-success, so a single
+    unretried attempt still returns a few stray microseconds. Summed into the
+    summary they describe a retry that never happened AND make ``summary.json``
+    a different file — a different ``sha256`` in the manifest, and so a
+    different record — on every run of the same benchmark. The spy reports a
+    deliberately large 7.5ms per item so an implementation that passes the
+    number through fails here at 15.0 rather than at a hairline tolerance.
+    """
+    module, suite, cfg, _rows_key, contents = _suite_case(suite_id)
+    spy = _ChatSpy(contents=contents, attempts=1, success_ms=10.0, overhead_ms=7.5)
+    _dataset, _env, raw = _drive(module, suite, cfg, spy, monkeypatch)
+
+    summary = json.loads(raw.path("summary").read_text())
+    assert summary["retry_enabled"] is False
+    assert summary["retry_overhead_ms"] == 0.0
 
 
 def test_a_payload_without_the_key_is_the_disabled_policy(monkeypatch: Any) -> None:

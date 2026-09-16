@@ -72,10 +72,20 @@ class RetryPolicy:
         max_attempts = int(retry.get("max_attempts", base.max_attempts))
         if max_attempts < 1:
             raise ValueError(f"params.retry.max_attempts must be >= 1, got {max_attempts}")
+        backoff_base_s = float(retry.get("backoff_base_s", base.backoff_base_s))
+        backoff_max_s = float(retry.get("backoff_max_s", base.backoff_max_s))
+        # A negative backoff is not "retry faster" — it is a ``time.sleep``
+        # that raises ``ValueError`` two attempts into a measured run, long
+        # after the config could have been fixed. Validated here, beside
+        # ``max_attempts``, so every way of mis-spelling this block fails at
+        # ``resolve()`` time with a message naming the key.
+        for name, value in (("backoff_base_s", backoff_base_s), ("backoff_max_s", backoff_max_s)):
+            if value < 0:
+                raise ValueError(f"params.retry.{name} must be >= 0, got {value}")
         return cls(
             max_attempts=max_attempts,
-            backoff_base_s=float(retry.get("backoff_base_s", base.backoff_base_s)),
-            backoff_max_s=float(retry.get("backoff_max_s", base.backoff_max_s)),
+            backoff_base_s=backoff_base_s,
+            backoff_max_s=backoff_max_s,
         )
 
     @property

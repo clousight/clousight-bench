@@ -177,7 +177,12 @@ class Gsm8kSuite(BenchmarkSuite):
             "completion_tokens": completion_tokens,
             "retry_enabled": policy.enabled,
             "retry_count": retried_attempts,
-            "retry_overhead_ms": retry_overhead_ms,
+            # Zero when disabled, never the raw total: chat_once computes
+            # overhead as total-minus-success, which is a few stray
+            # microseconds even for one unretried attempt. Left raw it would
+            # report a retry cost for a run that cannot retry, and make this
+            # sealed artifact's sha256 differ between two identical runs.
+            "retry_overhead_ms": retry_overhead_ms if policy.enabled else 0.0,
         }
         tmp_dir = Path(tempfile.mkdtemp(prefix="csbench-gsm8k-art-"))
         return write_artifacts(tmp_dir, answers, summary, rows_key="answers", spans=spans)
