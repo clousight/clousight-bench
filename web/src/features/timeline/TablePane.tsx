@@ -14,7 +14,7 @@ export type SortKey = "totalS" | "selfS" | "count";
 
 /** Sort buckets by one numeric field, heaviest first, without mutating the
  * input array — `aggregate()` already returns a fresh array sorted by
- * `totalS`, but re-sorting by `selfS`/`count` in place would corrupt that
+ * `selfS`, but re-sorting by `totalS`/`count` in place would corrupt that
  * return value for any other reader still holding it (memoized or not). */
 export function sortBuckets(buckets: Bucket[], key: SortKey): Bucket[] {
   return [...buckets].sort((a, b) => b[key] - a[key]);
@@ -30,10 +30,21 @@ export function firstIdFor(rows: SpanRow[], bucket: Bucket): string | null {
   return match?.id ?? null;
 }
 
-export function TablePane({ rows, onSelect }: { rows: SpanRow[]; onSelect: (id: string) => void }) {
+export function TablePane({
+  rows,
+  window,
+  onSelect,
+}: {
+  rows: SpanRow[];
+  window: { startS: number; endS: number };
+  onSelect: (id: string) => void;
+}) {
   const { t } = useI18n();
-  const [sort, setSort] = useState<SortKey>("totalS");
-  const buckets = useMemo(() => sortBuckets(aggregate(rows), sort), [rows, sort]);
+  // Self, not total: a pure container's total is its children's time, so
+  // opening on it puts the spans that spent nothing at the top. The column
+  // headers stay user-controllable; only where the table opens changed.
+  const [sort, setSort] = useState<SortKey>("selfS");
+  const buckets = useMemo(() => sortBuckets(aggregate(rows, window), sort), [rows, window, sort]);
 
   if (buckets.length === 0) {
     return <p className="text-sm text-muted-foreground">{t("timeline.empty_selection")}</p>;

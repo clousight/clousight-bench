@@ -28,16 +28,42 @@ export function sharePct(totalS: number, grandS: number): number {
   return Math.round((totalS / grandS) * 100);
 }
 
-export function AggregatedPane({ rows }: { rows: SpanRow[] }) {
+/**
+ * The denominator every share is taken against: the total work done in the
+ * window, which is the sum of SELF times.
+ *
+ * Summing `totalS` instead counts every parent again inside each of its
+ * children — the browser showed `csbench.run` at "13.0s · 32%", and
+ * 13.0/0.323 is 40.29 s, the sum of all 107 span durations in a 13 s run. A
+ * share against that is a share of nothing physical. Self time does not
+ * double-count, so these shares partition real work and sum to 100%.
+ *
+ * With genuine concurrency the sum legitimately exceeds the window's wall
+ * clock — three streams busy for one second each spend three seconds of work
+ * in one second of clock — which is why the label says work, not elapsed.
+ */
+export function grandSelfS(buckets: Bucket[]): number {
+  return buckets.reduce((sum: number, bucket: Bucket) => sum + bucket.selfS, 0);
+}
+
+export function AggregatedPane({
+  rows,
+  window,
+}: {
+  rows: SpanRow[];
+  window: { startS: number; endS: number };
+}) {
   const { t } = useI18n();
-  const buckets = useMemo(() => aggregate(rows), [rows]);
+  const buckets = useMemo(() => aggregate(rows, window), [rows, window]);
 
   if (buckets.length === 0) {
     return <p className="text-sm text-muted-foreground">{t("timeline.empty_selection")}</p>;
   }
 
-  const heaviest = buckets[0].totalS;
-  const grand = buckets.reduce((sum: number, bucket: Bucket) => sum + bucket.totalS, 0);
+  // `aggregate` ranks by self time, so the first bucket is the heaviest by the
+  // same measure the bars draw.
+  const heaviest = buckets[0].selfS;
+  const grand = grandSelfS(buckets);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -59,14 +85,21 @@ export function AggregatedPane({ rows }: { rows: SpanRow[] }) {
             aria-hidden
             className="h-3 shrink-0 rounded-[1px]"
             style={{
-              width: `${barWidthPct(bucket.totalS, heaviest)}%`,
+              width: `${barWidthPct(bucket.selfS, heaviest)}%`,
               ...laneSpanStyle(bucket.kind, false, true),
             }}
           />
+          {/* Self first, because that is what the bar and the ranking are.
+              Total stays beside it: the gap between the two is what tells a
+              reader whether a span is slow itself or merely contains
+              something slow, and a bar with no total next to it would make a
+              pure container look like it had vanished. */}
           <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-            {fmtDur(bucket.totalS)}
+            {fmtDur(bucket.selfS)} {t("timeline.self")}
             <span className="mx-1.5">·</span>
-            {sharePct(bucket.totalS, grand)}% {t("timeline.share")}
+            {fmtDur(bucket.totalS)} {t("timeline.total_time")}
+            <span className="mx-1.5">·</span>
+            {sharePct(bucket.selfS, grand)}% {t("timeline.share")}
             <span className="mx-1.5">·</span>×{bucket.count}
           </span>
         </div>

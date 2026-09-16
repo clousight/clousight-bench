@@ -253,7 +253,16 @@ export function TraceView({ runId }: { runId: string }) {
             <TabsContent value="aggregated">
               <Section>
                 <SectionBody className="pt-4">
-                  <AggregatedPane rows={visible} />
+                  {/* The window travels with the rows because `aggregate`
+                      clips to it: `visible` is an overlap filter, so a span
+                      straddling an edge arrives whole and would be counted
+                      whole. Passed as the memoised `effective` object rather
+                      than as two numbers or a fresh `{startS, endS}` literal —
+                      each pane memoises on prop identity, and a literal built
+                      in this JSX would be a new object on every render, which
+                      during a brush drag means re-aggregating every pointermove
+                      instead of once per window. */}
+                  <AggregatedPane rows={visible} window={effective} />
                 </SectionBody>
               </Section>
             </TabsContent>
@@ -261,7 +270,7 @@ export function TraceView({ runId }: { runId: string }) {
             <TabsContent value="table">
               <Section>
                 <SectionBody className="pt-4">
-                  <TablePane rows={visible} onSelect={toggle} />
+                  <TablePane rows={visible} window={effective} onSelect={toggle} />
                 </SectionBody>
               </Section>
             </TabsContent>
