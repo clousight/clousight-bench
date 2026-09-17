@@ -161,6 +161,8 @@
   "trace.unaccounted_hint": "how much, not when: the row model carries idle time as a total, so this segment's position is a convention",
   "trace.clipped_start": "starts before this window",
   "trace.clipped_end": "continues past this window",
+  "dock.empty": "Select a span to see its detail.",
+  "dock.no_attrs": "No attributes.",
   "status.completed": "completed",
   "status.failed": "failed",
   "status.invalid": "invalid",

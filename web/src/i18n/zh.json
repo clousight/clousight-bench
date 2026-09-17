@@ -161,6 +161,8 @@
   "trace.unaccounted_hint": "只表示有多少，不表示在什么时候：行模型里的空闲时间是一个总量，这段的位置只是约定",
   "trace.clipped_start": "起点在这个窗口之前",
   "trace.clipped_end": "终点在这个窗口之后",
+  "dock.empty": "选择一个 span 以查看详情。",
+  "dock.no_attrs": "没有属性。",
   "status.completed": "已完成",
   "status.failed": "失败",
   "status.invalid": "无效",
