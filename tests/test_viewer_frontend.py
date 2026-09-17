@@ -695,6 +695,80 @@ def test_selection_never_reaches_a_measurement() -> None:
     )
 
 
+#: A `pctOf(` CALL or definition — never the bare name. Three source files
+#: explain in prose why this function must not exist, `TraceTree.tsx` twice,
+#: and a substring scan would fail on the explanation. That is not a
+#: hypothetical: the `dangerouslySetInnerHTML` guard flagged two doc comments
+#: that merely quoted it, and a task had to reword prose to satisfy a test.
+#: Comments are stripped before this is applied, so the parenthesis is what
+#: separates "calls it" from "warns about it".
+_PCT_OF_CALL = re.compile(r"\bpctOf\s*\(")
+
+
+def test_no_pct_of_total_survives() -> None:
+    """The one defect the whole trace redesign exists to remove, guarded.
+
+    `pctOf(seconds, t0, totalS)` positioned every bar as a fraction of the
+    WHOLE RUN. A fraction of the run cannot change when the reader zooms, so a
+    "zoom" built on it can only ever dim spans — which is precisely what
+    shipped, and survived two days in a branch with 190 passing tests. Every
+    position in the view now goes through `viewport.ts::place()`, against an
+    explicit window.
+
+    The function is gone with the lane list that was its last caller. This is
+    what keeps it gone: a percentage helper is four lines to write and reads as
+    perfectly reasonable in isolation, so it would come back one component at a
+    time, exactly as the boxed card did.
+    """
+    # Self-check, so this cannot pass because the pattern stopped matching:
+    # a call is caught, and the same text inside a comment is not.
+    sample = "const left = pctOf(row.startS, t0, totalS);"
+    assert _PCT_OF_CALL.search(sample), "the extraction no longer recognises a pctOf call"
+    assert not _PCT_OF_CALL.search(_code_only(f"// {sample}")), (
+        "comments are no longer stripped, so prose explaining pctOf would fail this test"
+    )
+
+    offenders: list[str] = []
+    for path in _web_src_files():
+        rel = path.relative_to(_WEB_SRC).as_posix()
+        # The offending LINE, not its number: stripping a block comment
+        # collapses it to nothing, so line numbers in the stripped text no
+        # longer address the file on disk, and a number that is almost right
+        # is worse than the code itself.
+        for line in _code_only(path.read_text(encoding="utf-8")).splitlines():
+            if _PCT_OF_CALL.search(line):
+                offenders.append(f"{rel}: {line.strip()}")
+    assert not offenders, (
+        "pctOf is back — a bar positioned against the run total cannot be zoomed, only dimmed: "
+        + ", ".join(offenders)
+    )
+
+
+def test_no_source_file_contains_a_nul_byte() -> None:
+    """A control character in a source file defeats every grep-based guard here.
+
+    This is not defensive: `TraceTree.tsx` shipped with a literal NUL inside a
+    React key (`` `${id}\0lane${n}` ``) for two tasks. It is invisible in an
+    editor and harmless to the bundler, but `file` reports the source as
+    "data" and grep treats it as binary — so every scan in this module that
+    reads text, and every `git grep` a reviewer runs, silently skipped that
+    file while appearing to run. A test that reads BYTES is the only thing
+    that can see it.
+    """
+    offenders: list[str] = []
+    for path in sorted(_WEB_SRC.rglob("*")):
+        if not path.is_file() or path.suffix in {".woff2"}:
+            continue  # fonts are binary by design and grep is not asked to read them
+        data = path.read_bytes()
+        index = data.find(b"\x00")
+        if index != -1:
+            offenders.append(f"{path.relative_to(_WEB_SRC).as_posix()} at byte {index}")
+    assert not offenders, (
+        "NUL byte in source — grep and every scan built on it will silently skip this file: "
+        + ", ".join(offenders)
+    )
+
+
 #: A JSX element with no nested element inside its own tag — enough to isolate
 #: one component's props from its neighbours' in a render tree.
 _JSX_ELEMENT = re.compile(r"<[A-Z][A-Za-z0-9]*\b[^<>]*?/?>", re.DOTALL)

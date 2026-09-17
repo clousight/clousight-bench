@@ -10,11 +10,14 @@
  * **What this replaced, and why it is a replacement rather than a deletion.**
  * The `步骤` tab was the tree plus a detail panel, and `时序` was the tree
  * fully expanded; the tree subsumes both, so their tabs are gone from the page
- * while every module they used stays in the repo. `TrackList` is likewise no
- * longer mounted — the tree positions the same spans through the same
- * viewport, with a name column that leaves the lane 4x the width — and the
- * grouping work that will replace `聚合`/`表格` has not landed, so those two
- * tabs stay exactly as they were.
+ * while every module they used stays in the repo. The lane list went further
+ * and was DELETED, because the tree is a strict replacement for it: same
+ * spans, same viewport, a name column that leaves the lane four times the
+ * width, and — the part the lane list could never do — the spans inside a
+ * packed lane are reachable. It took `pctOf(totalS)`, the defect this
+ * redesign exists to remove, out of the repo with it. The grouping work that
+ * will replace `聚合`/`表格` has not landed, so those two tabs stay exactly as
+ * they were.
  *
  * **This component owns every piece of state the view has**: the window, the
  * expansion set, the selection and the query. Not one of them belongs to a

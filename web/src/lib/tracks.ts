@@ -28,8 +28,9 @@ import type { SpanRow } from "@/lib/trace";
  * and is the parent of all eleven stages, so it overlaps every one of them;
  * emitted as a single lane, twelve bars drew on top of each other at one
  * lane's height. It goes through `packGroup` like every other group, and the
- * lanes that come out are `lifecycle:0`, `lifecycle:1`, … — `TrackList`
- * recognises them by `kind`, not by an id equal to this constant.
+ * lanes that come out are `lifecycle:0`, `lifecycle:1`, … — a reader of
+ * these tracks recognises them by `kind`, not by an id equal to this
+ * constant.
  */
 export const STAGE_TRACK_ID = "lifecycle";
 
@@ -58,14 +59,14 @@ export interface Track {
   /**
    * The lane's English identity — NOT a display string.
    *
-   * Nothing renders this verbatim. `TrackList.trackLabel` translates the noun
-   * and re-composes it with whatever identifies the lane (`stream 2.2` ->
-   * "数据流 2.2"), so for the lifecycle lanes the word `lifecycle` never
-   * reaches a reader at all and only the number after it survives. It is kept
-   * as English text rather than split into (noun, suffix) fields because
-   * `tracks.ts` is the layer that names groups and `TrackList` is the layer
-   * that speaks a language; a structured field here would put half a sentence
-   * in the wrong module.
+   * Nothing renders this verbatim, and since the trace view became a tree
+   * nothing renders it at all: the lane list that translated the noun and
+   * re-composed it with whatever identifies the lane (`stream 2.2` ->
+   * "数据流 2.2") is gone, and `assignTracks`'s remaining caller reads only
+   * `id` and `spanIds`. It is kept as English text rather than split into
+   * (noun, suffix) fields because `tracks.ts` is the layer that names groups
+   * and a view is the layer that speaks a language; a structured field here
+   * would put half a sentence in the wrong module.
    */
   label: string;
   /**
@@ -132,8 +133,8 @@ export function assignTracks(rows: SpanRow[]): Track[] {
   // eleven stages overlaps all of them, so this is typically two lanes: the
   // root on its own and the sequential stages beneath it. The naming follows
   // the streams' — one lane keeps the plain word, several are numbered after
-  // it — so `TrackList.trackLabel` can translate the word and keep whatever
-  // identifies the lane.
+  // it — so a view can translate the word and keep whatever identifies the
+  // lane.
   const stageLanes = packGroup(stage);
   for (const [laneIndex, spanIds] of stageLanes.entries()) {
     tracks.push({
@@ -150,7 +151,7 @@ export function assignTracks(rows: SpanRow[]): Track[] {
   // of 22 others at one lane's height. A stream that needs more than one lane
   // numbers them after the stream (`stream 2.1`, `stream 2.2`) rather than
   // falling back to an anonymous running number — the identity is the point,
-  // and TrackList's `trackLabel` carries whatever follows "stream " through to
+  // and a label built this way carries whatever follows "stream " through to
   // the reader untouched. A stream that packs into a single lane keeps the
   // plain `stream 2`, so the common case is not dressed up as a split.
   const declaredStreams = [...declared.entries()].sort(([a], [b]) => a.localeCompare(b, "en"));
