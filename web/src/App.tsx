@@ -3,6 +3,7 @@ import { Section, SectionBody } from "@/components/ui/section";
 import { BoardView } from "@/features/board/BoardView";
 import { LiveConsole } from "@/features/live/LiveConsole";
 import { LiveRunView } from "@/features/live/LiveRunView";
+import { ItemsView } from "@/features/items/ItemsView";
 import { RecordView } from "@/features/record/RecordView";
 import { RunsView } from "@/features/runs/RunsView";
 import { SuiteView } from "@/features/suite/SuiteView";
@@ -45,6 +46,13 @@ function Routed() {
       // be forgotten by whatever state the view grows next, which a
       // reset-on-change effect inside the component could.
       return <TraceView key={route.runId} runId={route.runId} />;
+    case "items":
+      // Keyed on run + scope: the table holds sort, filter and paging state
+      // that means nothing in another run, and a scope change is a different
+      // question about the same run, so both deserve a fresh table.
+      return (
+        <ItemsView key={`${route.runId}:${route.metric ?? ""}`} runId={route.runId} metric={route.metric} />
+      );
     case "runs":
       return <RunsView />;
     case "live":

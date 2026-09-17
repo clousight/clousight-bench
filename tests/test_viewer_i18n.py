@@ -63,7 +63,12 @@ def test_keys_are_namespaced(en: dict[str, object]) -> None:
     with the two-entry navigation and the results board, and `timeline` with
     the selection window, the lanes and the two panes that read them. `dock`
     arrived with the right-docked span detail panel (`SpanDock`), the trace
-    tree's replacement for the old expand-in-place row.
+    tree's replacement for the old expand-in-place row. `items` arrived with the detail surface — the
+    per-item substrate a measurement aggregates. ``partition(".")`` takes the
+    FIRST dot, so a two-level name like ``items.status.ok`` is namespaced
+    ``items`` with a non-empty remainder: each of the four item states carries
+    both a label and a blurb, and flattening them to ``items.status_ok`` would
+    hide structure that is really there.
     """
     namespaces = {
         "header",
@@ -82,6 +87,7 @@ def test_keys_are_namespaced(en: dict[str, object]) -> None:
         "trace",
         "status",
         "dock",
+        "items",
     }
     for key in en:
         ns, _, name = key.partition(".")
