@@ -27,16 +27,7 @@ import { laneSpanStyle } from "@/charts/palette";
 import { useI18n } from "@/i18n";
 import { fmtSpanDur } from "@/lib/format";
 import type { SpanRow } from "@/lib/trace";
-import {
-  nudge,
-  place,
-  scale,
-  spanS,
-  zoomStackPop,
-  zoomStackPush,
-  zoomTo,
-  type Viewport,
-} from "@/lib/viewport";
+import { back, commitHistory, nudge, place, scale, spanS, zoomTo, type Viewport } from "@/lib/viewport";
 
 interface Props {
   rows: SpanRow[];
@@ -161,19 +152,17 @@ export function OverviewStrip({ rows, bounds, view, onView }: Props) {
   const { t } = useI18n();
   const stripRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<DragState | null>(null);
-  // The zoom history. The *stack* operations are pure and live in
-  // `viewport.ts`; what lives here is only the ref holding one, because the
-  // gesture that pops it (`Backspace`) is bound here and the component's
-  // props carry no way to ask for a pop. Every entry is a window this strip
-  // committed — never an intermediate window a drag passed through — and the
-  // current `view` is pushed on the way past, so a window set from outside
-  // (the reset button, a future breadcrumb) is still somewhere to come back
-  // to rather than a hole in the history.
+  // The zoom history. Every *operation* on it is pure and lives in
+  // `viewport.ts` (`commitHistory`, `back`), where it can be asserted on
+  // without a DOM; what lives here is only the ref holding the array, because
+  // the gesture that walks it (`Backspace`) is bound here and the component's
+  // props carry no way to ask the parent for a pop. Entries are the windows
+  // this strip committed — never an intermediate window a drag passed through.
   const historyRef = useRef<Viewport[]>([bounds]);
 
   const commit = useCallback(
     (from: Viewport, next: Viewport) => {
-      historyRef.current = zoomStackPush(zoomStackPush(historyRef.current, from), next);
+      historyRef.current = commitHistory(historyRef.current, from, next);
       onView(next);
     },
     [onView],
@@ -231,9 +220,9 @@ export function OverviewStrip({ rows, bounds, view, onView }: Props) {
         // Backspace on a non-input element still means "back" in some
         // browsers, which would leave the page entirely.
         event.preventDefault();
-        const popped = zoomStackPop(zoomStackPush(historyRef.current, view));
-        historyRef.current = popped.stack;
-        if (popped.view !== null) onView(popped.view);
+        const previous = back(historyRef.current, view);
+        historyRef.current = previous.stack;
+        if (previous.view !== null) onView(previous.view);
         return;
       }
       const next = keyView(view, bounds, event.key);

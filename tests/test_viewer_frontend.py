@@ -693,3 +693,62 @@ def test_selection_never_reaches_a_measurement() -> None:
         f"no {_TRAJECTORY_ENDPOINT!r} literal found in TraceView.tsx; found {endpoints!r}."
         " The extraction is no longer looking at the code that fetches."
     )
+
+
+#: A JSX element with no nested element inside its own tag — enough to isolate
+#: one component's props from its neighbours' in a render tree.
+_JSX_ELEMENT = re.compile(r"<[A-Z][A-Za-z0-9]*\b[^<>]*?/?>", re.DOTALL)
+
+#: ``totalS={...}`` / ``t0={...}`` props, with the expression that feeds them.
+_TOTAL_S_PROP = re.compile(r"\btotalS=\{([^}]*)\}")
+_T0_PROP = re.compile(r"\bt0=\{([^}]*)\}")
+
+
+def test_a_time_axis_is_fed_the_window_and_never_the_run_total() -> None:
+    """The one capability the trace view exists to deliver, guarded at the wiring.
+
+    A component that draws a time axis takes an origin and a width, and the
+    zoom is entirely a question of *which* origin and width the caller hands
+    it: the window's, and the axis moves when the reader drags; the run's, and
+    every bar is pinned to the whole run and a drag can only dim things. That
+    was the shipped defect, and it is invisible from below — the lanes' own
+    tests pass identically either way, because the component cannot tell which
+    domain it was given, and a static render at arrival cannot tell either
+    (the window starts out equal to the run).
+
+    So the guard has to be here, on the call site. Every ``totalS`` prop in
+    the app must be fed a viewport width (``spanS(...)``) and its paired
+    ``t0`` must come off the same viewport — never ``total``/``totalSeconds``.
+    """
+    offenders: list[str] = []
+    checked = 0
+    for path in _web_src_files():
+        # Tests hand these components literal numbers on purpose — a window of
+        # [4,6] out of a 10s run is exactly how the lanes' own test pins the
+        # window-relative arithmetic. The invariant is about the app's wiring.
+        if path.suffix != ".tsx" or path.name.endswith(".test.tsx"):
+            continue
+        rel = path.relative_to(_WEB_SRC).as_posix()
+        code = _code_only(path.read_text(encoding="utf-8"))
+        for element in _JSX_ELEMENT.findall(code):
+            total = _TOTAL_S_PROP.search(element)
+            if total is None:
+                continue
+            checked += 1
+            width = total.group(1).strip()
+            origin = _T0_PROP.search(element)
+            if "spanS(" not in width:
+                offenders.append(f"{rel}: totalS={{{width}}} is not a window width")
+            if origin is None or "view" not in origin.group(1):
+                got = "absent" if origin is None else f"t0={{{origin.group(1).strip()}}}"
+                offenders.append(f"{rel}: {got} is not the same window's origin")
+    assert not offenders, (
+        "a time axis is being positioned against the run total, so dragging cannot zoom it: "
+        + "; ".join(offenders)
+    )
+    # Without this the test passes on zero matches, which is what it would do
+    # if the props were renamed or the axis moved to another component.
+    assert checked, (
+        "no totalS prop found anywhere in web/src — the extraction is no longer"
+        " looking at the code that positions a time axis"
+    )

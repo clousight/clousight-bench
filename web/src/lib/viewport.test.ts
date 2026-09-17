@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  back,
+  commitHistory,
   fullViewport,
   nudge,
   place,
@@ -139,5 +141,50 @@ describe("zoom stack", () => {
   it("does not push a duplicate of the current top", () => {
     const a = { startS: 0, endS: 100 };
     expect(zoomStackPush([a], { ...a })).toHaveLength(1);
+  });
+});
+
+describe("zoom history", () => {
+  // The two operations the strip actually performs on the stack, as opposed
+  // to the two primitives above. They were a pair of nested `zoomStackPush`
+  // calls inside a `useRef` closure, where "commit pushes nothing" was a
+  // mutation the entire suite passed.
+  const whole = { startS: 0, endS: 100 };
+  const phase = { startS: 90, endS: 96 };
+  const closer = { startS: 92, endS: 94 };
+
+  it("records the window being left before the one being entered", () => {
+    // Two entries, not one: `back` needs somewhere to go after the very first
+    // zoom, and the window being left is the only candidate.
+    expect(commitHistory([whole], whole, phase)).toEqual([whole, phase]);
+  });
+
+  it("does not grow when the same window is committed twice", () => {
+    expect(commitHistory([whole, phase], phase, phase)).toEqual([whole, phase]);
+  });
+
+  it("records a window that was set from outside rather than leaving a hole", () => {
+    // The reset button, a breadcrumb — anything that moves the view without
+    // going through the strip. `from` is then a window the stack has never
+    // seen, and dropping it would make `back` skip a level.
+    expect(commitHistory([whole], closer, phase)).toEqual([whole, closer, phase]);
+  });
+
+  it("steps back to the window before the current one", () => {
+    expect(back([whole, phase, closer], closer)).toEqual({
+      stack: [whole, phase],
+      view: phase,
+    });
+  });
+
+  it("steps back from a window the stack has never seen to the top of the stack", () => {
+    // Same self-healing property from the other side: `back` pressed right
+    // after an outside change must land on the last window the strip
+    // committed, not on the one before it.
+    expect(back([whole, phase], closer)).toEqual({ stack: [whole, phase], view: phase });
+  });
+
+  it("has nowhere to go from the first window, and says so", () => {
+    expect(back([whole], whole)).toEqual({ stack: [whole], view: null });
   });
 });

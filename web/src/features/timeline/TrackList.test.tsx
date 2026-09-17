@@ -194,6 +194,44 @@ describe("<TrackList>", () => {
     for (const tag of tags) expect(tag, tag).toContain("focus-visible:ring-ring");
   });
 
+  /** Every lane dash's inline style, in document order — the lane's geometry
+   * is the one thing a string render carries, and it is what the zoom is. */
+  function markStyles(markup: string): string[] {
+    return [...markup.matchAll(/<span[^>]*data-mark="true"[^>]*style="([^"]*)"/g)].map(
+      (match) => match[1],
+    );
+  }
+
+  it("positions its dashes against the window it is handed, not against the run", () => {
+    // This is the zoom, and this is the only place it is observable without a
+    // browser. `pctOf(second, origin, width)` is window-relative arithmetic,
+    // so handing these lanes the WINDOW's origin and width — which is what
+    // TraceView now does — makes a 2s span fill a lane that is showing 2s.
+    //
+    // Window [4,6] of the same 10s run as every other test here: span "b"
+    // [4,6] fills its lane exactly, and span "a" [0,2] sits two lane-widths
+    // off to the left. Against the run total instead, "a" is the familiar
+    // left:0%;width:20% and "b" is left:40%;width:20% — both inside the lane,
+    // and both unmoved by any drag. That was the shipped defect: the whole
+    // task delivers one capability, and until this assertion existed the
+    // suite passed with the lanes pinned to the run.
+    const selection: Selection = {
+      startS: 4,
+      endS: 6,
+      trackIds: new Set(["lane:0:0", "lane:1:0"]),
+    };
+    const markup = renderMarkup(
+      <TrackList tracks={tracks} rows={rows} t0={4} totalS={2} selection={selection} onChange={noop} />,
+    );
+    expect(markStyles(markup)).toEqual([
+      expect.stringContaining("left:-200%;width:100%"),
+      expect.stringContaining("left:0%;width:100%"),
+    ]);
+    // And the lane has to clip, or the dash two lane-widths to the left
+    // paints over the checkbox column beside it.
+    expect(markup).toMatch(/class="relative h-4 flex-1 overflow-hidden"/);
+  });
+
   it("draws the selected window over each lane at the window's own percentages", () => {
     // 2.5 -> 7.5 s of a 10 s trace is left 25%, width 50%; span "a" [0,2] is
     // the 20% mark ahead of it. The overlay is how a reader sees which part of

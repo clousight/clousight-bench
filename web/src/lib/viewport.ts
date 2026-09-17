@@ -170,3 +170,39 @@ export function zoomStackPop(stack: Viewport[]): { stack: Viewport[]; view: View
   const nextStack = stack.slice(0, -1);
   return { stack: nextStack, view: nextStack[nextStack.length - 1] };
 }
+
+/**
+ * Record a committed window: the one being left, then the one being entered.
+ *
+ * Two pushes rather than one, and that is the whole substance of it. The
+ * first is what gives `back` somewhere to go after the very first zoom, and
+ * it is also what repairs the stack when the view was moved by something that
+ * is not the strip (a reset button, a breadcrumb): `from` is then a window
+ * the stack has never seen, and dropping it would make `back` skip a level.
+ * `zoomStackPush` de-duplicates, so the ordinary case — commit after commit
+ * from the same control — still grows the stack by exactly one.
+ *
+ * This is a named function rather than two nested calls inside a component's
+ * event handler because "commit pushes nothing" was a mutation the whole
+ * suite passed: history that lives only in a ref is history nothing can
+ * assert on.
+ */
+export function commitHistory(stack: Viewport[], from: Viewport, next: Viewport): Viewport[] {
+  return zoomStackPush(zoomStackPush(stack, from), next);
+}
+
+/**
+ * Step back one committed window, from wherever the view currently is.
+ *
+ * `view` is pushed before popping for the same self-healing reason as above:
+ * pressed straight after a window arrived from outside, `back` should land on
+ * the last window the strip committed, not on the one before it. At the first
+ * window there is nothing to go back to and `view` is null, which the caller
+ * must read as "leave the view alone" rather than as a window.
+ */
+export function back(
+  stack: Viewport[],
+  view: Viewport,
+): { stack: Viewport[]; view: Viewport | null } {
+  return zoomStackPop(zoomStackPush(stack, view));
+}

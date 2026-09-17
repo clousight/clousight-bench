@@ -96,19 +96,27 @@ export function TrackList({ tracks, rows, t0, totalS, selection, onChange }: Pro
   );
   const allSelected = tracks.length > 0 && tracks.every((track) => selection.trackIds.has(track.id));
 
-  // Marks depend on which tracks are checked, but NOT on the time window
-  // (selection.startS/endS): a dash's position and colour are absolute facts
-  // about the trace, only its selectedness (checkbox state) changes how it
-  // paints. Excluding the window from the dependency list, AND memoizing the
-  // JSX itself (not just the data behind it), means dragging the
-  // OverviewStrip's brush — which fires on every pointermove — leaves these
-  // ~900 <span> elements untouched by reference; only the one
-  // selection-window overlay per lane (computed at render scope below, from
-  // live `selection.startS/endS`) is rebuilt on each move. Memoizing plain
-  // data and re-mapping it to JSX in the render body, as an earlier version
-  // of this component did, would still reallocate every element on every
-  // parent re-render regardless of the dependency array — this is the same
-  // cut `OverviewStrip`'s own `spanMarks` memo makes.
+  // A dash's position is a fact about the WINDOW, not about the trace, since
+  // `t0`/`totalS` are the window's — so the window is in this dependency
+  // list, and a drag rebuilds every dash on every pointermove. That is a real
+  // cost this component did not used to pay, and it is stated rather than
+  // hidden: the comment here used to claim a drag "leaves these ~900 <span>
+  // elements untouched by reference", which was true only while the lanes
+  // were pinned to the run and could not zoom. Keeping the old memo would
+  // mean keeping the old defect; the axis moving is the feature.
+  //
+  // What the memo still buys is the other axis: re-rendering for a reason
+  // that is not the window (a track checkbox, a parent render) rebuilds
+  // nothing. Memoizing plain data and re-mapping it to JSX in the render
+  // body, as an earlier version did, would reallocate every element on every
+  // parent re-render regardless of the dependency array — the same cut
+  // `OverviewStrip`'s own `spanMarks` memo makes, and that one IS still
+  // window-independent, because the strip draws the whole run at every zoom.
+  //
+  // Budget, so this is a measured claim and not a shrug: the gate trace is
+  // 107 spans. The number that mattered was never the allocation — it was
+  // `TraceView`'s `stableVisible`, which keeps the ECharts instance and both
+  // panes' aggregation off the pointermove path, and which still does.
   const lanes = useMemo(
     () =>
       tracks.map((track) => {
