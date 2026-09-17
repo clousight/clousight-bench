@@ -971,3 +971,67 @@ def test_the_filter_box_holds_no_copy_of_what_the_reader_typed() -> None:
         "TraceChrome declares state — the filter box is a second copy of what the reader typed, "
         "and it blanks when an unrelated re-render (every pointermove of a strip drag) remounts it"
     )
+
+
+def test_the_detail_surface_never_derives_a_number_from_a_filter() -> None:
+    """Filtering the item table moves the observation, never the verdict.
+
+    The trace view has this rule as `test_selection_never_reaches_a_measurement`.
+    The detail surface is the second door into the same mistake: narrow a table
+    to its two failures and it is one line of code to print "100% fail" over
+    them — a ratio no evaluator computed, attributed to a run whose record says
+    otherwise.
+
+    The guard is structural rather than textual. `itemSummary` is the only thing
+    that counts and it takes the whole list; `filterItems` is the only thing
+    that narrows and it returns rows. So: the feature may not summarise the
+    output of the filter, and may not divide at all. The division rule is
+    deliberately broader than "no percentage" — a ratio is how one gets made,
+    and this directory has no legitimate need for one. When it does, the edit
+    that adds it should force the argument about whether that number is an
+    observation or a verdict.
+    """
+    feature = _WEB_SRC / "features" / "items"
+    assert feature.is_dir(), "the items feature directory is missing"
+    sources = sorted(feature.rglob("*.tsx"))
+    assert sources, "no items sources found — the extraction is looking in the wrong place"
+
+    # Self-check, so this cannot pass because the pattern stopped matching.
+    assert re.search(r"\w\s+/\s+\w", "const ratio = hits / total;")
+    assert not re.search(r"\w\s+/\s+\w", _code_only("// const ratio = hits / total;"))
+
+    offenders: list[str] = []
+    for path in sources:
+        code = _code_only(path.read_text(encoding="utf-8"))
+        assert "itemSummary(filterItems" not in code.replace(" ", ""), (
+            f"{path.name} summarises the filtered rows: the tally must describe the run"
+        )
+        for line in code.splitlines():
+            stripped = line.strip()
+            if re.search(r"\w\s+/\s+\w", stripped):
+                offenders.append(f"{path.relative_to(_WEB_SRC).as_posix()}: {stripped}")
+    assert not offenders, (
+        "the detail surface divides — a ratio over a subset is what it must never compute: "
+        + ", ".join(offenders)
+    )
+
+
+def test_the_items_summary_signature_cannot_see_a_filter() -> None:
+    """The invariant above, guarded where it is cheapest to keep: the signature.
+
+    A test on behaviour can be satisfied today and quietly regressed tomorrow by
+    a refactor that threads a filter through "for convenience". A signature with
+    no filter parameter cannot be regressed without an edit a reviewer sees.
+    """
+    source = (_WEB_SRC / "lib" / "items.ts").read_text(encoding="utf-8")
+    match = re.search(r"export function itemSummary\(([^)]*)\)", source)
+    assert match is not None, "itemSummary is gone or renamed — the invariant lost its anchor"
+    params = match.group(1)
+    assert "filter" not in params.lower(), (
+        f"itemSummary now takes a filter ({params!r}): a whole-run tally could become a subset's"
+    )
+    rows = re.search(r"export function filterItems\([^)]*\): ([^\s{]+)", source)
+    assert rows is not None and rows.group(1) == "ItemResultData[]", (
+        "filterItems no longer returns bare rows — an aggregate in its return type is the"
+        " other half of the same mistake"
+    )
