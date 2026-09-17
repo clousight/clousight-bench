@@ -745,15 +745,29 @@ def test_no_pct_of_total_survives() -> None:
 
 
 def test_no_source_file_contains_a_nul_byte() -> None:
-    """A control character in a source file defeats every grep-based guard here.
+    """A control character in a source file makes it binary to grep — and to reviewers.
 
     This is not defensive: `TraceTree.tsx` shipped with a literal NUL inside a
     React key (`` `${id}\0lane${n}` ``) for two tasks. It is invisible in an
-    editor and harmless to the bundler, but `file` reports the source as
-    "data" and grep treats it as binary — so every scan in this module that
-    reads text, and every `git grep` a reviewer runs, silently skipped that
-    file while appearing to run. A test that reads BYTES is the only thing
-    that can see it.
+    editor and harmless to the bundler.
+
+    WHAT IT ACTUALLY BREAKS, replayed against the historical blob rather than
+    assumed. `file` reports the source as "data"; the grep family (including
+    the one a reviewer runs over the index) classifies it as binary and prints
+    "binary file matches" in place of the line, or skips it outright under
+    ``-I``. So a reviewer sweeping the tree for ``pctOf`` got no hit from the
+    one file that still had it.
+
+    The Python scans in this module are NOT affected, and an earlier version of
+    this docstring wrongly said they were. A NUL is valid UTF-8:
+    ``Path.read_text()`` returns it and ``"needle" in text`` matches straight
+    through it, so ``_web_src_files()`` and every substring guard built on it
+    read that file the whole time it was "binary".
+
+    A shell-level blind spot is reason enough to fail. Half of what guards this
+    repo is a reviewer's own text search, and a file that has silently dropped
+    out of that half is a file nobody is reading. A test that reads BYTES is
+    the only thing that can see it.
     """
     offenders: list[str] = []
     for path in sorted(_WEB_SRC.rglob("*")):
@@ -764,8 +778,8 @@ def test_no_source_file_contains_a_nul_byte() -> None:
         if index != -1:
             offenders.append(f"{path.relative_to(_WEB_SRC).as_posix()} at byte {index}")
     assert not offenders, (
-        "NUL byte in source — grep and every scan built on it will silently skip this file: "
-        + ", ".join(offenders)
+        "NUL byte in source — every text search over this tree now reports the file as binary "
+        "and stops showing its lines: " + ", ".join(offenders)
     )
 
 
