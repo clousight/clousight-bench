@@ -32,14 +32,32 @@ import { detailTarget, type ItemResultData } from "@/lib/items";
 import { cn } from "@/lib/utils";
 import { boardHref, itemsHref, suiteHref, traceHref } from "@/router";
 
+/** The standalone page: fetch, then render the body. */
 export function RecordView({ runId }: { runId: string }) {
-  const { t, locale } = useI18n();
   const record = useJSON<RecordDetailData>(`api/record/${encodeURIComponent(runId)}`);
-
   if (record.error !== null) return <ErrorView message={record.error} />;
   if (record.data === null) return <LoadingView />;
+  return <RecordBody runId={runId} data={record.data} withLinks />;
+}
 
-  const data = record.data;
+/**
+ * A run's conclusion, from already-fetched data.
+ *
+ * Split from the fetch so the run page's four tabs can share ONE request
+ * instead of each face re-reading the same record. `withLinks` is off there:
+ * the tab bar above is already the navigation, and a second row of "view
+ * trace / view items" links under it would be two controls for one job.
+ */
+export function RecordBody({
+  runId,
+  data,
+  withLinks = false,
+}: {
+  runId: string;
+  data: RecordDetailData;
+  withLinks?: boolean;
+}) {
+  const { t, locale } = useI18n();
   const status = data.status ?? "";
   const run = data.run ?? {};
   const identity = data.identity ?? {};
@@ -75,7 +93,9 @@ export function RecordView({ runId }: { runId: string }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <RecordLinks runId={runId} hasItems={items.length > 0} suiteId={suiteId} domain={domain} />
+      {withLinks && (
+        <RecordLinks runId={runId} hasItems={items.length > 0} suiteId={suiteId} domain={domain} />
+      )}
 
       {/* Verdict */}
       <div className="flex flex-col gap-2">

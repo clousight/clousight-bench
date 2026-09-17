@@ -88,6 +88,15 @@ def test_keys_are_namespaced(en: dict[str, object]) -> None:
         "status",
         "dock",
         "items",
+        "section",
+        "shell",
+        "run",
+        "suites",
+        "targets",
+        "runs",
+        "observe",
+        "config",
+        "target",
     }
     for key in en:
         ns, _, name = key.partition(".")

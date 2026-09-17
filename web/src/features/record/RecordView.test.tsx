@@ -34,8 +34,8 @@ describe("RecordLinks", () => {
     const markup = renderMarkup(
       <RecordLinks runId="run-1" hasItems suiteId="gsm8k" domain="llm" />,
     );
-    expect(markup).toContain("#/record/run-1/items");
-    expect(markup).toContain("#/record/run-1/trace");
+    expect(markup).toContain("#/runs/run-1?tab=items");
+    expect(markup).toContain("#/runs/run-1?tab=trace");
   });
 
   it("opens no door to an empty room", () => {
@@ -44,10 +44,10 @@ describe("RecordLinks", () => {
     const markup = renderMarkup(
       <RecordLinks runId="run-1" hasItems={false} suiteId="tpc-h" domain="data-warehouse" />,
     );
-    expect(markup).not.toContain("/items");
+    expect(markup).not.toContain("tab=items");
     // The trace link is unconditional — every run has lifecycle spans — and it
     // must still be pushed to the right edge when it is the only one there.
-    expect(markup).toContain("#/record/run-1/trace");
+    expect(markup).toContain("#/runs/run-1?tab=trace");
     expect(markup).toContain("ml-auto");
   });
 
@@ -55,7 +55,7 @@ describe("RecordLinks", () => {
     const markup = renderMarkup(
       <RecordLinks runId="run-1" hasItems={false} suiteId="" domain="" />,
     );
-    expect(markup).toContain('href="#/"');
+    expect(markup).toContain('href="#/runs"');
   });
 });
 
@@ -73,7 +73,7 @@ describe("MeasurementDetailLink", () => {
         items={items}
       />,
     );
-    expect(markup).toContain("#/record/run-1/items/accuracy");
+    expect(markup).toContain("#/runs/run-1?tab=items&amp;metric=accuracy");
   });
 
   it("renders nothing for a measurement summed from usage", () => {
@@ -99,7 +99,7 @@ describe("MeasurementDetailLink", () => {
         items={items}
       />,
     );
-    expect(markup).toContain("items/accuracy.by_group.algebra");
+    expect(markup).toContain("metric=accuracy.by_group.algebra");
   });
 
   it("renders nothing when the run has no items at all", () => {

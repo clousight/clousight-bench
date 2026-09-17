@@ -343,8 +343,11 @@ def test_stage_timings_are_formatted_as_milliseconds() -> None:
                 )
 
 
-#: The route switch's trace arm, with whatever props it passes.
-_TRACE_ROUTE_RE = re.compile(r'case "trace":.*?<TraceView([^/>]*)/>', re.DOTALL)
+#: `<TraceView .../>` wherever it is mounted, with whatever props it passes.
+_TRACE_MOUNT_RE = re.compile(r"<TraceView([^/>]*)/>", re.DOTALL)
+
+#: `<RunView .../>` in the route switch — the trace's new parent.
+_RUN_ROUTE_RE = re.compile(r'case "run":.*?<RunView([^/>]*)/>', re.DOTALL)
 
 
 def test_trace_view_is_keyed_on_the_run() -> None:
@@ -361,18 +364,39 @@ def test_trace_view_is_keyed_on_the_run() -> None:
     remounted, which no static render can observe, so what is checked here is
     that the key is passed at all. It fails if the prop is dropped, which is
     the regression it exists for.
+
+    The trace moved from a sibling route to a tab on the run page, so the
+    mounting point moved with it. Both levels are checked, because either one
+    alone would let the selection survive: the run page is keyed inside the
+    route switch, and the trace pane is keyed inside the run page.
     """
     app = (_WEB_SRC / "App.tsx").read_text(encoding="utf-8")
-    match = _TRACE_ROUTE_RE.search(app)
-    assert match is not None, (
-        'App.tsx no longer renders <TraceView .../> from a `case "trace":` arm, so this test'
-        " cannot see how it is mounted — update the regex along with the routing"
+    run_route = _RUN_ROUTE_RE.search(app)
+    assert run_route is not None, (
+        'App.tsx no longer renders <RunView .../> from a `case "run":` arm, so this test'
+        " cannot see how the trace is mounted — update the regex along with the routing"
     )
-    assert "key=" in match.group(1), (
-        "<TraceView> must be keyed on the run id, or React reuses one instance — and its"
-        " selection, in the previous trace's epoch seconds and track ids — across a"
-        f" trace-to-trace navigation. Props found: {match.group(1).strip()!r}"
+    assert "key=" in run_route.group(1), (
+        "<RunView> must be keyed on the run id: it owns the tab whose selection is in the"
+        f" previous run's epoch seconds. Props found: {run_route.group(1).strip()!r}"
     )
+
+    mounts = [
+        (path.name, match.group(1))
+        for path in _web_src_files()
+        if path.suffix == ".tsx"
+        for match in _TRACE_MOUNT_RE.finditer(_code_only(path.read_text(encoding="utf-8")))
+    ]
+    assert mounts, (
+        "no <TraceView .../> mount found anywhere in web/src — the extraction is no longer"
+        " looking at the code that renders it"
+    )
+    for name, props in mounts:
+        assert "key=" in props, (
+            f"<TraceView> in {name} must be keyed on the run id, or React reuses one"
+            " instance — and its selection, in the previous trace's epoch seconds and"
+            f" track ids — across a trace-to-trace navigation. Props found: {props.strip()!r}"
+        )
 
 
 def test_viewer_bundles_its_own_monospace(dist_files: list[tuple[str, bytes]]) -> None:
