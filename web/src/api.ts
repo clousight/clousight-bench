@@ -6,6 +6,8 @@
 
 import { useEffect, useState } from "react";
 
+import type { ItemResultData } from "@/lib/items";
+
 export interface Meta {
   results_dir: string;
   version: string;
@@ -75,6 +77,11 @@ export interface RecordDetailData {
     dataset_digest?: string;
   };
   measurements?: Record<string, MeasurementEntry>;
+  /** Per-item evidence — the substrate the measurements above were aggregated
+   * from. Present only for suites that score example by example; the TPC and
+   * YCSB families measure an engine rather than examples and emit none, which
+   * is why every reader of this field must handle it being absent. */
+  items?: ItemResultData[];
   errors?: RecordError[];
   artifacts?: ArtifactEntry[];
   /** Only the engineer view renders these; they are what makes a run
