@@ -61,7 +61,9 @@ def test_keys_are_namespaced(en: dict[str, object]) -> None:
     The namespace list is the app's page map, so it grows when the app does:
     `nav`/`board`/`suite`/`record`/`live`/`metric`/`health`/`engineer` arrived
     with the two-entry navigation and the results board, and `timeline` with
-    the selection window, the lanes and the two panes that read them.
+    the selection window, the lanes and the two panes that read them. `dock`
+    arrived with the right-docked span detail panel (`SpanDock`), the trace
+    tree's replacement for the old expand-in-place row.
     """
     namespaces = {
         "header",
@@ -79,6 +81,7 @@ def test_keys_are_namespaced(en: dict[str, object]) -> None:
         "detail",
         "trace",
         "status",
+        "dock",
     }
     for key in en:
         ns, _, name = key.partition(".")

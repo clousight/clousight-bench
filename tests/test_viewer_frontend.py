@@ -693,3 +693,281 @@ def test_selection_never_reaches_a_measurement() -> None:
         f"no {_TRAJECTORY_ENDPOINT!r} literal found in TraceView.tsx; found {endpoints!r}."
         " The extraction is no longer looking at the code that fetches."
     )
+
+
+#: A `pctOf(` CALL or definition — never the bare name. Three source files
+#: explain in prose why this function must not exist, `TraceTree.tsx` twice,
+#: and a substring scan would fail on the explanation. That is not a
+#: hypothetical: the `dangerouslySetInnerHTML` guard flagged two doc comments
+#: that merely quoted it, and a task had to reword prose to satisfy a test.
+#: Comments are stripped before this is applied, so the parenthesis is what
+#: separates "calls it" from "warns about it".
+_PCT_OF_CALL = re.compile(r"\bpctOf\s*\(")
+
+
+def test_no_pct_of_total_survives() -> None:
+    """The one defect the whole trace redesign exists to remove, guarded.
+
+    `pctOf(seconds, t0, totalS)` positioned every bar as a fraction of the
+    WHOLE RUN. A fraction of the run cannot change when the reader zooms, so a
+    "zoom" built on it can only ever dim spans — which is precisely what
+    shipped, and survived two days in a branch with 190 passing tests. Every
+    position in the view now goes through `viewport.ts::place()`, against an
+    explicit window.
+
+    The function is gone with the lane list that was its last caller. This is
+    what keeps it gone: a percentage helper is four lines to write and reads as
+    perfectly reasonable in isolation, so it would come back one component at a
+    time, exactly as the boxed card did.
+    """
+    # Self-check, so this cannot pass because the pattern stopped matching:
+    # a call is caught, and the same text inside a comment is not.
+    sample = "const left = pctOf(row.startS, t0, totalS);"
+    assert _PCT_OF_CALL.search(sample), "the extraction no longer recognises a pctOf call"
+    assert not _PCT_OF_CALL.search(_code_only(f"// {sample}")), (
+        "comments are no longer stripped, so prose explaining pctOf would fail this test"
+    )
+
+    offenders: list[str] = []
+    for path in _web_src_files():
+        rel = path.relative_to(_WEB_SRC).as_posix()
+        # The offending LINE, not its number: stripping a block comment
+        # collapses it to nothing, so line numbers in the stripped text no
+        # longer address the file on disk, and a number that is almost right
+        # is worse than the code itself.
+        for line in _code_only(path.read_text(encoding="utf-8")).splitlines():
+            if _PCT_OF_CALL.search(line):
+                offenders.append(f"{rel}: {line.strip()}")
+    assert not offenders, (
+        "pctOf is back — a bar positioned against the run total cannot be zoomed, only dimmed: "
+        + ", ".join(offenders)
+    )
+
+
+def test_no_source_file_contains_a_nul_byte() -> None:
+    """A control character in a source file makes it binary to grep — and to reviewers.
+
+    This is not defensive: `TraceTree.tsx` shipped with a literal NUL inside a
+    React key (`` `${id}\0lane${n}` ``) for two tasks. It is invisible in an
+    editor and harmless to the bundler.
+
+    WHAT IT ACTUALLY BREAKS, replayed against the historical blob rather than
+    assumed. `file` reports the source as "data"; the grep family (including
+    the one a reviewer runs over the index) classifies it as binary and prints
+    "binary file matches" in place of the line, or skips it outright under
+    ``-I``. So a reviewer sweeping the tree for ``pctOf`` got no hit from the
+    one file that still had it.
+
+    The Python scans in this module are NOT affected, and an earlier version of
+    this docstring wrongly said they were. A NUL is valid UTF-8:
+    ``Path.read_text()`` returns it and ``"needle" in text`` matches straight
+    through it, so ``_web_src_files()`` and every substring guard built on it
+    read that file the whole time it was "binary".
+
+    A shell-level blind spot is reason enough to fail. Half of what guards this
+    repo is a reviewer's own text search, and a file that has silently dropped
+    out of that half is a file nobody is reading. A test that reads BYTES is
+    the only thing that can see it.
+    """
+    offenders: list[str] = []
+    for path in sorted(_WEB_SRC.rglob("*")):
+        if not path.is_file() or path.suffix in {".woff2"}:
+            continue  # fonts are binary by design and grep is not asked to read them
+        data = path.read_bytes()
+        index = data.find(b"\x00")
+        if index != -1:
+            offenders.append(f"{path.relative_to(_WEB_SRC).as_posix()} at byte {index}")
+    assert not offenders, (
+        "NUL byte in source — every text search over this tree now reports the file as binary "
+        "and stops showing its lines: " + ", ".join(offenders)
+    )
+
+
+#: A JSX element with no nested element inside its own tag — enough to isolate
+#: one component's props from its neighbours' in a render tree.
+_JSX_ELEMENT = re.compile(r"<[A-Z][A-Za-z0-9]*\b[^<>]*?/?>", re.DOTALL)
+
+#: ``totalS={...}`` / ``t0={...}`` props, with the expression that feeds them.
+#: An axis given as an origin and a width — the shape the lane list takes.
+_TOTAL_S_PROP = re.compile(r"\btotalS=\{([^}]*)\}")
+_T0_PROP = re.compile(r"\bt0=\{([^}]*)\}")
+
+#: ``view={...}``: an axis given as a `Viewport`, which is the shape every
+#: component of the assembled trace view takes. Case-sensitive, so ``onView``
+#: (the callback that CHANGES the window) is not mistaken for the window.
+_VIEW_PROP = re.compile(r"\bview=\{([^}]*)\}")
+
+#: The tag a matched JSX element opens with.
+_JSX_TAG_NAME = re.compile(r"<([A-Z][A-Za-z0-9]*)")
+
+#: Names that mean "the whole run". Feeding one to a `view` prop is the same
+#: defect as feeding `totalSeconds()` to `totalS`: the component then draws a
+#: fixed fraction of the run and a drag can only dim things. ``bounds`` is on
+#: this list and belongs there — it is the run, and `OverviewStrip` takes it
+#: under its own name precisely because it draws the run under the window.
+_RUN_DOMAIN = ("bounds", "total", "totalSeconds", "fullViewport")
+
+#: Every component of the trace view that positions something in time. All
+#: three must be mounted and fed the window, or this test passes on an app
+#: that no longer has a zoomable trace view in it.
+_TIME_AXIS_COMPONENTS = frozenset({"TraceTree", "SpanDock", "OverviewStrip"})
+
+
+def test_a_time_axis_is_fed_the_window_and_never_the_run_total() -> None:
+    """The one capability the trace view exists to deliver, guarded at the wiring.
+
+    A component that draws a time axis takes an origin and a width, and the
+    zoom is entirely a question of *which* origin and width the caller hands
+    it: the window's, and the axis moves when the reader drags; the run's, and
+    every bar is pinned to the whole run and a drag can only dim things. That
+    was the shipped defect, and it is invisible from below — the lanes' own
+    tests pass identically either way, because the component cannot tell which
+    domain it was given, and a static render at arrival cannot tell either
+    (the window starts out equal to the run).
+
+    So the guard has to be here, on the call site, and it covers both shapes an
+    axis arrives in. A component given an origin and a width (``t0``/``totalS``)
+    must get the window's, never ``total``/``totalSeconds``. A component given
+    a whole ``Viewport`` (``view``) must get the window and not ``bounds``,
+    which is the same mistake with the same symptom: the rows would be pinned
+    to the run while the strip moved a rectangle over them.
+
+    The second half is the assembled view's guard. When the lane list stopped
+    being mounted, the ``totalS`` scan correctly found nothing and failed
+    LOUDLY rather than passing vacuously, which is what brought it here to be
+    re-pointed at the props the tree, the dock and the strip actually carry.
+    It was re-pointed rather than relaxed: it now also fails if any of those
+    three stops being mounted at all.
+    """
+    offenders: list[str] = []
+    wired: set[str] = set()
+    for path in _web_src_files():
+        # Tests hand these components literal numbers on purpose — a window of
+        # [4,6] out of a 10s run is exactly how the lanes' own test pins the
+        # window-relative arithmetic. The invariant is about the app's wiring.
+        if path.suffix != ".tsx" or path.name.endswith(".test.tsx"):
+            continue
+        rel = path.relative_to(_WEB_SRC).as_posix()
+        code = _code_only(path.read_text(encoding="utf-8"))
+        for element in _JSX_ELEMENT.findall(code):
+            tag_match = _JSX_TAG_NAME.match(element)
+            tag = "?" if tag_match is None else tag_match.group(1)
+
+            total = _TOTAL_S_PROP.search(element)
+            if total is not None:
+                wired.add(tag)
+                width = total.group(1).strip()
+                origin = _T0_PROP.search(element)
+                if "spanS(" not in width:
+                    offenders.append(f"{rel}: totalS={{{width}}} is not a window width")
+                if origin is None or "view" not in origin.group(1):
+                    got = "absent" if origin is None else f"t0={{{origin.group(1).strip()}}}"
+                    offenders.append(f"{rel}: {got} is not the same window's origin")
+
+            window = _VIEW_PROP.search(element)
+            if window is not None:
+                wired.add(tag)
+                fed = window.group(1).strip()
+                if any(name in fed for name in _RUN_DOMAIN):
+                    offenders.append(f"{rel}: <{tag} view={{{fed}}}> is the run, not the window")
+    assert not offenders, (
+        "a time axis is being positioned against the run total, so dragging cannot zoom it: "
+        + "; ".join(offenders)
+    )
+    # Without this the test passes on zero matches, which is what it would do
+    # if the props were renamed or the axis moved to another component.
+    missing = sorted(_TIME_AXIS_COMPONENTS - wired)
+    assert not missing, (
+        f"no time-axis prop found on {missing} anywhere in web/src: either they are no longer"
+        " mounted, or the extraction is no longer looking at the code that positions a time axis"
+    )
+
+
+#: The element that mounts the span dock, with the class list that positions it.
+_DOCK_MOUNT = re.compile(r'data-dock="overlay"(?P<body>[\s\S]{0,800}?)className="(?P<cls>[^"]*)"')
+
+
+def test_the_span_dock_is_an_overlay_not_a_column() -> None:
+    """Selecting a span must not be able to narrow the lane it was selected from.
+
+    The dock used to be a sibling column. On the 1104px content column the
+    tree spends a fixed 424px of every row on the name cap and the two
+    duration columns, so a 264px dock plus its gap took the lane from 680px to
+    404px — 61.6% of the row to 36.6% — and scaled every bar by 0.594 with it.
+    The narrowest query mark at the throughput window went 2.56px -> ~1.52px,
+    i.e. under the 2px line the acceptance gate is stated in, reached by the
+    branch's own drill gesture (a lane mark selects AND drills).
+
+    The fix is positional, so the guard is positional: the dock is drawn OVER
+    the tree's right edge, which is what makes the tree's row box independent
+    of whether anything is selected. A per-mark ``min-width`` floor would have
+    made the numbers pass by drawing a 1.5ms span as 2ms — the encoding lie
+    this whole redesign exists to remove — and narrowing the name column while
+    the dock is open cannot reach the old widths at all.
+
+    A static render cannot see this: `renderToStaticMarkup` has no box model,
+    so a width in pixels does not exist there, and selection is state the
+    harness cannot drive anyway. The pixel measurement lives in
+    ``web/probe/trace-gate-probe.mjs``; this is the invariant behind it.
+    """
+    path = _WEB_SRC / "features" / "trace" / "TraceView.tsx"
+    assert path.is_file(), f"the trace view moved: {path}"
+    code = _code_only(path.read_text(encoding="utf-8"))
+
+    match = _DOCK_MOUNT.search(code)
+    assert match is not None, (
+        "no data-dock mount site with a className in TraceView.tsx — either the dock moved, "
+        "or it lost the attribute this guard identifies it by"
+    )
+    classes = match.group("cls").split()
+    assert "absolute" in classes, (
+        "the span dock is not absolutely positioned, so it is taking width from the tree's rows "
+        f"and every bar narrows when a span is selected: className={match.group('cls')!r}"
+    )
+    # The shape it would regress to: a fixed-width flex sibling of the tree.
+    assert "shrink-0" not in classes, (
+        f"the span dock is laid out as a flex column again: className={match.group('cls')!r}"
+    )
+    assert "flex-1" not in code.split("<TraceTree")[0][-400:], (
+        "the tree is wrapped in a flex-1 box again, which is how the dock took width from it"
+    )
+
+
+def test_the_filter_box_holds_no_copy_of_what_the_reader_typed() -> None:
+    """`TraceChrome` draws the query; it must never own one.
+
+    The window moves on every pointermove of a strip drag, so `TraceChrome`
+    re-renders continuously. A query held in its own state would be a second
+    copy of what the reader typed, and the way that fails is that an unrelated
+    re-render blanks the box mid-drag.
+
+    THIS GUARD EXISTS BECAUSE THE COMPONENT TEST CANNOT SEE IT. The vitest
+    harness does one render with no effects and no events, so two renders with
+    the same prop are two independent FIRST renders — and a
+    ``useState(query)`` initialiser runs afresh in each of them, producing the
+    right value both times. That was proven rather than argued: the reviewer
+    added exactly that state to `TraceChrome` and the entire suite stayed
+    green. Only the cruder failure ("not fed by the prop at all") was caught.
+
+    What a re-render does is not observable without a DOM; what IS observable,
+    and is what actually decides the behaviour, is that the component declares
+    no state at all and hands the input the prop directly.
+    """
+    path = _WEB_SRC / "features" / "trace" / "TraceChrome.tsx"
+    assert path.is_file(), f"the trace chrome moved: {path}"
+    code = _code_only(path.read_text(encoding="utf-8"))
+
+    # Non-vacuity, both halves: the component really does take a `query` prop,
+    # and the input really is fed by it. Without these the assertion below
+    # would pass on a file that had stopped rendering a filter box.
+    assert re.search(r"\bquery:\s*string\b", code), (
+        "TraceChrome no longer declares a `query: string` prop — is the filter still a prop?"
+    )
+    assert re.search(r"\bvalue=\{query\}", code), (
+        "the filter input is no longer fed `value={query}` directly; if it now reads through a "
+        "local variable, this guard can no longer tell a prop from a copy"
+    )
+    assert "useState" not in code, (
+        "TraceChrome declares state — the filter box is a second copy of what the reader typed, "
+        "and it blanks when an unrelated re-render (every pointermove of a strip drag) remounts it"
+    )

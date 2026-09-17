@@ -51,8 +51,10 @@ The run page is five panes:
   a bar. An estimate of the time left is labelled *est.* and is **withheld
   until at least three units have completed** (`web/src/lib/eta.ts`): a
   confidently wrong "3 seconds left" costs more than a blank.
-- **Execution, as it happens** — the same waterfall renderer the sealed trace
-  page uses, fed by `step` events instead of spans. A live step names its
+- **Execution, as it happens** — a waterfall of the run so far, fed by `step`
+  events instead of spans. (It is its own renderer: the sealed trace page
+  moved to the zoomable tree described under *Reading results* and no longer
+  draws this waterfall.) A live step names its
   parent (a suite knows what it called the enclosing phase, not what span id
   the tracer will mint later), so nesting is resolved by name.
 - **Numbers so far** — computed *in the browser* from the steps that have
@@ -157,8 +159,14 @@ Four pages, in the order a question narrows:
   lifecycle stages collapse into **one health line** — "Everything behaved · 11
   stages, all passed" — which expands into the full four-phase stage strip;
   when something failed, the line names the stage instead.
-- **Trace** is unchanged: transcript and waterfall tabs over the run's spans.
-  Every run now has one — see [the execution trace](#the-execution-trace).
+- **Trace** is one zoomable tree of the run's spans. Drag the overview strip to
+  narrow the time window and every bar re-draws against it — the axis moves,
+  rather than the spans outside it merely dimming. Selecting a row docks its
+  detail on the right without pushing any row out of view, children that ran
+  concurrently pack into lanes you can drill into, and each row prints two
+  durations: the part inside the window, and the span's unmoving total. The
+  aggregate and table tabs follow underneath, over the spans the window
+  contains. Every run has one — see [the execution trace](#the-execution-trace).
 
 `#/runs` is the old flat table of every run, with a client-side filter box. It
 is genuinely useful once you already know which run you are hunting for, which

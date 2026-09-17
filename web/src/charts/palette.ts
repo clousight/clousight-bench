@@ -113,11 +113,12 @@ export const KIND_SLOTS: Record<string, string> = {
  * A span mark's paint, as three independent facts:
  *
  * - Hue carries kind identity, read from `KIND_SLOTS` above, so a `query`
- *   span is the same colour everywhere it appears. `OverviewStrip` and
- *   `TrackList` both call this one function (the strip with `selected`
- *   pinned to `true`, since it has no per-track checkbox) so the two panes
- *   are, by construction, incapable of disagreeing about a given span's
- *   paint — not just visually tuned to match.
+ *   span is the same colour everywhere it appears. `OverviewStrip`,
+ *   `TraceTree` and `SpanDock` all call this one function (each with
+ *   `selected` pinned to `true`, since none of them has a per-track
+ *   checkbox) so the minimap, the rows and the docked detail are, by
+ *   construction, incapable of disagreeing about a given span's paint — not
+ *   just visually tuned to match.
  * - An error always overrides hue with `--status-critical`, regardless of
  *   kind, and is always the single most opaque mark in the lane (1.0
  *   selected / 0.6 deselected — both above the corresponding non-error
