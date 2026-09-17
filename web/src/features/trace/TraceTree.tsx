@@ -31,10 +31,22 @@
  *
  * 4. **A node whose children overlap in time expands into lanes.** That
  *    decision is `rowmodel.flatten`'s (`VisibleRow.lanes`), read here and not
- *    re-made. Lanes REPLACE the subtree's rows rather than being drawn beside
- *    them — `flatten` emits an expanded node's children as rows whether or not
- *    it also packed them, and drawing both would put every stream on screen
- *    twice.
+ *    re-made. A lane REPLACES the row of each child it packs — `flatten` emits
+ *    an expanded node's children as rows whether or not it also packed them,
+ *    and drawing both would put every stream on screen twice.
+ *
+ * 5. **A lane mark is a control, and drilling into one is how the spans
+ *    underneath it are reached at all.** For one task this file drew lane
+ *    marks as `aria-hidden` rectangles and skipped the whole packed subtree,
+ *    which on the reference trace left 66 of 107 spans with no row, no
+ *    button and no mark — the three throughput streams were on screen but
+ *    every query inside them was not, in either expansion state. So: each
+ *    mark is a real `<button>` whose accessible name is the span, clicking it
+ *    docks the detail, and when the span has children the click also drills —
+ *    its subtree returns to being ordinary rows underneath the lanes, and the
+ *    mark says `aria-expanded` so the two readings agree. Only the rows of
+ *    children a lane is currently STANDING IN FOR are dropped, which is what
+ *    keeps "twice on screen" from coming back.
  *
  * Colour comes from `laneSpanStyle` and nothing in this file names a hue. The
  * palette is being rewritten (`#5eead4` measured 1.29:1 against the track and
@@ -103,6 +115,15 @@ const IDLE_HATCH = {
     "repeating-linear-gradient(135deg, var(--muted-foreground) 0px, var(--muted-foreground) 1.5px, transparent 1.5px, transparent 4px)",
 } as const;
 
+/** What turns a bar into a lane mark: which lane it sits in, whether the span
+ * is currently drilled open (null when it has nothing to drill into), and what
+ * a click does. */
+interface LaneMark {
+  index: number;
+  expanded: boolean | null;
+  onActivate: () => void;
+}
+
 /**
  * One span's bar, positioned through the window.
  *
@@ -132,18 +153,7 @@ const IDLE_HATCH = {
  * from the wrong domain. The `窗口内` column still moves, which is where a
  * zoomed reader's information about this bar correctly lives.
  */
-function Bar({
-  row,
-  view,
-  idleS,
-  lane,
-}: {
-  row: SpanRow;
-  view: Viewport;
-  idleS: number;
-  /** Lane index when this bar is a mark inside a packed lane, else null. */
-  lane: number | null;
-}) {
+function Bar({ row, view, idleS, mark }: { row: SpanRow; view: Viewport; idleS: number; mark: LaneMark | null }) {
   const { t } = useI18n();
   const placed = place(view, row.startS, row.endS);
   if (!placed.visible) return null;
@@ -157,23 +167,12 @@ function Bar({
   const parts = [name, fmtSpanDur(durationS)];
   if (placed.clippedStart) parts.push(t("trace.clipped_start"));
   if (placed.clippedEnd) parts.push(t("trace.clipped_end"));
+  const label = parts.join(" · ");
 
-  return (
-    <span
-      data-mark="true"
-      data-kind={row.kind}
-      data-mark-lane={lane === null ? undefined : lane}
-      data-clipped-start={placed.clippedStart ? "true" : undefined}
-      data-clipped-end={placed.clippedEnd ? "true" : undefined}
-      aria-hidden
-      title={parts.join(" · ")}
-      className="absolute top-1/2 h-2 -translate-y-1/2 rounded-[1px]"
-      style={{
-        left: `${placed.leftPct}%`,
-        width: `${placed.widthPct}%`,
-        ...laneSpanStyle(row.kind, row.isError, true),
-      }}
-    >
+  const box = { left: `${placed.leftPct}%`, width: `${placed.widthPct}%` };
+  const fill = laneSpanStyle(row.kind, row.isError, true);
+  const caps = (
+    <>
       {idlePct > 0 && (
         <span
           data-idle="true"
@@ -196,7 +195,58 @@ function Bar({
           style={{ width: `${CLIP_CAP_PX}px`, ...CUT_HATCH }}
         />
       )}
-    </span>
+    </>
+  );
+
+  if (mark === null) {
+    // A span row's own bar. The row already carries a name button and a
+    // disclosure, so the bar is decoration and stays out of the accessibility
+    // tree rather than announcing the row's name a second time.
+    return (
+      <span
+        data-mark="true"
+        data-kind={row.kind}
+        data-clipped-start={placed.clippedStart ? "true" : undefined}
+        data-clipped-end={placed.clippedEnd ? "true" : undefined}
+        aria-hidden
+        title={label}
+        className="absolute top-1/2 h-2 -translate-y-1/2 rounded-[1px]"
+        style={{ ...box, ...fill }}
+      >
+        {caps}
+      </span>
+    );
+  }
+
+  // A lane mark: the ONLY thing on screen standing for this span, so it is a
+  // control. `inset-y-0` makes the button the full row height while the fill
+  // stays the same 8px bar a row draws — a 2.5ms query is ~4px wide at the
+  // throughput window, and an 8px-tall target that narrow is not a target.
+  // The measured width stays on the element carrying `data-mark`, so the
+  // browser gate measures the mark and not its padding.
+  return (
+    <button
+      type="button"
+      data-mark="true"
+      data-kind={row.kind}
+      data-mark-lane={mark.index}
+      data-clipped-start={placed.clippedStart ? "true" : undefined}
+      data-clipped-end={placed.clippedEnd ? "true" : undefined}
+      onClick={mark.onActivate}
+      aria-label={label}
+      aria-expanded={mark.expanded ?? undefined}
+      title={label}
+      className="absolute inset-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      style={box}
+    >
+      <span
+        aria-hidden
+        className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-[1px]"
+        style={fill}
+      >
+        {caps}
+      </span>
+    </button>
   );
 }
 
@@ -321,7 +371,7 @@ function SpanRowView({
             the view papering over a wrong number: `rowmodel.ts` returns 0 for
             a leaf now, so every reader gets the right answer instead of this
             one compensating for it. */}
-        <Bar row={row} view={view} idleS={idleS} lane={null} />
+        <Bar row={row} view={view} idleS={idleS} mark={null} />
       </div>
       <Numbers
         windowS={overlapS(view, row.startS, row.endS)}
@@ -338,20 +388,29 @@ function SpanRowView({
  * summing their durations IS their union, and the two numeric columns stay
  * exact rather than double-counting.
  *
- * The marks are `aria-hidden` rectangles, so the lane carries an `sr-only`
- * summary instead: a screen reader reading 900 absolutely-positioned spans
- * would be worse than reading none, but reading none is what shipped.
+ * Every mark is a button (decision 5), so the lane is a list of controls and
+ * a screen reader can walk it. The `sr-only` summary stays, because what it
+ * says — how many spans are packed in here — is the one thing the marks
+ * cannot say individually.
  */
 function LaneRowView({
   lane,
   index,
   depth,
   view,
+  states,
+  onToggle,
+  onSelect,
 }: {
   lane: SpanRow[];
   index: number;
   depth: number;
   view: Viewport;
+  /** Every row `flatten` emitted, by id — a packed child's row is suppressed
+   * but its `VisibleRow` is still what says whether it is drilled open. */
+  states: Map<string, VisibleRow>;
+  onToggle: (id: string) => void;
+  onSelect: (id: string) => void;
 }) {
   const { t } = useI18n();
   // One child per lane is the case lanes exist for (three streams, three
@@ -376,9 +435,34 @@ function LaneRowView({
       </div>
       <div data-col="lane" className="relative h-full flex-1 overflow-hidden">
         <span className="sr-only">{`${label} · ${lane.length} ${t("trace.spans")}`}</span>
-        {lane.map((row) => (
-          <Bar key={row.id} row={row} view={view} idleS={0} lane={index} />
-        ))}
+        {lane.map((row) => {
+          const state = states.get(row.id);
+          return (
+            <Bar
+              key={row.id}
+              row={row}
+              view={view}
+              idleS={0}
+              mark={{
+                index,
+                // `hasChildren` and not `childCount > 0` for one reason: a
+                // mark says `aria-expanded` only when the click will actually
+                // drill, so the attribute never promises a disclosure that
+                // does nothing.
+                expanded: state !== undefined && state.hasChildren ? state.expanded : null,
+                // Select AND drill, because the mark is the span's only
+                // affordance: there is no row here to carry a chevron beside
+                // a name. Selecting is unconditional (the dock is the point
+                // of clicking a leaf); the toggle is what makes the subtree
+                // reachable, and clicking again puts it back in the lane.
+                onActivate: () => {
+                  onSelect(row.id);
+                  if (state !== undefined && state.hasChildren) onToggle(row.id);
+                },
+              }}
+            />
+          );
+        })}
       </div>
       <Numbers windowS={windowS} durationS={durationS} />
     </div>
@@ -402,9 +486,30 @@ export interface TraceTreeProps {
 export function TraceTree({ rows, view, onToggle, selectedId, onSelect }: TraceTreeProps) {
   const { t } = useI18n();
 
+  // Every row `flatten` emitted, by id. A packed child's own row is
+  // suppressed below, but its `VisibleRow` is still what says whether it has
+  // children and whether the reader drilled into it, which is what the lane
+  // mark has to announce.
+  const states = new Map<string, VisibleRow>();
+  for (const vrow of rows) states.set(vrow.row.id, vrow);
+
   const out: ReactNode[] = [];
-  for (let i = 0; i < rows.length; i += 1) {
-    const vrow = rows[i];
+  // Whether the row that most recently occupied each depth draws lanes.
+  // `flatten` is depth-first, so the last row seen at `depth - 1` IS this
+  // row's parent, and one array indexed by depth is the whole bookkeeping.
+  const laneParent: boolean[] = [];
+  for (const vrow of rows) {
+    const packed = vrow.depth > 0 && laneParent[vrow.depth - 1] === true;
+    laneParent[vrow.depth] = vrow.lanes !== null;
+    // A lane already draws this child as a mark, so its row would be the same
+    // span twice — UNLESS the reader drilled into it, in which case the mark
+    // is the overview and these rows are what was inside. A collapsed child
+    // has no descendants in `rows` at all (`flatten` does not walk a closed
+    // node), so dropping its own row is the whole of the suppression; what
+    // this replaced dropped the entire following subtree, which is how 66 of
+    // the reference trace's 107 spans came to have nothing on screen.
+    if (packed && !vrow.expanded) continue;
+
     out.push(
       <SpanRowView
         key={vrow.row.id}
@@ -420,19 +525,17 @@ export function TraceTree({ rows, view, onToggle, selectedId, onSelect }: TraceT
     for (let lane = 0; lane < vrow.lanes.length; lane += 1) {
       out.push(
         <LaneRowView
-          key={`${vrow.row.id} lane${lane}`}
+          key={`${vrow.row.id}#lane${lane}`}
           lane={vrow.lanes[lane]}
           index={lane}
           depth={vrow.depth}
           view={view}
+          states={states}
+          onToggle={onToggle}
+          onSelect={onSelect}
         />,
       );
     }
-    // The lanes have drawn this node's children, so the rows `flatten`
-    // emitted for that subtree are skipped rather than drawn underneath them.
-    // `flatten` is depth-first, so the subtree is exactly the run of
-    // following rows deeper than this one.
-    while (i + 1 < rows.length && rows[i + 1].depth > vrow.depth) i += 1;
   }
 
   return (

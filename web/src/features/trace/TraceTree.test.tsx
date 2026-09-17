@@ -59,6 +59,35 @@ function colTags(markup: string, col: string): string[] {
   );
 }
 
+/** Every opening tag of a lane mark, in document order. Per element, because
+ * "at least one mark is a button" is satisfied by a lane of one. */
+function laneMarks(markup: string): string[] {
+  return [...markup.matchAll(/<[a-z]+[^>]*data-mark-lane="[^"]*"[^>]*>/g)].map((match) => match[0]);
+}
+
+/**
+ * A concurrent node the way the reference trace has one: `throughput` with
+ * three streams that overlap, each holding its own queries, plus a refresh
+ * pair with nothing inside it. Built through `buildTree`/`flatten`, so the
+ * packing is production's rather than the fixture's.
+ */
+function streams(expanded: string[]): VisibleRow[] {
+  return visible(
+    [
+      row("throughput", 0, 10),
+      row("s1", 0, 8, "throughput"),
+      row("s1.q1", 0, 3, "s1"),
+      row("s1.q2", 3, 8, "s1"),
+      row("s2", 1, 9, "throughput"),
+      row("s2.q1", 1, 9, "s2"),
+      row("s3", 2, 9.5, "throughput"),
+      row("s3.q1", 2, 9.5, "s3"),
+      row("refresh", 9.6, 10, "throughput"),
+    ],
+    expanded,
+  );
+}
+
 describe("overlapS", () => {
   it("is the part of the span the window actually contains", () => {
     expect(overlapS({ startS: 11.1, endS: 12.9 }, 12.201, 18.771)).toBeCloseTo(0.699, 6);
@@ -258,6 +287,69 @@ describe("<TraceTree>", () => {
     // "a" is outside the window entirely, so it has no mark at all — but it
     // keeps its row, because a span the window excludes is still a span.
     expect([...html.matchAll(/data-row="span"/g)]).toHaveLength(2);
+  });
+
+  it("makes every lane mark reachable as a control", () => {
+    // The gap this closes: a packed child had no row in EITHER state, so no
+    // disclosure button existed for it anywhere and the marks were
+    // `aria-hidden` rectangles. On the reference trace that left 66 of 107
+    // spans with nothing a pointer or a screen reader could reach.
+    const html = tree(streams(["throughput"]), { startS: 0, endS: 10 });
+
+    const marks = laneMarks(html);
+    // Three streams and a refresh pair, packed into lanes.
+    expect(marks.length).toBeGreaterThanOrEqual(4);
+    for (const mark of marks) {
+      expect(mark, mark).toMatch(/^<button/);
+      expect(mark, mark).not.toContain('aria-hidden="true"');
+      // A rectangle has no text, so the name has to be the accessible name.
+      expect(mark, mark).toMatch(/aria-label="[^"]+"/);
+      expect(mark, mark).toContain("focus-visible:ring-ring");
+    }
+    expect(marks.some((mark) => mark.includes('aria-label="s1 \u00b7 8.00s"'))).toBe(true);
+  });
+
+  it("drills into a lane child, so what is inside it is reachable at all", () => {
+    // A lane stands in for the children it packs, and for nothing deeper: the
+    // version this replaced skipped the entire following subtree, so a
+    // stream's queries existed in no state of the view.
+    const packed = tree(streams(["throughput"]), { startS: 0, endS: 10 });
+    expect(packed).not.toContain("s1.q1");
+    // The parent only — the lanes stand in for all four children.
+    expect([...packed.matchAll(/data-row="span"/g)]).toHaveLength(1);
+
+    const drilled = tree(streams(["throughput", "s1"]), { startS: 0, endS: 10 });
+    expect(drilled).toContain("s1.q1");
+    expect(drilled).toContain("s1.q2");
+    // throughput, the drilled s1, and its two queries. s2/s3/refresh stay
+    // marks, so drilling one stream does not unpack the others.
+    expect([...drilled.matchAll(/data-row="span"/g)]).toHaveLength(4);
+    expect(drilled).not.toContain("s2.q1");
+    // And s1 is still a mark in its lane: the lanes are the overview and the
+    // rows are what was inside it, so losing the mark would take the drilled
+    // stream out of the concurrency picture it belongs to.
+    expect(laneMarks(drilled).some((mark) => mark.includes('aria-label="s1 \u00b7 8.00s"'))).toBe(
+      true,
+    );
+  });
+
+  it("says on the mark whether that span is drilled open", () => {
+    // The mark is the span's only control, so it is where the state of the
+    // disclosure has to be announced.
+    const packed = tree(streams(["throughput"]), { startS: 0, endS: 10 });
+    const closed = laneMarks(packed).find((mark) => mark.includes('aria-label="s1 \u00b7 8.00s"'));
+    expect(closed).toContain('aria-expanded="false"');
+
+    const drilled = tree(streams(["throughput", "s1"]), { startS: 0, endS: 10 });
+    const opened = laneMarks(drilled).find((mark) => mark.includes('aria-label="s1 \u00b7 8.00s"'));
+    expect(opened).toContain('aria-expanded="true"');
+
+    // The refresh pair has nothing inside it, so its mark claims no
+    // disclosure — an `aria-expanded` that never changes is a promise the
+    // click cannot keep.
+    const refresh = laneMarks(packed).find((mark) => mark.includes('aria-label="refresh'));
+    expect(refresh).toBeDefined();
+    expect(refresh).not.toContain("aria-expanded");
   });
 
   it("keeps every row exactly one row tall", () => {

@@ -235,27 +235,49 @@ export function flatten(tree: TreeNode[], expanded: ReadonlySet<string>): Visibl
  */
 export function slowestPath(tree: TreeNode[]): Set<string> {
   const ids = new Set<string>();
-
-  function heaviest(children: TreeNode[]): TreeNode | null {
-    let best: TreeNode | null = null;
-    let bestDuration = -Infinity;
-    for (const child of children) {
-      const duration = child.row.endS - child.row.startS;
-      if (duration > bestDuration) {
-        bestDuration = duration;
-        best = child;
-      }
-    }
-    return best;
-  }
-
-  for (const root of tree) {
-    let node: TreeNode | null = root;
-    while (node !== null) {
-      ids.add(node.row.id);
-      node = heaviest(node.children);
-    }
-  }
-
+  for (const root of tree) for (const node of descend(root)) ids.add(node.row.id);
   return ids;
+}
+
+/** The longest-running of a set of siblings, or null for none. */
+function heaviest(nodes: TreeNode[]): TreeNode | null {
+  let best: TreeNode | null = null;
+  let bestDuration = -Infinity;
+  for (const node of nodes) {
+    const duration = node.row.endS - node.row.startS;
+    if (duration > bestDuration) {
+      bestDuration = duration;
+      best = node;
+    }
+  }
+  return best;
+}
+
+/** `node`, then its heaviest child, and so on to a leaf. */
+function descend(node: TreeNode): TreeNode[] {
+  const chain: TreeNode[] = [];
+  let current: TreeNode | null = node;
+  while (current !== null) {
+    chain.push(current);
+    current = heaviest(current.children);
+  }
+  return chain;
+}
+
+/**
+ * The same descent as `slowestPath`, kept in order and with the nodes
+ * themselves: what a header has to print to say where the wall clock went
+ * (`run › EXECUTE › official › load · 6.34s`).
+ *
+ * It exists as a second export rather than being re-derived by the header for
+ * one reason: a `Set` of ids cannot be printed as a path, and a header that
+ * recomputed "the heaviest child" with its own copy of the rule could name a
+ * span the tree did not open. Both now walk `descend`, so they cannot
+ * disagree. Where `slowestPath` unions every root's descent — a dangling
+ * parent makes extra roots, and each is a real place time went — a path is
+ * one line of text, so this one follows the heaviest root only.
+ */
+export function slowestChain(tree: TreeNode[]): TreeNode[] {
+  const root = heaviest(tree);
+  return root === null ? [] : descend(root);
 }

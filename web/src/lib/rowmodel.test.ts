@@ -5,6 +5,7 @@ import {
   childrenOverlap,
   flatten,
   packChildren,
+  slowestChain,
   slowestPath,
   type TreeNode,
 } from "@/lib/rowmodel";
@@ -155,5 +156,42 @@ describe("slowestPath", () => {
   it("does not expand a leaf's absent children", () => {
     const leafOnly = row("leaf", 0, 1);
     expect(slowestPath(buildTree([leafOnly])).size).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("slowestChain", () => {
+  it("is the same descent as slowestPath, in order and with the nodes", () => {
+    // The header prints this as a path (`run > EXECUTE > official > load`),
+    // so order is the whole reason it exists. It must also stay the SAME
+    // descent the tree opens: a header naming a span the tree left closed
+    // sends the reader hunting for a row that is not there.
+    const tree = buildTree([
+      row("run", 0, 10),
+      row("EXECUTE", 0, 10, "run"),
+      row("SEAL", 8, 9, "run"),
+      row("official", 0, 6.57, "EXECUTE"),
+      row("other", 7, 8, "EXECUTE"),
+      row("load", 0, 6.57, "official"),
+      row("small", 6, 6.2, "official"),
+    ]);
+    expect(slowestChain(tree).map((node) => node.row.id)).toEqual([
+      "run",
+      "EXECUTE",
+      "official",
+      "load",
+    ]);
+    // Every node on the chain is one the tree opens, so the two cannot name
+    // different spans.
+    const opened = slowestPath(tree);
+    for (const node of slowestChain(tree)) expect(opened.has(node.row.id)).toBe(true);
+  });
+
+  it("follows the heaviest root, and is empty for no roots at all", () => {
+    // A dangling parent makes extra roots. `slowestPath` unions all of them
+    // because each is a real place time went; a path is one line of text, so
+    // this one picks the heaviest and descends from there.
+    const forest = buildTree([row("brief", 0, 1), row("long", 0, 9), row("inside", 1, 8, "long")]);
+    expect(slowestChain(forest).map((node) => node.row.id)).toEqual(["long", "inside"]);
+    expect(slowestChain([])).toEqual([]);
   });
 });
