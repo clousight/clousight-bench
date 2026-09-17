@@ -881,3 +881,93 @@ def test_a_time_axis_is_fed_the_window_and_never_the_run_total() -> None:
         f"no time-axis prop found on {missing} anywhere in web/src: either they are no longer"
         " mounted, or the extraction is no longer looking at the code that positions a time axis"
     )
+
+
+#: The element that mounts the span dock, with the class list that positions it.
+_DOCK_MOUNT = re.compile(r'data-dock="overlay"(?P<body>[\s\S]{0,800}?)className="(?P<cls>[^"]*)"')
+
+
+def test_the_span_dock_is_an_overlay_not_a_column() -> None:
+    """Selecting a span must not be able to narrow the lane it was selected from.
+
+    The dock used to be a sibling column. On the 1104px content column the
+    tree spends a fixed 424px of every row on the name cap and the two
+    duration columns, so a 264px dock plus its gap took the lane from 680px to
+    404px — 61.6% of the row to 36.6% — and scaled every bar by 0.594 with it.
+    The narrowest query mark at the throughput window went 2.56px -> ~1.52px,
+    i.e. under the 2px line the acceptance gate is stated in, reached by the
+    branch's own drill gesture (a lane mark selects AND drills).
+
+    The fix is positional, so the guard is positional: the dock is drawn OVER
+    the tree's right edge, which is what makes the tree's row box independent
+    of whether anything is selected. A per-mark ``min-width`` floor would have
+    made the numbers pass by drawing a 1.5ms span as 2ms — the encoding lie
+    this whole redesign exists to remove — and narrowing the name column while
+    the dock is open cannot reach the old widths at all.
+
+    A static render cannot see this: `renderToStaticMarkup` has no box model,
+    so a width in pixels does not exist there, and selection is state the
+    harness cannot drive anyway. The pixel measurement lives in
+    ``web/probe/trace-gate-probe.mjs``; this is the invariant behind it.
+    """
+    path = _WEB_SRC / "features" / "trace" / "TraceView.tsx"
+    assert path.is_file(), f"the trace view moved: {path}"
+    code = _code_only(path.read_text(encoding="utf-8"))
+
+    match = _DOCK_MOUNT.search(code)
+    assert match is not None, (
+        "no data-dock mount site with a className in TraceView.tsx — either the dock moved, "
+        "or it lost the attribute this guard identifies it by"
+    )
+    classes = match.group("cls").split()
+    assert "absolute" in classes, (
+        "the span dock is not absolutely positioned, so it is taking width from the tree's rows "
+        f"and every bar narrows when a span is selected: className={match.group('cls')!r}"
+    )
+    # The shape it would regress to: a fixed-width flex sibling of the tree.
+    assert "shrink-0" not in classes, (
+        f"the span dock is laid out as a flex column again: className={match.group('cls')!r}"
+    )
+    assert "flex-1" not in code.split("<TraceTree")[0][-400:], (
+        "the tree is wrapped in a flex-1 box again, which is how the dock took width from it"
+    )
+
+
+def test_the_filter_box_holds_no_copy_of_what_the_reader_typed() -> None:
+    """`TraceChrome` draws the query; it must never own one.
+
+    The window moves on every pointermove of a strip drag, so `TraceChrome`
+    re-renders continuously. A query held in its own state would be a second
+    copy of what the reader typed, and the way that fails is that an unrelated
+    re-render blanks the box mid-drag.
+
+    THIS GUARD EXISTS BECAUSE THE COMPONENT TEST CANNOT SEE IT. The vitest
+    harness does one render with no effects and no events, so two renders with
+    the same prop are two independent FIRST renders — and a
+    ``useState(query)`` initialiser runs afresh in each of them, producing the
+    right value both times. That was proven rather than argued: the reviewer
+    added exactly that state to `TraceChrome` and the entire suite stayed
+    green. Only the cruder failure ("not fed by the prop at all") was caught.
+
+    What a re-render does is not observable without a DOM; what IS observable,
+    and is what actually decides the behaviour, is that the component declares
+    no state at all and hands the input the prop directly.
+    """
+    path = _WEB_SRC / "features" / "trace" / "TraceChrome.tsx"
+    assert path.is_file(), f"the trace chrome moved: {path}"
+    code = _code_only(path.read_text(encoding="utf-8"))
+
+    # Non-vacuity, both halves: the component really does take a `query` prop,
+    # and the input really is fed by it. Without these the assertion below
+    # would pass on a file that had stopped rendering a filter box.
+    assert re.search(r"\bquery:\s*string\b", code), (
+        "TraceChrome no longer declares a `query: string` prop — is the filter still a prop?"
+    )
+    assert re.search(r"\bvalue=\{query\}", code), (
+        "the filter input is no longer fed `value={query}` directly; if it now reads through a "
+        "local variable, this guard can no longer tell a prop from a copy"
+    )
+    assert "useState" not in code, (
+        "TraceChrome declares state — the filter box is a second copy of what the reader typed, "
+        "and it blanks when an unrelated re-render (every pointermove of a strip drag) remounts it"
+    )

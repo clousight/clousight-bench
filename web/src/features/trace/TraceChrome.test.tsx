@@ -82,14 +82,30 @@ describe("<TraceChrome>", () => {
     expect(html).toContain("tpc-h.official");
   });
 
-  it("keeps the filter box's value across a re-render with a new window", () => {
-    // The window changes on every pointermove of a strip drag. A query held
-    // in this component's own state — seeded from the prop, or not fed by it
-    // at all — is a second copy of what the reader typed, and the way that
-    // fails is that it blanks mid-drag.
-    const whole = chrome(RUN, RUN, "q13");
-    const zoomed = chrome(PHASE, RUN, "q13");
-    for (const html of [whole, zoomed]) expect(html).toContain('value="q13"');
+  it("draws whatever filter value it is handed, at any window", () => {
+    // WHAT THIS DOES NOT CLAIM, because this harness cannot see it. The title
+    // used to say "keeps the filter box's value across a RE-RENDER", and the
+    // two calls below are not a re-render — they are two independent first
+    // renders. `render.tsx`'s own docstring says so: one render, no effects,
+    // no events. A `useState(query)` initialiser runs afresh in each call with
+    // the then-current prop, so it would satisfy every assertion here; that
+    // was proven, not argued, when a reviewer added exactly that state and the
+    // whole suite stayed green.
+    //
+    // So this asserts the half the harness genuinely observes: the rendered
+    // value tracks the prop rather than being a constant or an empty box, at
+    // more than one window. The half it cannot — that the component holds no
+    // copy of the query, which is what stops a strip drag from blanking the
+    // box mid-gesture — is pinned by
+    // `test_the_filter_box_holds_no_copy_of_what_the_reader_typed` in
+    // tests/test_viewer_frontend.py, where the source is readable.
+    expect(chrome(RUN, RUN, "q13")).toContain('value="q13"');
+    expect(chrome(PHASE, RUN, "q13")).toContain('value="q13"');
+    // A different value, so "renders a constant" fails here too.
+    expect(chrome(PHASE, RUN, "lineitem")).toContain('value="lineitem"');
+    expect(chrome(PHASE, RUN, "lineitem")).not.toContain('value="q13"');
+    // And empty is empty, not the last thing it was given.
+    expect(chrome(RUN, RUN)).toContain('value=""');
   });
 
   it("shows the zoom breadcrumb only once the reader has zoomed", () => {

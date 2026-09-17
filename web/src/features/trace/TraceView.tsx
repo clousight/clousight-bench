@@ -19,13 +19,19 @@
  * will replace `聚合`/`表格` has not landed, so those two tabs stay exactly as
  * they were.
  *
- * **This component owns every piece of state the view has**: the window, the
+ * **`TraceBody` owns every piece of state the view has**: the window, the
  * expansion set, the selection and the query. Not one of them belongs to a
  * child — the strip's drag, the tree's chevrons and the chrome's filter box
  * all move the same picture, and a second copy anywhere is a copy that can
  * disagree. Everything handed down is memoised or a `useCallback`, because a
  * strip drag re-renders this component on every pointermove and a freshly
- * allocated array per render puts that work into every child's memo.
+ * allocated array per render puts that work into every child's memo. The
+ * DERIVATION from that state to the rows on screen is not here: it is
+ * `lib/tracerows.ts`, because it is arithmetic and arithmetic belongs where a
+ * test can call it.
+ *
+ * The fetch is split off into `TraceView` above `TraceBody`, so that the
+ * assembled page can be rendered from data in a test at all.
  *
  * Two feeds can land here and they carry very different detail, so the page
  * says which one it got. A suite that writes its own trajectory artifact gives
@@ -49,9 +55,10 @@ import { TraceChrome } from "@/features/trace/TraceChrome";
 import { TraceTree } from "@/features/trace/TraceTree";
 import { useI18n } from "@/i18n";
 import { fmtDur } from "@/lib/format";
-import { buildTree, flatten, slowestPath, type VisibleRow } from "@/lib/rowmodel";
+import { buildTree } from "@/lib/rowmodel";
 import { fullSelection, sameRows, selectSpans } from "@/lib/selection";
 import { buildRows, totalSeconds } from "@/lib/trace";
+import { traceRows } from "@/lib/tracerows";
 import { assignTracks } from "@/lib/tracks";
 import { fullViewport, type Viewport } from "@/lib/viewport";
 import { recordHref } from "@/router";
@@ -65,10 +72,26 @@ import { recordHref } from "@/router";
  */
 const DOCK_PX = 264;
 
+/**
+ * The route: fetch, and nothing else.
+ *
+ * Split from the body below on purpose. `useJSON` fetches in an effect, and
+ * `renderToStaticMarkup` never runs effects — so as one component this whole
+ * view resolved to `LoadingView` in every test that could reach it, and the
+ * assembly was covered by a source-level prop scan and one browser pass. With
+ * the fetch in its own shell, `TraceBody` renders from data a test can hand it.
+ */
 export function TraceView({ runId }: { runId: string }) {
-  const { t } = useI18n();
   const path = useMemo(() => `api/record/${encodeURIComponent(runId)}/trajectory`, [runId]);
   const { data, error } = useJSON<TrajectoryData>(path);
+
+  if (error !== null) return <ErrorView message={error} />;
+  if (data === null) return <LoadingView />;
+  return <TraceBody runId={runId} data={data} />;
+}
+
+export function TraceBody({ runId, data }: { runId: string; data: TrajectoryData }) {
+  const { t } = useI18n();
 
   const [tab, setTab] = useState("aggregated");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -79,11 +102,9 @@ export function TraceView({ runId }: { runId: string }) {
   // would keep pointing at the previous run's ids.
   const [opened, setOpened] = useState<ReadonlySet<string> | null>(null);
 
-  const rows = useMemo(() => (data === null ? [] : buildRows(data)), [data]);
+  const rows = useMemo(() => buildRows(data), [data]);
   const tracks = useMemo(() => assignTracks(rows), [rows]);
-  // Read before the loading/error returns below, so the viewport hooks can
-  // run unconditionally: `fullViewport` already answers for zero rows.
-  const t0 = data === null ? 0 : data.t0;
+  const t0 = data.t0;
 
   // The window. Zooming replaces the time domain every row renders through —
   // that is what makes the strip's drag a zoom rather than a filter — and
@@ -94,75 +115,20 @@ export function TraceView({ runId }: { runId: string }) {
   const view = zoom ?? bounds;
 
   const tree = useMemo(() => buildTree(rows), [rows]);
-  // Arrival state: the descent through the heaviest child at every level, so
-  // the page opens on where the wall clock went instead of on a closed root.
-  const arrival = useMemo(() => slowestPath(tree), [tree]);
-  const parentOf = useMemo(() => {
-    const map = new Map<string, string | null>();
-    for (const row of rows) map.set(row.id, row.parentId);
-    return map;
-  }, [rows]);
-
-  const needle = query.trim().toLowerCase();
-  const hits = useMemo(() => {
-    if (needle === "") return null;
-    const found = new Set<string>();
-    for (const row of rows) {
-      if ((row.name ?? "").toLowerCase().includes(needle)) found.add(row.id);
-    }
-    return found;
-  }, [rows, needle]);
-  // Every ancestor of every hit. A match inside a collapsed node is a match
-  // the reader cannot see, so these are force-opened below and kept in the
-  // filtered rows — a hit with no path to it reads as no hit at all.
-  const ancestors = useMemo(() => {
-    const out = new Set<string>();
-    if (hits === null) return out;
-    for (const id of hits) {
-      let parent = parentOf.get(id) ?? null;
-      // Stops at anything already accounted for: either a node an earlier
-      // walk carried all the way to its root, or another hit, which this same
-      // loop walks up from in its own turn.
-      while (parent !== null && !out.has(parent) && !hits.has(parent)) {
-        out.add(parent);
-        parent = parentOf.get(parent) ?? null;
-      }
-    }
-    return out;
-  }, [hits, parentOf]);
-
-  const expanded = useMemo(() => {
-    const base = opened ?? arrival;
-    if (hits === null) return base;
-    const out = new Set(base);
-    for (const id of ancestors) out.add(id);
-    return out;
-  }, [opened, arrival, hits, ancestors]);
-
-  const visibleRows = useMemo(() => {
-    const all = flatten(tree, expanded);
-    if (hits === null) return all;
-    const out: VisibleRow[] = [];
-    for (const vrow of all) {
-      const isHit = hits.has(vrow.row.id);
-      if (!isHit && !ancestors.has(vrow.row.id)) continue;
-      // The filter reaches inside the lanes too. A lane is drawn from the
-      // TREE, not from this list, so leaving it alone would answer "q13" with
-      // three lanes of sixty-six marks — the rows filtered and the marks not.
-      const lanes =
-        vrow.lanes === null
-          ? null
-          : vrow.lanes
-              .map((lane) => lane.filter((row) => hits.has(row.id) || ancestors.has(row.id)))
-              .filter((lane) => lane.length > 0);
-      out.push(lanes === vrow.lanes ? vrow : { ...vrow, lanes: lanes !== null && lanes.length > 0 ? lanes : null });
-    }
-    return out;
-  }, [tree, expanded, hits, ancestors]);
+  // Arrival, the filter, the forced-open ancestors and the lane filter, in
+  // one pure call — see `lib/tracerows.ts`. Deliberately NOT split into four
+  // memos here: every one of them depends on the same four inputs, none of
+  // which a strip drag touches, and as component-local code it was the one
+  // piece of this view nothing could test.
+  const {
+    visible: visibleRows,
+    expanded,
+    matches,
+  } = useMemo(() => traceRows({ tree, rows, opened, query }), [tree, rows, opened, query]);
 
   const onToggle = useCallback(
     (id: string) => {
-      const next = new Set(expanded);
+      const next = new Set<string>(expanded);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       setOpened(next);
@@ -212,9 +178,6 @@ export function TraceView({ runId }: { runId: string }) {
     for (const row of visible) if (row.kind !== "" && !seen.includes(row.kind)) seen.push(row.kind);
     return seen;
   }, [visible]);
-
-  if (error !== null) return <ErrorView message={error} />;
-  if (data === null) return <LoadingView />;
 
   const total = totalSeconds(rows, t0);
   const selectedRow = rows.find((row) => row.id === selectedId) ?? null;
@@ -271,7 +234,7 @@ export function TraceView({ runId }: { runId: string }) {
                 query={query}
                 onQuery={setQuery}
                 onView={setZoom}
-                matches={hits === null ? null : hits.size}
+                matches={matches}
               />
               {kinds.length > 1 && <KindLegend kinds={kinds} />}
               <OverviewStrip rows={rows} bounds={bounds} view={view} onView={setZoom} />
