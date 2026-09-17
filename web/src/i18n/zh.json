@@ -46,6 +46,8 @@
   "record.view_trace": "查看执行轨迹",
   "record.wall": "用时 {time}",
   "record.no_measurements": "这次运行没有产出任何测量值。",
+  "record.no_measurements_chip": "无测量值",
+  "record.no_measurements_blurb": "机器跑完了、阶段也都通过，但评测器没有给出任何可报告的数字。把它当成结果之前，先看执行轨迹。",
   "items.title": "逐条明细",
   "items.back": "返回记录",
   "items.view": "查看逐条明细",

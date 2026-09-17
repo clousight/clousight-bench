@@ -1,6 +1,6 @@
 import { Moon, Sun, Wrench } from "lucide-react";
 
-import { usePolledJSON, useJSON, type Meta, type ProgressList } from "@/api";
+import { usePolledJSON, type Meta, type ProgressList } from "@/api";
 import { Button } from "@/components/ui/button";
 import { useI18n, type Locale } from "@/i18n";
 import { useEngineerView } from "@/lib/engineerView";
@@ -10,6 +10,18 @@ import { boardHref, liveHref, useRoute } from "@/router";
 
 /** How often the nav re-checks whether anything is running. */
 const LIVE_POLL_MS = 5000;
+
+/**
+ * How often the nav re-reads the results directory.
+ *
+ * This was a fetch-once, and the Header never unmounts — so the record count
+ * froze at whatever it was when the tab opened. Navigating to the runs table
+ * after two runs had sealed put "15 records" in the nav directly above a table
+ * headed "All runs 18": two claims about the same directory, on one screen,
+ * disagreeing. The count only changes when a run seals, so this is slow on
+ * purpose; it exists to bound the disagreement, not to animate a number.
+ */
+const META_POLL_MS = 30000;
 
 function LocaleSwitch() {
   const { locale, setLocale, t } = useI18n();
@@ -101,7 +113,7 @@ export function Header() {
   const { t } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const { engineerView, toggleEngineerView } = useEngineerView();
-  const meta = useJSON<Meta>("api/meta");
+  const meta = usePolledJSON<Meta>("api/meta", META_POLL_MS);
   const live = usePolledJSON<ProgressList>("api/progress", LIVE_POLL_MS);
   const activeCount = live.data?.runs.filter((run) => run.status === "running").length ?? 0;
 

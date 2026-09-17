@@ -26,7 +26,7 @@ import {
 import { EngineerPanel } from "@/features/record/EngineerPanel";
 import { useI18n } from "@/i18n";
 import { fmtDate, fmtDurMs } from "@/lib/format";
-import { lookupStatus } from "@/lib/glossary";
+import { lookupStatus, type StatusTone } from "@/lib/glossary";
 import { headlineMetrics, orderMetricKeys, suiteLabel } from "@/lib/headline";
 import { detailTarget, type ItemResultData } from "@/lib/items";
 import { cn } from "@/lib/utils";
@@ -63,6 +63,16 @@ export function RecordView({ runId }: { runId: string }) {
   const suiteId = provenance.suite_id ?? "";
   const domain = identity.domain ?? "";
 
+  // A run that claims success and measured nothing.
+  //
+  // The status field says "completed" and the stages really did all pass, so
+  // neither is rewritten here — they are the record's own facts. What was wrong
+  // was OUR prose on top of them: the page opened with "it finished, results
+  // are available" and put "this run produced no measurements" at the very
+  // bottom, under the artifacts, below the fold. Three lines claiming a result
+  // and one line retracting it, in that order.
+  const hollow = hollowSuccess(statusSpec.tone, orderedKeys.length, errors.length);
+
   return (
     <div className="flex flex-col gap-5">
       <RecordLinks runId={runId} hasItems={items.length > 0} suiteId={suiteId} domain={domain} />
@@ -75,10 +85,25 @@ export function RecordView({ runId }: { runId: string }) {
           </h1>
           <span className="font-mono text-xs text-muted-foreground">{identity.adapter}</span>
           <StatusPill status={status} />
+          {hollow && (
+            // Beside the pill, so a cropped screenshot of the header alone
+            // still carries the qualification.
+            <span
+              title={t("record.no_measurements_blurb")}
+              className="inline-flex items-center rounded-sm bg-status-warning/15 px-1.5 py-0 font-mono text-[10px] uppercase tracking-[0.08em] text-status-serious"
+            >
+              {t("record.no_measurements_chip")}
+            </span>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">
-          {locale === "zh" ? statusSpec.blurb.zh : statusSpec.blurb.en}
+          {hollow
+            ? t("record.no_measurements")
+            : locale === "zh"
+              ? statusSpec.blurb.zh
+              : statusSpec.blurb.en}
         </p>
+        {hollow && <p className="text-sm text-muted-foreground">{t("record.no_measurements_blurb")}</p>}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
           <span>{runId}</span>
           <CopyButton value={runId} />
@@ -229,13 +254,30 @@ export function RecordView({ runId }: { runId: string }) {
       )}
 
       <EngineerPanel data={data} />
-
-      {/* A run with no measurements at all still deserves an explanation. */}
-      {orderedKeys.length === 0 && errors.length === 0 && (
-        <p className="text-sm text-muted-foreground">{t("record.no_measurements")}</p>
-      )}
     </div>
   );
+}
+
+/**
+ * A run that claims success and measured nothing.
+ *
+ * Three conditions, and all three matter. The status must be a GOOD tone —
+ * "failed" with no measurements is not a contradiction, it is the expected
+ * shape of a failure, and the generic blurb already says so. `errors` must be
+ * empty for the same reason: a run that reported what went wrong has already
+ * explained itself. What is left is the case the page got wrong — the record
+ * says `completed`, every stage says `ok`, and `measurements` is `{}`.
+ *
+ * A predicate rather than an inline condition because it is the load-bearing
+ * sentence, not a formatting detail: it decides whether the first thing a
+ * reader sees is "results are available".
+ */
+export function hollowSuccess(
+  tone: StatusTone,
+  measurementCount: number,
+  errorCount: number,
+): boolean {
+  return tone === "good" && measurementCount === 0 && errorCount === 0;
 }
 
 /**

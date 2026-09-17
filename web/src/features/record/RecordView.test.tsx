@@ -1,8 +1,33 @@
 import { describe, expect, it } from "vitest";
 
-import { MeasurementDetailLink, RecordLinks } from "@/features/record/RecordView";
+import { MeasurementDetailLink, RecordLinks, hollowSuccess } from "@/features/record/RecordView";
 import type { ItemResultData } from "@/lib/items";
 import { renderMarkup } from "@/test/render";
+
+describe("hollowSuccess", () => {
+  it("flags a run that completed, passed every stage and measured nothing", () => {
+    // The defect this exists for: status `completed`, 11 stages `ok`,
+    // `measurements: {}` — and a page whose first three lines said "it
+    // finished, results are available" with the retraction below the fold.
+    expect(hollowSuccess("good", 0, 0)).toBe(true);
+  });
+
+  it("is not a failure, and does not fire on one", () => {
+    // A failed run with no measurements is the expected shape of a failure.
+    // The generic blurb already explains it; a second qualifier would be noise.
+    expect(hollowSuccess("critical", 0, 0)).toBe(false);
+    expect(hollowSuccess("warning", 0, 0)).toBe(false);
+    expect(hollowSuccess("running", 0, 0)).toBe(false);
+  });
+
+  it("stays quiet when the run already said what went wrong", () => {
+    expect(hollowSuccess("good", 0, 1)).toBe(false);
+  });
+
+  it("stays quiet when there is anything to report", () => {
+    expect(hollowSuccess("good", 1, 0)).toBe(false);
+  });
+});
 
 describe("RecordLinks", () => {
   it("offers the detail surface when the run has items", () => {

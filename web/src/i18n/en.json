@@ -46,6 +46,8 @@
   "record.view_trace": "View execution trace",
   "record.wall": "took {time}",
   "record.no_measurements": "This run produced no measurements.",
+  "record.no_measurements_chip": "no measurements",
+  "record.no_measurements_blurb": "The machinery ran and the stages passed; the evaluator returned nothing to report. Check the trace before treating this as a result.",
   "items.title": "Per-item detail",
   "items.back": "Back to record",
   "items.view": "View per-item detail",
