@@ -121,6 +121,10 @@ const IDLE_HATCH = {
 interface LaneMark {
   index: number;
   expanded: boolean | null;
+  /** Whether this span is the selected one. A lane mark has no row behind it
+   * to tint, so without this its selection is conveyed by nothing at all —
+   * not by colour, and not to a screen reader. */
+  selected: boolean;
   onActivate: () => void;
 }
 
@@ -140,6 +144,14 @@ interface LaneMark {
  * are not on screen to place it against), so the trailing edge is a convention
  * and the segment says so in its own `title` rather than letting the reader
  * infer a gap that may have been in the middle.
+ *
+ * Every mark carries `data-surface="tree"` beside `data-mark`. `OverviewStrip`
+ * marks its own with `data-surface="strip"`, and the distinction is not
+ * cosmetic: the strip floors every mark at `MARK_MIN_PX` and nothing here
+ * does, so `[data-mark]` alone mixes a floored population with an unfloored
+ * one. The browser measurement is this branch's only acceptance evidence and
+ * its selector must not be ambiguous — the first pass on this branch measured
+ * 88 marks all exactly 2px and believed they were the tree's.
  *
  * AND IT IS SUPPRESSED THE MOMENT THE WINDOW CUTS THE BAR. `idleS / durationS`
  * is a fraction in the TOTAL domain; the box it would paint into is what the
@@ -205,6 +217,7 @@ function Bar({ row, view, idleS, mark }: { row: SpanRow; view: Viewport; idleS: 
     return (
       <span
         data-mark="true"
+        data-surface="tree"
         data-kind={row.kind}
         data-clipped-start={placed.clippedStart ? "true" : undefined}
         data-clipped-end={placed.clippedEnd ? "true" : undefined}
@@ -228,6 +241,7 @@ function Bar({ row, view, idleS, mark }: { row: SpanRow; view: Viewport; idleS: 
     <button
       type="button"
       data-mark="true"
+      data-surface="tree"
       data-kind={row.kind}
       data-mark-lane={mark.index}
       data-clipped-start={placed.clippedStart ? "true" : undefined}
@@ -235,13 +249,25 @@ function Bar({ row, view, idleS, mark }: { row: SpanRow; view: Viewport; idleS: 
       onClick={mark.onActivate}
       aria-label={label}
       aria-expanded={mark.expanded ?? undefined}
+      // Same reasoning as the row's name button: the mark is a selection
+      // toggle, and `aria-selected` on something with no supporting role
+      // announces nothing. Both attributes can be true at once and both are
+      // worth saying — "drilled open" and "this is the one in the dock" are
+      // different facts about the same mark.
+      aria-pressed={mark.selected}
       title={label}
       className="absolute inset-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       style={box}
     >
       <span
         aria-hidden
-        className="absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-[1px]"
+        className={cn(
+          "absolute inset-x-0 top-1/2 h-2 -translate-y-1/2 rounded-[1px]",
+          // The visual half of the same fact. An outline rather than a fill
+          // change, because the fill is the span's KIND and must keep meaning
+          // only that.
+          mark.selected && "ring-2 ring-foreground",
+        )}
         style={fill}
       >
         {caps}
@@ -346,6 +372,21 @@ function SpanRowView({
         <button
           type="button"
           onClick={() => onSelect(row.id)}
+          // SELECTION, ANNOUNCED. It used to be carried by `bg-muted` on the
+          // row and nothing else, i.e. by colour alone — and selection is now
+          // the primary interaction on this page, because it is what fills
+          // the dock.
+          //
+          // `aria-pressed` here rather than `aria-selected` on the row div:
+          // `aria-selected` is only supported on `option`/`row`/`treeitem`
+          // and friends, so on a role-less `<div>` it is ignored outright —
+          // it would have LOOKED like a fix and announced nothing, which is
+          // the exact defect class this review was about. Giving the tree
+          // `role="tree"`/`role="treegrid"` to earn the attribute would
+          // promise arrow-key navigation this component does not implement.
+          // This button is genuinely a toggle (`onSelect` clears on a second
+          // click), which is what `aria-pressed` means.
+          aria-pressed={selected}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {/* Clipped, so the full name has to stay recoverable. `min-w-0` is
@@ -399,6 +440,7 @@ function LaneRowView({
   depth,
   view,
   states,
+  selectedId,
   onToggle,
   onSelect,
 }: {
@@ -409,6 +451,7 @@ function LaneRowView({
   /** Every row `flatten` emitted, by id — a packed child's row is suppressed
    * but its `VisibleRow` is still what says whether it is drilled open. */
   states: Map<string, VisibleRow>;
+  selectedId: string | null;
   onToggle: (id: string) => void;
   onSelect: (id: string) => void;
 }) {
@@ -445,6 +488,7 @@ function LaneRowView({
               idleS={0}
               mark={{
                 index,
+                selected: selectedId === row.id,
                 // `hasChildren` and not `childCount > 0` for one reason: a
                 // mark says `aria-expanded` only when the click will actually
                 // drill, so the attribute never promises a disclosure that
@@ -531,6 +575,7 @@ export function TraceTree({ rows, view, onToggle, selectedId, onSelect }: TraceT
           depth={vrow.depth}
           view={view}
           states={states}
+          selectedId={selectedId}
           onToggle={onToggle}
           onSelect={onSelect}
         />,

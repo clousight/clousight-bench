@@ -5,6 +5,7 @@ import {
   KEY_PAN_FRACTION,
   KEY_ZOOM_FACTOR,
   keyView,
+  MARK_MIN_PX,
   OverviewStrip,
   resolveDrag,
   secondsAtX,
@@ -185,6 +186,24 @@ describe("<OverviewStrip>", () => {
     expect(markStyles(whole)).toHaveLength(rows.length);
     expect(markStyles(zoomed)).toEqual(markStyles(whole));
     expect(windowStyle(zoomed)).not.toBe(windowStyle(whole));
+  });
+
+  it("stamps its marks as the strip's, because they carry a pixel floor the tree's do not", () => {
+    // `TraceTree` uses the same `data-mark` attribute and applies NO floor,
+    // so `[data-mark]` alone selects a floored population and an unfloored
+    // one together. The acceptance measurement for this whole branch is a
+    // browser pass over those widths; its selector cannot be ambiguous.
+    const marks = [...strip(BOUNDS).matchAll(/<span[^>]*data-mark="true"[^>]*>/g)].map(
+      (match) => match[0],
+    );
+    expect(marks).toHaveLength(rows.length);
+    for (const mark of marks) {
+      expect(mark, mark).toContain('data-surface="strip"');
+      // Non-vacuity, and the reason the discriminator exists: these marks
+      // really are floored, so a measurement that picks them up by mistake
+      // reads a floor as a measurement.
+      expect(mark, mark).toContain(`min-width:${MARK_MIN_PX}px`);
+    }
   });
 
   it("places each mark at its share of the whole run", () => {

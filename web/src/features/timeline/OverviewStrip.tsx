@@ -267,6 +267,14 @@ export function OverviewStrip({ rows, bounds, view, onView }: Props) {
           key={row.id}
           aria-hidden
           data-mark="true"
+          // Which SURFACE this mark belongs to. The tree draws marks under the
+          // same `data-mark` attribute and carries NO pixel floor, while every
+          // mark here is floored at `MARK_MIN_PX` — so a measurement that does
+          // not distinguish the two reads a floored width as an unfloored one.
+          // That is not hypothetical: the first browser pass on this branch
+          // measured 88 marks all exactly 2px, concluded the tree's marks were
+          // pinned at the floor, and was measuring this strip.
+          data-surface="strip"
           data-kind={row.kind}
           className="absolute top-1 h-1.5 rounded-[1px]"
           style={{

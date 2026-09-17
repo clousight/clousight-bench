@@ -168,6 +168,7 @@
   "trace.crumb": "当前时间窗口",
   "dock.empty": "选择一个 span 以查看详情。",
   "dock.no_attrs": "没有属性。",
+  "dock.close": "关闭详情面板",
   "status.completed": "已完成",
   "status.failed": "失败",
   "status.invalid": "无效",

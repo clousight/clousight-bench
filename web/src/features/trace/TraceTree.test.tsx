@@ -352,6 +352,66 @@ describe("<TraceTree>", () => {
     expect(refresh).not.toContain("aria-expanded");
   });
 
+  it("says which span is selected, rather than only tinting it", () => {
+    // Selection is the primary interaction on this page — it is what fills
+    // the dock, and a lane mark's click IS a selection — and it used to be
+    // carried by `bg-muted` alone, i.e. by colour, i.e. by nothing at all to
+    // a screen reader.
+    //
+    // `aria-pressed` on the control and not `aria-selected` on the row div:
+    // `aria-selected` is ignored on an element with no supporting role, so it
+    // would have passed a source grep and announced nothing.
+    const rows = visible([row("p", 0, 10), row("c", 1, 2, "p")], ["p"]);
+
+    const none = tree(rows, { startS: 0, endS: 10 });
+    expect(none).not.toContain('aria-pressed="true"');
+    // Non-vacuity: every row's name button states the fact, it is just false.
+    expect([...none.matchAll(/aria-pressed="false"/g)]).toHaveLength(rows.length);
+
+    const picked = tree(rows, { startS: 0, endS: 10 }, "c");
+    expect([...picked.matchAll(/aria-pressed="true"/g)]).toHaveLength(1);
+    // And it is the right row: the selected one is also the tinted one, so
+    // the two channels cannot drift apart.
+    expect(picked).toMatch(/data-row="span"[^>]*bg-muted[\s\S]*?aria-pressed="true"[\s\S]*?>c</);
+  });
+
+  it("says a lane mark is selected, where there is no row to tint at all", () => {
+    // A packed child has no row — the mark is the only thing on screen
+    // standing for it — so `bg-muted` cannot carry its selection even in
+    // principle. Both channels land on the mark instead.
+    const packed = streams(["throughput"]);
+    const unselected = laneMarks(tree(packed, { startS: 0, endS: 10 }));
+    const s1 = (markup: string) =>
+      laneMarks(markup).find((mark) => mark.includes('aria-label="s1 · 8.00s"'));
+
+    expect(unselected.every((mark) => mark.includes('aria-pressed="false"'))).toBe(true);
+
+    const html = tree(packed, { startS: 0, endS: 10 }, "s1");
+    expect(s1(html)).toContain('aria-pressed="true"');
+    // Exactly one mark, and the fill keeps meaning KIND: the selected mark
+    // gets an outline, not a different colour.
+    expect([...html.matchAll(/aria-pressed="true"/g)]).toHaveLength(1);
+    expect(html).toContain("ring-foreground");
+  });
+
+  it("stamps its marks with the surface they belong to", () => {
+    // `OverviewStrip` draws marks under the same `data-mark` attribute and
+    // floors every one of them at `MARK_MIN_PX`; nothing here does. The
+    // browser measurement is this branch's only acceptance evidence, and
+    // without a discriminator its selector mixes the two populations — which
+    // already happened once, producing "88 marks, all exactly 2px".
+    const html = tree(streams(["throughput"]), { startS: 0, endS: 10 });
+    const marks = [...html.matchAll(/<[a-z]+[^>]*data-mark="true"[^>]*>/g)].map(
+      (match) => match[0],
+    );
+    expect(marks.length).toBeGreaterThan(1);
+    for (const mark of marks) expect(mark, mark).toContain('data-surface="tree"');
+    // Both kinds of mark, not just the one that happens to come first: a row's
+    // own bar is a <span> and a lane mark is a <button>.
+    expect(marks.some((mark) => mark.startsWith("<span"))).toBe(true);
+    expect(marks.some((mark) => mark.startsWith("<button"))).toBe(true);
+  });
+
   it("keeps every row exactly one row tall", () => {
     // 22px is the density the 300px name cap was measured against; a row that
     // grows with its content breaks the alignment the shared axis depends on.

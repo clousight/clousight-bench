@@ -168,6 +168,7 @@
   "trace.crumb": "Current time window",
   "dock.empty": "Select a span to see its detail.",
   "dock.no_attrs": "No attributes.",
+  "dock.close": "Close the detail panel",
   "status.completed": "completed",
   "status.failed": "failed",
   "status.invalid": "invalid",

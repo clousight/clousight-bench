@@ -3,9 +3,9 @@
  *
  * This is where the redesign's pieces become a page. Top to bottom: the
  * chrome that states the conclusion, the overview strip that draws the whole
- * run and takes the drag, the tree, and — to the right of it — the docked
- * detail of whatever row is selected. Below that, the aggregate and table
- * panes, unchanged.
+ * run and takes the drag, the tree, and — floating over the tree's right edge
+ * while a row is selected — the docked detail of that row. Below that, the
+ * aggregate and table panes, unchanged.
  *
  * **What this replaced, and why it is a replacement rather than a deletion.**
  * The `步骤` tab was the tree plus a detail panel, and `时序` was the tree
@@ -56,7 +56,13 @@ import { assignTracks } from "@/lib/tracks";
 import { fullViewport, type Viewport } from "@/lib/viewport";
 import { recordHref } from "@/router";
 
-/** How wide the docked detail is when a row is selected. */
+/**
+ * How wide the docked detail is when a row is selected.
+ *
+ * It costs the tree NOTHING, because the dock is drawn OVER the tree's right
+ * edge rather than inset beside it — see the mount site below for why that is
+ * a correctness property and not a style choice.
+ */
 const DOCK_PX = 264;
 
 export function TraceView({ runId }: { runId: string }) {
@@ -167,6 +173,12 @@ export function TraceView({ runId }: { runId: string }) {
     (id: string) => setSelectedId((current) => (current === id ? null : id)),
     [],
   );
+  // The dock's own way out. Named rather than an inline arrow for two
+  // reasons: it keeps `SpanDock`'s props referentially stable across a drag,
+  // and an inline `() => …` inside a JSX tag ends that tag early for the
+  // regex in `test_a_time_axis_is_fed_the_window_and_never_the_run_total`,
+  // which would stop seeing the `view={view}` it is here to check.
+  const onClearSelection = useCallback(() => setSelectedId(null), []);
 
   // Memoised, not computed inline: `fullSelection` builds a fresh object and a
   // fresh Set every call, so while nothing is unchecked an inline call would
@@ -263,30 +275,53 @@ export function TraceView({ runId }: { runId: string }) {
               />
               {kinds.length > 1 && <KindLegend kinds={kinds} />}
               <OverviewStrip rows={rows} bounds={bounds} view={view} onView={setZoom} />
-              <div className="mt-3 flex items-stretch gap-3">
-                <div className="min-w-0 flex-1">
-                  <TraceTree
-                    rows={visibleRows}
-                    view={view}
-                    onToggle={onToggle}
-                    selectedId={selectedId}
-                    onSelect={onSelect}
-                  />
-                </div>
-                {/* Mounted only while a row is selected, and that is a
-                    measured trade rather than a convenience. The content
-                    column is 1104px at 1440px wide; the tree's name cap and
-                    its two duration columns take a fixed 424px of any row, so
-                    a permanent 264px dock would leave the lane 404px — 37% of
-                    the row, below the 4x-wider lane this redesign was
-                    accepted on. Empty, it would be spending that width to say
-                    "select a span". */}
+              {/* THE DOCK IS AN OVERLAY, AND THAT IS AN ENCODING DECISION.
+                  Inset beside the tree it took real width: the content column
+                  is 1104px at 1440px wide and the tree spends a fixed 424px
+                  of every row on the name cap and the two duration columns,
+                  so a 264px dock plus its gap cut the lane from 680px to
+                  404px — 61.6% of the row down to 36.6% — and scaled every
+                  bar by 0.594 with it. The narrowest query at the throughput
+                  window went from 2.56px to ~1.52px, i.e. the acceptance
+                  gate's "0 marks under 2px" held only while the dock was
+                  shut, and the branch's own drill gesture opens it.
+
+                  A per-mark `min-width` would have "fixed" that by drawing a
+                  1.5ms span at 2ms, which is the encoding lie this whole
+                  redesign exists to remove. Narrowing the name column while
+                  the dock is open cannot reach the old widths either — it
+                  would need the fixed columns down to 148px — and lands at
+                  ~1.97px, under the line by arithmetic rather than by
+                  principle.
+
+                  Overlaying costs the lane nothing: the tree's row box does
+                  not know the dock exists, so every bar is the same width in
+                  both states and the gate numbers are one set of numbers
+                  rather than two. What it costs instead is occlusion — the
+                  right 264px of the lane is covered while the dock is open —
+                  which is visible, recoverable in one click, and never a
+                  wrong number. */}
+              <div className="relative mt-3">
+                <TraceTree
+                  rows={visibleRows}
+                  view={view}
+                  onToggle={onToggle}
+                  selectedId={selectedId}
+                  onSelect={onSelect}
+                />
                 {selectedRow !== null && (
                   <div
-                    className="shrink-0 border-l border-border"
+                    data-dock="overlay"
+                    // `top-0 max-h-full`, not `inset-y-0`: the panel occludes
+                    // whatever it covers, so it takes its content's height and
+                    // no more, and only grows a scrollbar once a span has
+                    // enough attributes to need one. Stretched to the tree's
+                    // full height it was hiding the right edge of every row
+                    // below its last line for no reason.
+                    className="absolute right-0 top-0 max-h-full overflow-y-auto border-l border-border bg-background shadow-lg"
                     style={{ width: `${DOCK_PX}px` }}
                   >
-                    <SpanDock row={selectedRow} view={view} />
+                    <SpanDock row={selectedRow} view={view} onClose={onClearSelection} />
                   </div>
                 )}
               </div>

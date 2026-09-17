@@ -1,7 +1,16 @@
 /**
- * The docked span detail: the right-hand panel a selected row fills in,
- * replacing the "expand a block that shoves every row below it out of view"
- * pattern the old transcript cards used.
+ * The docked span detail: the panel a selected row fills in, replacing the
+ * "expand a block that shoves every row below it out of view" pattern the old
+ * transcript cards used.
+ *
+ * **It floats over the tree's right edge; it is not a column beside it.** The
+ * caller mounts it absolutely, and that is load-bearing rather than
+ * decorative: inset, its 264px came out of the lane, taking the lane from
+ * 61.6% of the row to 36.6% and every bar with it — the acceptance gate's
+ * narrowest query mark from 2.56px to ~1.52px, under the 2px line, on the
+ * very gesture that opens this panel. Overlaid, the tree's geometry does not
+ * know the panel exists. The price is occlusion, which is why `onClose` is a
+ * required prop.
  *
  * **Two durations, never one, and never printed under the other's label.**
  * `窗口内` (`trace.col_window`) is this span's duration intersected with the
@@ -29,6 +38,7 @@
  * rather than surviving it as a second, unmigrated copy.
  */
 
+import { X } from "lucide-react";
 import type { JSX } from "react";
 
 import { overlapS } from "@/features/trace/TraceTree";
@@ -68,7 +78,18 @@ function kindLabel(t: (key: string) => string, kind: string): string {
   return translated === key ? kind : translated;
 }
 
-export function SpanDock({ row, view }: { row: SpanRow | null; view: Viewport }): JSX.Element {
+export interface SpanDockProps {
+  row: SpanRow | null;
+  view: Viewport;
+  /** Dismiss the dock. Required, not optional: the panel is drawn OVER the
+   * right edge of the tree (see `TraceView`'s mount site — insetting it beside
+   * the tree narrowed every bar), so while it is open it hides part of the
+   * time axis. An overlay with no visible way out would trade a measurable
+   * defect for an unrecoverable one. */
+  onClose: () => void;
+}
+
+export function SpanDock({ row, view, onClose }: SpanDockProps): JSX.Element {
   const { t } = useI18n();
 
   if (row === null) {
@@ -100,6 +121,19 @@ export function SpanDock({ row, view }: { row: SpanRow | null; view: Viewport })
           <span className="min-w-0 flex-1 truncate text-sm font-medium" title={name}>
             {name}
           </span>
+          {/* The way out of the occlusion. It carries a real label rather
+              than only a glyph, because "×" alone in a 264px panel beside a
+              truncating name is indistinguishable from decoration. */}
+          <button
+            type="button"
+            data-action="close-dock"
+            onClick={onClose}
+            aria-label={t("dock.close")}
+            title={t("dock.close")}
+            className="shrink-0 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <X className="size-3.5" aria-hidden />
+          </button>
         </div>
         <span className="font-mono text-[11px] text-muted-foreground">
           {kindLabel(t, row.kind)}
