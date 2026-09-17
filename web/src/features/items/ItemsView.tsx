@@ -107,6 +107,16 @@ interface Column {
   label: string;
   blurb: string | null;
   raw: string;
+  /**
+   * The key the glossary is looked up with — `gsm8k.accuracy`, not `accuracy`.
+   *
+   * Header and cell MUST share it. They did not at first, and the column headed
+   * "准确率" printed `1` where the record page printed `100 %` for the same
+   * number: the header resolved the suite-qualified key and found the ratio
+   * spec, the cell resolved the bare metric id and fell through to raw. One
+   * field, read by both, is what makes that divergence unrepresentable.
+   */
+  specKey: string;
   kind: "metric" | "usage";
 }
 
@@ -146,12 +156,14 @@ export function ItemsTable({
     const metricCols: Column[] = itemMetricIds(items)
       .filter((metric) => scope === null || metric === scope.metric)
       .map((metric) => {
-        const spec = lookupMetric(suiteId === "" ? metric : `${suiteId}.${metric}`);
+        const specKey = suiteId === "" ? metric : `${suiteId}.${metric}`;
+        const spec = lookupMetric(specKey);
         return {
           key: metric,
           label: metricLabel(spec, locale),
           blurb: metricBlurb(spec, locale),
           raw: metric,
+          specKey,
           kind: "metric" as const,
         };
       });
@@ -162,6 +174,7 @@ export function ItemsTable({
         label: metricLabel(spec, locale),
         blurb: metricBlurb(spec, locale),
         raw: key,
+        specKey: key,
         kind: "usage" as const,
       };
     });
@@ -266,7 +279,15 @@ export function ItemsTable({
               <TableHead>{t("items.col_item")}</TableHead>
               {showGroup && <TableHead>{t("items.col_group")}</TableHead>}
               {columns.map((column) => (
-                <TableHead key={column.key} aria-sort={ariaSort(column.key)}>
+                <TableHead
+                  key={column.key}
+                  aria-sort={ariaSort(column.key)}
+                  // `h-9` + `leading-none` is sized for one line; this header is
+                  // two (label over raw key, the house's two-layer rule) and the
+                  // second line printed straight through the first. Height comes
+                  // from the content here, and the leading is restored.
+                  className="h-auto py-2 align-bottom leading-normal"
+                >
                   <button
                     type="button"
                     onClick={() => onSort(column.key)}
@@ -356,7 +377,7 @@ function ItemCell({ item, column }: { item: ItemResultData; column: Column }) {
   if (column.kind === "usage") {
     const raw = (item.usage ?? {})[column.raw];
     if (typeof raw !== "number" || !Number.isFinite(raw)) return <span>—</span>;
-    const spec = lookupMetric(column.raw);
+    const spec = lookupMetric(column.specKey);
     const formatted = formatMetric(raw, spec.format);
     return (
       <span>
@@ -367,7 +388,7 @@ function ItemCell({ item, column }: { item: ItemResultData; column: Column }) {
   }
   const score = scoreOf(item, column.key);
   if (score === null) return <span>—</span>;
-  const spec = lookupMetric(column.raw);
+  const spec = lookupMetric(column.specKey);
   const formatted =
     typeof score.value === "number"
       ? formatMetric(score.value, spec.format)

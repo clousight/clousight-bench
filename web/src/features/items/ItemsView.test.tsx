@@ -97,6 +97,38 @@ describe("ItemsTable", () => {
     expect(table()).not.toContain("gsm8k.accuracy");
   });
 
+  it("formats a cell with the same glossary spec its header was named from", () => {
+    // Caught in a browser, not here: the header resolved `gsm8k.accuracy` and
+    // read "准确率 / accuracy" off the ratio spec, while the cell resolved the
+    // bare `accuracy`, missed the spec and printed `1` — for the number the
+    // record page prints as `100 %`. One column, two truths.
+    const markup = table({
+      items: [{ item_id: "a", scores: [{ metric: "accuracy", value: 1, status: "ok" }] }],
+    });
+    const body = markup.slice(markup.indexOf("<tbody"));
+    const text = body
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    // The bug printed a bare `1` with no unit, because the raw format carries
+    // none. Asserting the formatted pair is therefore the whole test.
+    expect(text).toContain("100 %");
+  });
+
+  it("gives the two-line header room instead of printing one line through the other", () => {
+    // `TableHead` is `h-9 leading-none`, sized for a single line. This header
+    // carries the label over the raw key, and at that height the second line
+    // rendered on top of the first.
+    const markup = table();
+    const heads = [...markup.matchAll(/<th[^>]*>/g)].map((m) => m[0]);
+    const sortable = heads.filter((tag) => tag.includes("aria-sort"));
+    expect(sortable.length).toBeGreaterThan(0);
+    for (const tag of sortable) {
+      expect(tag).toContain("h-auto");
+      expect(tag).toContain("leading-normal");
+    }
+  });
+
   it("narrows the columns to the scoped metric", () => {
     const corpus: ItemResultData[] = [
       { item_id: "a", scores: [{ metric: "accuracy", value: 1 }, { metric: "answered_rate", value: 1 }] },
@@ -135,11 +167,21 @@ describe("the honesty invariant, on screen", () => {
     expect(filtered).not.toContain(">test-0<");
   });
 
-  it("prints no percentage anywhere", () => {
-    // A ratio over a filtered subset is the one thing this surface must never
-    // compute. "No % at all" is cruder than "no subset ratio" and is the rule
-    // a test can actually enforce.
-    expect(table()).not.toContain("%");
-    expect(table({ initialFailingOnly: true })).not.toContain("%");
+  it("prints no percentage in the chrome, where a subset ratio would go", () => {
+    // The first cut of this test banned "%" from the whole page, and it passed
+    // — because a bug was suppressing it. `accuracy` resolved to no spec and
+    // printed `1`; once the cell read the right glossary key it printed
+    // `100 %`, exactly as the record page does, and the test went red on a
+    // correct value.
+    //
+    // So state the real rule. A per-item `%` is that item's own score, produced
+    // by the evaluator and formatted like everywhere else — an observation. The
+    // forbidden thing is a ratio over whatever the reader has filtered TO, and
+    // that would be printed in the chrome: the tally, the match count, the
+    // header. Rows may carry percentages; the chrome may not.
+    for (const markup of [table(), table({ initialFailingOnly: true })]) {
+      const chrome = markup.slice(0, markup.indexOf("<table"));
+      expect(chrome).not.toContain("%");
+    }
   });
 });
