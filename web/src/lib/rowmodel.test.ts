@@ -94,6 +94,26 @@ describe("idle time", () => {
     const n = parent([0, 4], [[0, 2], [1, 3]]);
     expect(buildTree([n.row, ...n.kids])[0].idleS).toBeCloseTo(1);
   });
+
+  it("keeps selfS and idleS numerically identical, on purpose", () => {
+    // A tripwire, not a discovery. `SpanRow` carries nothing that could tell
+    // "the parent was doing its own work" from "the parent was waiting", so
+    // both fields are duration-minus-the-union-of-children and the review
+    // ruled they stay two names for one quantity until a real self-work
+    // signal exists. Nothing else pins that, which means editing one formula
+    // and not the other would go uncaught — and the two fields do NOT mean
+    // the same thing to their readers, so a divergence would be silent
+    // rather than obviously wrong.
+    //
+    // What it protects is already live: `TraceTree` draws `idleS` as a
+    // hatched segment and has to suppress it for leaves, because a leaf's
+    // "unaccounted" time is its whole duration while its self time is the
+    // same number and is entirely accounted for. Whoever finally splits
+    // these two must land here first.
+    const container = nodeWith([[0, 2], [3, 4]]);
+    expect(container.selfS).toBe(container.idleS);
+    for (const leaf of container.children) expect(leaf.selfS).toBe(leaf.idleS);
+  });
 });
 
 describe("flatten", () => {
