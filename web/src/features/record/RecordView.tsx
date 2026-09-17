@@ -28,7 +28,9 @@ import { useI18n } from "@/i18n";
 import { fmtDate, fmtDurMs } from "@/lib/format";
 import { lookupStatus } from "@/lib/glossary";
 import { headlineMetrics, orderMetricKeys, suiteLabel } from "@/lib/headline";
-import { boardHref, suiteHref, traceHref } from "@/router";
+import { detailTarget, type ItemResultData } from "@/lib/items";
+import { cn } from "@/lib/utils";
+import { boardHref, itemsHref, suiteHref, traceHref } from "@/router";
 
 export function RecordView({ runId }: { runId: string }) {
   const { t, locale } = useI18n();
@@ -43,6 +45,7 @@ export function RecordView({ runId }: { runId: string }) {
   const identity = data.identity ?? {};
   const provenance = data.provenance ?? {};
   const measurements = data.measurements ?? {};
+  const items = data.items ?? [];
   const errors = data.errors ?? [];
   const artifacts = data.artifacts ?? [];
   const stages = (run.stages ?? {}) as Record<string, string>;
@@ -62,21 +65,7 @@ export function RecordView({ runId }: { runId: string }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <a
-          href={suiteId !== "" && domain !== "" ? suiteHref(domain, suiteId) : boardHref}
-          className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-        >
-          ← {suiteId !== "" ? suiteLabel(suiteId) : t("board.title")}
-        </a>
-        <a
-          href={traceHref(runId)}
-          className="ml-auto inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline"
-        >
-          {t("record.view_trace")}
-          <ArrowRight className="size-3.5" aria-hidden />
-        </a>
-      </div>
+      <RecordLinks runId={runId} hasItems={items.length > 0} suiteId={suiteId} domain={domain} />
 
       {/* Verdict */}
       <div className="flex flex-col gap-2">
@@ -157,14 +146,21 @@ export function RecordView({ runId }: { runId: string }) {
             {orderedKeys.map((key) => {
               const entry = measurements[key];
               return (
-                <MetricValue
-                  key={key}
-                  measurementKey={key}
-                  value={entry.value}
-                  unit={entry.unit}
-                  reproducibility={entry.reproducibility_class}
-                  official={entry.official}
-                />
+                <div key={key} className="flex flex-col gap-1">
+                  <MetricValue
+                    measurementKey={key}
+                    value={entry.value}
+                    unit={entry.unit}
+                    reproducibility={entry.reproducibility_class}
+                    official={entry.official}
+                  />
+                  <MeasurementDetailLink
+                    runId={runId}
+                    measurementKey={key}
+                    suiteId={suiteId}
+                    items={items}
+                  />
+                </div>
               );
             })}
           </SectionBody>
@@ -239,6 +235,96 @@ export function RecordView({ runId }: { runId: string }) {
         <p className="text-sm text-muted-foreground">{t("record.no_measurements")}</p>
       )}
     </div>
+  );
+}
+
+/**
+ * The two ways out of a record: its trace, and — only when there is one — its
+ * per-item detail.
+ *
+ * Every run has lifecycle spans, so the trace link is unconditional. Items have
+ * no such floor: the TPC and YCSB families measure an engine rather than
+ * examples and emit none, and a link into an empty table is a door to an empty
+ * room. `hasItems` is the whole condition, decided by the caller from the
+ * record it already holds.
+ */
+export function RecordLinks({
+  runId,
+  hasItems,
+  suiteId,
+  domain,
+}: {
+  runId: string;
+  hasItems: boolean;
+  suiteId: string;
+  domain: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <a
+        href={suiteId !== "" && domain !== "" ? suiteHref(domain, suiteId) : boardHref}
+        className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+      >
+        ← {suiteId !== "" ? suiteLabel(suiteId) : t("board.title")}
+      </a>
+      {hasItems && (
+        <a
+          href={itemsHref(runId)}
+          className="ml-auto inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline"
+        >
+          {t("items.view")}
+          <ArrowRight className="size-3.5" aria-hidden />
+        </a>
+      )}
+      <a
+        href={traceHref(runId)}
+        className={cn(
+          "inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline",
+          !hasItems && "ml-auto",
+        )}
+      >
+        {t("record.view_trace")}
+        <ArrowRight className="size-3.5" aria-hidden />
+      </a>
+    </div>
+  );
+}
+
+/**
+ * The bridge from one measurement to the evidence under it — or nothing.
+ *
+ * `detailTarget` returns null for every measurement summed from `usage` rather
+ * than aggregated from `ItemScore`s (`avg_latency_ms`, `cost_usd`,
+ * `total_tokens`). Rendering a link there would promise a table that cannot
+ * show the number it claims to explain, so the answer is no link at all rather
+ * than a link to an empty filter.
+ *
+ * The wording matters too: this points at "the evidence behind this number",
+ * never at "the items that produce it". The items do not recompute the
+ * measurement — an evaluator did, offline, over sealed evidence.
+ */
+export function MeasurementDetailLink({
+  runId,
+  measurementKey,
+  suiteId,
+  items,
+}: {
+  runId: string;
+  measurementKey: string;
+  suiteId: string;
+  items: ItemResultData[];
+}) {
+  const { t } = useI18n();
+  const target = detailTarget(measurementKey, suiteId, items);
+  if (target === null) return null;
+  return (
+    <a
+      href={itemsHref(runId, target)}
+      className="w-fit text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+    >
+      {t("items.evidence_for")} →
+    </a>
   );
 }
 
