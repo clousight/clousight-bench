@@ -144,14 +144,36 @@ describe("<TraceTree>", () => {
     expect(tree(noIdle, { startS: 0, endS: 10 })).not.toMatch(/data-idle="true"/);
   });
 
-  it("never hatches a leaf, whose idleS is its whole duration", () => {
-    // `buildTree` computes idle as duration minus the union of children, so a
-    // childless span's idle IS its duration — and most of a trace is leaves.
-    // Drawing that literally would hatch every query bar end to end and say a
-    // 900-query run was idle throughout. A leaf is working, not waiting.
+  it("never hatches a leaf, which is working rather than waiting", () => {
+    // Most of a trace is leaves. This used to be true because the view
+    // suppressed the segment for a childless node while the model still
+    // reported its whole duration as idle; the model returns 0 now and the
+    // view draws what it is given, so the assertion reads the same and means
+    // something different. Both halves are here because either alone can pass
+    // while the other is wrong.
     const leaf = visible([row("only", 0, 10)]);
-    expect(leaf[0].idleS).toBe(10);
+    expect(leaf[0].idleS).toBe(0);
     expect(tree(leaf, { startS: 0, endS: 10 })).not.toMatch(/data-idle="true"/);
+  });
+
+  it("never hatches a bar the window cut, because idle is a total-domain number", () => {
+    // `idleS / durationS` is a fraction of the span's WHOLE extent; the box it
+    // paints into is whatever the window left of the bar. Multiplying the two
+    // is `pctOf(total)` — the defect this redesign exists to remove — wearing
+    // a hatch.
+    //
+    // A [0,10] parent whose one child covers [0,2], seen through the window
+    // [0,2]: the bar fills the lane and the real unaccounted time inside that
+    // window is ZERO, but the total-domain ratio is 8/10 and painted 80% of
+    // it. Nothing in the suite saw this until the review reproduced it.
+    const rows = visible([row("p", 0, 10), row("c", 0, 2, "p")], ["p"]);
+    const clipped = tree(rows, { startS: 0, endS: 2 });
+    expect(clipped).toMatch(/data-clipped-end="true"/);
+    expect(clipped).not.toMatch(/data-idle="true"/);
+
+    // The same rows, unclipped, still draw it — the suppression is about the
+    // window cutting the bar, not about quietly deleting the feature.
+    expect(tree(rows, { startS: 0, endS: 10 })).toMatch(/data-idle="true"/);
   });
 
   it("renders a concurrent node's children as lanes, sequential ones as rows", () => {

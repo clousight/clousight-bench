@@ -31,8 +31,8 @@ function row(id: string, startS: number, endS: number, parentId: string | null =
 }
 
 /** A root "p" with one child per `[startS, endS]` interval, run through the
- * real `buildTree` so `selfS`/`idleS` and child ordering come from production
- * code, not from a hand-assembled `TreeNode`. */
+ * real `buildTree` so `idleS` and child ordering come from production code,
+ * not from a hand-assembled `TreeNode`. */
 function nodeWith(intervals: Array<[number, number]>): TreeNode {
   const maxEnd = intervals.reduce((acc, [, endS]) => Math.max(acc, endS), 0);
   const parentRow = row("p", 0, maxEnd);
@@ -95,24 +95,21 @@ describe("idle time", () => {
     expect(buildTree([n.row, ...n.kids])[0].idleS).toBeCloseTo(1);
   });
 
-  it("keeps selfS and idleS numerically identical, on purpose", () => {
-    // A tripwire, not a discovery. `SpanRow` carries nothing that could tell
-    // "the parent was doing its own work" from "the parent was waiting", so
-    // both fields are duration-minus-the-union-of-children and the review
-    // ruled they stay two names for one quantity until a real self-work
-    // signal exists. Nothing else pins that, which means editing one formula
-    // and not the other would go uncaught — and the two fields do NOT mean
-    // the same thing to their readers, so a divergence would be silent
-    // rather than obviously wrong.
+  it("is zero for a leaf, which is working rather than waiting", () => {
+    // The general form is `duration - union(children)`, and for a childless
+    // span that is the whole duration. Most of a trace is leaves, so the
+    // unguarded arithmetic said a 900-query run was idle throughout — and
+    // nothing here caught it, because the only assertion on this field was
+    // about a parent. `TraceTree` first compensated for it in the view; the
+    // number is fixed at the source now, so this is the assertion that keeps
+    // it fixed.
     //
-    // What it protects is already live: `TraceTree` draws `idleS` as a
-    // hatched segment and has to suppress it for leaves, because a leaf's
-    // "unaccounted" time is its whole duration while its self time is the
-    // same number and is entirely accounted for. Whoever finally splits
-    // these two must land here first.
+    // Both halves in one test on purpose: "leaf is 0" alone is satisfied by a
+    // model that returns 0 for everything, which would silently delete the
+    // feature this field exists for.
     const container = nodeWith([[0, 2], [3, 4]]);
-    expect(container.selfS).toBe(container.idleS);
-    for (const leaf of container.children) expect(leaf.selfS).toBe(leaf.idleS);
+    expect(container.idleS).toBe(1); // [0,4] minus the 3s its children cover
+    for (const leaf of container.children) expect(leaf.idleS).toBe(0);
   });
 });
 

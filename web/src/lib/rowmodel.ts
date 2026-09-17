@@ -11,12 +11,27 @@
  * the wrong one either hides real concurrency behind a single-height row or
  * fans twenty sequential children out into twenty pointless lanes.
  *
- * `idleS`/`selfS` are the time inside a node's own extent that none of its
- * children cover. They are computed from the UNION of child intervals, never
- * the sum: children commonly overlap (that is the whole reason lanes exist),
- * and summing overlapping intervals double-counts the overlap, which can
- * even drive "idle" negative before the clamp hides the bug. Two children
- * covering [0,2] and [1,3] cover 3s of a 4s parent, not 4s.
+ * `idleS` is the time inside a CONTAINER's extent that none of its children
+ * cover. It is computed from the UNION of child intervals, never the sum:
+ * children commonly overlap (that is the whole reason lanes exist), and
+ * summing overlapping intervals double-counts the overlap, which can even
+ * drive "idle" negative before the clamp hides the bug. Two children covering
+ * [0,2] and [1,3] cover 3s of a 4s parent, not 4s.
+ *
+ * A LEAF's idle time is zero, not its duration. `duration - union(nothing)`
+ * is the whole duration, and most of a trace is leaves, so the arithmetic
+ * form of this field said a 900-query run was idle throughout. A span with no
+ * children is working, not waiting. That reading only surfaced when `TraceTree`
+ * tried to paint it, and it was briefly papered over in the view; the number
+ * is fixed here instead, where every future reader gets it.
+ *
+ * There was a `selfS` beside this, documented as serving a different reader.
+ * It had no reader anywhere in `web/src` — the `selfS` the timeline panes show
+ * is `aggregate.ts::Bucket.selfS`, computed independently and window-clipped —
+ * so "two names for two questions" had no second question attached, and the
+ * unread copy is what let the leaf value stay wrong across three tasks.
+ * Splitting self time from idle time needs a real self-work signal on the
+ * span, not a second field holding the same expression.
  */
 
 import type { SpanRow } from "@/lib/trace";
@@ -24,12 +39,8 @@ import type { SpanRow } from "@/lib/trace";
 export interface TreeNode {
   row: SpanRow;
   children: TreeNode[];
-  /** Parent's own extent minus the union of its children's extents. Never
-   * negative. Currently identical to `idleS` — see the module docstring —
-   * kept as a separate field because the two names serve different readers
-   * downstream (a "how long did this take on its own" question vs. a "what
-   * fraction of this bar is unaccounted for" one). */
-  selfS: number;
+  /** A container's extent minus the union of its children's extents; zero for
+   * a leaf. Never negative. See the module docstring. */
   idleS: number;
 }
 
@@ -116,8 +127,11 @@ export function buildTree(rows: SpanRow[]): TreeNode[] {
 
     const covered = unionLength(children.map((child): [number, number] => [child.row.startS, child.row.endS]));
     const duration = Math.max(row.endS - row.startS, 0);
-    const uncovered = Math.max(duration - covered, 0);
-    return { row, children, selfS: uncovered, idleS: uncovered };
+    // A leaf is short-circuited rather than left to the subtraction: with no
+    // children `covered` is 0, so the general form returns the whole duration
+    // and calls a working span idle. See the module docstring.
+    const idleS = children.length === 0 ? 0 : Math.max(duration - covered, 0);
+    return { row, children, idleS };
   }
 
   return roots
@@ -214,11 +228,10 @@ export function flatten(tree: TreeNode[], expanded: ReadonlySet<string>): Visibl
  * so expanding this set opens every ancestor down to the slow leaf, not just
  * the leaf's own id.
  *
- * "Heaviest" is duration, not `selfS`/`idleS` — a container with a huge
- * self/idle time is exactly the case (see `aggregate.ts`) that ranks
- * differently for a different question; this one answers "where did the
- * wall clock go", which a pure container answers as loudly as anything it
- * contains.
+ * "Heaviest" is duration, not `idleS` — a container with a huge idle time is
+ * exactly the case (see `aggregate.ts`) that ranks differently for a
+ * different question; this one answers "where did the wall clock go", which a
+ * pure container answers as loudly as anything it contains.
  */
 export function slowestPath(tree: TreeNode[]): Set<string> {
   const ids = new Set<string>();

@@ -119,6 +119,18 @@ const IDLE_HATCH = {
  * are not on screen to place it against), so the trailing edge is a convention
  * and the segment says so in its own `title` rather than letting the reader
  * infer a gap that may have been in the middle.
+ *
+ * AND IT IS SUPPRESSED THE MOMENT THE WINDOW CUTS THE BAR. `idleS / durationS`
+ * is a fraction in the TOTAL domain; the box it would paint into is what the
+ * window left of the bar. Multiplying the two is `pctOf(total)` — the exact
+ * defect the redesign exists to remove — smuggled in as a hatch: a parent
+ * [0,10] whose one child covers [0,2], seen through the window [0,2], drew a
+ * full-width bar with 80% of it hatched over an interval whose real idle time
+ * is zero. Doing it honestly needs the child intervals clipped to the window,
+ * and `VisibleRow` does not carry them (for a collapsed node they are not even
+ * on screen), so the answer is to draw nothing rather than to draw a number
+ * from the wrong domain. The `窗口内` column still moves, which is where a
+ * zoomed reader's information about this bar correctly lives.
  */
 function Bar({
   row,
@@ -138,7 +150,9 @@ function Bar({
 
   const name = row.name ?? t("common.unnamed");
   const durationS = Math.max(row.endS - row.startS, 0);
-  const idlePct = durationS > 0 ? Math.min(100, Math.max(0, (idleS / durationS) * 100)) : 0;
+  const clipped = placed.clippedStart || placed.clippedEnd;
+  const idlePct =
+    clipped || durationS <= 0 ? 0 : Math.min(100, Math.max(0, (idleS / durationS) * 100));
 
   const parts = [name, fmtSpanDur(durationS)];
   if (placed.clippedStart) parts.push(t("trace.clipped_start"));
@@ -301,16 +315,13 @@ function SpanRowView({
         </button>
       </div>
       <div data-col="lane" className="relative h-full flex-1 overflow-hidden">
-        {/* `idleS` is only unaccounted time for a node that HAS children.
-            `buildTree` computes it as duration minus the union of children,
-            so for a leaf — which is most of a trace — it equals the whole
-            duration, and drawing that would hatch every leaf bar end to end
-            and claim a 900-query trace was idle throughout. A leaf is not
-            idle, it is working; that is `selfS`, the field this one is
-            currently numerically identical to. Gating it here is the
-            component's job rather than the model's: the model's number is
-            right, it is only meaningful in one of the two cases. */}
-        <Bar row={row} view={view} idleS={hasChildren ? idleS : 0} lane={null} />
+        {/* `idleS` unmodified. It used to be gated on `hasChildren` here,
+            because `buildTree` returned a leaf's whole duration as its idle
+            time and drawing that hatched every query bar end to end. That was
+            the view papering over a wrong number: `rowmodel.ts` returns 0 for
+            a leaf now, so every reader gets the right answer instead of this
+            one compensating for it. */}
+        <Bar row={row} view={view} idleS={idleS} lane={null} />
       </div>
       <Numbers
         windowS={overlapS(view, row.startS, row.endS)}
