@@ -18,6 +18,7 @@
  * draw on top of each other.
  */
 
+import { packIntervals } from "@/lib/rowmodel";
 import type { SpanRow } from "@/lib/trace";
 
 /**
@@ -90,22 +91,13 @@ function streamOf(row: SpanRow): string | null {
 
 /** Greedy interval packing within one group: first lane whose last span ends
  * at or before this one starts. `groupRows` must already be sorted by
- * startS, so a single pass suffices. */
+ * startS, so a single pass suffices.
+ *
+ * The packing itself now lives in `rowmodel.ts::packIntervals` (row model's
+ * `packChildren` needed the same algorithm over full `SpanRow`s rather than
+ * ids); this stays as the id-shaped adapter every call site here expects. */
 function packGroup(groupRows: SpanRow[]): string[][] {
-  const laneEnds: number[] = [];
-  const laneSpans: string[][] = [];
-  for (const row of groupRows) {
-    let lane = laneEnds.findIndex((end) => end <= row.startS);
-    if (lane === -1) {
-      lane = laneEnds.length;
-      laneEnds.push(row.endS);
-      laneSpans.push([row.id]);
-    } else {
-      laneEnds[lane] = row.endS;
-      laneSpans[lane].push(row.id);
-    }
-  }
-  return laneSpans;
+  return packIntervals(groupRows).map((lane) => lane.map((row) => row.id));
 }
 
 export function assignTracks(rows: SpanRow[]): Track[] {
