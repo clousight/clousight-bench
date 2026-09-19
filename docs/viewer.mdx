@@ -4,13 +4,19 @@ description: Local web viewer over a results directory — watch a run while it 
 ---
 
 `csbench serve` starts a small local web server on top of a results directory
-and serves an embedded single-page viewer. It has two jobs: showing you a run
-**while it is happening**, and helping you read the runs that have already
-finished.
+and serves an embedded single-page viewer. It shows you a run **while it is
+happening**, helps you read the runs that have already finished, and — only
+when you ask for it — lets you edit a target config and start a run.
 
-Everything it reads comes from files under the results directory. The one thing
-it can write is a zero-byte `cancel` marker for a run that is still going — see
-[Stopping a run](#stopping-a-run). Nothing it does can change a sealed record.
+**Read-only is the default, and that is the design.** Without `--allow-write`
+every write route answers 405 and names the flag, so "not allowed here" never
+reads as "broken". The one exception predates the flag: a zero-byte `cancel`
+marker for a run that is still going, see [Stopping a run](#stopping-a-run).
+
+**Sealed records are never writable**, flag or no flag. Every record carries a
+`record_digest` that covers its measurements; an edit route would make "this
+result can be re-checked" false, and that is the promise the whole tool rests
+on. See [Writing](#writing).
 
 ## Usage
 
@@ -19,13 +25,19 @@ csbench serve                          # ./results on http://127.0.0.1:8787
 csbench serve --results out/results    # another results directory
 csbench serve --port 0                 # ephemeral port; the printed URL shows the actual bound port
 csbench serve --host 0.0.0.0           # bind non-localhost — the viewer has NO auth; do NOT expose publicly
+csbench serve --configs configs        # where target configs live (default: ./configs)
+csbench serve --allow-write            # also: edit targets, start runs. Off by default.
 ```
+
+The printed line names the posture — `(results: results, read-only)` or
+`read+write` — because that is the server's whole security argument and
+someone reading their scrollback should be able to tell which one is up.
 
 The command prints the actual bound address (useful with `--port 0`) and runs
 until Ctrl-C.
 
-The header has two destinations — **Live** and **Results** — plus a
-**language switcher** (EN | 中文; the choice persists in `localStorage` and
+The header carries the five sections — **Suites**, **Platforms**, **Runs**,
+**Observe**, **Config** — plus a **language switcher** (EN | 中文; the choice persists in `localStorage` and
 defaults to the browser language), an **engineer-view** toggle and a **theme**
 toggle (follows `prefers-color-scheme` until toggled, then persists). The Live
 tab carries a count badge only while something is actually running; there is no
@@ -133,10 +145,22 @@ Four pages, in the order a question narrows:
 
 | Page | Route | The question it answers |
 |---|---|---|
-| Board | `#/` | What has been measured, per domain and per benchmark? |
-| Suite comparison | `#/suite/:domain/:suite_id` | Which platform is better at *this* benchmark? |
-| Record | `#/record/:run_id` | What did this one run find, and can I trust it? |
-| Trace | `#/record/:run_id/trace` | What actually happened inside it? |
+| Board | `#/suites` | What has been measured, per domain and per benchmark? |
+| Installed benchmarks | `#/suites/installed` | What can this build measure at all, pinned to which data? |
+| Suite comparison | `#/suites/:domain/:suite_id` | Which platform is better at *this* benchmark? |
+| Platform catalogue | `#/platforms` | Which managed cloud products can be pointed at? |
+| Targets | `#/targets` | Which instances are configured, and where? |
+| Run | `#/runs/:run_id` | What did this one run find, and can I trust it? |
+| Config | `#/config` | What does each metric mean, what is installed, what did a word used to be? |
+
+A run is one object with four faces, selected by `?tab=`: overview, per-item
+detail (absent on suites that emit no items), the execution trace, and the
+frozen configuration snapshot. Its identity bar answers "what am I looking at"
+before any tab is pressed, and carries **Create like this**, which seeds a new
+run from this one.
+
+Every older spelling still resolves and rewrites itself in the address bar:
+`#/`, `#/record/:id[/trace|/items]`, `#/suite/:d/:s`, `#/live[/:id]`.
 
 - **Board** groups every record by domain and then by benchmark, showing each
   benchmark's platform count, run count and its newest run's headline metrics.
@@ -171,6 +195,49 @@ Four pages, in the order a question narrows:
 `#/runs` is the old flat table of every run, with a client-side filter box. It
 is genuinely useful once you already know which run you are hunting for, which
 is why it is still there and no longer the front door.
+
+## Writing
+
+Started with `--allow-write`, the console can do two things. Both are fenced
+the same way: the shared `Host` guard, a required `X-Csbench-Write: 1` header
+(a custom header is unreachable from a cross-origin `<form>`, which closes
+simple-form CSRF), and a 64 KiB cap read off `Content-Length` before a byte of
+the body is read.
+
+**Targets** (`configs/*.yaml`) can be created, edited and deleted. A name off
+the wire is a name, never a path: it must match `^[A-Za-z0-9._-]{1,64}$` (with
+`.` and `..` excluded, since both match that pattern and name a directory) and
+the resolved path must still be inside the configs directory — checked after
+`resolve()`, because a symlink passes any name check. YAML is parsed before it
+is written, so a file that will not load never reaches the disk.
+
+Values whose key looks like a credential (`secret`, `token`, `password`, `key`,
+`credential`) come back as `***`, and when that happens the file's raw text is
+withheld entirely — raw text is the one thing that cannot be redacted safely,
+so such a target is shown but not editable here. A `PUT` carrying `***` is
+refused: that body is a redacted read on its way back, and saving it would
+overwrite a real credential with three asterisks.
+
+**Runs** can be started. The request body is a fixed set of fields — domain,
+benchmark, platform, target *name*, scalar params, repeat, warmup — validated
+against the live plugin registry. There is no field for a command line and
+none for a path. `repeat` is capped (20) because it is what turns one click
+into an afternoon of billable work, and a fifth concurrent run is refused with
+429 rather than queued. The run is a detached subprocess
+(`sys.executable -m clousight_bench run --run-id ...`), so the reply can name
+a run before it has started and the browser can open the live view on it
+immediately.
+
+What the form deliberately does **not** enforce is that a benchmark "belongs"
+on a platform: nothing in the registry pairs them, so any rule would be
+invented. It shows where each benchmark has actually run, warns before a
+platform that bills or an adapter that is still a skeleton, and lets you
+decide.
+
+The console keeps its own notes under `results/.launches/` — what it was asked
+to start, beside the results rather than in them. That is what lets a target
+say how many runs used it; a sealed record does not carry the name of the
+config file it was handed.
 
 ## Plain language
 
@@ -252,10 +319,20 @@ Three environment variables tune it:
 | `GET /api/suite/<domain>/<suite_id>` | that suite's platforms: latest run, bounded history, metric union |
 | `GET /api/record/<run_id>` | the full record dict |
 | `GET /api/record/<run_id>/trajectory` | `{spans, t0, source}` — see [the execution trace](#the-execution-trace) |
+| `GET /api/suites` | installed benchmarks: pin, scorers, where each has run |
+| `GET /api/platforms` | the cloud platforms this build has an adapter for |
+| `GET /api/plugins` | every registered extension point and what provides it |
+| `GET /api/targets` | `configs/*.yaml` summaries (read: always on) |
+| `GET /api/targets/<name>` | one target, credential-shaped values redacted |
+| `GET /api/runs/options` | what the new-run form may offer |
+| `GET /api/runs/prefill/<run_id>` | the fields a "create like this" run starts from |
 | `GET /api/progress` | `{runs: [...]}` — every run the progress plane still knows about |
 | `GET /api/progress/<run_id>` | `{state, events}`; `?since=<seq>` returns only newer events |
 | `GET /api/progress/<run_id>/stream` | Server-Sent Events; `?since=<seq>` resumes |
 | `POST /api/progress/<run_id>/cancel` | requests cancellation (guards below) |
+| `POST /api/runs` | start a run → `202 {run_id}` — **`--allow-write` only** |
+| `PUT /api/targets/<name>` | write a target — **`--allow-write` only** |
+| `DELETE /api/targets/<name>` | delete a target — **`--allow-write` only** |
 
 Anything else is a 404 with a JSON body — the app is a hash router, so there is
 no SPA fallback that would turn a typo into an HTTP 200.
@@ -294,8 +371,11 @@ the committed `dist/` is not byte-identical to the rebuild.
 - Requests whose `Host` header is not the bound host or a localhost alias get a
   403 (DNS-rebinding guard). The guard sits above the method split, so `POST`
   can never end up behind a differently-worded copy of it.
-- **The cancel endpoint** is the only mutating route the server has ever had,
-  and is fenced accordingly: the shared Host guard, a required
+- **Write routes are off unless `--allow-write` is passed**, and answer 405
+  naming the flag when they are. Reading targets is *not* gated: a Targets page
+  that could list nothing on a read-only server would be a page about a flag.
+  Sealed records have no write route at all, in either mode.
+- **The cancel endpoint** predates the flag and is fenced independently: the shared Host guard, a required
   `X-Csbench-Progress: 1` header (a custom header is unreachable from a
   cross-origin `<form>`, which closes simple-form CSRF), a refusal of any
   request body, and a run_id that must be a plain `[A-Za-z0-9._-]+` token
