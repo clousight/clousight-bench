@@ -18,6 +18,7 @@ import {
   ObserveSection,
   PlatformsSection,
   RunsSection,
+  SuitesInstalledSection,
   SuitesSection,
   TargetsSection,
 } from "@/features/sections/Sections";
@@ -35,6 +36,7 @@ import {
   runNewHref,
   runsHref,
   suitesHref,
+  suitesInstalledHref,
   targetNewHref,
   targetsHref,
   useRoute,
@@ -60,6 +62,8 @@ function Routed({ route }: { route: Route }) {
   switch (route.name) {
     case "suites":
       return <SuitesSection />;
+    case "suitesInstalled":
+      return <SuitesInstalledSection />;
     case "suite":
       return <SuiteView domain={route.domain} suiteId={route.suiteId} />;
     case "targets":
@@ -78,7 +82,9 @@ function Routed({ route }: { route: Route }) {
     case "runs":
       return <RunsSection />;
     case "runNew":
-      return <RunNewView />;
+      // Keyed on the source run so following a second "like this" reseeds the
+      // form instead of keeping the first run's fields.
+      return <RunNewView key={route.from ?? "blank"} from={route.from} />;
     case "run":
       // Keyed on the run so a move between runs mounts a fresh page: the trace
       // tab holds a selection of absolute timestamps and track ids that mean
@@ -114,7 +120,16 @@ function Rail({ route }: { route: Route }) {
   const items: RailItem[] = [];
   switch (section) {
     case "suites":
-      items.push({ href: suitesHref, label: t("shell.all"), active: route.name === "suites" });
+      items.push({
+        href: suitesHref,
+        label: t("suites.rail_results"),
+        active: route.name !== "suitesInstalled",
+      });
+      items.push({
+        href: suitesInstalledHref,
+        label: t("suites.rail_installed"),
+        active: route.name === "suitesInstalled",
+      });
       break;
     case "targets":
       items.push({

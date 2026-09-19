@@ -228,3 +228,59 @@ class TestOptions:
         by_id = {s["suite_id"]: s for s in launch_options(tmp_path)["suites"]}
         assert by_id["gsm8k"]["seen_platforms"] == ["llm-mock"]
         assert by_id["tpc-h"]["seen_platforms"] == []
+
+
+class TestPrefill:
+    """ "Create like this": the next run, seeded from one that happened."""
+
+    def _seed_record(self, results_dir: Path, run_id: str) -> None:
+        directory = results_dir / "llm" / "llm-mock"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"suite-gsm8k-{run_id}.json").write_text(
+            json.dumps(
+                {
+                    "run": {"run_id": run_id, "started_at": "2026-01-01T00:00:00Z"},
+                    "identity": {"domain": "llm", "task_id": "suite:gsm8k", "adapter": "llm-mock"},
+                    "provenance": {"suite_id": "gsm8k"},
+                    "status": "completed",
+                    "measurements": {},
+                }
+            )
+        )
+
+    def test_a_record_seeds_what_it_recorded(self, tmp_path: Path) -> None:
+        from clousight_bench.viewer.launch import prefill_from
+
+        self._seed_record(tmp_path, "run-1")
+        seed = prefill_from(tmp_path, "run-1")
+        assert seed == {
+            "domain": "llm",
+            "task_id": "suite:gsm8k",
+            "platform": "llm-mock",
+            "target": None,
+            "params": {},
+        }
+
+    def test_a_console_launch_adds_what_the_record_does_not_hold(self, tmp_path: Path) -> None:
+        """The target and the params live only in the launch plane."""
+        from clousight_bench.viewer.launch import prefill_from
+
+        self._seed_record(tmp_path, "run-2")
+        record_launch(
+            tmp_path, "run-2", LaunchSpec("llm", "suite:gsm8k", "llm-mock", "mock", {"limit": 2}, 3, 1)
+        )
+        seed = prefill_from(tmp_path, "run-2")
+        assert seed is not None
+        assert seed["target"] == "mock"
+        assert seed["params"] == {"limit": 2}
+        # Repeat and warmup are deliberately not seeded: a batch size is a
+        # decision about this run, and carrying it forward silently turns one
+        # "like this" into twenty runs nobody asked for.
+        assert "repeat" not in seed
+        assert "warmup" not in seed
+
+    def test_an_unknown_run_seeds_nothing(self, tmp_path: Path) -> None:
+        from clousight_bench.viewer.launch import prefill_from
+
+        assert prefill_from(tmp_path, "run-nope") is None
+        assert prefill_from(tmp_path, "../escape") is None

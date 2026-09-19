@@ -19,6 +19,7 @@ import {
   startRun,
   useJSON,
   type LaunchOptions,
+  type LaunchSeed,
   type TargetListData,
   type TargetSummary,
 } from "@/api";
@@ -346,10 +347,16 @@ export function RunNewBody({
   );
 }
 
-export function RunNewView() {
+export function RunNewView({ from }: { from?: string | null }) {
   const { t } = useI18n();
   const options = useJSON<LaunchOptions>("api/runs/options");
   const targetList = useJSON<TargetListData>("api/targets");
+  // "api/meta" when there is nothing to derive from: useJSON needs a path, and
+  // meta is the one request this page would make anyway.
+  const seed = useJSON<LaunchSeed>(
+    from === undefined || from === null ? "api/meta" : `api/runs/prefill/${encodeURIComponent(from)}`,
+  );
+  const [seeded, setSeeded] = useState(from === undefined || from === null);
   const [choice, setChoice] = useState<LaunchChoice | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const [params, setParams] = useState<ParamPair[]>([{ key: "", value: "" }]);
@@ -369,6 +376,25 @@ export function RunNewView() {
   if (options.data === null) {
     return <p className="border-t border-border py-6 text-sm text-muted-foreground">{t("common.loading")}</p>;
   }
+
+  // A derived run adopts what the old one was, once both have arrived. It
+  // seeds ONCE: re-seeding on every render would undo each edit as it is made.
+  if (!seeded && seed.data !== null && typeof seed.data.task_id === "string") {
+    setSeeded(true);
+    setChoice({
+      domain: seed.data.domain,
+      suiteId: seed.data.task_id.replace(/^suite:/, ""),
+      platform: seed.data.platform,
+    });
+    setTarget(seed.data.target);
+    setParams(
+      Object.entries(seed.data.params ?? {}).map(([key, value]) => ({
+        key,
+        value: String(value),
+      })),
+    );
+  }
+  if (!seeded && seed.error !== null) setSeeded(true); // a vanished run is not a dead form
 
   // Chosen once the catalogue has arrived; see initialChoice for why it is
   // not simply the first of each list.

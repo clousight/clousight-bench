@@ -28,6 +28,24 @@ describe("parseHash — the five sections", () => {
     });
   });
 
+  it("routes the benchmark catalogue beside the results board", () => {
+    // Two questions with two answers: "what did we measure" and "what can be
+    // measured". #/suites keeps its meaning; the catalogue gets its own view.
+    expect(parseHash("#/suites/installed")).toEqual({ name: "suitesInstalled" });
+    expect(parseHash("#/suites/llm/gsm8k")).toEqual({
+      name: "suite",
+      domain: "llm",
+      suiteId: "gsm8k",
+    });
+  });
+
+  it("carries the run a new run was derived from", () => {
+    // "Create like this" is a link, so the derivation has to survive being
+    // copied, bookmarked and reloaded.
+    expect(parseHash("#/runs/new?from=run-1")).toEqual({ name: "runNew", from: "run-1" });
+    expect(parseHash("#/runs/new")).toEqual({ name: "runNew", from: null });
+  });
+
   it("routes a target's edit form under the target itself", () => {
     expect(parseHash("#/targets/duckdb-sf1/edit")).toEqual({
       name: "targetEdit",
@@ -60,7 +78,7 @@ describe("parseHash — the five sections", () => {
 
   it("routes runs, with create before lookup", () => {
     expect(parseHash("#/runs")).toEqual({ name: "runs" });
-    expect(parseHash("#/runs/new")).toEqual({ name: "runNew" });
+    expect(parseHash("#/runs/new")).toEqual({ name: "runNew", from: null });
     expect(parseHash("#/runs/run-1")).toEqual({
       name: "run",
       runId: "run-1",
@@ -190,7 +208,8 @@ describe("href builders round-trip through parseHash", () => {
     { name: "targetNew" },
     { name: "target", targetName: "duckdb-sf1" },
     { name: "runs" },
-    { name: "runNew" },
+    { name: "runNew", from: null },
+    { name: "runNew", from: "run-1" },
     { name: "run", runId: "run-1", tab: "overview", metric: null },
     { name: "run", runId: "run-1", tab: "trace", metric: null },
     { name: "run", runId: "run-1", tab: "items", metric: "accuracy" },

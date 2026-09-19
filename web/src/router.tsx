@@ -4,7 +4,8 @@
  * The app is organised around five nouns, each with a list → detail → (where
  * it makes sense) create/edit loop:
  *
- *   #/suites                    the benchmark catalogue: what can be measured
+ *   #/suites                    results by domain: what has been measured
+ *   #/suites/installed          the catalogue: what this build can measure
  *   #/suites/:domain/:suite     one benchmark, platforms compared
  *   #/targets                   the things under test, as configured
  *   #/platforms                 the adapters this build ships, as a catalogue
@@ -12,7 +13,7 @@
  *   #/targets/new               compose a new target
  *   #/targets/:name/edit        edit one target's text
  *   #/runs                      every run
- *   #/runs/new                  compose and launch a run
+ *   #/runs/new[?from=:id]       compose and launch a run (optionally like an old one)
  *   #/runs/:id                  one run — overview / items / trace / config
  *   #/observe                   runs in flight right now
  *   #/observe/:id               one run, live
@@ -43,6 +44,8 @@ export const RUN_TABS: readonly RunTab[] = ["overview", "items", "trace", "confi
 
 export type Route =
   | { name: "suites" }
+  /** The catalogue of installed benchmarks, as opposed to their results. */
+  | { name: "suitesInstalled" }
   | { name: "suite"; domain: string; suiteId: string }
   | { name: "targets" }
   /** The adapter catalogue — the other half of the targets section. */
@@ -51,7 +54,8 @@ export type Route =
   | { name: "target"; targetName: string }
   | { name: "targetEdit"; targetName: string }
   | { name: "runs" }
-  | { name: "runNew" }
+  /** `from` is the run this one was derived from, or null. */
+  | { name: "runNew"; from: string | null }
   /** `metric` is only meaningful on the items tab; null everywhere else. */
   | { name: "run"; runId: string; tab: RunTab; metric: string | null }
   | { name: "observe" }
@@ -127,6 +131,7 @@ export function parseHash(hash: string): Route {
   // ---- current spellings -----------------------------------------------
   if (segments[0] === "suites") {
     if (segments.length === 1) return { name: "suites" };
+    if (segments.length === 2 && segments[1] === "installed") return { name: "suitesInstalled" };
     if (segments.length === 3) {
       const domain = decodeSegment(segments[1]);
       const suiteId = decodeSegment(segments[2]);
@@ -157,7 +162,10 @@ export function parseHash(hash: string): Route {
   if (segments[0] === "runs") {
     if (segments.length === 1) return { name: "runs" };
     if (segments.length === 2) {
-      if (segments[1] === "new") return { name: "runNew" };
+      if (segments[1] === "new") {
+        const from = query.get("from");
+        return { name: "runNew", from: from === null || from === "" ? null : from };
+      }
       const runId = decodeSegment(segments[1]);
       if (runId === null) return { name: "notFound" };
       const rawTab = query.get("tab") ?? "overview";
@@ -207,6 +215,8 @@ export function hrefOf(route: Route): string {
   switch (route.name) {
     case "suites":
       return suitesHref;
+    case "suitesInstalled":
+      return suitesInstalledHref;
     case "suite":
       return suiteHref(route.domain, route.suiteId);
     case "targets":
@@ -222,7 +232,7 @@ export function hrefOf(route: Route): string {
     case "runs":
       return runsHref;
     case "runNew":
-      return runNewHref;
+      return route.from === null ? runNewHref : runLikeHref(route.from);
     case "run":
       return runHref(route.runId, route.tab, route.metric);
     case "observe":
@@ -249,6 +259,7 @@ export function useRoute(): Route {
 export const suitesHref = "#/suites";
 export const targetsHref = "#/targets";
 export const platformsHref = "#/platforms";
+export const suitesInstalledHref = "#/suites/installed";
 export const targetNewHref = "#/targets/new";
 export const runsHref = "#/runs";
 export const runNewHref = "#/runs/new";
@@ -265,6 +276,11 @@ export function suiteHref(domain: string, suiteId: string): string {
 
 export function targetHref(name: string): string {
   return `${targetsHref}/${encodeURIComponent(name)}`;
+}
+
+/** The new-run form, seeded from an existing run. */
+export function runLikeHref(runId: string): string {
+  return `${runNewHref}?from=${encodeURIComponent(runId)}`;
 }
 
 export function targetEditHref(name: string): string {

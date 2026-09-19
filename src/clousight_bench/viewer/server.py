@@ -17,7 +17,10 @@ Routes:
     /api/records                        list_records summaries
     /api/board                          domain -> suite board, newest run each
     /api/platforms                      the cloud platforms this build can measure
+    /api/suites                         installed benchmarks: pin, scorers, history
+    /api/plugins                        every registered extension point
     /api/runs/options                   what the new-run form may offer
+    /api/runs/prefill/<run_id>          the fields a "like this" run starts from
     /api/targets                        configs/*.yaml summaries (read: always on)
     /api/targets/<name>                 one target, credential-shaped values redacted
     /api/suite/<domain>/<suite_id>      one suite's platforms + history
@@ -67,6 +70,7 @@ from clousight_bench import __version__
 from clousight_bench.core import progress
 from clousight_bench.core.logsafe import sanitize_for_log
 from clousight_bench.core.schema import new_run_id
+from clousight_bench.viewer.catalogue import installed_plugins, installed_suites
 from clousight_bench.viewer.data import (
     count_records,
     list_records,
@@ -78,6 +82,7 @@ from clousight_bench.viewer.data import (
 from clousight_bench.viewer.launch import (
     MAX_ACTIVE_RUNS,
     launch_options,
+    prefill_from,
     spawn_run,
     target_usage,
     validate_launch,
@@ -369,6 +374,19 @@ def create_server(
                 return
             if segments == ["api", "runs", "options"]:
                 self._send_json(200, launch_options(results_dir), head_only)
+                return
+            if len(segments) == 4 and segments[:3] == ["api", "runs", "prefill"] and segments[3]:
+                seed = prefill_from(results_dir, segments[3])
+                if seed is None:
+                    self._send_json(404, {"error": f"unknown run_id: {segments[3]}"}, head_only)
+                else:
+                    self._send_json(200, seed, head_only)
+                return
+            if segments == ["api", "suites"]:
+                self._send_json(200, {"suites": installed_suites(results_dir)}, head_only)
+                return
+            if segments == ["api", "plugins"]:
+                self._send_json(200, installed_plugins(), head_only)
                 return
             if segments == ["api", "targets"]:
                 usage = target_usage(results_dir)

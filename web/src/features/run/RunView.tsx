@@ -15,9 +15,10 @@
  * cheap `?fields=` probe is what lets the tab bar know before the body does.
  */
 
-import { useJSON, type RecordDetailData } from "@/api";
+import { useJSON, type Meta, type RecordDetailData } from "@/api";
 import { ErrorView, LoadingView } from "@/components/StateViews";
 import { Crumbs } from "@/components/shell/Page";
+import { RunIdentity } from "@/features/run/RunIdentity";
 import { EngineerPanel } from "@/features/record/EngineerPanel";
 import { ItemsTable } from "@/features/items/ItemsView";
 import { RecordBody } from "@/features/record/RecordView";
@@ -51,6 +52,7 @@ export function RunView({
 }) {
   const { t } = useI18n();
   const record = useJSON<RecordDetailData>(`api/record/${encodeURIComponent(runId)}`);
+  const meta = useJSON<Meta>("api/meta");
 
   if (record.error !== null) return <ErrorView message={record.error} />;
   if (record.data === null) return <LoadingView />;
@@ -79,6 +81,8 @@ export function RunView({
           { label: suiteId !== "" ? suiteLabel(suiteId) : runId },
         ]}
       />
+
+      <RunIdentity data={data} runId={runId} writable={meta.data?.write_enabled === true} />
 
       <div role="tablist" className="flex items-center gap-1 border-b border-border">
         {tabs.map((spec) => (

@@ -319,3 +319,43 @@ def launch_options(results_dir: Path | None = None) -> dict[str, Any]:
         for name, pack in sorted(packs.items())
     ]
     return {"domains": domains, "suites": suites, "max_repeat": MAX_REPEAT, "max_warmup": MAX_WARMUP}
+
+
+def prefill_from(results_dir: Path, run_id: str) -> dict[str, Any] | None:
+    """The fields a new run would start from, taken from one that happened.
+
+    The record carries the domain, the benchmark and the platform. It does not
+    carry the config file it was handed or the params it was given — only the
+    launch plane knows those, and only for runs this console started — so they
+    are filled in when they are known and left out when they are not.
+
+    ``repeat`` and ``warmup`` are deliberately absent. A batch size is a
+    decision about one run; carrying it forward silently would turn one
+    "like this" into twenty runs nobody asked for.
+    """
+    from clousight_bench.core.progress import valid_run_id
+    from clousight_bench.viewer.data import load_record
+
+    if not valid_run_id(run_id):
+        return None
+    record = load_record(results_dir, run_id)
+    if record is None:
+        return None
+    identity = record.get("identity") if isinstance(record.get("identity"), dict) else {}
+    seed: dict[str, Any] = {
+        "domain": str(identity.get("domain") or ""),
+        "task_id": str(identity.get("task_id") or ""),
+        "platform": str(identity.get("adapter") or ""),
+        "target": None,
+        "params": {},
+    }
+    note = launch_dir(results_dir) / f"{run_id}.json"
+    try:
+        saved = json.loads(note.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return seed
+    if isinstance(saved.get("target"), str):
+        seed["target"] = saved["target"]
+    if isinstance(saved.get("params"), dict):
+        seed["params"] = saved["params"]
+    return seed

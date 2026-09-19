@@ -62,6 +62,7 @@ export const SECTIONS: readonly SectionSpec[] = [
 export function sectionOf(route: Route): SectionId | null {
   switch (route.name) {
     case "suites":
+    case "suitesInstalled":
     case "suite":
       return "suites";
     case "targets":

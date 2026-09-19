@@ -422,6 +422,16 @@ export interface LaunchOptions {
   max_warmup: number;
 }
 
+/** What a "create like this" run starts from. Repeat/warmup are absent on
+ * purpose: a batch size is a decision about one run. */
+export interface LaunchSeed {
+  domain: string;
+  task_id: string;
+  platform: string;
+  target: string | null;
+  params: Record<string, string | number | boolean>;
+}
+
 export interface LaunchRequest {
   domain: string;
   task_id: string;
@@ -436,4 +446,41 @@ export interface LaunchRequest {
 export async function startRun(request: LaunchRequest): Promise<string> {
   const { run_id } = await writeJSON<{ run_id: string }>("api/runs", "POST", request);
   return run_id;
+}
+
+// ----------------------------------------------------------------------
+// The catalogue faces (read-only)
+// ----------------------------------------------------------------------
+
+export interface SuiteEvaluator {
+  evaluator_id: string;
+  /** True = the suite's canonical numbers, not a number someone computed. */
+  official: boolean;
+}
+
+export interface InstalledSuite {
+  suite_id: string;
+  /** The pin: the same benchmark id always means the same data. */
+  suite_version: string;
+  evaluators: SuiteEvaluator[];
+  seen_platforms: string[];
+  runs: number;
+}
+
+export interface InstalledSuiteList {
+  suites: InstalledSuite[];
+}
+
+export interface PluginEntry {
+  kind: string;
+  name: string;
+  target: string;
+  /** Which distribution provides it; "" when the environment cannot say. */
+  distribution: string;
+}
+
+export interface PluginInventory {
+  plugins: PluginEntry[];
+  core_version: string;
+  plugin_api: string;
 }

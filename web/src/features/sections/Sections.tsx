@@ -11,18 +11,19 @@
  * particular instance is). They are one section because choosing a platform
  * and configuring an instance of it is one errand.
  *
- * Config is still an honest placeholder: it states what the section will hold
- * and what to use meanwhile, rather than rendering an empty table that implies
- * the data is missing. "Not built yet" and "nothing here" are different
- * sentences and the reader is owed the right one.
+ * Every section now has content. The two that used to be honest placeholders
+ * — Targets and Config — are real pages, and the placeholder strings they used
+ * are gone rather than left lying around to be rendered by accident.
  */
 
 import { BoardView } from "@/features/board/BoardView";
 import { LiveConsole } from "@/features/live/LiveConsole";
+import { ConfigView } from "@/features/config/ConfigView";
 import { PlatformsView } from "@/features/platforms/PlatformsView";
+import { SuitesCatalogue } from "@/features/suites/SuitesCatalogue";
 import { TargetsView } from "@/features/targets/TargetsView";
 import { RunsView } from "@/features/runs/RunsView";
-import { EmptyState, PageHeader } from "@/components/shell/Page";
+import { PageHeader } from "@/components/shell/Page";
 import { useI18n } from "@/i18n";
 
 /** Suites — the catalogue of what can be measured. */
@@ -74,13 +75,18 @@ export function PlatformsSection() {
   );
 }
 
-/** Config — placeholder until the vocabulary plane lands. */
+/** Suites, the other face: what this build can measure at all. */
+export function SuitesInstalledSection() {
+  return <SuitesCatalogue />;
+}
+
+/** Config — the vocabulary and the machine, both read-only. */
 export function ConfigSection() {
   const { t } = useI18n();
   return (
     <>
       <PageHeader title={t("config.title")} subtitle={t("section.config_blurb")} />
-      <EmptyState title={t("config.pending")} blurb={t("config.pending_blurb")} />
+      <ConfigView />
     </>
   );
 }
