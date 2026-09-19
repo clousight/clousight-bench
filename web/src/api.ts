@@ -327,6 +327,11 @@ export function usePolledJSON<T>(path: string, intervalMs: number): Loadable<T> 
 
 export interface TargetSummary {
   name: string;
+  /** How many runs THIS console started with it. Sealed records do not name
+   * the config file they were handed, so runs started any other way are not
+   * counted here — and the UI says so rather than implying the number is
+   * every run that ever used this target. */
+  launched?: number;
   filename: string;
   size: number;
   /** mtime, epoch seconds. */
@@ -384,4 +389,51 @@ export async function putTarget(name: string, yaml: string, overwrite: boolean):
 
 export async function deleteTarget(name: string): Promise<void> {
   await writeJSON(`api/targets/${encodeURIComponent(name)}`, "DELETE");
+}
+
+// ----------------------------------------------------------------------
+// Starting a run
+// ----------------------------------------------------------------------
+
+export interface LaunchPlatform {
+  platform: string;
+  status: string;
+}
+
+export interface LaunchDomain {
+  domain: string;
+  description: string;
+  platforms: LaunchPlatform[];
+}
+
+export interface LaunchSuite {
+  suite_id: string;
+  suite_version: string;
+  /** Platforms this benchmark has actually produced records on, here. It is
+   * evidence, not permission: nothing in the registry maps a benchmark to a
+   * platform, so an empty list means "untried", never "forbidden". */
+  seen_platforms: string[];
+}
+
+export interface LaunchOptions {
+  domains: LaunchDomain[];
+  suites: LaunchSuite[];
+  max_repeat: number;
+  max_warmup: number;
+}
+
+export interface LaunchRequest {
+  domain: string;
+  task_id: string;
+  platform: string;
+  target: string | null;
+  params: Record<string, string | number | boolean>;
+  repeat: number;
+  warmup: number;
+}
+
+/** Start a run. Answers with the id before the run has done anything. */
+export async function startRun(request: LaunchRequest): Promise<string> {
+  const { run_id } = await writeJSON<{ run_id: string }>("api/runs", "POST", request);
+  return run_id;
 }

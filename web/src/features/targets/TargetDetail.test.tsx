@@ -55,10 +55,21 @@ describe("TargetDetailBody", () => {
     expect(writable.toLowerCase()).toContain("delete");
   });
 
-  it("states plainly that it cannot count what uses this target", () => {
-    // Records do not carry which config file a run was given, so any number
-    // here would be invented. Saying so beats showing a confident 0.
-    const markup = renderMarkup(<TargetDetailBody target={detail()} writable={false} />);
-    expect(markup).toContain("not recorded");
+  it("counts only the runs it can honestly count", () => {
+    // Sealed records do not carry the config file they were handed, so the
+    // only countable runs are the ones this console started. The number says
+    // which population it is counting; a bare "3" would read as every run
+    // that ever used this target.
+    const markup = renderMarkup(<TargetDetailBody target={detail({ launched: 3 })} writable={false} />);
+    expect(markup).toContain("3");
+    expect(markup).toContain("started from this console");
+  });
+
+  it("says nothing was counted rather than nothing exists", () => {
+    const markup = renderMarkup(<TargetDetailBody target={detail({ launched: 0 })} writable={false} />);
+    expect(markup).toContain("started from this console");
+    // Runs started any other way are uncounted, and the page has to say so or
+    // the 0 reads as "safe to delete".
+    expect(markup).toContain("does not carry");
   });
 });

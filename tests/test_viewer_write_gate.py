@@ -276,3 +276,83 @@ def _record_create_server(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(server_mod, "create_server", _fake_create)
     monkeypatch.setattr(server_mod, "serve_until_interrupt", lambda srv: None)
     return seen
+
+
+# ---------------------------------------------------------------------------
+# POST /api/runs — starting a run from the browser
+# ---------------------------------------------------------------------------
+
+
+def _start(srv: ThreadingHTTPServer, **body: object) -> tuple[int, dict]:
+    payload = {"domain": "llm", "task_id": "suite:gsm8k", "platform": "llm-mock"}
+    payload.update(body)
+    return _call(srv, "POST", "/api/runs", body=payload)
+
+
+def test_starting_a_run_needs_the_flag_too(readonly: ThreadingHTTPServer) -> None:
+    status, body = _start(readonly)
+    assert status == 405
+    assert "--allow-write" in body["error"]
+
+
+def test_starting_a_run_needs_the_custom_header(writable: ThreadingHTTPServer) -> None:
+    status, _ = _call(writable, "POST", "/api/runs", body={"domain": "llm"}, header=None)
+    assert status == 403
+
+
+def test_a_rejected_launch_explains_itself_and_starts_nothing(
+    writable: ThreadingHTTPServer, tmp_path: Path
+) -> None:
+    status, body = _start(writable, platform="nope")
+    assert status == 400
+    assert "nope" in body["error"]
+    assert not (tmp_path / "results" / ".launches").exists()
+
+
+def test_the_options_the_form_needs_are_readable_without_the_flag(
+    readonly: ThreadingHTTPServer,
+) -> None:
+    # The form is only reachable on a writable server, but the catalogue it
+    # draws from is ordinary read-only registry data.
+    status, body = _call(readonly, "GET", "/api/runs/options", header=None)
+    assert status == 200
+    assert any(d["domain"] == "llm" for d in body["domains"])
+    assert body["max_repeat"] >= 1
+
+
+def test_a_started_run_is_named_in_the_reply(
+    writable: ThreadingHTTPServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reply has to name the run, because the browser opens it next.
+
+    The subprocess itself is not started here — that is a benchmark, and this
+    test is about the handshake. What it does assert is that the id handed
+    back is the id the launcher was told to use.
+    """
+    started: dict = {}
+
+    def _fake_spawn(spec, results_dir, configs_dir, run_id):
+        started.update(spec=spec, run_id=run_id)
+        return run_id
+
+    from clousight_bench.viewer import server as server_mod
+
+    monkeypatch.setattr(server_mod, "spawn_run", _fake_spawn)
+    status, body = _start(writable, params={"limit": 1})
+    assert status == 202
+    assert body["run_id"] == started["run_id"]
+    assert body["run_id"].startswith("run-")
+    assert started["spec"].params == {"limit": 1}
+
+
+def test_the_console_stops_starting_runs_when_too_many_are_in_flight(
+    writable: ThreadingHTTPServer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every run is a subprocess with a benchmark inside it."""
+    from clousight_bench.viewer import server as server_mod
+
+    monkeypatch.setattr(server_mod, "spawn_run", lambda spec, r, c, run_id: run_id)
+    monkeypatch.setattr(server_mod.progress, "list_active", lambda results_dir: [{}] * 4)
+    status, body = _start(writable)
+    assert status == 429
+    assert "4" in body["error"]

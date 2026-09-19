@@ -86,7 +86,7 @@ from clousight_bench.core.observation import (
     validate_observation_bundle,
 )
 from clousight_bench.core.plugin import DomainPack, ProviderAdapter
-from clousight_bench.core.progress import ProgressWriter, reap_stale
+from clousight_bench.core.progress import ProgressWriter, reap_stale, valid_run_id
 from clousight_bench.core.publish import (
     ResultPublisher,
 )
@@ -261,8 +261,15 @@ def execute(
     timeout_s: float | None = None,
     allow_live: bool = False,
     cost_budget: float | None = None,
+    run_id: str | None = None,
 ) -> ResultRecord:
     """Run one RunSpec through the full lifecycle and persist the result.
+
+    ``run_id`` lets a caller name the run before it starts, which is what the
+    console needs: ``POST /api/runs`` answers with an id and the browser opens
+    the live view on it immediately, so the id cannot be invented later by the
+    subprocess. It names a directory under the progress plane, so it is
+    validated as a plain token first.
 
     ``run_context`` tags this run's membership in a run plan. When
     provided it is recorded verbatim under ``extensions["core"]["run_plan"]``,
@@ -271,7 +278,9 @@ def execute(
     and a measured repeat of the same benchmark must share those fingerprints.
     """
     results_dir = Path(results_dir or DEFAULT_RESULTS_DIR)
-    run_id = new_run_id()
+    if run_id is not None and not valid_run_id(run_id):
+        raise UserInputError(f"run_id {run_id!r} is not a plain token (it names a directory)")
+    run_id = run_id or new_run_id()
     trace_id = new_trace_id()
     root_start_ns = time.time_ns()
     root_perf = time.perf_counter()

@@ -17,6 +17,7 @@ Routes:
     /api/records                        list_records summaries
     /api/board                          domain -> suite board, newest run each
     /api/platforms                      the cloud platforms this build can measure
+    /api/runs/options                   what the new-run form may offer
     /api/targets                        configs/*.yaml summaries (read: always on)
     /api/targets/<name>                 one target, credential-shaped values redacted
     /api/suite/<domain>/<suite_id>      one suite's platforms + history
@@ -26,7 +27,8 @@ Routes:
     /api/progress/<run_id>              snapshot + events (?since=<seq>)
     /api/progress/<run_id>/stream       Server-Sent Events (?since=<seq>)
     POST /api/progress/<run_id>/cancel  request cancellation (see below)
-    PUT  /api/targets/<name>            write a target      \
+    POST /api/runs                      start a run         \
+    PUT  /api/targets/<name>            write a target       \
     DELETE /api/targets/<name>          delete a target      > only with --allow-write
     anything else                       404 {"error": ...} (hash router: no SPA fallback)
 
@@ -64,6 +66,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from clousight_bench import __version__
 from clousight_bench.core import progress
 from clousight_bench.core.logsafe import sanitize_for_log
+from clousight_bench.core.schema import new_run_id
 from clousight_bench.viewer.data import (
     count_records,
     list_records,
@@ -71,6 +74,13 @@ from clousight_bench.viewer.data import (
     load_record,
     load_suite,
     load_trajectory,
+)
+from clousight_bench.viewer.launch import (
+    MAX_ACTIVE_RUNS,
+    launch_options,
+    spawn_run,
+    target_usage,
+    validate_launch,
 )
 from clousight_bench.viewer.platforms import list_platforms, platform_usage
 from clousight_bench.viewer.targets import (
@@ -357,11 +367,23 @@ def create_server(
                     head_only,
                 )
                 return
+            if segments == ["api", "runs", "options"]:
+                self._send_json(200, launch_options(results_dir), head_only)
+                return
             if segments == ["api", "targets"]:
-                self._send_json(200, {"targets": list_targets(configs_dir)}, head_only)
+                usage = target_usage(results_dir)
+                targets = list_targets(configs_dir)
+                for entry in targets:
+                    entry["launched"] = usage.get(entry["name"], 0)
+                self._send_json(200, {"targets": targets}, head_only)
                 return
             if len(segments) == 3 and segments[:2] == ["api", "targets"] and segments[2]:
                 target = load_target(configs_dir, segments[2])
+                if target is not None:
+                    # How many runs THIS console started with it. Sealed records
+                    # do not name their config file, so this counts what the
+                    # launch plane knows and nothing else.
+                    target["launched"] = target_usage(results_dir).get(segments[2], 0)
                 if target is None:
                     # Malformed and absent answer alike on purpose: the reply to
                     # "../../etc/passwd" must not say whether it is there.
@@ -529,6 +551,9 @@ def create_server(
             ):
                 self._cancel(segments[2])
                 return
+            if segments == ["api", "runs"]:
+                self._start_run()
+                return
             self._send_json(404, {"error": f"no such endpoint: {raw_path}"}, False)
 
         def _cancel(self, run_id: str) -> None:
@@ -687,6 +712,41 @@ def create_server(
                 return
             logger.info("viewer: deleted target %s", sanitize_for_log(name))
             self._send_json(200, {"name": name, "deleted": True}, False)
+
+        def _start_run(self) -> None:
+            """Start one run as a detached subprocess; answer with its id.
+
+            202, not 200: the run has been accepted and is not finished. The
+            body carries the id so the browser can open the live view on a run
+            that may not have written its first state file yet.
+            """
+            if not self._write_allowed():
+                return
+            body = self._write_body()
+            if body is None:
+                return
+            spec, why = validate_launch(body, configs_dir)
+            if spec is None:
+                self._send_json(400, {"error": why}, False)
+                return
+            active = len(progress.list_active(results_dir))
+            if active >= MAX_ACTIVE_RUNS:
+                # Not a queue. Saying "too many" beats accepting work this
+                # machine has no room for and discovering it as a timeout.
+                self._send_json(
+                    429,
+                    {"error": f"{active} runs are already in flight (limit {MAX_ACTIVE_RUNS})"},
+                    False,
+                )
+                return
+            run_id = new_run_id()
+            try:
+                spawn_run(spec, results_dir, configs_dir, run_id)
+            except OSError as exc:
+                logger.warning("viewer: could not start run %s: %s", run_id, exc)
+                self._send_json(500, {"error": f"could not start the run: {exc.__class__.__name__}"}, False)
+                return
+            self._send_json(202, {"run_id": run_id}, False)
 
         def _send_json(self, status: int, payload: Any, head_only: bool) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

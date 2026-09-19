@@ -9,10 +9,11 @@
  * affordance, because saving a redacted read would write `***` over the real
  * secret.
  *
- * **Uncounted is not zero.** Nothing in a sealed record says which config file
- * the run was handed, so "used by N runs" cannot be computed. The page says
- * so rather than showing a confident 0 that would read as "nothing uses this,
- * safe to delete".
+ * **A count has to say what it counted.** Nothing in a sealed record names the
+ * config file its run was handed, so the only runs this page can count are the
+ * ones this console started — and it says exactly that beside the number.
+ * "3 runs" would claim a population it cannot see; "3 started from this
+ * console" is the number it actually has.
  */
 
 import { useState } from "react";
@@ -51,7 +52,12 @@ export function TargetDetailBody({
           { label: t("target.size"), value: `${target.size} B`, mono: true },
           {
             label: t("target.usage_title"),
-            value: <span className="text-muted-foreground">{t("target.usage_unknown")}</span>,
+            value: (
+              <span>
+                <span className="font-mono tabular-nums">{target.launched ?? 0}</span>{" "}
+                <span className="text-muted-foreground">{t("target.usage_scope")}</span>
+              </span>
+            ),
           },
         ]}
       />

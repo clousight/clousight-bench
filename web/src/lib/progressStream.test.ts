@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ProgressEvent, ProgressStep } from "@/api";
-import { applyEvent, MAX_LOG_LINES, MAX_STEPS, type LogLine } from "@/lib/progressStream";
+import { applyEvent, MAX_LOG_LINES, MAX_STEPS, type LogLine,
+  MAX_CONNECT_ATTEMPTS,
+  shouldRetryConnect,
+} from "@/lib/progressStream";
 
 function accumulator() {
   return {
@@ -83,5 +86,27 @@ describe("applyEvent", () => {
     applyEvent(acc, event(2, { kind: "progress", label: "Power", completed: 1, total: 22 }));
     expect(acc.steps).toHaveLength(0);
     expect(acc.logs).toHaveLength(0);
+  });
+});
+
+describe("shouldRetryConnect", () => {
+  it("keeps retrying while the run has never reported anything", () => {
+    // A run started from the console does not exist in the progress plane
+    // yet: the subprocess has to boot before it writes its first state file.
+    // The stream 404s, and a 404 is the one failure EventSource does NOT
+    // retry by itself — so the page would say "loading" forever.
+    expect(shouldRetryConnect(false, 0)).toBe(true);
+    expect(shouldRetryConnect(false, MAX_CONNECT_ATTEMPTS - 1)).toBe(true);
+  });
+
+  it("gives up rather than hammering a run that will never appear", () => {
+    expect(shouldRetryConnect(false, MAX_CONNECT_ATTEMPTS)).toBe(false);
+  });
+
+  it("does not reconnect once the run has spoken", () => {
+    // From then on the drop is an ordinary network blip, which EventSource
+    // reconnects on its own — and a second manual connection would replay
+    // the stream from a sequence the accumulator has already passed.
+    expect(shouldRetryConnect(true, 0)).toBe(false);
   });
 });

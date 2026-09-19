@@ -24,6 +24,7 @@ import {
 import { TargetDetail } from "@/features/targets/TargetDetail";
 import { TargetForm } from "@/features/targets/TargetForm";
 import { LiveRunView } from "@/features/live/LiveRunView";
+import { RunNewView } from "@/features/runs/RunNewView";
 import { RunView } from "@/features/run/RunView";
 import { SuiteView } from "@/features/suite/SuiteView";
 import { I18nProvider, useI18n } from "@/i18n";
@@ -31,6 +32,7 @@ import {
   legacyRedirect,
   observeHref,
   platformsHref,
+  runNewHref,
   runsHref,
   suitesHref,
   targetNewHref,
@@ -74,8 +76,9 @@ function Routed({ route }: { route: Route }) {
     case "target":
       return <TargetDetail key={route.targetName} name={route.targetName} />;
     case "runs":
-    case "runNew":
       return <RunsSection />;
+    case "runNew":
+      return <RunNewView />;
     case "run":
       // Keyed on the run so a move between runs mounts a fresh page: the trace
       // tab holds a selection of absolute timestamps and track ids that mean
@@ -134,8 +137,13 @@ function Rail({ route }: { route: Route }) {
     case "config":
       return null;
   }
-  const primary =
-    section === "targets" && writable ? { href: targetNewHref, label: t("target.new") } : null;
+  const primary = !writable
+    ? null
+    : section === "targets"
+      ? { href: targetNewHref, label: t("target.new") }
+      : section === "runs"
+        ? { href: runNewHref, label: t("run.new_title") }
+        : null;
   return <SideRail primary={primary} items={items} />;
 }
 

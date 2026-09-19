@@ -23,6 +23,28 @@ export const MAX_STEPS = 4000;
 export const MAX_SAMPLES_PER_KEY = 600;
 export const MAX_LOG_LINES = 500;
 
+/**
+ * How many times to reopen a stream that has never said anything, and how long
+ * to wait between attempts.
+ *
+ * A run started from the console is opened by the browser the instant the
+ * server answers with its id — before the subprocess has booted far enough to
+ * write its first state file. Until then the stream is a 404, and a 404 is
+ * precisely the failure EventSource does *not* retry on its own: it fails the
+ * connection for good. Without this the page said "loading" for as long as you
+ * left it there.
+ */
+export const MAX_CONNECT_ATTEMPTS = 40;
+export const CONNECT_RETRY_MS = 500;
+
+/** Whether a dropped connection is worth reopening by hand. */
+export function shouldRetryConnect(hasState: boolean, attempts: number): boolean {
+  // Once the run has spoken, a drop is an ordinary blip that EventSource
+  // reconnects on its own; opening a second one by hand would replay the
+  // stream from a sequence the accumulator has already passed.
+  return !hasState && attempts < MAX_CONNECT_ATTEMPTS;
+}
+
 export interface LogLine {
   seq: number;
   t: number;
@@ -49,6 +71,12 @@ export interface LiveFeed {
   recordPath: string | null;
   /** Set when the stream itself failed (not when the run failed). */
   error: string | null;
+  /** Connected to nothing yet, still waiting for the run to appear. The page
+   * says "starting" rather than "loading", because those are different. */
+  waiting: boolean;
+  /** The run never appeared. It was probably never started, or it finished
+   * and its progress directory was collected. */
+  gaveUp: boolean;
   connected: boolean;
 }
 
@@ -61,6 +89,8 @@ const EMPTY: LiveFeed = {
   done: false,
   recordPath: null,
   error: null,
+  waiting: false,
+  gaveUp: false,
   connected: false,
 };
 
@@ -158,7 +188,11 @@ export function useProgressStream(runId: string | null): LiveFeed {
       recordPath: null,
       error: null,
       connected: false,
+      waiting: true,
+      gaveUp: false,
     };
+    let attempts = 0;
+    let retry: number | undefined;
 
     const push = () => setFeed(snapshot(accRef.current, base));
 
@@ -175,7 +209,7 @@ export function useProgressStream(runId: string | null): LiveFeed {
       source.addEventListener("state", (event) => {
         const parsed = parseData<ProgressState>(event);
         if (parsed === null) return;
-        base = { ...base, state: parsed, connected: true };
+        base = { ...base, state: parsed, connected: true, waiting: false };
         push();
       });
 
@@ -206,6 +240,13 @@ export function useProgressStream(runId: string | null): LiveFeed {
         // sure this is not the ordinary reconnect that follows `done`.
         if (closed) return;
         base = { ...base, connected: false };
+        if (shouldRetryConnect(base.state !== null, attempts)) {
+          attempts += 1;
+          source?.close();
+          retry = window.setTimeout(connect, CONNECT_RETRY_MS);
+        } else if (base.state === null) {
+          base = { ...base, waiting: false, gaveUp: true };
+        }
         push();
       });
     };
@@ -213,6 +254,7 @@ export function useProgressStream(runId: string | null): LiveFeed {
     connect();
     return () => {
       closed = true;
+      if (retry !== undefined) window.clearTimeout(retry);
       source?.close();
     };
   }, [runId]);

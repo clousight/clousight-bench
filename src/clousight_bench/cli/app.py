@@ -117,6 +117,11 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument(
         "--warmup", type=int, default=0, help="warmup runs to execute first and exclude from statistics"
     )
+    run_p.add_argument(
+        "--run-id",
+        help="name this run instead of generating an id (the web console does this so it "
+        "can open the live view before the run has started)",
+    )
     run_p.add_argument("--plan-id", help="reuse a plan id (printed in the aggregate) to resume it")
     run_p.add_argument(
         "--resume",

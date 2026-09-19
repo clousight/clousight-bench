@@ -38,7 +38,27 @@ export function LiveRunView({ runId }: { runId: string }) {
   const now = useNow(TICK_MS, running);
 
   if (feed.state === null) {
-    return feed.error !== null ? <ErrorView message={feed.error} /> : <LoadingView />;
+    if (feed.error !== null) return <ErrorView message={feed.error} />;
+    // Three different nothings. "Gave up" is the one that needs a sentence:
+    // the run never appeared in the progress plane, which usually means it
+    // has already finished and its directory was collected — so the page
+    // points at where the result would be rather than spinning.
+    if (feed.gaveUp) {
+      return (
+        <div className="flex flex-col items-center gap-3 py-16 text-center">
+          <p className="text-sm font-medium">{t("live.never_appeared")}</p>
+          <p className="max-w-md text-sm text-muted-foreground">{t("live.never_appeared_blurb")}</p>
+          <a href={recordHref(runId)} className="text-sm underline underline-offset-4">
+            {t("live.open_record")}
+          </a>
+        </div>
+      );
+    }
+    return feed.waiting ? (
+      <p className="py-16 text-center text-sm text-muted-foreground">{t("live.starting")}</p>
+    ) : (
+      <LoadingView />
+    );
   }
 
   const state = feed.state;
