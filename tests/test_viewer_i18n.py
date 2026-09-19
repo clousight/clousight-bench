@@ -97,6 +97,8 @@ def test_keys_are_namespaced(en: dict[str, object]) -> None:
         "observe",
         "config",
         "target",
+        "platform",
+        "domain",
     }
     for key in en:
         ns, _, name = key.partition(".")

@@ -6,14 +6,15 @@
  * is not its code — it is that every section now has the same shape, so a
  * reader who has used one has used all five.
  *
- * Two of them (Targets, Config) are honest placeholders. They state what the
- * section will hold and what to use meanwhile, rather than rendering an empty
- * table that implies the data is missing. "Not built yet" and "nothing here"
- * are different sentences and the reader is owed the right one.
+ * Config is still an honest placeholder: it states what the section will hold
+ * and what to use meanwhile, rather than rendering an empty table that implies
+ * the data is missing. "Not built yet" and "nothing here" are different
+ * sentences and the reader is owed the right one.
  */
 
 import { BoardView } from "@/features/board/BoardView";
 import { LiveConsole } from "@/features/live/LiveConsole";
+import { PlatformsView } from "@/features/platforms/PlatformsView";
 import { RunsView } from "@/features/runs/RunsView";
 import { EmptyState, PageHeader } from "@/components/shell/Page";
 import { useI18n } from "@/i18n";
@@ -51,13 +52,13 @@ export function ObserveSection() {
   );
 }
 
-/** Targets — placeholder until the config plane lands. */
+/** Platforms — the managed cloud products this build can measure. */
 export function TargetsSection() {
   const { t } = useI18n();
   return (
     <>
       <PageHeader title={t("targets.title")} subtitle={t("section.targets_blurb")} />
-      <EmptyState title={t("targets.pending")} blurb={t("targets.pending_blurb")} />
+      <PlatformsView />
     </>
   );
 }

@@ -16,6 +16,7 @@ Routes:
     /api/meta                           results_dir basename, version, counts
     /api/records                        list_records summaries
     /api/board                          domain -> suite board, newest run each
+    /api/platforms                      the cloud platforms this build can measure
     /api/suite/<domain>/<suite_id>      one suite's platforms + history
     /api/record/<run_id>                full record dict
     /api/record/<run_id>/trajectory     parsed spans + t0 (+ source)
@@ -55,6 +56,7 @@ from clousight_bench.viewer.data import (
     load_suite,
     load_trajectory,
 )
+from clousight_bench.viewer.platforms import list_platforms, platform_usage
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +280,16 @@ def create_server(results_dir: Path, host: str = "127.0.0.1", port: int = 0) -> 
                 return
             if segments == ["api", "board"]:
                 self._send_json(200, load_board(results_dir), head_only)
+                return
+            if segments == ["api", "platforms"]:
+                # The catalogue of what can be measured, plus how often each
+                # has been. Usage is counted from the sealed records so it
+                # cannot disagree with what is on disk.
+                self._send_json(
+                    200,
+                    list_platforms(platform_usage(list_records(results_dir))),
+                    head_only,
+                )
                 return
             if len(segments) == 4 and segments[:2] == ["api", "suite"]:
                 suite = load_suite(results_dir, segments[2], segments[3])
