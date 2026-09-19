@@ -23,6 +23,7 @@ from clousight_bench.cli._common import (
     _resolve_task_id,
     run_summary,
 )
+from clousight_bench.core.errors import UserInputError
 from clousight_bench.core.orchestrator import execute
 from clousight_bench.core.schema import RunSpec
 
@@ -58,6 +59,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
         print(notice, file=sys.stderr)
 
     if args.repeat != 1 or args.warmup != 0 or args.plan_id or args.resume:
+        if getattr(args, "run_id", None):
+            # A plan is many runs; one id cannot name them. Refusing beats
+            # honouring it for whichever repeat happened to go first.
+            raise UserInputError(
+                "--run-id names a single run; it cannot be combined with --repeat/--warmup/--plan-id/--resume"
+            )
         if getattr(args, "assert_thresholds", None):
             print(
                 "warning: --assert applies to single runs only; it is ignored with "
@@ -96,6 +103,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         timeout_s=args.timeout,
         allow_live=args.allow_live,
         cost_budget=args.cost_budget,
+        run_id=getattr(args, "run_id", None),
     )
     print(record.to_json())
     summary = run_summary(record)

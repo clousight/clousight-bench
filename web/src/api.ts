@@ -6,12 +6,18 @@
 
 import { useEffect, useState } from "react";
 
+import type { ItemResultData } from "@/lib/items";
+
 export interface Meta {
   results_dir: string;
   version: string;
   counts: { records: number };
   /** How many runs are in flight right now. Drives the nav's live badge. */
   progress_active?: number;
+  /** Whether this server was started with --allow-write. The UI must not
+   * offer a button the server would answer 405 to. Absent on older servers,
+   * which had no write routes at all — so treat absent as false. */
+  write_enabled?: boolean;
 }
 
 export interface RecordSummary {
@@ -75,6 +81,11 @@ export interface RecordDetailData {
     dataset_digest?: string;
   };
   measurements?: Record<string, MeasurementEntry>;
+  /** Per-item evidence — the substrate the measurements above were aggregated
+   * from. Present only for suites that score example by example; the TPC and
+   * YCSB families measure an engine rather than examples and emit none, which
+   * is why every reader of this field must handle it being absent. */
+  items?: ItemResultData[];
   errors?: RecordError[];
   artifacts?: ArtifactEntry[];
   /** Only the engineer view renders these; they are what makes a run
@@ -308,4 +319,168 @@ export function usePolledJSON<T>(path: string, intervalMs: number): Loadable<T> 
     };
   }, [path, intervalMs]);
   return state;
+}
+
+// ----------------------------------------------------------------------
+// Targets (configs/*.yaml)
+// ----------------------------------------------------------------------
+
+export interface TargetSummary {
+  name: string;
+  /** How many runs THIS console started with it. Sealed records do not name
+   * the config file they were handed, so runs started any other way are not
+   * counted here — and the UI says so rather than implying the number is
+   * every run that ever used this target. */
+  launched?: number;
+  filename: string;
+  size: number;
+  /** mtime, epoch seconds. */
+  modified: number;
+  mode: string;
+  provider: string;
+  region: string;
+  /** Why this file could not be understood; "" when it was fine. */
+  error: string;
+}
+
+export interface TargetDetailData extends TargetSummary {
+  /** The parsed config, with credential-shaped values replaced by "***". */
+  data: Record<string, unknown>;
+  /** Dotted paths that were redacted. Non-empty means `yaml` is null. */
+  redacted: string[];
+  /** The file's own text — served only when nothing had to be redacted, so
+   * that editing it here cannot reformat it or drop its comments. */
+  yaml: string | null;
+}
+
+export interface TargetListData {
+  targets: TargetSummary[];
+}
+
+/**
+ * A mutating request, with the server's own error message preserved.
+ *
+ * Two things this does that `getJSON` does not. The custom header is what a
+ * cross-origin <form> cannot set, which is what makes these routes unforgeable
+ * from another site. And a failure raises what the server *said* — "refusing
+ * to save the redaction placeholder at: target.api_token" — rather than the
+ * status code, because the status code is not something the reader can act on.
+ */
+export async function writeJSON<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const resp = await fetch(path, {
+    method,
+    headers: { "X-Csbench-Write": "1", "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload: unknown = await resp.json().catch(() => null);
+  if (!resp.ok) {
+    const message =
+      payload !== null && typeof payload === "object" && typeof (payload as { error?: unknown }).error === "string"
+        ? (payload as { error: string }).error
+        : `HTTP ${resp.status}`;
+    throw new Error(message);
+  }
+  return payload as T;
+}
+
+export async function putTarget(name: string, yaml: string, overwrite: boolean): Promise<void> {
+  await writeJSON(`api/targets/${encodeURIComponent(name)}`, "PUT", { yaml, overwrite });
+}
+
+export async function deleteTarget(name: string): Promise<void> {
+  await writeJSON(`api/targets/${encodeURIComponent(name)}`, "DELETE");
+}
+
+// ----------------------------------------------------------------------
+// Starting a run
+// ----------------------------------------------------------------------
+
+export interface LaunchPlatform {
+  platform: string;
+  status: string;
+}
+
+export interface LaunchDomain {
+  domain: string;
+  description: string;
+  platforms: LaunchPlatform[];
+}
+
+export interface LaunchSuite {
+  suite_id: string;
+  suite_version: string;
+  /** Platforms this benchmark has actually produced records on, here. It is
+   * evidence, not permission: nothing in the registry maps a benchmark to a
+   * platform, so an empty list means "untried", never "forbidden". */
+  seen_platforms: string[];
+}
+
+export interface LaunchOptions {
+  domains: LaunchDomain[];
+  suites: LaunchSuite[];
+  max_repeat: number;
+  max_warmup: number;
+}
+
+/** What a "create like this" run starts from. Repeat/warmup are absent on
+ * purpose: a batch size is a decision about one run. */
+export interface LaunchSeed {
+  domain: string;
+  task_id: string;
+  platform: string;
+  target: string | null;
+  params: Record<string, string | number | boolean>;
+}
+
+export interface LaunchRequest {
+  domain: string;
+  task_id: string;
+  platform: string;
+  target: string | null;
+  params: Record<string, string | number | boolean>;
+  repeat: number;
+  warmup: number;
+}
+
+/** Start a run. Answers with the id before the run has done anything. */
+export async function startRun(request: LaunchRequest): Promise<string> {
+  const { run_id } = await writeJSON<{ run_id: string }>("api/runs", "POST", request);
+  return run_id;
+}
+
+// ----------------------------------------------------------------------
+// The catalogue faces (read-only)
+// ----------------------------------------------------------------------
+
+export interface SuiteEvaluator {
+  evaluator_id: string;
+  /** True = the suite's canonical numbers, not a number someone computed. */
+  official: boolean;
+}
+
+export interface InstalledSuite {
+  suite_id: string;
+  /** The pin: the same benchmark id always means the same data. */
+  suite_version: string;
+  evaluators: SuiteEvaluator[];
+  seen_platforms: string[];
+  runs: number;
+}
+
+export interface InstalledSuiteList {
+  suites: InstalledSuite[];
+}
+
+export interface PluginEntry {
+  kind: string;
+  name: string;
+  target: string;
+  /** Which distribution provides it; "" when the environment cannot say. */
+  distribution: string;
+}
+
+export interface PluginInventory {
+  plugins: PluginEntry[];
+  core_version: string;
+  plugin_api: string;
 }

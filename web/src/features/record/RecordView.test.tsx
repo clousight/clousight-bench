@@ -1,0 +1,116 @@
+import { describe, expect, it } from "vitest";
+
+import { MeasurementDetailLink, RecordLinks, hollowSuccess } from "@/features/record/RecordView";
+import type { ItemResultData } from "@/lib/items";
+import { renderMarkup } from "@/test/render";
+
+describe("hollowSuccess", () => {
+  it("flags a run that completed, passed every stage and measured nothing", () => {
+    // The defect this exists for: status `completed`, 11 stages `ok`,
+    // `measurements: {}` — and a page whose first three lines said "it
+    // finished, results are available" with the retraction below the fold.
+    expect(hollowSuccess("good", 0, 0)).toBe(true);
+  });
+
+  it("is not a failure, and does not fire on one", () => {
+    // A failed run with no measurements is the expected shape of a failure.
+    // The generic blurb already explains it; a second qualifier would be noise.
+    expect(hollowSuccess("critical", 0, 0)).toBe(false);
+    expect(hollowSuccess("warning", 0, 0)).toBe(false);
+    expect(hollowSuccess("running", 0, 0)).toBe(false);
+  });
+
+  it("stays quiet when the run already said what went wrong", () => {
+    expect(hollowSuccess("good", 0, 1)).toBe(false);
+  });
+
+  it("stays quiet when there is anything to report", () => {
+    expect(hollowSuccess("good", 1, 0)).toBe(false);
+  });
+});
+
+describe("RecordLinks", () => {
+  it("offers the detail surface when the run has items", () => {
+    const markup = renderMarkup(
+      <RecordLinks runId="run-1" hasItems suiteId="gsm8k" domain="llm" />,
+    );
+    expect(markup).toContain("#/runs/run-1?tab=items");
+    expect(markup).toContain("#/runs/run-1?tab=trace");
+  });
+
+  it("opens no door to an empty room", () => {
+    // TPC-H and friends measure an engine, not examples: they emit no items,
+    // and a link into an empty table is worse than no link.
+    const markup = renderMarkup(
+      <RecordLinks runId="run-1" hasItems={false} suiteId="tpc-h" domain="data-warehouse" />,
+    );
+    expect(markup).not.toContain("tab=items");
+    // The trace link is unconditional — every run has lifecycle spans — and it
+    // must still be pushed to the right edge when it is the only one there.
+    expect(markup).toContain("#/runs/run-1?tab=trace");
+    expect(markup).toContain("ml-auto");
+  });
+
+  it("falls back to the board when the run has no suite", () => {
+    const markup = renderMarkup(
+      <RecordLinks runId="run-1" hasItems={false} suiteId="" domain="" />,
+    );
+    expect(markup).toContain('href="#/runs"');
+  });
+});
+
+describe("MeasurementDetailLink", () => {
+  const items: ItemResultData[] = [
+    { item_id: "a", group: "algebra", scores: [{ metric: "accuracy", value: 1 }] },
+  ];
+
+  it("links a measurement that has item-level evidence", () => {
+    const markup = renderMarkup(
+      <MeasurementDetailLink
+        runId="run-1"
+        measurementKey="gsm8k.accuracy"
+        suiteId="gsm8k"
+        items={items}
+      />,
+    );
+    expect(markup).toContain("#/runs/run-1?tab=items&amp;metric=accuracy");
+  });
+
+  it("renders nothing for a measurement summed from usage", () => {
+    // avg_latency_ms never passes through an ItemScore. A link here would
+    // promise a table that cannot show the number it claims to explain.
+    const markup = renderMarkup(
+      <MeasurementDetailLink
+        runId="run-1"
+        measurementKey="gsm8k.avg_latency_ms"
+        suiteId="gsm8k"
+        items={items}
+      />,
+    );
+    expect(markup).toBe("");
+  });
+
+  it("carries the group through for a by_group measurement", () => {
+    const markup = renderMarkup(
+      <MeasurementDetailLink
+        runId="run-1"
+        measurementKey="mmlu.accuracy.by_group.algebra"
+        suiteId="mmlu"
+        items={items}
+      />,
+    );
+    expect(markup).toContain("metric=accuracy.by_group.algebra");
+  });
+
+  it("renders nothing when the run has no items at all", () => {
+    const markup = renderMarkup(
+      <MeasurementDetailLink
+        runId="run-1"
+        measurementKey="tpc-h.qphh_at_size"
+        suiteId="tpc-h"
+        items={[]}
+      />,
+    );
+    expect(markup).toBe("");
+  });
+});

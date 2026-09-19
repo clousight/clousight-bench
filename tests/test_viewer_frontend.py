@@ -343,8 +343,11 @@ def test_stage_timings_are_formatted_as_milliseconds() -> None:
                 )
 
 
-#: The route switch's trace arm, with whatever props it passes.
-_TRACE_ROUTE_RE = re.compile(r'case "trace":.*?<TraceView([^/>]*)/>', re.DOTALL)
+#: `<TraceView .../>` wherever it is mounted, with whatever props it passes.
+_TRACE_MOUNT_RE = re.compile(r"<TraceView([^/>]*)/>", re.DOTALL)
+
+#: `<RunView .../>` in the route switch — the trace's new parent.
+_RUN_ROUTE_RE = re.compile(r'case "run":.*?<RunView([^/>]*)/>', re.DOTALL)
 
 
 def test_trace_view_is_keyed_on_the_run() -> None:
@@ -361,18 +364,39 @@ def test_trace_view_is_keyed_on_the_run() -> None:
     remounted, which no static render can observe, so what is checked here is
     that the key is passed at all. It fails if the prop is dropped, which is
     the regression it exists for.
+
+    The trace moved from a sibling route to a tab on the run page, so the
+    mounting point moved with it. Both levels are checked, because either one
+    alone would let the selection survive: the run page is keyed inside the
+    route switch, and the trace pane is keyed inside the run page.
     """
     app = (_WEB_SRC / "App.tsx").read_text(encoding="utf-8")
-    match = _TRACE_ROUTE_RE.search(app)
-    assert match is not None, (
-        'App.tsx no longer renders <TraceView .../> from a `case "trace":` arm, so this test'
-        " cannot see how it is mounted — update the regex along with the routing"
+    run_route = _RUN_ROUTE_RE.search(app)
+    assert run_route is not None, (
+        'App.tsx no longer renders <RunView .../> from a `case "run":` arm, so this test'
+        " cannot see how the trace is mounted — update the regex along with the routing"
     )
-    assert "key=" in match.group(1), (
-        "<TraceView> must be keyed on the run id, or React reuses one instance — and its"
-        " selection, in the previous trace's epoch seconds and track ids — across a"
-        f" trace-to-trace navigation. Props found: {match.group(1).strip()!r}"
+    assert "key=" in run_route.group(1), (
+        "<RunView> must be keyed on the run id: it owns the tab whose selection is in the"
+        f" previous run's epoch seconds. Props found: {run_route.group(1).strip()!r}"
     )
+
+    mounts = [
+        (path.name, match.group(1))
+        for path in _web_src_files()
+        if path.suffix == ".tsx"
+        for match in _TRACE_MOUNT_RE.finditer(_code_only(path.read_text(encoding="utf-8")))
+    ]
+    assert mounts, (
+        "no <TraceView .../> mount found anywhere in web/src — the extraction is no longer"
+        " looking at the code that renders it"
+    )
+    for name, props in mounts:
+        assert "key=" in props, (
+            f"<TraceView> in {name} must be keyed on the run id, or React reuses one"
+            " instance — and its selection, in the previous trace's epoch seconds and"
+            f" track ids — across a trace-to-trace navigation. Props found: {props.strip()!r}"
+        )
 
 
 def test_viewer_bundles_its_own_monospace(dist_files: list[tuple[str, bytes]]) -> None:
@@ -970,4 +994,68 @@ def test_the_filter_box_holds_no_copy_of_what_the_reader_typed() -> None:
     assert "useState" not in code, (
         "TraceChrome declares state — the filter box is a second copy of what the reader typed, "
         "and it blanks when an unrelated re-render (every pointermove of a strip drag) remounts it"
+    )
+
+
+def test_the_detail_surface_never_derives_a_number_from_a_filter() -> None:
+    """Filtering the item table moves the observation, never the verdict.
+
+    The trace view has this rule as `test_selection_never_reaches_a_measurement`.
+    The detail surface is the second door into the same mistake: narrow a table
+    to its two failures and it is one line of code to print "100% fail" over
+    them — a ratio no evaluator computed, attributed to a run whose record says
+    otherwise.
+
+    The guard is structural rather than textual. `itemSummary` is the only thing
+    that counts and it takes the whole list; `filterItems` is the only thing
+    that narrows and it returns rows. So: the feature may not summarise the
+    output of the filter, and may not divide at all. The division rule is
+    deliberately broader than "no percentage" — a ratio is how one gets made,
+    and this directory has no legitimate need for one. When it does, the edit
+    that adds it should force the argument about whether that number is an
+    observation or a verdict.
+    """
+    feature = _WEB_SRC / "features" / "items"
+    assert feature.is_dir(), "the items feature directory is missing"
+    sources = sorted(feature.rglob("*.tsx"))
+    assert sources, "no items sources found — the extraction is looking in the wrong place"
+
+    # Self-check, so this cannot pass because the pattern stopped matching.
+    assert re.search(r"\w\s+/\s+\w", "const ratio = hits / total;")
+    assert not re.search(r"\w\s+/\s+\w", _code_only("// const ratio = hits / total;"))
+
+    offenders: list[str] = []
+    for path in sources:
+        code = _code_only(path.read_text(encoding="utf-8"))
+        assert "itemSummary(filterItems" not in code.replace(" ", ""), (
+            f"{path.name} summarises the filtered rows: the tally must describe the run"
+        )
+        for line in code.splitlines():
+            stripped = line.strip()
+            if re.search(r"\w\s+/\s+\w", stripped):
+                offenders.append(f"{path.relative_to(_WEB_SRC).as_posix()}: {stripped}")
+    assert not offenders, (
+        "the detail surface divides — a ratio over a subset is what it must never compute: "
+        + ", ".join(offenders)
+    )
+
+
+def test_the_items_summary_signature_cannot_see_a_filter() -> None:
+    """The invariant above, guarded where it is cheapest to keep: the signature.
+
+    A test on behaviour can be satisfied today and quietly regressed tomorrow by
+    a refactor that threads a filter through "for convenience". A signature with
+    no filter parameter cannot be regressed without an edit a reviewer sees.
+    """
+    source = (_WEB_SRC / "lib" / "items.ts").read_text(encoding="utf-8")
+    match = re.search(r"export function itemSummary\(([^)]*)\)", source)
+    assert match is not None, "itemSummary is gone or renamed — the invariant lost its anchor"
+    params = match.group(1)
+    assert "filter" not in params.lower(), (
+        f"itemSummary now takes a filter ({params!r}): a whole-run tally could become a subset's"
+    )
+    rows = re.search(r"export function filterItems\([^)]*\): ([^\s{]+)", source)
+    assert rows is not None and rows.group(1) == "ItemResultData[]", (
+        "filterItems no longer returns bare rows — an aggregate in its return type is the"
+        " other half of the same mistake"
     )

@@ -1,14 +1,47 @@
+/**
+ * The app: a shell, five sections, and one route table.
+ *
+ * `legacyRedirect` runs before anything renders so an old link rewrites itself
+ * in the address bar on arrival. The router resolves both spellings either
+ * way — the rewrite is for the reader's benefit (so what they copy next is the
+ * current spelling), not for correctness.
+ */
+
+import { useEffect } from "react";
+
+import { useJSON, type Meta } from "@/api";
 import { Header } from "@/components/Header";
+import { AppShell, SideRail, sectionOf, type RailItem } from "@/components/shell/AppShell";
 import { Section, SectionBody } from "@/components/ui/section";
-import { BoardView } from "@/features/board/BoardView";
-import { LiveConsole } from "@/features/live/LiveConsole";
+import {
+  ConfigSection,
+  ObserveSection,
+  PlatformsSection,
+  RunsSection,
+  SuitesInstalledSection,
+  SuitesSection,
+  TargetsSection,
+} from "@/features/sections/Sections";
+import { TargetDetail } from "@/features/targets/TargetDetail";
+import { TargetForm } from "@/features/targets/TargetForm";
 import { LiveRunView } from "@/features/live/LiveRunView";
-import { RecordView } from "@/features/record/RecordView";
-import { RunsView } from "@/features/runs/RunsView";
+import { RunNewView } from "@/features/runs/RunNewView";
+import { RunView } from "@/features/run/RunView";
 import { SuiteView } from "@/features/suite/SuiteView";
-import { TraceView } from "@/features/trace/TraceView";
 import { I18nProvider, useI18n } from "@/i18n";
-import { boardHref, useRoute } from "@/router";
+import {
+  legacyRedirect,
+  observeHref,
+  platformsHref,
+  runNewHref,
+  runsHref,
+  suitesHref,
+  suitesInstalledHref,
+  targetNewHref,
+  targetsHref,
+  useRoute,
+  type Route,
+} from "@/router";
 
 function NotFound() {
   const { t } = useI18n();
@@ -17,7 +50,7 @@ function NotFound() {
       <SectionBody className="py-3 text-sm">
         <span className="font-medium">{t("common.error")}</span>
         <span className="ml-2 font-mono text-xs text-muted-foreground">{window.location.hash}</span>
-        <a href={boardHref} className="ml-4 text-muted-foreground underline-offset-4 hover:underline">
+        <a href={runsHref} className="ml-4 text-muted-foreground underline-offset-4 hover:underline">
           {t("common.back")}
         </a>
       </SectionBody>
@@ -25,46 +58,129 @@ function NotFound() {
   );
 }
 
-function Routed() {
-  const route = useRoute();
+function Routed({ route }: { route: Route }) {
   switch (route.name) {
-    case "board":
-      return <BoardView />;
+    case "suites":
+      return <SuitesSection />;
+    case "suitesInstalled":
+      return <SuitesInstalledSection />;
     case "suite":
       return <SuiteView domain={route.domain} suiteId={route.suiteId} />;
-    case "record":
-      return <RecordView runId={route.runId} />;
-    case "trace":
-      // Keyed on the run, so navigating from one trace to another mounts a
-      // new component instead of reusing the old one's state. `TraceView`
-      // holds a `Selection` of absolute epoch seconds and track ids from the
-      // trace it was built for; neither means anything in a different run,
-      // and carrying them over rendered every pane as "No spans in this
-      // selection" with nothing on screen to say why. A key resets all of it
-      // at once — including the open span id and the active tab — and cannot
-      // be forgotten by whatever state the view grows next, which a
-      // reset-on-change effect inside the component could.
-      return <TraceView key={route.runId} runId={route.runId} />;
+    case "targets":
+      return <TargetsSection />;
+    case "platforms":
+      return <PlatformsSection />;
+    case "targetNew":
+      return <TargetForm />;
+    case "targetEdit":
+      // Keyed on the name so moving between two targets' editors remounts:
+      // the editor seeds its text once, and a stale seed would show the
+      // previous target's YAML under the new one's name.
+      return <TargetForm key={route.targetName} name={route.targetName} />;
+    case "target":
+      return <TargetDetail key={route.targetName} name={route.targetName} />;
     case "runs":
-      return <RunsView />;
-    case "live":
-      return <LiveConsole />;
-    case "liveRun":
+      return <RunsSection />;
+    case "runNew":
+      // Keyed on the source run so following a second "like this" reseeds the
+      // form instead of keeping the first run's fields.
+      return <RunNewView key={route.from ?? "blank"} from={route.from} />;
+    case "run":
+      // Keyed on the run so a move between runs mounts a fresh page: the trace
+      // tab holds a selection of absolute timestamps and track ids that mean
+      // nothing in another run.
+      return (
+        <RunView key={route.runId} runId={route.runId} tab={route.tab} metric={route.metric} />
+      );
+    case "observe":
+      return <ObserveSection />;
+    case "observeRun":
       return <LiveRunView runId={route.runId} />;
+    case "config":
+      return <ConfigSection />;
     case "notFound":
       return <NotFound />;
   }
 }
 
+/** The section's rail: its views, and its create affordance when it has one. */
+function Rail({ route }: { route: Route }) {
+  const { t } = useI18n();
+  // The create button exists only where the server would accept the write.
+  // Offering it on a read-only viewer would trade a missing button for a 405
+  // at the end of a filled-in form, which is the worse of the two.
+  const meta = useJSON<Meta>("api/meta");
+  const writable = meta.data?.write_enabled === true;
+  const section = sectionOf(route);
+  if (section === null) return null;
+
+  // Each section declares its views here. `SideRail` drops itself when the
+  // list does not yet earn its gutter, so a section with one view renders full
+  // width until it grows a second one or a create button.
+  const items: RailItem[] = [];
+  switch (section) {
+    case "suites":
+      items.push({
+        href: suitesHref,
+        label: t("suites.rail_results"),
+        active: route.name !== "suitesInstalled",
+      });
+      items.push({
+        href: suitesInstalledHref,
+        label: t("suites.rail_installed"),
+        active: route.name === "suitesInstalled",
+      });
+      break;
+    case "targets":
+      items.push({
+        href: targetsHref,
+        label: t("target.title"),
+        active: route.name !== "platforms",
+      });
+      items.push({
+        href: platformsHref,
+        label: t("platform.rail"),
+        active: route.name === "platforms",
+      });
+      break;
+    case "runs":
+      items.push({ href: runsHref, label: t("shell.all"), active: route.name !== "run" });
+      break;
+    case "observe":
+      items.push({ href: observeHref, label: t("shell.all"), active: route.name === "observe" });
+      break;
+    case "config":
+      return null;
+  }
+  const primary = !writable
+    ? null
+    : section === "targets"
+      ? { href: targetNewHref, label: t("target.new") }
+      : section === "runs"
+        ? { href: runNewHref, label: t("run.new_title") }
+        : null;
+  return <SideRail primary={primary} items={items} />;
+}
+
+function Body() {
+  const route = useRoute();
+
+  useEffect(() => {
+    const next = legacyRedirect(window.location.hash);
+    if (next !== null) window.location.replace(next);
+  }, [route]);
+
+  return (
+    <AppShell route={route} topBar={<Header />} rail={<Rail route={route} />}>
+      <Routed route={route} />
+    </AppShell>
+  );
+}
+
 export default function App() {
   return (
     <I18nProvider>
-      <div className="min-h-screen bg-background text-foreground antialiased">
-        <Header />
-        <main className="mx-auto max-w-6xl px-6 py-6">
-          <Routed />
-        </main>
-      </div>
+      <Body />
     </I18nProvider>
   );
 }

@@ -21,10 +21,25 @@ import {
 import { useI18n } from "@/i18n";
 import { useEngineerView } from "@/lib/engineerView";
 
-export function EngineerPanel({ data }: { data: RecordDetailData }) {
+/**
+ * `forceOpen` is the config-snapshot tab.
+ *
+ * The engineer switch exists to keep the OVERVIEW readable — the fingerprints
+ * and the environment are what made the old detail page unreadable by default.
+ * A reader who navigated to a tab literally named "config snapshot" has
+ * already asked for them, and gating that behind a second switch in the header
+ * would read as a bug.
+ */
+export function EngineerPanel({
+  data,
+  forceOpen = false,
+}: {
+  data: RecordDetailData;
+  forceOpen?: boolean;
+}) {
   const { t } = useI18n();
   const { engineerView } = useEngineerView();
-  if (!engineerView) return null;
+  if (!engineerView && !forceOpen) return null;
 
   const fingerprints = data.fingerprints ?? {};
   const environment = data.environment ?? {};

@@ -26,23 +26,44 @@ import {
 import { EngineerPanel } from "@/features/record/EngineerPanel";
 import { useI18n } from "@/i18n";
 import { fmtDate, fmtDurMs } from "@/lib/format";
-import { lookupStatus } from "@/lib/glossary";
+import { lookupStatus, type StatusTone } from "@/lib/glossary";
 import { headlineMetrics, orderMetricKeys, suiteLabel } from "@/lib/headline";
-import { boardHref, suiteHref, traceHref } from "@/router";
+import { detailTarget, type ItemResultData } from "@/lib/items";
+import { cn } from "@/lib/utils";
+import { boardHref, itemsHref, suiteHref, traceHref } from "@/router";
 
+/** The standalone page: fetch, then render the body. */
 export function RecordView({ runId }: { runId: string }) {
-  const { t, locale } = useI18n();
   const record = useJSON<RecordDetailData>(`api/record/${encodeURIComponent(runId)}`);
-
   if (record.error !== null) return <ErrorView message={record.error} />;
   if (record.data === null) return <LoadingView />;
+  return <RecordBody runId={runId} data={record.data} withLinks />;
+}
 
-  const data = record.data;
+/**
+ * A run's conclusion, from already-fetched data.
+ *
+ * Split from the fetch so the run page's four tabs can share ONE request
+ * instead of each face re-reading the same record. `withLinks` is off there:
+ * the tab bar above is already the navigation, and a second row of "view
+ * trace / view items" links under it would be two controls for one job.
+ */
+export function RecordBody({
+  runId,
+  data,
+  withLinks = false,
+}: {
+  runId: string;
+  data: RecordDetailData;
+  withLinks?: boolean;
+}) {
+  const { t, locale } = useI18n();
   const status = data.status ?? "";
   const run = data.run ?? {};
   const identity = data.identity ?? {};
   const provenance = data.provenance ?? {};
   const measurements = data.measurements ?? {};
+  const items = data.items ?? [];
   const errors = data.errors ?? [];
   const artifacts = data.artifacts ?? [];
   const stages = (run.stages ?? {}) as Record<string, string>;
@@ -60,23 +81,21 @@ export function RecordView({ runId }: { runId: string }) {
   const suiteId = provenance.suite_id ?? "";
   const domain = identity.domain ?? "";
 
+  // A run that claims success and measured nothing.
+  //
+  // The status field says "completed" and the stages really did all pass, so
+  // neither is rewritten here — they are the record's own facts. What was wrong
+  // was OUR prose on top of them: the page opened with "it finished, results
+  // are available" and put "this run produced no measurements" at the very
+  // bottom, under the artifacts, below the fold. Three lines claiming a result
+  // and one line retracting it, in that order.
+  const hollow = hollowSuccess(statusSpec.tone, orderedKeys.length, errors.length);
+
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <a
-          href={suiteId !== "" && domain !== "" ? suiteHref(domain, suiteId) : boardHref}
-          className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-        >
-          ← {suiteId !== "" ? suiteLabel(suiteId) : t("board.title")}
-        </a>
-        <a
-          href={traceHref(runId)}
-          className="ml-auto inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline"
-        >
-          {t("record.view_trace")}
-          <ArrowRight className="size-3.5" aria-hidden />
-        </a>
-      </div>
+      {withLinks && (
+        <RecordLinks runId={runId} hasItems={items.length > 0} suiteId={suiteId} domain={domain} />
+      )}
 
       {/* Verdict */}
       <div className="flex flex-col gap-2">
@@ -86,10 +105,25 @@ export function RecordView({ runId }: { runId: string }) {
           </h1>
           <span className="font-mono text-xs text-muted-foreground">{identity.adapter}</span>
           <StatusPill status={status} />
+          {hollow && (
+            // Beside the pill, so a cropped screenshot of the header alone
+            // still carries the qualification.
+            <span
+              title={t("record.no_measurements_blurb")}
+              className="inline-flex items-center rounded-sm bg-status-warning/15 px-1.5 py-0 font-mono text-[10px] uppercase tracking-[0.08em] text-status-serious"
+            >
+              {t("record.no_measurements_chip")}
+            </span>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">
-          {locale === "zh" ? statusSpec.blurb.zh : statusSpec.blurb.en}
+          {hollow
+            ? t("record.no_measurements")
+            : locale === "zh"
+              ? statusSpec.blurb.zh
+              : statusSpec.blurb.en}
         </p>
+        {hollow && <p className="text-sm text-muted-foreground">{t("record.no_measurements_blurb")}</p>}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
           <span>{runId}</span>
           <CopyButton value={runId} />
@@ -157,14 +191,21 @@ export function RecordView({ runId }: { runId: string }) {
             {orderedKeys.map((key) => {
               const entry = measurements[key];
               return (
-                <MetricValue
-                  key={key}
-                  measurementKey={key}
-                  value={entry.value}
-                  unit={entry.unit}
-                  reproducibility={entry.reproducibility_class}
-                  official={entry.official}
-                />
+                <div key={key} className="flex flex-col gap-1">
+                  <MetricValue
+                    measurementKey={key}
+                    value={entry.value}
+                    unit={entry.unit}
+                    reproducibility={entry.reproducibility_class}
+                    official={entry.official}
+                  />
+                  <MeasurementDetailLink
+                    runId={runId}
+                    measurementKey={key}
+                    suiteId={suiteId}
+                    items={items}
+                  />
+                </div>
               );
             })}
           </SectionBody>
@@ -233,12 +274,119 @@ export function RecordView({ runId }: { runId: string }) {
       )}
 
       <EngineerPanel data={data} />
-
-      {/* A run with no measurements at all still deserves an explanation. */}
-      {orderedKeys.length === 0 && errors.length === 0 && (
-        <p className="text-sm text-muted-foreground">{t("record.no_measurements")}</p>
-      )}
     </div>
+  );
+}
+
+/**
+ * A run that claims success and measured nothing.
+ *
+ * Three conditions, and all three matter. The status must be a GOOD tone —
+ * "failed" with no measurements is not a contradiction, it is the expected
+ * shape of a failure, and the generic blurb already says so. `errors` must be
+ * empty for the same reason: a run that reported what went wrong has already
+ * explained itself. What is left is the case the page got wrong — the record
+ * says `completed`, every stage says `ok`, and `measurements` is `{}`.
+ *
+ * A predicate rather than an inline condition because it is the load-bearing
+ * sentence, not a formatting detail: it decides whether the first thing a
+ * reader sees is "results are available".
+ */
+export function hollowSuccess(
+  tone: StatusTone,
+  measurementCount: number,
+  errorCount: number,
+): boolean {
+  return tone === "good" && measurementCount === 0 && errorCount === 0;
+}
+
+/**
+ * The two ways out of a record: its trace, and — only when there is one — its
+ * per-item detail.
+ *
+ * Every run has lifecycle spans, so the trace link is unconditional. Items have
+ * no such floor: the TPC and YCSB families measure an engine rather than
+ * examples and emit none, and a link into an empty table is a door to an empty
+ * room. `hasItems` is the whole condition, decided by the caller from the
+ * record it already holds.
+ */
+export function RecordLinks({
+  runId,
+  hasItems,
+  suiteId,
+  domain,
+}: {
+  runId: string;
+  hasItems: boolean;
+  suiteId: string;
+  domain: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <a
+        href={suiteId !== "" && domain !== "" ? suiteHref(domain, suiteId) : boardHref}
+        className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+      >
+        ← {suiteId !== "" ? suiteLabel(suiteId) : t("board.title")}
+      </a>
+      {hasItems && (
+        <a
+          href={itemsHref(runId)}
+          className="ml-auto inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline"
+        >
+          {t("items.view")}
+          <ArrowRight className="size-3.5" aria-hidden />
+        </a>
+      )}
+      <a
+        href={traceHref(runId)}
+        className={cn(
+          "inline-flex items-center gap-1 text-sm underline-offset-4 hover:underline",
+          !hasItems && "ml-auto",
+        )}
+      >
+        {t("record.view_trace")}
+        <ArrowRight className="size-3.5" aria-hidden />
+      </a>
+    </div>
+  );
+}
+
+/**
+ * The bridge from one measurement to the evidence under it — or nothing.
+ *
+ * `detailTarget` returns null for every measurement summed from `usage` rather
+ * than aggregated from `ItemScore`s (`avg_latency_ms`, `cost_usd`,
+ * `total_tokens`). Rendering a link there would promise a table that cannot
+ * show the number it claims to explain, so the answer is no link at all rather
+ * than a link to an empty filter.
+ *
+ * The wording matters too: this points at "the evidence behind this number",
+ * never at "the items that produce it". The items do not recompute the
+ * measurement — an evaluator did, offline, over sealed evidence.
+ */
+export function MeasurementDetailLink({
+  runId,
+  measurementKey,
+  suiteId,
+  items,
+}: {
+  runId: string;
+  measurementKey: string;
+  suiteId: string;
+  items: ItemResultData[];
+}) {
+  const { t } = useI18n();
+  const target = detailTarget(measurementKey, suiteId, items);
+  if (target === null) return null;
+  return (
+    <a
+      href={itemsHref(runId, target)}
+      className="w-fit text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+    >
+      {t("items.evidence_for")} →
+    </a>
   );
 }
 

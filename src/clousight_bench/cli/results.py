@@ -162,9 +162,18 @@ def _cmd_serve(args: argparse.Namespace) -> int:
 
     # Bind first so the printed URL is the ACTUAL bound address (--port 0 picks
     # an ephemeral port; the placeholder 0 must never be shown to the user).
-    server = create_server(Path(args.results), host=args.host, port=args.port)
+    server = create_server(
+        Path(args.results),
+        host=args.host,
+        port=args.port,
+        configs_dir=Path(getattr(args, "configs", "configs")),
+        allow_write=getattr(args, "allow_write", False),
+    )
     host_raw, bound_port = server.server_address[0], server.server_address[1]
     bound_host = host_raw.decode() if isinstance(host_raw, bytes) else host_raw  # AF_INET → str
-    print(f"viewer: http://{bound_host}:{bound_port} (results: {args.results}) — Ctrl-C to stop")
+    # The mode is printed because it is the server's whole security posture:
+    # someone reading their scrollback should be able to tell which one is up.
+    mode = "read+write" if getattr(args, "allow_write", False) else "read-only"
+    print(f"viewer: http://{bound_host}:{bound_port} (results: {args.results}, {mode}) — Ctrl-C to stop")
     serve_until_interrupt(server)
     return 0

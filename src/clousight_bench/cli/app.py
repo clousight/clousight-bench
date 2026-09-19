@@ -117,6 +117,11 @@ def main(argv: list[str] | None = None) -> int:
     run_p.add_argument(
         "--warmup", type=int, default=0, help="warmup runs to execute first and exclude from statistics"
     )
+    run_p.add_argument(
+        "--run-id",
+        help="name this run instead of generating an id (the web console does this so it "
+        "can open the live view before the run has started)",
+    )
     run_p.add_argument("--plan-id", help="reuse a plan id (printed in the aggregate) to resume it")
     run_p.add_argument(
         "--resume",
@@ -213,6 +218,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     serve_p.add_argument("--port", type=int, default=8787, help="port to listen on (default: 8787)")
     serve_p.add_argument("--host", default="127.0.0.1", help="bind address (default: 127.0.0.1)")
+    serve_p.add_argument(
+        "--configs", default="configs", help="directory holding target configs (default: configs)"
+    )
+    serve_p.add_argument(
+        "--allow-write",
+        action="store_true",
+        help="let the browser create, edit and delete target configs under --configs "
+        "and start runs. Off by default: without it the server only reads. "
+        "Sealed records are never writable either way.",
+    )
 
     trace_p = sub.add_parser("trace", help="inspect the execution traces of runs")
     trace_sub = trace_p.add_subparsers(dest="trace_cmd", required=True)
