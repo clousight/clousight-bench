@@ -158,3 +158,35 @@ class TestLoading:
         loaded = load_target(configs, "list")
         assert loaded is not None
         assert loaded["error"] != ""
+
+
+class TestLookupVsJoin:
+    """Two functions on purpose: one finds, one constructs.
+
+    Readers and deleters take a path the filesystem handed back, so a name
+    that arrived in a URL never becomes part of one. Only creating a file
+    needs the join, and that is the single place the prefix guard has to hold.
+    """
+
+    def test_finding_never_invents_a_path(self, configs: Path) -> None:
+        from clousight_bench.viewer.targets import find_target
+
+        assert find_target(configs, "duckdb-sf1") == configs / "duckdb-sf1.yaml"
+        # Absent, malformed and escaping all answer the same way: nothing.
+        for name in ("nope", "../etc/passwd", "a/b", ".", ""):
+            assert find_target(configs, name) is None
+
+    def test_finding_refuses_a_symlink_even_inside_the_directory(self, configs: Path, tmp_path: Path) -> None:
+        from clousight_bench.viewer.targets import find_target
+
+        outside = tmp_path / "elsewhere.yaml"
+        outside.write_text("target: {}\n")
+        os.symlink(outside, configs / "link.yaml")
+        assert find_target(configs, "link") is None
+
+    def test_constructing_holds_the_prefix_guard(self, configs: Path, tmp_path: Path) -> None:
+        # The resolved path must start with the resolved configs directory.
+        # A name that resolves elsewhere is refused before anything is written.
+        assert target_path(configs, "fresh") == (configs.resolve() / "fresh.yaml")
+        os.symlink(tmp_path / "outside.yaml", configs / "escape.yaml")
+        assert target_path(configs, "escape") is None

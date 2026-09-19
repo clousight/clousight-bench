@@ -22,9 +22,12 @@ it must exist, for the file where someone pasted the real thing.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
+
+from clousight_bench.core.logsafe import sanitize_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -50,22 +53,62 @@ def valid_target_name(name: str) -> bool:
     return bool(_NAME_RE.match(name)) and name not in (".", "..")
 
 
-def target_path(configs_dir: Path, name: str) -> Path | None:
-    """Where target ``name`` lives, or None if it could not live there.
+def find_target(configs_dir: Path, name: str) -> Path | None:
+    """An **existing** target, looked up by name. The reader/deleter side.
 
-    Answers for a file that does not exist yet — a new target has to be
-    writable somewhere — so "None" means *forbidden*, never *absent*.
+    Nothing here joins the caller's string into a path: the returned value
+    comes out of ``iterdir()``, so it is a name the filesystem handed us and
+    cannot traverse anywhere by construction. This is the same rule
+    ``progress.locate_progress_dir`` and the record reader follow, and it is
+    why every route that only needs an existing file uses this rather than
+    :func:`target_path`.
     """
     if not valid_target_name(name):
         return None
     root = configs_dir.resolve()
-    candidate = (configs_dir / f"{name}{TARGET_SUFFIX}").resolve()
-    if candidate.parent != root:
+    if not root.is_dir():
+        return None
+    wanted = f"{name}{TARGET_SUFFIX}"
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        if entry.name == wanted and entry.is_file() and not entry.is_symlink():
+            return entry
+    return None
+
+
+def target_path(configs_dir: Path, name: str) -> Path | None:
+    """Where target ``name`` would live. The **writer** side, and the only join.
+
+    A file that does not exist yet cannot be found by listing, so creating one
+    is the single place a caller's string has to become part of a path. Three
+    things guard it, in this order:
+
+    1. the name is a plain token (``valid_target_name``) — no separators, no
+       ``.``/``..``;
+    2. the joined path is fully resolved, which collapses any ``..`` and
+       follows any symlink;
+    3. the resolved string must start with the resolved configs directory plus
+       a separator — a prefix test on the real paths, after resolution, which
+       is what makes the check independent of how the name was spelled.
+
+    "None" means *forbidden*, never *absent*.
+    """
+    if not valid_target_name(name):
+        return None
+    root = os.path.realpath(configs_dir)
+    candidate = os.path.realpath(os.path.join(root, f"{name}{TARGET_SUFFIX}"))
+    if not candidate.startswith(root + os.sep):
         # Covers the symlink case a name check cannot: the link's own name is
         # spotless, and its target is /etc.
-        logger.warning("viewer: target %r resolves outside the configs directory", name)
+        logger.warning(
+            "viewer: target %s resolves outside the configs directory",
+            sanitize_for_log(name),
+        )
         return None
-    return candidate
+    return Path(candidate)
 
 
 def redact(value: Any, _prefix: str = "") -> tuple[Any, list[str]]:
@@ -145,7 +188,7 @@ def list_targets(configs_dir: Path) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for path in sorted(configs_dir.glob(f"*{TARGET_SUFFIX}")):
         name = path.name[: -len(TARGET_SUFFIX)]
-        if not valid_target_name(name) or target_path(configs_dir, name) is None:
+        if not valid_target_name(name) or path.is_symlink():
             continue  # a file the console could never address anyway
         data, error = _parse(path)
         out.append(_summary(name, path, data, error))
@@ -161,8 +204,8 @@ def load_target(configs_dir: Path, name: str) -> dict[str, Any] | None:
     so rather than shipping a secret or a lossy re-dump pretending to be the
     file.
     """
-    path = target_path(configs_dir, name)
-    if path is None or not path.is_file():
+    path = find_target(configs_dir, name)
+    if path is None:
         return None
     data, error = _parse(path)
     clean, hidden = redact(data)

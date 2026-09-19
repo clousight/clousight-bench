@@ -89,6 +89,7 @@ from clousight_bench.viewer.launch import (
 )
 from clousight_bench.viewer.platforms import list_platforms, platform_usage
 from clousight_bench.viewer.targets import (
+    find_target,
     list_targets,
     load_target,
     redact,
@@ -263,7 +264,10 @@ def create_server(
     ``allow_write`` is the whole write surface: off (the default) the server is
     exactly the read-only viewer it has always been.
     """
-    configs_dir = Path(configs_dir) if configs_dir is not None else Path("configs")
+    # A separate name, not a rebinding: the handler class below closes over
+    # this, and a closure sees the parameter's declared type rather than what
+    # a reassignment narrowed it to.
+    configs_root: Path = Path(configs_dir) if configs_dir is not None else Path("configs")
     allowed_hosts = {host.lower(), "localhost", "127.0.0.1", "[::1]"}
     # A machine that lost power mid-benchmark leaves a snapshot still claiming
     # to run. Collect those once here so the viewer does not open on a phantom.
@@ -390,13 +394,13 @@ def create_server(
                 return
             if segments == ["api", "targets"]:
                 usage = target_usage(results_dir)
-                targets = list_targets(configs_dir)
+                targets = list_targets(configs_root)
                 for entry in targets:
                     entry["launched"] = usage.get(entry["name"], 0)
                 self._send_json(200, {"targets": targets}, head_only)
                 return
             if len(segments) == 3 and segments[:2] == ["api", "targets"] and segments[2]:
-                target = load_target(configs_dir, segments[2])
+                target = load_target(configs_root, segments[2])
                 if target is not None:
                     # How many runs THIS console started with it. Sealed records
                     # do not name their config file, so this counts what the
@@ -663,7 +667,7 @@ def create_server(
             return payload
 
         def _put_target(self, name: str, body: dict[str, Any]) -> None:
-            path = target_path(configs_dir, name)
+            path = target_path(configs_root, name)
             if path is None:
                 logger.warning("viewer: write rejected for target name %s", sanitize_for_log(name))
                 self._send_json(404, {"error": "unknown target"}, False)
@@ -704,7 +708,7 @@ def create_server(
                     False,
                 )
                 return
-            exists = path.is_file()
+            exists = find_target(configs_root, name) is not None
             if exists and body.get("overwrite") is not True:
                 self._send_json(409, {"error": f"target {name!r} exists; resend with overwrite: true"}, False)
                 return
@@ -718,8 +722,11 @@ def create_server(
             self._send_json(200, {"name": name, "created": not exists}, False)
 
         def _delete_target(self, name: str) -> None:
-            path = target_path(configs_dir, name)
-            if path is None or not path.is_file():
+            # Looked up, not joined: deleting only ever needs a file that is
+            # already there, and a name the filesystem handed back cannot
+            # point anywhere else.
+            path = find_target(configs_root, name)
+            if path is None:
                 self._send_json(404, {"error": "unknown target"}, False)
                 return
             try:
@@ -743,7 +750,7 @@ def create_server(
             body = self._write_body()
             if body is None:
                 return
-            spec, why = validate_launch(body, configs_dir)
+            spec, why = validate_launch(body, configs_root)
             if spec is None:
                 self._send_json(400, {"error": why}, False)
                 return
@@ -759,7 +766,7 @@ def create_server(
                 return
             run_id = new_run_id()
             try:
-                spawn_run(spec, results_dir, configs_dir, run_id)
+                spawn_run(spec, results_dir, configs_root, run_id)
             except OSError as exc:
                 logger.warning("viewer: could not start run %s: %s", run_id, exc)
                 self._send_json(500, {"error": f"could not start the run: {exc.__class__.__name__}"}, False)

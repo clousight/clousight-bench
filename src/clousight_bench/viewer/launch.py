@@ -31,6 +31,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from clousight_bench.core.logsafe import sanitize_for_log
 from clousight_bench.viewer.targets import target_path, valid_target_name
 
 logger = logging.getLogger(__name__)
@@ -252,7 +253,14 @@ def spawn_run(spec: LaunchSpec, results_dir: Path, configs_dir: Path, run_id: st
     argv = launch_argv(spec, results_dir, configs_dir, run_id)
     record_launch(results_dir, run_id, spec)
     log_path = launch_dir(results_dir) / f"{run_id}.log"
-    logger.info("viewer: starting run %s: %s", run_id, " ".join(argv[3:]))
+    # The argv carries the caller's params and target name, so it is sanitized
+    # before it reaches a log line — a value that can inject a newline can
+    # forge a second log entry.
+    logger.info(
+        "viewer: starting run %s: %s",
+        run_id,
+        sanitize_for_log(" ".join(argv[3:])),
+    )
     with log_path.open("wb") as log:
         subprocess.Popen(  # noqa: S603 - argv is built from validated fields, no shell
             argv,
@@ -321,6 +329,27 @@ def launch_options(results_dir: Path | None = None) -> dict[str, Any]:
     return {"domains": domains, "suites": suites, "max_repeat": MAX_REPEAT, "max_warmup": MAX_WARMUP}
 
 
+def _find_launch_note(results_dir: Path, run_id: str) -> Path | None:
+    """The launch note for ``run_id``, found by listing rather than by joining.
+
+    ``run_id`` arrives in a URL. Every reader in this project resolves such a
+    name against ``iterdir()`` so the path it returns is one the filesystem
+    produced — see ``progress.locate_progress_dir`` for the same rule.
+    """
+    directory = launch_dir(results_dir)
+    if not directory.is_dir():
+        return None
+    wanted = f"{run_id}.json"
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        if entry.name == wanted and entry.is_file():
+            return entry
+    return None
+
+
 def prefill_from(results_dir: Path, run_id: str) -> dict[str, Any] | None:
     """The fields a new run would start from, taken from one that happened.
 
@@ -341,7 +370,8 @@ def prefill_from(results_dir: Path, run_id: str) -> dict[str, Any] | None:
     record = load_record(results_dir, run_id)
     if record is None:
         return None
-    identity = record.get("identity") if isinstance(record.get("identity"), dict) else {}
+    raw_identity = record.get("identity")
+    identity: dict[str, Any] = raw_identity if isinstance(raw_identity, dict) else {}
     seed: dict[str, Any] = {
         "domain": str(identity.get("domain") or ""),
         "task_id": str(identity.get("task_id") or ""),
@@ -349,7 +379,9 @@ def prefill_from(results_dir: Path, run_id: str) -> dict[str, Any] | None:
         "target": None,
         "params": {},
     }
-    note = launch_dir(results_dir) / f"{run_id}.json"
+    note = _find_launch_note(results_dir, run_id)
+    if note is None:
+        return seed
     try:
         saved = json.loads(note.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
