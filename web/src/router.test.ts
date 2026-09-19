@@ -28,6 +28,27 @@ describe("parseHash — the five sections", () => {
     });
   });
 
+  it("routes a target's edit form under the target itself", () => {
+    expect(parseHash("#/targets/duckdb-sf1/edit")).toEqual({
+      name: "targetEdit",
+      targetName: "duckdb-sf1",
+    });
+    expect(parseHash("#/targets/duckdb-sf1/rm")).toEqual({ name: "notFound" });
+  });
+
+  it("routes the platform catalogue into the targets section", () => {
+    // Two nouns, one section: the adapters this build has, and the targets
+    // configured against them. A target's name can be anything, so the
+    // catalogue gets its own top-level word rather than #/targets/platforms,
+    // where it would be shadowed by a target called "platforms".
+    expect(parseHash("#/platforms")).toEqual({ name: "platforms" });
+    expect(parseHash("#/platforms/extra")).toEqual({ name: "notFound" });
+    expect(parseHash("#/targets/platforms")).toEqual({
+      name: "target",
+      targetName: "platforms",
+    });
+  });
+
   it("routes targets, with create before lookup", () => {
     expect(parseHash("#/targets")).toEqual({ name: "targets" });
     expect(parseHash("#/targets/new")).toEqual({ name: "targetNew" });

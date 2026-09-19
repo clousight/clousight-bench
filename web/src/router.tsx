@@ -7,8 +7,10 @@
  *   #/suites                    the benchmark catalogue: what can be measured
  *   #/suites/:domain/:suite     one benchmark, platforms compared
  *   #/targets                   the things under test, as configured
+ *   #/platforms                 the adapters this build ships, as a catalogue
  *   #/targets/:name             one target
  *   #/targets/new               compose a new target
+ *   #/targets/:name/edit        edit one target's text
  *   #/runs                      every run
  *   #/runs/new                  compose and launch a run
  *   #/runs/:id                  one run — overview / items / trace / config
@@ -43,8 +45,11 @@ export type Route =
   | { name: "suites" }
   | { name: "suite"; domain: string; suiteId: string }
   | { name: "targets" }
+  /** The adapter catalogue — the other half of the targets section. */
+  | { name: "platforms" }
   | { name: "targetNew" }
   | { name: "target"; targetName: string }
+  | { name: "targetEdit"; targetName: string }
   | { name: "runs" }
   | { name: "runNew" }
   /** `metric` is only meaningful on the items tab; null everywhere else. */
@@ -131,12 +136,20 @@ export function parseHash(hash: string): Route {
     return { name: "notFound" };
   }
 
+  if (segments[0] === "platforms") {
+    return segments.length === 1 ? { name: "platforms" } : { name: "notFound" };
+  }
+
   if (segments[0] === "targets") {
     if (segments.length === 1) return { name: "targets" };
     if (segments.length === 2) {
       if (segments[1] === "new") return { name: "targetNew" };
       const targetName = decodeSegment(segments[1]);
       return targetName === null ? { name: "notFound" } : { name: "target", targetName };
+    }
+    if (segments.length === 3 && segments[2] === "edit") {
+      const targetName = decodeSegment(segments[1]);
+      return targetName === null ? { name: "notFound" } : { name: "targetEdit", targetName };
     }
     return { name: "notFound" };
   }
@@ -198,10 +211,14 @@ export function hrefOf(route: Route): string {
       return suiteHref(route.domain, route.suiteId);
     case "targets":
       return targetsHref;
+    case "platforms":
+      return platformsHref;
     case "targetNew":
       return targetNewHref;
     case "target":
       return targetHref(route.targetName);
+    case "targetEdit":
+      return targetEditHref(route.targetName);
     case "runs":
       return runsHref;
     case "runNew":
@@ -231,6 +248,7 @@ export function useRoute(): Route {
 
 export const suitesHref = "#/suites";
 export const targetsHref = "#/targets";
+export const platformsHref = "#/platforms";
 export const targetNewHref = "#/targets/new";
 export const runsHref = "#/runs";
 export const runNewHref = "#/runs/new";
@@ -247,6 +265,10 @@ export function suiteHref(domain: string, suiteId: string): string {
 
 export function targetHref(name: string): string {
   return `${targetsHref}/${encodeURIComponent(name)}`;
+}
+
+export function targetEditHref(name: string): string {
+  return `${targetHref(name)}/edit`;
 }
 
 /**

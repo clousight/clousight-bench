@@ -14,6 +14,10 @@ export interface Meta {
   counts: { records: number };
   /** How many runs are in flight right now. Drives the nav's live badge. */
   progress_active?: number;
+  /** Whether this server was started with --allow-write. The UI must not
+   * offer a button the server would answer 405 to. Absent on older servers,
+   * which had no write routes at all — so treat absent as false. */
+  write_enabled?: boolean;
 }
 
 export interface RecordSummary {
@@ -315,4 +319,69 @@ export function usePolledJSON<T>(path: string, intervalMs: number): Loadable<T> 
     };
   }, [path, intervalMs]);
   return state;
+}
+
+// ----------------------------------------------------------------------
+// Targets (configs/*.yaml)
+// ----------------------------------------------------------------------
+
+export interface TargetSummary {
+  name: string;
+  filename: string;
+  size: number;
+  /** mtime, epoch seconds. */
+  modified: number;
+  mode: string;
+  provider: string;
+  region: string;
+  /** Why this file could not be understood; "" when it was fine. */
+  error: string;
+}
+
+export interface TargetDetailData extends TargetSummary {
+  /** The parsed config, with credential-shaped values replaced by "***". */
+  data: Record<string, unknown>;
+  /** Dotted paths that were redacted. Non-empty means `yaml` is null. */
+  redacted: string[];
+  /** The file's own text — served only when nothing had to be redacted, so
+   * that editing it here cannot reformat it or drop its comments. */
+  yaml: string | null;
+}
+
+export interface TargetListData {
+  targets: TargetSummary[];
+}
+
+/**
+ * A mutating request, with the server's own error message preserved.
+ *
+ * Two things this does that `getJSON` does not. The custom header is what a
+ * cross-origin <form> cannot set, which is what makes these routes unforgeable
+ * from another site. And a failure raises what the server *said* — "refusing
+ * to save the redaction placeholder at: target.api_token" — rather than the
+ * status code, because the status code is not something the reader can act on.
+ */
+export async function writeJSON<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const resp = await fetch(path, {
+    method,
+    headers: { "X-Csbench-Write": "1", "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const payload: unknown = await resp.json().catch(() => null);
+  if (!resp.ok) {
+    const message =
+      payload !== null && typeof payload === "object" && typeof (payload as { error?: unknown }).error === "string"
+        ? (payload as { error: string }).error
+        : `HTTP ${resp.status}`;
+    throw new Error(message);
+  }
+  return payload as T;
+}
+
+export async function putTarget(name: string, yaml: string, overwrite: boolean): Promise<void> {
+  await writeJSON(`api/targets/${encodeURIComponent(name)}`, "PUT", { yaml, overwrite });
+}
+
+export async function deleteTarget(name: string): Promise<void> {
+  await writeJSON(`api/targets/${encodeURIComponent(name)}`, "DELETE");
 }

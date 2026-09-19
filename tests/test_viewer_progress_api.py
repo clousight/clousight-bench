@@ -378,7 +378,7 @@ def test_api_meta_counts_active_progress_runs(server: ThreadingHTTPServer, resul
     _live_writer(results_dir)
     meta = _json(server, "/api/meta")
     assert meta["progress_active"] == 1
-    assert set(meta) == {"results_dir", "version", "counts", "progress_active"}
+    assert set(meta) == {"results_dir", "version", "counts", "progress_active", "write_enabled"}
 
 
 def test_create_server_reaps_stale_progress_dirs(results_dir: Path) -> None:

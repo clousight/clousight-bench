@@ -9,16 +9,20 @@
 
 import { useEffect } from "react";
 
+import { useJSON, type Meta } from "@/api";
 import { Header } from "@/components/Header";
 import { AppShell, SideRail, sectionOf, type RailItem } from "@/components/shell/AppShell";
 import { Section, SectionBody } from "@/components/ui/section";
 import {
   ConfigSection,
   ObserveSection,
+  PlatformsSection,
   RunsSection,
   SuitesSection,
   TargetsSection,
 } from "@/features/sections/Sections";
+import { TargetDetail } from "@/features/targets/TargetDetail";
+import { TargetForm } from "@/features/targets/TargetForm";
 import { LiveRunView } from "@/features/live/LiveRunView";
 import { RunView } from "@/features/run/RunView";
 import { SuiteView } from "@/features/suite/SuiteView";
@@ -26,8 +30,10 @@ import { I18nProvider, useI18n } from "@/i18n";
 import {
   legacyRedirect,
   observeHref,
+  platformsHref,
   runsHref,
   suitesHref,
+  targetNewHref,
   targetsHref,
   useRoute,
   type Route,
@@ -55,9 +61,18 @@ function Routed({ route }: { route: Route }) {
     case "suite":
       return <SuiteView domain={route.domain} suiteId={route.suiteId} />;
     case "targets":
-    case "targetNew":
-    case "target":
       return <TargetsSection />;
+    case "platforms":
+      return <PlatformsSection />;
+    case "targetNew":
+      return <TargetForm />;
+    case "targetEdit":
+      // Keyed on the name so moving between two targets' editors remounts:
+      // the editor seeds its text once, and a stale seed would show the
+      // previous target's YAML under the new one's name.
+      return <TargetForm key={route.targetName} name={route.targetName} />;
+    case "target":
+      return <TargetDetail key={route.targetName} name={route.targetName} />;
     case "runs":
     case "runNew":
       return <RunsSection />;
@@ -82,6 +97,11 @@ function Routed({ route }: { route: Route }) {
 /** The section's rail: its views, and its create affordance when it has one. */
 function Rail({ route }: { route: Route }) {
   const { t } = useI18n();
+  // The create button exists only where the server would accept the write.
+  // Offering it on a read-only viewer would trade a missing button for a 405
+  // at the end of a filled-in form, which is the worse of the two.
+  const meta = useJSON<Meta>("api/meta");
+  const writable = meta.data?.write_enabled === true;
   const section = sectionOf(route);
   if (section === null) return null;
 
@@ -94,7 +114,16 @@ function Rail({ route }: { route: Route }) {
       items.push({ href: suitesHref, label: t("shell.all"), active: route.name === "suites" });
       break;
     case "targets":
-      items.push({ href: targetsHref, label: t("shell.all"), active: true });
+      items.push({
+        href: targetsHref,
+        label: t("target.title"),
+        active: route.name !== "platforms",
+      });
+      items.push({
+        href: platformsHref,
+        label: t("platform.rail"),
+        active: route.name === "platforms",
+      });
       break;
     case "runs":
       items.push({ href: runsHref, label: t("shell.all"), active: route.name !== "run" });
@@ -105,7 +134,9 @@ function Rail({ route }: { route: Route }) {
     case "config":
       return null;
   }
-  return <SideRail items={items} />;
+  const primary =
+    section === "targets" && writable ? { href: targetNewHref, label: t("target.new") } : null;
+  return <SideRail primary={primary} items={items} />;
 }
 
 function Body() {

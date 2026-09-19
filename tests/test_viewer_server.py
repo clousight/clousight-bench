@@ -380,7 +380,9 @@ def test_api_meta_shape(server: ThreadingHTTPServer) -> None:
     assert status == 200
     assert headers["content-type"] == "application/json; charset=utf-8"
     meta = json.loads(body)
-    assert set(meta) == {"results_dir", "version", "counts", "progress_active"}
+    assert set(meta) == {"results_dir", "version", "counts", "progress_active", "write_enabled"}
+    # Read-only is the default, and this is where the UI learns it.
+    assert meta["write_enabled"] is False
     assert meta["results_dir"] == "results"  # basename only — never a filesystem path
     assert "/" not in meta["results_dir"]
     assert meta["version"] == clousight_bench.__version__
@@ -426,7 +428,14 @@ def _patch_cli_server(
         def __init__(self, host: str, port: int) -> None:
             self.server_address = (host, port)
 
-    def fake_create_server(results_dir: Path, host: str = "127.0.0.1", port: int = 0) -> Any:
+    def fake_create_server(
+        results_dir: Path,
+        host: str = "127.0.0.1",
+        port: int = 0,
+        *,
+        configs_dir: Path | None = None,
+        allow_write: bool = False,
+    ) -> Any:
         created.append((results_dir, host, port))
         return FakeBoundServer(host, port)
 
@@ -447,7 +456,7 @@ def test_cli_serve_defaults_and_url(
     assert rc == 0
     assert created == [(Path("results"), "127.0.0.1", 8787)]
     assert len(served) == 1
-    assert "viewer: http://127.0.0.1:8787 (results: results)" in out
+    assert "viewer: http://127.0.0.1:8787 (results: results, read-only)" in out
     assert "Ctrl-C to stop" in out
 
 
@@ -463,7 +472,7 @@ def test_cli_serve_overrides(
     assert rc == 0
     assert created == [(Path(tmp_path), "0.0.0.0", 9123)]
     assert len(served) == 1
-    assert f"http://0.0.0.0:9123 (results: {tmp_path})" in out
+    assert f"http://0.0.0.0:9123 (results: {tmp_path}, read-only)" in out
 
 
 def test_cli_serve_port_zero_prints_actual_bound_port(
@@ -488,7 +497,7 @@ def test_cli_serve_port_zero_prints_actual_bound_port(
 
     assert rc == 0
     assert len(bound_ports) == 1 and bound_ports[0] != 0
-    assert f"http://127.0.0.1:{bound_ports[0]} (results: {tmp_path})" in out
+    assert f"http://127.0.0.1:{bound_ports[0]} (results: {tmp_path}, read-only)" in out
     assert ":0 " not in out
 
 

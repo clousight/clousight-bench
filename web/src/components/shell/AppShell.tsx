@@ -67,6 +67,8 @@ export function sectionOf(route: Route): SectionId | null {
     case "targets":
     case "targetNew":
     case "target":
+    case "targetEdit":
+    case "platforms":
       return "targets";
     case "runs":
     case "runNew":

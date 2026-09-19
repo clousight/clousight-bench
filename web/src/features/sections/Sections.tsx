@@ -6,6 +6,11 @@
  * is not its code — it is that every section now has the same shape, so a
  * reader who has used one has used all five.
  *
+ * The platforms section holds two nouns: the adapter catalogue (what this
+ * build can reach at all) and the targets configured against them (where one
+ * particular instance is). They are one section because choosing a platform
+ * and configuring an instance of it is one errand.
+ *
  * Config is still an honest placeholder: it states what the section will hold
  * and what to use meanwhile, rather than rendering an empty table that implies
  * the data is missing. "Not built yet" and "nothing here" are different
@@ -15,6 +20,7 @@
 import { BoardView } from "@/features/board/BoardView";
 import { LiveConsole } from "@/features/live/LiveConsole";
 import { PlatformsView } from "@/features/platforms/PlatformsView";
+import { TargetsView } from "@/features/targets/TargetsView";
 import { RunsView } from "@/features/runs/RunsView";
 import { EmptyState, PageHeader } from "@/components/shell/Page";
 import { useI18n } from "@/i18n";
@@ -52,8 +58,13 @@ export function ObserveSection() {
   );
 }
 
-/** Platforms — the managed cloud products this build can measure. */
+/** Targets — the configured instances, this section's actionable noun. */
 export function TargetsSection() {
+  return <TargetsView />;
+}
+
+/** Platforms — the managed cloud products this build has an adapter for. */
+export function PlatformsSection() {
   const { t } = useI18n();
   return (
     <>
